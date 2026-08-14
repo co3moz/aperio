@@ -8,6 +8,7 @@ use super::*;
 use crate::protocol::TunnelMessage;
 use crate::settings::{FailoverMode, ServerConfig};
 use crate::state::TunnelResponse;
+use crate::store::tokens::TokenSpec;
 use crate::test_support::{mock_client, test_config, test_peer, test_state_with};
 use axum::body::Body;
 use axum::extract::ws::Message;
@@ -1393,22 +1394,11 @@ async fn handler_token_daily_quota_returns_429() {
   let state = connected(test_config());
   mark_connected(&state).await;
   // A token with a 1-byte daily quota, already over budget for today.
-  let (token, _secret) = state.token_store.lock().await.create(
-    "t".to_string(),
-    Vec::new(),
-    Vec::new(),
-    Vec::new(),
-    None,
-    None,
-    Some(1),
-    false,
-    false,
-    false,
-    None,
-    Vec::new(),
-    None,
-    false,
-  );
+  let (token, _secret) = state.token_store.lock().await.create(TokenSpec {
+    name: "t".to_string(),
+    daily_max_bytes: Some(1),
+    ..Default::default()
+  });
   let today = crate::store::stats::period_keys()[0].clone();
   state
     .token_daily_bytes

@@ -3,6 +3,7 @@
 //! Handlers are called directly with forged authenticated requests.
 
 use super::*;
+use crate::store::tokens::TokenSpec;
 use crate::store::users::Role;
 use crate::test_support::{
   admin_headers, cookie_headers, json_body, mock_client, seed_session, test_config, test_peer,
@@ -52,22 +53,11 @@ fn empty_update() -> TokenUpdateRequest {
 
 /// Seeds a token directly in the store within the given org, returning its id.
 async fn seed_token(state: &AppState, name: &str, org: Option<String>) -> String {
-  let (record, _secret) = state.token_store.lock().await.create(
-    name.to_string(),
-    Vec::new(),
-    Vec::new(),
-    Vec::new(),
-    None,
-    None,
-    None,
-    false,
-    false,
-    false,
-    org,
-    Vec::new(),
-    None,
-    false,
-  );
+  let (record, _secret) = state.token_store.lock().await.create(TokenSpec {
+    name: name.to_string(),
+    org_id: org,
+    ..Default::default()
+  });
   record.id
 }
 
@@ -315,22 +305,11 @@ async fn update_ttl_zero_clears_expiry() {
   let state = Arc::new(test_state());
   let headers = admin_headers(&state).await;
   // Seed a token that expires, then clear its expiry with ttl_seconds = 0.
-  let (record, _s) = state.token_store.lock().await.create(
-    "ttl".to_string(),
-    Vec::new(),
-    Vec::new(),
-    Vec::new(),
-    Some(3600),
-    None,
-    None,
-    false,
-    false,
-    false,
-    None,
-    Vec::new(),
-    None,
-    false,
-  );
+  let (record, _s) = state.token_store.lock().await.create(TokenSpec {
+    name: "ttl".to_string(),
+    ttl_seconds: Some(3600),
+    ..Default::default()
+  });
   let mut req = empty_update();
   req.ttl_seconds = Some(0);
   let resp = tokens_update_handler(
@@ -506,22 +485,11 @@ fn bearer(secret: &str) -> HeaderMap {
 #[tokio::test]
 async fn refresh_success_slides_expiry() {
   let state = Arc::new(test_state());
-  let (_record, secret) = state.token_store.lock().await.create(
-    "ci".to_string(),
-    Vec::new(),
-    Vec::new(),
-    Vec::new(),
-    Some(3600),
-    None,
-    None,
-    false,
-    false,
-    false,
-    None,
-    Vec::new(),
-    None,
-    false,
-  );
+  let (_record, secret) = state.token_store.lock().await.create(TokenSpec {
+    name: "ci".to_string(),
+    ttl_seconds: Some(3600),
+    ..Default::default()
+  });
   let resp = tokens_refresh_handler(
     State(state.clone()),
     ConnectInfo(test_peer()),

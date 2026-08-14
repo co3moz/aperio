@@ -1,6 +1,7 @@
 //! Tests for the programmatic tunnel provisioning API (create + delete).
 
 use super::*;
+use crate::store::tokens::TokenSpec;
 use crate::store::users::Role;
 use crate::test_support::{
   admin_headers, cookie_headers, json_body, master_token_headers, seed_session, test_config,
@@ -241,22 +242,14 @@ async fn create_then_delete_roundtrip() {
 async fn delete_is_org_scoped() {
   let state = Arc::new(test_state());
   // A tunnel token owned by "other" org.
-  let (record, _secret) = state.token_store.lock().await.create(
-    "foreign".to_string(),
-    vec!["svc.example.com".to_string()],
-    Vec::new(),
-    vec!["0.0.0.0/0".to_string()],
-    Some(60),
-    None,
-    None,
-    false,
-    false,
-    false,
-    Some("other".to_string()),
-    Vec::new(),
-    None,
-    false,
-  );
+  let (record, _secret) = state.token_store.lock().await.create(TokenSpec {
+    name: "foreign".to_string(),
+    hostnames: vec!["svc.example.com".to_string()],
+    allowed_ips: vec!["0.0.0.0/0".to_string()],
+    ttl_seconds: Some(60),
+    org_id: Some("other".to_string()),
+    ..Default::default()
+  });
   // A master-admin session (master org) cannot see the foreign token.
   let headers = admin_headers(&state).await;
   let resp = tunnels_delete_handler(

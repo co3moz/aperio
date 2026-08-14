@@ -12,6 +12,7 @@ use tracing::info;
 use crate::auth::valid_ip_entry;
 use crate::routing::{extract_client_ip, normalize_hostname_bind, normalize_path_bind};
 use crate::state::AppState;
+use crate::store::tokens::{TokenPatch, TokenSpec};
 
 /// Public view of a dynamic token record (never includes hash or secret).
 #[derive(Serialize)]
@@ -322,22 +323,22 @@ pub(crate) async fn tokens_create_handler(
     if let Some(resp) = org_token_quota_reached(&store, org.as_deref(), quota_max) {
       return resp;
     }
-    store.create(
+    store.create(TokenSpec {
       name,
       hostnames,
       paths,
-      allowed_ips,
-      payload.ttl_seconds,
-      payload.max_rps.filter(|v| *v > 0.0),
-      payload.daily_max_bytes.filter(|v| *v > 0),
-      payload.allow_public,
-      payload.allow_bind,
-      payload.canary,
-      org,
       topics,
-      payload.max_connections.filter(|v| *v > 0),
-      payload.allow_otel,
-    )
+      allowed_ips,
+      org_id: org,
+      ttl_seconds: payload.ttl_seconds,
+      max_rps: payload.max_rps.filter(|v| *v > 0.0),
+      daily_max_bytes: payload.daily_max_bytes.filter(|v| *v > 0),
+      max_connections: payload.max_connections.filter(|v| *v > 0),
+      allow_public: payload.allow_public,
+      allow_bind: payload.allow_bind,
+      allow_otel: payload.allow_otel,
+      canary: payload.canary,
+    })
   };
   info!(
     "Dynamic token created: {} (id={}, hostnames={:?}, paths={:?}, ips={:?}, expires_at={:?})",
@@ -502,20 +503,22 @@ pub(crate) async fn tokens_update_handler(
 
   let updated = state.token_store.lock().await.update(
     &id,
-    payload.name.map(|n| n.trim().to_string()),
-    payload.hostnames.map(|_| hostnames),
-    payload.paths.map(|_| paths),
-    payload.allowed_ips.map(|_| allowed_ips),
-    ttl,
-    // max_rps / daily_max_bytes: absent = keep; 0 = clear; n = set.
-    payload.max_rps.map(Some),
-    payload.daily_max_bytes.map(Some),
-    payload.allow_public,
-    payload.allow_bind,
-    payload.canary,
-    topics,
-    payload.max_connections.map(Some),
-    payload.allow_otel,
+    TokenPatch {
+      name: payload.name.map(|n| n.trim().to_string()),
+      hostnames: payload.hostnames.map(|_| hostnames),
+      paths: payload.paths.map(|_| paths),
+      topics,
+      allowed_ips: payload.allowed_ips.map(|_| allowed_ips),
+      ttl_seconds: ttl,
+      // max_rps / daily_max_bytes: absent = keep; 0 = clear; n = set.
+      max_rps: payload.max_rps.map(Some),
+      daily_max_bytes: payload.daily_max_bytes.map(Some),
+      max_connections: payload.max_connections.map(Some),
+      allow_public: payload.allow_public,
+      allow_bind: payload.allow_bind,
+      allow_otel: payload.allow_otel,
+      canary: payload.canary,
+    },
   );
 
   match updated {

@@ -3,6 +3,7 @@
 //! payload.
 
 use super::*;
+use crate::store::tokens::TokenSpec;
 
 #[test]
 fn only_the_three_otlp_signals_are_forwarded() {
@@ -67,23 +68,13 @@ async fn an_ip_fenced_token_is_judged_on_the_real_peer() {
   let mut config = crate::test_support::test_config();
   config.otel_bridge = true;
   let state = std::sync::Arc::new(crate::test_support::test_state_with(config));
-  let (_record, secret) = state.token_store.lock().await.create(
-    "edge".into(),
-    Vec::new(),
-    Vec::new(),
+  let (_record, secret) = state.token_store.lock().await.create(TokenSpec {
+    name: "edge".into(),
     // Fenced to loopback only.
-    vec!["127.0.0.1".to_string()],
-    None,
-    None,
-    None,
-    false,
-    false,
-    false,
-    None,
-    Vec::new(),
-    None,
-    true,
-  );
+    allowed_ips: vec!["127.0.0.1".to_string()],
+    allow_otel: true,
+    ..Default::default()
+  });
 
   let mut headers = axum::http::HeaderMap::new();
   headers.insert("authorization", format!("Bearer {secret}").parse().unwrap());

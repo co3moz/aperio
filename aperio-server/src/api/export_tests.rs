@@ -1,6 +1,7 @@
 //! Tests for the configuration dump export/import dashboard API.
 
 use super::*;
+use crate::store::tokens::TokenSpec;
 use crate::store::users::Role;
 use crate::test_support::*;
 use axum::extract::{ConnectInfo, Query, State};
@@ -323,38 +324,15 @@ async fn without_organizations_only_masters_rows_travel() {
     .id;
   {
     let mut tokens = state.token_store.lock().await;
-    tokens.create(
-      "master-one".into(),
-      vec![],
-      vec![],
-      vec![],
-      None,
-      None,
-      None,
-      false,
-      false,
-      false,
-      None,
-      vec![],
-      None,
-      false,
-    );
-    tokens.create(
-      "acme-one".into(),
-      vec![],
-      vec![],
-      vec![],
-      None,
-      None,
-      None,
-      false,
-      false,
-      false,
-      Some(org.clone()),
-      vec![],
-      None,
-      false,
-    );
+    tokens.create(TokenSpec {
+      name: "master-one".into(),
+      ..Default::default()
+    });
+    tokens.create(TokenSpec {
+      name: "acme-one".into(),
+      org_id: Some(org.clone()),
+      ..Default::default()
+    });
   }
   state
     .persistent_stats

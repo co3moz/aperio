@@ -2,6 +2,7 @@ use super::*;
 
 use crate::protocol::TunnelDecl;
 use crate::state::{ClientHandle, ClientPerms};
+use crate::store::tokens::TokenSpec;
 use crate::test_support::*;
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
@@ -127,22 +128,10 @@ async fn seed_client(state: &AppState, id: &str, f: impl FnOnce(&mut ClientHandl
 /// Mints a dynamic token in the store and returns its secret.
 async fn make_token(state: &AppState) -> String {
   let mut store = state.token_store.lock().await;
-  let (_rec, secret) = store.create(
-    "caller".into(),
-    Vec::new(),
-    Vec::new(),
-    Vec::new(),
-    None,
-    None,
-    None,
-    false,
-    false,
-    false,
-    None,
-    Vec::new(),
-    None,
-    false,
-  );
+  let (_rec, secret) = store.create(TokenSpec {
+    name: "caller".into(),
+    ..Default::default()
+  });
   secret
 }
 

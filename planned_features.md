@@ -77,19 +77,6 @@ readable without scrolling past what is already done.
   reference. Worth doing only with a real answer for key handling, since a key
   sitting next to the backup is decoration.
 
-- [ ] **#86 A `TokenSpec` for the token store's `create`/`update`.** (triage 25)
-  `TokenStore::create` now takes fourteen positional arguments and `update`
-  the same in `Option` form. The store's own comment records why they are
-  appended rather than filed where they belong semantically: the compiler
-  names every call site for an *added* argument and cannot see a *shifted*
-  one, which is how `canary` once ended up in `allow_bind`. That trade has
-  held, but appending is not free either, `allow_otel` moved forty-odd test
-  call sites to add one flag, and the next capability will move more. A
-  `TokenSpec { .. }` struct with `Default` makes both calls read as what they
-  set and makes a new field cost nothing at the sites that do not care. Purely
-  internal, no config or API surface moves, which is what keeps it low: it
-  buys clarity and future edits, not behavior.
-
 ### The road to 1.0
 
 The eleven entries above are features. These are not: they are what turns a
@@ -582,6 +569,30 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#86 A `TokenSpec` for the token store's `create`/`update`.** (triage 25)
+  `TokenStore::create` took fourteen positional arguments and `update` the same
+  in `Option` form. The store's own comment recorded why capabilities were
+  appended rather than filed where they belong: the compiler names every call
+  site for an *added* argument and cannot see a *shifted* one, which is how
+  `canary` once ended up in `allow_bind`.
+  shipped: `TokenSpec` and `TokenPatch`, both `Default`, with the fields
+  ordered by what they mean (what it may serve, who may present it, how long
+  and how much, what it may do beyond serving) instead of by when they were
+  invented. **336 lines added, 675 removed.** The safety the old comment was
+  protecting is kept and strengthened: fields are matched by name, so neither
+  adding nor reordering one can silently move a value, and a call now reads as
+  the handful of things it actually sets. The ephemeral-tunnel token in
+  `api/tunnels.rs` is the clearest case, five comments explaining what each
+  `false` denied became `..Default::default()` and one comment saying it.
+  - `TokenPatch` is deliberately not `Option<TokenSpec>`: the doubled option
+    on the nullable fields is load-bearing, `Some(None)` clears a limit and
+    `None` leaves it alone, and flattening them would make "no expiry" and
+    "do not touch the expiry" the same request.
+  - No changelog entry, by rule 10: no config, API or behavior surface moves.
+    The conversion was mechanical and is pinned by the suite passing unchanged
+    (1849 tests, same count as before), which is what a refactor's evidence
+    looks like.
 
 - [x] **#72 Configurable TLS floor and cipher list for the tunnel.** (triage 25)
   Rustls defaults are used as they come, which is the right default and an

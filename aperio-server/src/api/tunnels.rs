@@ -13,6 +13,7 @@ use crate::api::tokens::{org_token_quota_reached, validate_token_perms};
 use crate::auth::{constant_time_eq_str, extract_token};
 use crate::routing::{extract_client_ip, normalize_hostname_bind, random_subdomain_hostname};
 use crate::state::AppState;
+use crate::store::tokens::TokenSpec;
 
 /// Payload for the programmatic tunnel provisioning endpoint
 /// (`POST /aperio/api/tunnels`).
@@ -201,29 +202,20 @@ pub(crate) async fn tunnels_create_handler(
     if let Some(resp) = org_token_quota_reached(&store, org.as_deref(), quota_max) {
       return resp;
     }
-    store.create(
+    // An ephemeral token exists for a preview URL, so every capability it
+    // does not need is one it does not get: no reaching into other clients'
+    // tunnels, no messages to the organization it is briefly a guest of, no
+    // fan of parallel connections (one preview hostname is one service), and
+    // no telemetry export. Defaults say all of that now, where the old
+    // positional call said it in comments attached to `false`.
+    store.create(TokenSpec {
       name,
-      vec![hostname.clone()],
-      Vec::new(),
+      hostnames: vec![hostname.clone()],
       allowed_ips,
-      Some(ttl),
-      None,
-      None,
-      false,
-      // An ephemeral tunnel token serves one hostname; it has no business
-      // reaching into other clients' tunnels.
-      false,
-      false,
-      org,
-      // Nor sending messages to the organization it is briefly a guest of.
-      Vec::new(),
-      // Nor opening a fan of parallel connections: one preview hostname is
-      // one service, and the server's own ceiling is the generous case here.
-      None,
-      // Nor exporting telemetry through it. An ephemeral token exists for a
-      // preview URL; every capability it does not need is one it does not get.
-      false,
-    )
+      org_id: org,
+      ttl_seconds: Some(ttl),
+      ..Default::default()
+    })
   };
   info!(
     "Ephemeral tunnel provisioned: {} → {} (id={}, expires_at={:?})",

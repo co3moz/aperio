@@ -127,6 +127,69 @@ impl ApiToken {
   }
 }
 
+/// Everything a token is created with.
+///
+/// A struct rather than a signature, and the history is the argument. `create`
+/// grew to fourteen positional parameters, and the comment that used to sit in
+/// the middle of it recorded the trade being made: a *new* argument is named
+/// at every call site by the compiler, a *shifted* one is not, which is how
+/// `canary` once ended up in `allow_bind`. So each capability was appended
+/// rather than filed where it belonged, and the permissions ended up scattered
+/// across the signature in the order they were invented.
+///
+/// With `Default`, a field costs nothing at the call sites that do not care
+/// about it (`allow_otel` moved forty-odd of them to add one flag), a call
+/// reads as the things it actually sets, and the fields can be ordered by what
+/// they mean instead of by when they were added. The safety the old comment
+/// was protecting is kept and made stronger: fields are matched by name, so
+/// neither adding nor reordering one can silently move a value.
+#[derive(Debug, Clone, Default)]
+pub struct TokenSpec {
+  pub name: String,
+  /// What it may serve.
+  pub hostnames: Vec<String>,
+  pub paths: Vec<String>,
+  pub topics: Vec<String>,
+  /// Who may present it.
+  pub allowed_ips: Vec<String>,
+  pub org_id: Option<String>,
+  /// How long it lives, and how much it may do.
+  pub ttl_seconds: Option<u64>,
+  pub max_rps: Option<f64>,
+  pub daily_max_bytes: Option<u64>,
+  pub max_connections: Option<u32>,
+  /// What it is allowed to do beyond serving.
+  pub allow_public: bool,
+  pub allow_bind: bool,
+  pub allow_otel: bool,
+  /// Routed to only by traffic that opted in.
+  pub canary: bool,
+}
+
+/// The changes an update makes to a token's scope, each `None` meaning
+/// "leave it alone".
+///
+/// The doubled `Option` on the nullable fields is load-bearing and is why this
+/// is not simply `Option<TokenSpec>`: `Some(None)` clears a limit, `None`
+/// leaves it as it was, and flattening the two would make "no expiry" and "do
+/// not touch the expiry" the same request.
+#[derive(Debug, Clone, Default)]
+pub struct TokenPatch {
+  pub name: Option<String>,
+  pub hostnames: Option<Vec<String>>,
+  pub paths: Option<Vec<String>>,
+  pub topics: Option<Vec<String>>,
+  pub allowed_ips: Option<Vec<String>>,
+  pub ttl_seconds: Option<Option<u64>>,
+  pub max_rps: Option<Option<f64>>,
+  pub daily_max_bytes: Option<Option<u64>>,
+  pub max_connections: Option<Option<u32>>,
+  pub allow_public: Option<bool>,
+  pub allow_bind: Option<bool>,
+  pub allow_otel: Option<bool>,
+  pub canary: Option<bool>,
+}
+
 /// Persistent store for dynamic API tokens, backed by the `tokens` table of
 /// the shared SQLite store (`<data_dir>/aperio.db`).
 pub struct TokenStore {
@@ -173,32 +236,7 @@ impl TokenStore {
 
   /// Creates a new token, persists it, and returns the record together with
   /// the plaintext secret. The secret is only available at creation time.
-  #[allow(clippy::too_many_arguments)]
-  pub fn create(
-    &mut self,
-    name: String,
-    hostnames: Vec<String>,
-    paths: Vec<String>,
-    allowed_ips: Vec<String>,
-    ttl_seconds: Option<u64>,
-    max_rps: Option<f64>,
-    daily_max_bytes: Option<u64>,
-    allow_public: bool,
-    allow_bind: bool,
-    canary: bool,
-    org_id: Option<String>,
-    // Appended rather than filed beside `hostnames`/`paths` where it belongs
-    // semantically: this signature is ten positional arguments long, and
-    // inserting one in the middle is how `canary` once ended up in
-    // `allow_bind`. The compiler names every call site for an added argument;
-    // it cannot see a shifted one.
-    topics: Vec<String>,
-    max_connections: Option<u32>,
-    // Appended for the same reason `topics` was, and the comment above says
-    // why: this signature is long enough that inserting an argument in the
-    // middle is a silent bug and appending one is a compiler error.
-    allow_otel: bool,
-  ) -> (ApiToken, String) {
+  pub fn create(&mut self, spec: TokenSpec) -> (ApiToken, String) {
     let secret = format!(
       "apr_{}{}",
       uuid::Uuid::new_v4().simple(),
@@ -206,24 +244,24 @@ impl TokenStore {
     );
     let record = ApiToken {
       id: uuid::Uuid::new_v4().to_string(),
-      name,
+      name: spec.name,
       token_hash: hash_token(&secret),
       token_prefix: secret.chars().take(12).collect(),
-      hostnames,
-      paths,
-      allowed_ips,
+      hostnames: spec.hostnames,
+      paths: spec.paths,
+      allowed_ips: spec.allowed_ips,
       created_at: now_secs(),
-      expires_at: ttl_seconds.map(|ttl| now_secs().saturating_add(ttl)),
-      ttl_seconds,
-      max_rps,
-      daily_max_bytes,
-      max_connections: max_connections.filter(|v| *v > 0),
-      allow_public,
-      allow_bind,
-      allow_otel,
-      topics,
-      canary,
-      org_id,
+      expires_at: spec.ttl_seconds.map(|ttl| now_secs().saturating_add(ttl)),
+      ttl_seconds: spec.ttl_seconds,
+      max_rps: spec.max_rps,
+      daily_max_bytes: spec.daily_max_bytes,
+      max_connections: spec.max_connections.filter(|v| *v > 0),
+      allow_public: spec.allow_public,
+      allow_bind: spec.allow_bind,
+      allow_otel: spec.allow_otel,
+      topics: spec.topics,
+      canary: spec.canary,
+      org_id: spec.org_id,
       prev_token_hash: None,
       prev_expires_at: None,
       pinned_key: None,
@@ -235,24 +273,22 @@ impl TokenStore {
 
   /// Updates a token's scope (permissions/expiry) in place without touching
   /// the secret. Returns the updated record, or None when the ID is unknown.
-  #[allow(clippy::too_many_arguments)]
-  pub fn update(
-    &mut self,
-    id: &str,
-    name: Option<String>,
-    hostnames: Option<Vec<String>>,
-    paths: Option<Vec<String>>,
-    allowed_ips: Option<Vec<String>>,
-    ttl_seconds: Option<Option<u64>>,
-    max_rps: Option<Option<f64>>,
-    daily_max_bytes: Option<Option<u64>>,
-    allow_public: Option<bool>,
-    allow_bind: Option<bool>,
-    canary: Option<bool>,
-    topics: Option<Vec<String>>,
-    max_connections: Option<Option<u32>>,
-    allow_otel: Option<bool>,
-  ) -> Option<ApiToken> {
+  pub fn update(&mut self, id: &str, patch: TokenPatch) -> Option<ApiToken> {
+    let TokenPatch {
+      name,
+      hostnames,
+      paths,
+      allowed_ips,
+      ttl_seconds,
+      max_rps,
+      daily_max_bytes,
+      max_connections,
+      allow_public,
+      allow_bind,
+      allow_otel,
+      canary,
+      topics,
+    } = patch;
     let token = self.tokens.iter_mut().find(|t| t.id == id)?;
     if let Some(n) = name {
       token.name = n;

@@ -17,6 +17,7 @@ use crate::state::{
   BodyFrame, PendingRequest, ResponseStreamHandle, TcpConsumerMsg, TcpStreamHandle, TunnelResponse,
   WsStreamHandle, WsStreamMessage,
 };
+use crate::store::tokens::TokenSpec;
 use crate::test_support::*;
 use axum::Router;
 use axum::routing::get;
@@ -180,22 +181,11 @@ fn base_ping() -> TunnelMessage {
 /// Creates a dynamic token in the store and returns its secret and record id.
 async fn make_dynamic_token(state: &AppState, allow_public: bool) -> (String, String) {
   let mut store = state.token_store.lock().await;
-  let (rec, secret) = store.create(
-    "dyn".into(),
-    Vec::new(),
-    Vec::new(),
-    Vec::new(),
-    None,
-    None,
-    None,
+  let (rec, secret) = store.create(TokenSpec {
+    name: "dyn".into(),
     allow_public,
-    false,
-    false,
-    None,
-    Vec::new(),
-    None,
-    false,
-  );
+    ..Default::default()
+  });
   (secret, rec.id)
 }
 

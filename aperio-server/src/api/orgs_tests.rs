@@ -1,6 +1,7 @@
 //! Tests for the organization-management dashboard API.
 
 use super::*;
+use crate::store::tokens::TokenSpec;
 use crate::store::users::Role;
 use crate::test_support::*;
 use axum::extract::{ConnectInfo, Path, State};
@@ -47,22 +48,10 @@ async fn list_reports_master_and_child_counts() {
     .await
     .create("master-user", "password1", Role::Viewer, None)
     .unwrap();
-  state.token_store.lock().await.create(
-    "master-tok".into(),
-    vec![],
-    vec![],
-    vec![],
-    None,
-    None,
-    None,
-    false,
-    false,
-    false,
-    None,
-    Vec::new(),
-    None,
-    false,
-  );
+  state.token_store.lock().await.create(TokenSpec {
+    name: "master-tok".into(),
+    ..Default::default()
+  });
   state
     .users
     .lock()
@@ -74,22 +63,11 @@ async fn list_reports_master_and_child_counts() {
       Some(org_id.clone()),
     )
     .unwrap();
-  state.token_store.lock().await.create(
-    "child-tok".into(),
-    vec![],
-    vec![],
-    vec![],
-    None,
-    None,
-    None,
-    false,
-    false,
-    false,
-    Some(org_id.clone()),
-    Vec::new(),
-    None,
-    false,
-  );
+  state.token_store.lock().await.create(TokenSpec {
+    name: "child-tok".into(),
+    org_id: Some(org_id.clone()),
+    ..Default::default()
+  });
 
   let resp = orgs_list_handler(State(state.clone()), headers).await;
   assert_eq!(resp.status(), StatusCode::OK);
@@ -620,22 +598,11 @@ async fn usage_for_child_with_quota_and_members() {
     .await
     .create("u", "password1", Role::Viewer, Some(org_id.clone()))
     .unwrap();
-  state.token_store.lock().await.create(
-    "t".into(),
-    vec![],
-    vec![],
-    vec![],
-    None,
-    None,
-    None,
-    false,
-    false,
-    false,
-    Some(org_id.clone()),
-    Vec::new(),
-    None,
-    false,
-  );
+  state.token_store.lock().await.create(TokenSpec {
+    name: "t".into(),
+    org_id: Some(org_id.clone()),
+    ..Default::default()
+  });
 
   let resp = orgs_usage_handler(State(state.clone()), headers, Path(org_id.clone())).await;
   assert_eq!(resp.status(), StatusCode::OK);

@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::settings::ServerConfig;
+use crate::store::tokens::TokenSpec;
 use crate::test_support::{mock_client, test_config, test_state_with};
 use axum::http::HeaderValue;
 
@@ -190,22 +191,11 @@ async fn served_hostnames_are_sorted_deduped_and_include_offline_only_on_request
   // Two clients serving the same hostname (load balancing) yield one entry.
   with_client(&state, "c3", "a.example.com").await;
   // A token permits a hostname nobody is serving right now.
-  state.token_store.lock().await.create(
-    "offline".to_string(),
-    vec!["offline.example.com".to_string()],
-    Vec::new(),
-    Vec::new(),
-    None,
-    None,
-    None,
-    false,
-    false,
-    false,
-    None,
-    Vec::new(),
-    None,
-    false,
-  );
+  state.token_store.lock().await.create(TokenSpec {
+    name: "offline".to_string(),
+    hostnames: vec!["offline.example.com".to_string()],
+    ..Default::default()
+  });
 
   // Sorted order is what keeps Traefik from churning routers between polls.
   assert_eq!(
@@ -217,22 +207,11 @@ async fn served_hostnames_are_sorted_deduped_and_include_offline_only_on_request
   config.edge_include_offline = true;
   let state2 = Arc::new(test_state_with(config));
   with_client(&state2, "c1", "a.example.com").await;
-  state2.token_store.lock().await.create(
-    "offline".to_string(),
-    vec!["offline.example.com".to_string(), "*".to_string()],
-    Vec::new(),
-    Vec::new(),
-    None,
-    None,
-    None,
-    false,
-    false,
-    false,
-    None,
-    Vec::new(),
-    None,
-    false,
-  );
+  state2.token_store.lock().await.create(TokenSpec {
+    name: "offline".to_string(),
+    hostnames: vec!["offline.example.com".to_string(), "*".to_string()],
+    ..Default::default()
+  });
   // The wildcard permission is not a hostname and must never become a router.
   assert_eq!(
     served_hostnames(&state2).await,

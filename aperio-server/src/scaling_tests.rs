@@ -5,6 +5,7 @@ use super::*;
 use crate::store::scaling::{
   DEFAULT_COLD_START_SECS, DEFAULT_COOLDOWN_SECS, DEFAULT_TARGET_UTILIZATION, DEFAULT_WINDOW_SECS,
 };
+use crate::store::tokens::TokenSpec;
 use crate::test_support::{mock_client, test_state};
 
 fn record(hostname: &str) -> ScalingRecord {
@@ -464,22 +465,12 @@ async fn a_visitor_the_owning_tokens_would_reject_cannot_bill_a_cold_start() {
   let token_id = {
     let mut tokens = state.token_store.lock().await;
     tokens
-      .create(
-        "fenced".into(),
-        vec!["cold.example.com".into()],
-        vec![],
-        vec!["10.0.0.0/8".into()],
-        None,
-        None,
-        None,
-        false,
-        false,
-        false,
-        None,
-        vec![],
-        None,
-        false,
-      )
+      .create(TokenSpec {
+        name: "fenced".into(),
+        hostnames: vec!["cold.example.com".into()],
+        allowed_ips: vec!["10.0.0.0/8".into()],
+        ..Default::default()
+      })
       .0
       .id
       .clone()

@@ -2,6 +2,7 @@
 //! when it expires, and how a use is recorded.
 
 use super::*;
+use crate::store::tokens::{TokenPatch, TokenSpec};
 
 fn temp_dir() -> String {
   let dir =
@@ -15,22 +16,12 @@ fn test_create_verify_revoke_persist() {
   let mut store = TokenStore::load(&dir);
   assert!(store.list().is_empty());
 
-  let (record, secret) = store.create(
-    "ci-token".to_string(),
-    vec!["a.example.com".to_string()],
-    vec!["*".to_string()],
-    vec![],
-    None,
-    None,
-    None,
-    false,
-    false,
-    false,
-    None,
-    Vec::new(),
-    None,
-    false,
-  );
+  let (record, secret) = store.create(TokenSpec {
+    name: "ci-token".to_string(),
+    hostnames: vec!["a.example.com".to_string()],
+    paths: vec!["*".to_string()],
+    ..Default::default()
+  });
   assert!(secret.starts_with("apr_"));
   assert_eq!(store.verify(&secret).unwrap().id, record.id);
   assert!(store.verify("apr_wrong").is_none());
@@ -80,22 +71,11 @@ fn test_corrupt_db_is_backed_up_not_discarded() {
 fn test_refresh_slides_expiry_by_creation_ttl() {
   let dir = temp_dir();
   let mut store = TokenStore::load(&dir);
-  let (record, secret) = store.create(
-    "ci".to_string(),
-    vec![],
-    vec![],
-    vec![],
-    Some(3600),
-    None,
-    None,
-    false,
-    false,
-    false,
-    None,
-    Vec::new(),
-    None,
-    false,
-  );
+  let (record, secret) = store.create(TokenSpec {
+    name: "ci".to_string(),
+    ttl_seconds: Some(3600),
+    ..Default::default()
+  });
   let first_expiry = record.expires_at.unwrap();
 
   // Refresh answers with a new expiry >= the original (now + same TTL).
@@ -107,41 +87,18 @@ fn test_refresh_slides_expiry_by_creation_ttl() {
   assert!(store.refresh("apr_wrong").is_none());
 
   // A never-expiring token has nothing to refresh.
-  let (_, forever) = store.create(
-    "forever".to_string(),
-    vec![],
-    vec![],
-    vec![],
-    None,
-    None,
-    None,
-    false,
-    false,
-    false,
-    None,
-    Vec::new(),
-    None,
-    false,
-  );
+  let (_, forever) = store.create(TokenSpec {
+    name: "forever".to_string(),
+    ..Default::default()
+  });
   assert!(store.refresh(&forever).is_none());
 
   // An already-expired token cannot resurrect itself.
-  let (_, dead) = store.create(
-    "dead".to_string(),
-    vec![],
-    vec![],
-    vec![],
-    Some(0),
-    None,
-    None,
-    false,
-    false,
-    false,
-    None,
-    Vec::new(),
-    None,
-    false,
-  );
+  let (_, dead) = store.create(TokenSpec {
+    name: "dead".to_string(),
+    ttl_seconds: Some(0),
+    ..Default::default()
+  });
   assert!(store.refresh(&dead).is_none());
 
   let _ = std::fs::remove_dir_all(&dir);
@@ -151,22 +108,10 @@ fn test_refresh_slides_expiry_by_creation_ttl() {
 fn test_rotate_with_grace_period() {
   let dir = temp_dir();
   let mut store = TokenStore::load(&dir);
-  let (record, old_secret) = store.create(
-    "rotate-me".to_string(),
-    vec![],
-    vec![],
-    vec![],
-    None,
-    None,
-    None,
-    false,
-    false,
-    false,
-    None,
-    Vec::new(),
-    None,
-    false,
-  );
+  let (record, old_secret) = store.create(TokenSpec {
+    name: "rotate-me".to_string(),
+    ..Default::default()
+  });
 
   // Rotation with a grace window: both secrets verify to the same record.
   let (rotated, new_secret) = store.rotate(&record.id, 3600).expect("rotate");
@@ -197,22 +142,11 @@ fn test_rotate_with_grace_period() {
 fn test_canary_flag_create_update_persist() {
   let dir = temp_dir();
   let mut store = TokenStore::load(&dir);
-  let (record, _secret) = store.create(
-    "decoy".to_string(),
-    vec![],
-    vec![],
-    vec![],
-    None,
-    None,
-    None,
-    false,
-    false,
-    true,
-    None,
-    Vec::new(),
-    None,
-    false,
-  );
+  let (record, _secret) = store.create(TokenSpec {
+    name: "decoy".to_string(),
+    canary: true,
+    ..Default::default()
+  });
   assert!(record.canary);
 
   // Survives reload.
@@ -224,19 +158,11 @@ fn test_canary_flag_create_update_persist() {
   let updated = store3
     .update(
       &record.id,
-      None,
-      None,
-      None,
-      None,
-      None,
-      None,
-      None,
-      None,
-      None,
-      Some(false),
-      None,
-      None,
-      None,
+      TokenPatch {
+        name: None,
+        canary: Some(false),
+        ..Default::default()
+      },
     )
     .unwrap();
   assert!(!updated.canary);
@@ -248,22 +174,10 @@ fn test_canary_flag_create_update_persist() {
 fn test_pin_key_tofu_and_clear_on_rotate() {
   let dir = temp_dir();
   let mut store = TokenStore::load(&dir);
-  let (record, _secret) = store.create(
-    "pinned".to_string(),
-    vec![],
-    vec![],
-    vec![],
-    None,
-    None,
-    None,
-    false,
-    false,
-    false,
-    None,
-    Vec::new(),
-    None,
-    false,
-  );
+  let (record, _secret) = store.create(TokenSpec {
+    name: "pinned".to_string(),
+    ..Default::default()
+  });
 
   // First key pins; the same key matches; a different key is a mismatch.
   assert_eq!(store.pin_key(&record.id, "devA"), Some(PinOutcome::Pinned));
@@ -292,22 +206,11 @@ fn test_pin_key_tofu_and_clear_on_rotate() {
 fn test_expired_token_rejected() {
   let dir = temp_dir();
   let mut store = TokenStore::load(&dir);
-  let (_, secret) = store.create(
-    "short".to_string(),
-    vec![],
-    vec![],
-    vec![],
-    Some(0),
-    None,
-    None,
-    false,
-    false,
-    false,
-    None,
-    Vec::new(),
-    None,
-    false,
-  );
+  let (_, secret) = store.create(TokenSpec {
+    name: "short".to_string(),
+    ttl_seconds: Some(0),
+    ..Default::default()
+  });
   // ttl 0 → expires_at == now → already expired
   assert!(store.verify(&secret).is_none());
   let _ = std::fs::remove_dir_all(&dir);
@@ -317,41 +220,21 @@ fn test_expired_token_rejected() {
 fn allow_otel_is_off_for_a_token_created_without_it() {
   let dir = temp_dir();
   let mut store = TokenStore::load(&dir);
-  let (record, _) = store.create(
-    "edge".into(),
-    Vec::new(),
-    Vec::new(),
-    Vec::new(),
-    None,
-    None,
-    None,
-    false,
-    false,
-    false,
-    None,
-    Vec::new(),
-    None,
-    false,
-  );
+  let (record, _) = store.create(TokenSpec {
+    name: "edge".into(),
+    ..Default::default()
+  });
   assert!(!record.allow_otel);
 
   // And it is editable on its own, without disturbing the rest.
   let updated = store
     .update(
       &record.id,
-      None,
-      None,
-      None,
-      None,
-      None,
-      None,
-      None,
-      None,
-      None,
-      None,
-      None,
-      None,
-      Some(true),
+      TokenPatch {
+        name: None,
+        allow_otel: Some(true),
+        ..Default::default()
+      },
     )
     .expect("the token exists");
   assert!(updated.allow_otel);

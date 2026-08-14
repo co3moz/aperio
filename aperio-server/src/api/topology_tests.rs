@@ -8,6 +8,7 @@
 
 use super::*;
 use crate::static_routes::{RespondRule, RouteRule, StaticRoutes};
+use crate::store::tokens::TokenSpec;
 use crate::store::users::Role;
 use crate::test_support::*;
 use axum::extract::State;
@@ -104,38 +105,17 @@ async fn a_granted_bind_no_client_serves_is_reported_as_offline() {
   let state = Arc::new(test_state());
   {
     let mut tokens = state.token_store.lock().await;
-    tokens.create(
-      "deployed".into(),
-      vec!["live.example.com".into()],
-      vec![],
-      vec![],
-      None,
-      None,
-      None,
-      false,
-      false,
-      false,
-      None,
-      vec![],
-      None,
-      false,
-    );
-    tokens.create(
-      "not-yet".into(),
-      vec!["offline.example.com".into(), "*".into()],
-      vec!["/api".into()],
-      vec![],
-      None,
-      None,
-      None,
-      false,
-      false,
-      false,
-      None,
-      vec![],
-      None,
-      false,
-    );
+    tokens.create(TokenSpec {
+      name: "deployed".into(),
+      hostnames: vec!["live.example.com".into()],
+      ..Default::default()
+    });
+    tokens.create(TokenSpec {
+      name: "not-yet".into(),
+      hostnames: vec!["offline.example.com".into(), "*".into()],
+      paths: vec!["/api".into()],
+      ..Default::default()
+    });
   }
   state.clients.write().await.insert(
     "c1".to_string(),
@@ -167,22 +147,12 @@ async fn a_granted_bind_no_client_serves_is_reported_as_offline() {
 #[tokio::test]
 async fn an_expired_tokens_binds_are_not_expected_services() {
   let state = Arc::new(test_state());
-  state.token_store.lock().await.create(
-    "expired".into(),
-    vec!["gone.example.com".into()],
-    vec![],
-    vec![],
-    Some(0),
-    None,
-    None,
-    false,
-    false,
-    false,
-    None,
-    vec![],
-    None,
-    false,
-  );
+  state.token_store.lock().await.create(TokenSpec {
+    name: "expired".into(),
+    hostnames: vec!["gone.example.com".into()],
+    ttl_seconds: Some(0),
+    ..Default::default()
+  });
   let graph = topology_handler(State(state.clone()), admin_headers(&state).await)
     .await
     .0;

@@ -1,4 +1,5 @@
 use super::*;
+use crate::store::tokens::TokenSpec;
 
 fn perms(hostnames: &[&str], paths: &[&str]) -> ClientPerms {
   ClientPerms {
@@ -557,22 +558,11 @@ async fn test_check_token_limits_rps_and_quota() {
   // A token with a 1 rps limit allows one request, then rejects.
   let rps_id = {
     let mut store = state.token_store.lock().await;
-    let (tok, _secret) = store.create(
-      "rps".to_string(),
-      vec![],
-      vec![],
-      vec![],
-      None,
-      Some(1.0),
-      None,
-      false,
-      false,
-      false,
-      None,
-      Vec::new(),
-      None,
-      false,
-    );
+    let (tok, _secret) = store.create(TokenSpec {
+      name: "rps".to_string(),
+      max_rps: Some(1.0),
+      ..Default::default()
+    });
     tok.id
   };
   assert!(state.check_token_limits(Some(&rps_id)).await.is_ok());
@@ -584,22 +574,11 @@ async fn test_check_token_limits_rps_and_quota() {
   // A token with a daily byte quota rejects once usage reaches it.
   let quota_id = {
     let mut store = state.token_store.lock().await;
-    let (tok, _secret) = store.create(
-      "quota".to_string(),
-      vec![],
-      vec![],
-      vec![],
-      None,
-      None,
-      Some(100),
-      false,
-      false,
-      false,
-      None,
-      Vec::new(),
-      None,
-      false,
-    );
+    let (tok, _secret) = store.create(TokenSpec {
+      name: "quota".to_string(),
+      daily_max_bytes: Some(100),
+      ..Default::default()
+    });
     tok.id
   };
   // Under quota: allowed. Zero bytes is a no-op.
