@@ -1459,3 +1459,86 @@ async fn the_writer_sends_what_is_queued_before_it_stops() {
     "every queued message must reach the socket, in order"
   );
 }
+
+// --- negotiate_visitor_gate --------------------------------------------------
+
+/// Parses a policy the way a config file would carry it.
+fn policy_of(yaml: &str) -> aperio_config::AuthSetting {
+  serde_yaml::from_str(yaml).expect("a valid auth: value")
+}
+
+#[test]
+fn an_old_server_announces_nothing_and_that_means_the_two_that_always_travelled() {
+  // The path no integration test can reach without an old binary, and the one
+  // the whole negotiation exists for: a server that ignores a policy it does
+  // not understand reads this client as declaring *no* gate, and the route
+  // comes up open.
+  let rich = policy_of("{method: bearer, secret: \"0123456789abcdef-secret\"}");
+  match negotiate_visitor_gate(None, Some(&rich)) {
+    GateNegotiation::Unsupported { wanted, accepted } => {
+      assert_eq!(wanted, vec!["bearer"]);
+      assert_eq!(accepted, vec!["none", "basic"]);
+    }
+    other => panic!("an old server must not be told about `bearer`: {other:?}"),
+  }
+}
+
+#[test]
+fn what_the_scalar_carries_still_reaches_a_server_that_never_heard_of_the_grammar() {
+  // The other half of the same promise: nothing written before the grammar
+  // stops working against anything, so upgrading a client is safe on its own.
+  for yaml in [
+    "\"admin:s3cret\"",
+    "{method: basic, users: \"admin:s3cret\"}",
+    "{method: none}",
+  ] {
+    assert_eq!(
+      negotiate_visitor_gate(None, Some(&policy_of(yaml))),
+      GateNegotiation::Scalar,
+      "{yaml} should travel to any server"
+    );
+  }
+  // And no policy at all is nothing to negotiate.
+  assert_eq!(negotiate_visitor_gate(None, None), GateNegotiation::Scalar);
+}
+
+#[test]
+fn a_server_that_accepts_the_method_is_told_the_whole_policy() {
+  let rich = policy_of("{method: bearer, secret: \"0123456789abcdef-secret\"}");
+  match negotiate_visitor_gate(Some("none,basic,bearer,jwt"), Some(&rich)) {
+    GateNegotiation::Methods(specs) => {
+      assert_eq!(specs.len(), 1);
+      assert_eq!(specs[0].method, "bearer");
+    }
+    other => panic!("expected the policy to travel: {other:?}"),
+  }
+}
+
+#[test]
+fn a_server_that_accepts_some_of_them_still_refuses_the_service() {
+  // Announcing the half it understands would leave the other half of the gate
+  // unenforced, which is a weaker gate than the one written.
+  let mixed = policy_of(
+    "[{method: basic, users: \"a:b\"}, {method: jwt, hmac_secret: \"0123456789abcdef-secret\"}]",
+  );
+  match negotiate_visitor_gate(Some("none,basic,bearer"), Some(&mixed)) {
+    GateNegotiation::Unsupported { wanted, .. } => assert_eq!(wanted, vec!["jwt"]),
+    other => panic!("expected a refusal naming `jwt`: {other:?}"),
+  }
+}
+
+#[test]
+fn the_announcement_is_read_forgivingly_but_never_widened() {
+  let rich = policy_of("{method: bearer, secret: \"0123456789abcdef-secret\"}");
+  // Spacing and case are the server's business, not a reason to refuse.
+  assert!(matches!(
+    negotiate_visitor_gate(Some(" NONE , Basic ,BEARER "), Some(&rich)),
+    GateNegotiation::Methods(_)
+  ));
+  // An empty announcement is not "everything": a header the server sent but
+  // could not fill is still a server that named no method.
+  assert!(matches!(
+    negotiate_visitor_gate(Some("   "), Some(&rich)),
+    GateNegotiation::Unsupported { .. }
+  ));
+}

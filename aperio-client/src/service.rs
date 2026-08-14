@@ -878,6 +878,83 @@ impl ConnectionCeiling {
 /// through addresses nobody chose.
 const MAX_SERVER_URLS: usize = 16;
 
+/// What a server's capability announcement means for the `auth:` this client
+/// wants to declare (`planned_features.md` #111).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum GateNegotiation {
+  /// Declare nothing beyond the fields that always travelled. Either there is
+  /// no policy, or it is one the scalar `visitor_auth` (or `public`) already
+  /// carries, in which case even a server that has never heard of the grammar
+  /// gates the route exactly as it did.
+  Scalar,
+  /// Declare the full policy: this server said it understands these methods.
+  Methods(Vec<aperio_config::AuthMethodSpec>),
+  /// This server cannot carry the gate that was written, so the service is
+  /// not served at all.
+  Unsupported {
+    /// The methods it does not accept, for the message.
+    wanted: Vec<String>,
+    /// The methods it does, so the message names the way out.
+    accepted: Vec<String>,
+  },
+}
+
+/// Decides what to announce, given what the server said it accepts.
+///
+/// **An absent announcement is the important case.** A server too old to send
+/// the header sends nothing, and nothing has to read as "only the two methods
+/// that always travelled", never as "anything goes": such a server would
+/// ignore a policy it does not understand, read this client as declaring *no*
+/// gate, and bring the route up open. That is the failure this whole
+/// negotiation exists to prevent, and it is the one path no integration test
+/// can reach without an old binary, which is why it is a function with tests
+/// rather than eight lines inside a connect loop.
+pub(crate) fn negotiate_visitor_gate(
+  announced: Option<&str>,
+  policy: Option<&aperio_config::AuthSetting>,
+) -> GateNegotiation {
+  let accepted: Vec<String> = match announced {
+    Some(raw) => raw
+      .split(',')
+      .map(|m| m.trim().to_ascii_lowercase())
+      .filter(|m| !m.is_empty())
+      .collect(),
+    None => vec!["none".to_string(), "basic".to_string()],
+  };
+  let Some(policy) = policy else {
+    return GateNegotiation::Scalar;
+  };
+  let specs = policy.methods();
+  let wanted: Vec<String> = specs
+    .iter()
+    .map(|m| m.method.trim().to_ascii_lowercase())
+    .collect();
+  let unsupported: Vec<String> = wanted
+    .iter()
+    .filter(|m| !accepted.contains(m))
+    .cloned()
+    .collect();
+  if !unsupported.is_empty() {
+    return GateNegotiation::Unsupported {
+      wanted: unsupported,
+      accepted,
+    };
+  }
+  // The richer field is sent only where the scalar cannot say the same thing.
+  // A policy that is one `basic` credential, or nothing but `none`, already
+  // travels as `visitor_auth` and `public`, and sending it twice would be two
+  // sources for one answer.
+  let carried_by_scalar = policy.as_single_credential().is_some()
+    || specs
+      .iter()
+      .all(|m| m.method.trim().eq_ignore_ascii_case("none"));
+  if carried_by_scalar {
+    GateNegotiation::Scalar
+  } else {
+    GateNegotiation::Methods(specs)
+  }
+}
+
 pub(crate) async fn run_service(
   spec: ServiceSpec,
   shared: Shared,
@@ -1247,67 +1324,37 @@ pub(crate) async fn run_service(
             // a one-way door: a client that failed over keeps coming back to
             // try the primary, and a server that was briefly restarting gets
             // its clients back on the next pass.
-            // What this server accepts as a client-declared visitor gate
-            // (planned_features #111). Read here, from the handshake
-            // response, because it is the only moment where the answer is
-            // known and nothing has been declared yet: a server too old to
-            // send the header sends nothing, which reads as "only the two
-            // that always travelled", and a policy needing more than that
-            // must not be announced to it. A server that ignored a rich
-            // policy would read this client as declaring no gate at all, and
-            // the route would come up open.
-            let server_methods: Vec<String> = response
-              .headers()
-              .get("x-aperio-visitor-auth-methods")
-              .and_then(|v| v.to_str().ok())
-              .map(|v| {
-                v.split(',')
-                  .map(|m| m.trim().to_ascii_lowercase())
-                  .filter(|m| !m.is_empty())
-                  .collect()
-              })
-              .unwrap_or_else(|| vec!["none".to_string(), "basic".to_string()]);
-            let declared_methods: Vec<String> = visitor_auth_policy_ping
-              .as_ref()
-              .map(|p| {
-                p.methods()
-                  .iter()
-                  .map(|m| m.method.trim().to_ascii_lowercase())
-                  .collect()
-              })
-              .unwrap_or_default();
-            let unsupported: Vec<&String> = declared_methods
-              .iter()
-              .filter(|m| !server_methods.contains(m))
-              .collect();
-            if !unsupported.is_empty() {
-              // Refusing the connection is the only safe answer: this client
-              // cannot serve the route under the gate that was written, and
-              // staying connected without one would be worse than being
-              // absent. Only this service stops; its siblings are untouched.
-              error!(
-                "[{}] This server does not accept `{}` as a client-declared visitor gate (it accepts: {}). Not serving this service: upgrade the server, or write a gate it understands. Retrying.",
-                label,
-                unsupported
-                  .iter()
-                  .map(|m| m.as_str())
-                  .collect::<Vec<_>>()
-                  .join(", "),
-                server_methods.join(", ")
-              );
-              continue;
-            }
-            // Sent only where the scalar cannot carry the policy: an older
-            // server keeps gating on the scalar exactly as it did.
-            let visitor_auth_methods_ping = visitor_auth_policy_ping
-              .as_ref()
-              .filter(|p| p.as_single_credential().is_none())
-              .filter(|p| {
-                !p.methods()
-                  .iter()
-                  .all(|m| m.method.trim().eq_ignore_ascii_case("none"))
-              })
-              .map(|p| p.methods());
+            // What this server accepts as a client-declared visitor gate,
+            // read from the handshake response because that is the only
+            // moment where the answer is known and nothing has been declared
+            // yet. The reasoning lives on `negotiate_visitor_gate`.
+            let negotiated = negotiate_visitor_gate(
+              response
+                .headers()
+                .get("x-aperio-visitor-auth-methods")
+                .and_then(|v| v.to_str().ok()),
+              visitor_auth_policy_ping.as_ref(),
+            );
+            let visitor_auth_methods_ping = match negotiated {
+              GateNegotiation::Scalar => None,
+              GateNegotiation::Methods(ref specs) => Some(specs.clone()),
+              GateNegotiation::Unsupported {
+                ref wanted,
+                ref accepted,
+              } => {
+                // Refusing the connection is the only safe answer: this client
+                // cannot serve the route under the gate that was written, and
+                // staying connected without one would be worse than being
+                // absent. Only this service stops; its siblings are untouched.
+                error!(
+                  "[{}] This server does not accept `{}` as a client-declared visitor gate (it accepts: {}). Not serving this service: upgrade the server, or write a gate it understands. Retrying.",
+                  label,
+                  wanted.join(", "),
+                  accepted.join(", ")
+                );
+                continue;
+              }
+            };
             if let Some(learned) = response
               .headers()
               .get("x-aperio-alternate-servers")

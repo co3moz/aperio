@@ -2444,7 +2444,7 @@ pub enum AuthSetting {
 /// should be refused by name, with the available methods listed, and a serde
 /// "unknown variant" error inside an untagged enum says only that nothing
 /// matched. The same reason `alert_rules` parses its `metric` by hand.
-#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq, Eq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AuthMethodSpec {
   /// The gate: `none` (deliberately open) or `basic` (a `user:password`
@@ -2534,7 +2534,7 @@ pub struct AuthMethodSpec {
 }
 
 /// A `basic` method's credentials: one `user:password` or a list of them.
-#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
 #[serde(untagged)]
 pub enum Credentials {
   /// A single `user:password`.
