@@ -161,20 +161,6 @@ test suite.
   (a battery sensor waking once an hour), and the answer to that one is not a
   transport, it is for the device to be behind something that can.
 
-- [ ] **#100 A disk that fills under the SQLite store.** Split out of `#99`
-  when the rest of it shipped. The other chaos cases are interruptions of
-  something in flight, which a test harness can cause honestly on any
-  platform. This one is a *storage* failure, and every portable way to
-  simulate it is a different failure wearing its clothes: a read-only data
-  directory blocks creating files but not writing to ones SQLite already
-  holds open, a small tmpfs needs root, and a full disk on the runner takes
-  the runner with it. Worth doing with a real mechanism (a loopback
-  filesystem sized to fill, on Linux only, skipped elsewhere), and worth
-  leaving open rather than approximating: the property to pin down is that a
-  failed persistence write does not stop the server from proxying, and a test
-  that fails to actually fill anything would assert that on a path nothing
-  went wrong on.
-
 - [ ] **#108 Closed by default: a route is reachable because something says
   so.** (stage two, the flip; stage one shipped, see below) Today, a server with no `server_auth` and no OIDC serves every route
   to anyone, and `public: true` is an exemption from a gate that may not
@@ -249,6 +235,23 @@ test suite.
   - When it is built, the refusal names the incompatibility: which side is too
     old, and what to upgrade. The failure to avoid is a connection that comes
     up and misbehaves three layers deeper.
+
+- [ ] **#114 `create` and `update` report success when the store could not be
+  written.** Found by `#100`'s test, and left open because it is a behaviour
+  change rather than a test. On a full disk, creating a token returns 200: the
+  record is in memory, `replace_all` logged a failure, and the token is gone
+  after a restart. `TokenStore::revoke`, two methods further down the same
+  file, already does the right thing, it puts the removed record back so
+  memory matches disk and returns `false` so the caller reports the failure.
+  So the pattern exists and is deliberate; `create` and `update` simply ignore
+  the bool. The same shape is worth checking across the other stores.
+  - The fix is small and its consequence is not: calls that used to answer 200
+    would answer 500 when the disk is full, which is correct and is still a
+    change to what an operator's tooling sees. Worth doing with that said out
+    loud rather than as a drive-by.
+  - Severity is not uniform. A create that silently did not happen is a
+    surprise; a *revoke* that silently did not happen is a credential that
+    comes back from the dead, which is why that one was handled first.
 
 ## Withdrawn
 
@@ -552,6 +555,30 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#100 A disk that fills under the SQLite store.** Split out of `#99`
+  when the rest of it shipped. Every portable way to simulate it is a
+  different failure wearing its clothes, so it was worth leaving open rather
+  than approximating: the property to pin down is that a failed persistence
+  write does not stop the server from proxying, and a test that fails to
+  actually fill anything would assert that on a path nothing went wrong on.
+  shipped: `tests/e2e/lib/smallfs.ts` makes a real filesystem and really fills
+  it, and `specs/chaos/disk.test.ts` asserts the property on it. Differed from
+  the plan in one way that turned out to matter: the entry said Linux only via
+  a loopback mount, and macOS's `hdiutil` creates and attaches a disk image
+  **without root**, so the mechanism was implemented for both. That is what
+  let the test be run and checked on the machine it was written on instead of
+  being posted to CI on faith. Linux still uses the loop mount and reports
+  itself unsupported, rather than approximating, when passwordless sudo or
+  `mkfs.ext4` is missing.
+  - The entry's warning was taken literally, so the fill is proved twice
+    before the property is touched: free space is asserted to be exactly zero,
+    and the server itself is required to log that a write failed. Verified by
+    running the spec with the fill removed, where it fails after thirty
+    seconds waiting for a failure that never comes.
+  - It found something: the API answers **success** for a token created on a
+    full disk. Left as `#114`, since it is a behaviour change rather than a
+    test.
 
 - [x] **#93 Homebrew tap and a Windows package.** Mechanical work whose value
   is entirely in reach: `brew install` is how a large share of the audience

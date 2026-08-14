@@ -69,11 +69,29 @@ export function AperioServerBase(options: Parameters<typeof Test>[0] & ServerOpt
       return join(this._dataDir, 'aperio-server.yaml')
     }
 
+    /** Where the server's data directory is made.
+     *
+     *  A hook because one spec needs it somewhere specific: the disk-full case
+     *  puts it on a small filesystem it can genuinely fill. */
+    async _makeDataDir(): Promise<string> {
+      return mkdtemp(join(tmpdir(), 'aperio-e2e-'))
+    }
+
+    /** Where the copy of the server's output is written.
+     *
+     *  Separate from the data directory for the same spec's sake: when the
+     *  data directory is a filesystem with no free space left, a log file on
+     *  it cannot be written either, and the harness failing to record output
+     *  is not the failure under test. */
+    _logPath(): string {
+      return join(this._dataDir, 'server.log')
+    }
+
     async hookStartServer() {
       this._port = await freePort()
       this._token = `e2e-master-${randomUUID()}`
       this._url = `http://127.0.0.1:${this._port}`
-      this._dataDir = await mkdtemp(join(tmpdir(), 'aperio-e2e-'))
+      this._dataDir = await this._makeDataDir()
       const yaml = this._configFile()
       if (yaml !== null) await this._writeConfig(yaml)
       await this._spawn()
@@ -98,7 +116,7 @@ export function AperioServerBase(options: Parameters<typeof Test>[0] & ServerOpt
     }
 
     async _spawn(): Promise<void> {
-      const log = createWriteStream(join(this._dataDir, 'server.log'), { flags: 'a' })
+      const log = createWriteStream(this._logPath(), { flags: 'a' })
       this._proc = spawn(SERVER_BIN, {
         env: {
           ...process.env,
