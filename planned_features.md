@@ -77,11 +77,6 @@ readable without scrolling past what is already done.
   reference. Worth doing only with a real answer for key handling, since a key
   sitting next to the backup is decoration.
 
-- [ ] **#72 Configurable TLS floor and cipher list for the tunnel.** (triage 25)
-  Rustls defaults are used as they come, which is the right default and an
-  awkward answer to a compliance questionnaire that wants the floor pinned to
-  1.3 in writing. Cheap, and mostly a documentation feature.
-
 - [ ] **#86 A `TokenSpec` for the token store's `create`/`update`.** (triage 25)
   `TokenStore::create` now takes fourteen positional arguments and `update`
   the same in `Option` form. The store's own comment records why they are
@@ -587,6 +582,28 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#72 Configurable TLS floor and cipher list for the tunnel.** (triage 25)
+  Rustls defaults are used as they come, which is the right default and an
+  awkward answer to a compliance questionnaire that wants the floor pinned to
+  1.3 in writing. Cheap, and mostly a documentation feature.
+  shipped: two client keys, `tls_min_version:` and `tls_cipher_suites:`, with
+  their env spellings, both process-wide like `ip_family`. Unset leaves the
+  dial exactly as it was, the connector is left alone rather than rebuilt with
+  what happen to be the same defaults. The book gained a *Pinning the TLS
+  floor* section, since the entry was right that this is mostly a
+  documentation feature.
+  - It was not only a documentation feature in one respect, and that is the
+    part worth remembering: **a floor that cannot be honoured refuses the
+    start.** The first version logged and fell back to the default connector,
+    which is the failure this setting exists to prevent, a tunnel that is up,
+    a floor that is not in force, and nothing in the running system
+    disagreeing with the file. Validation now happens where the file is read
+    (including the 1.3-floor-with-1.2-suites pair, which neither key can see
+    alone), and the dial refuses rather than proceeding unpinned if it ever
+    gets there another way.
+  - The server side needed nothing: it does not terminate TLS, it sits behind
+    an edge proxy, so the tunnel's TLS is entirely the client's dial.
 
 - [x] **#90 A post-release compatibility report over the real released
   clients.** `#89` covers N-1 as a gate. This is the wider, non-blocking half:

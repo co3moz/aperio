@@ -145,6 +145,7 @@ pub async fn run() {
   // Fix the server dialing family for the process. Effective at startup only;
   // a hot-reload cannot change it (mirrors other connection-level globals).
   dial::set_ip_family(settings.ip_family);
+  dial::set_tls_policy(settings.tls_policy.clone());
 
   // Admin API mode: perform one call, print the JSON answer, exit.
   if let CliMode::Api(ref command) = cli.mode {

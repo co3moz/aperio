@@ -1342,6 +1342,20 @@ pub struct FileConfig {
   /// address the host cannot reach (env: APERIO_IP_FAMILY). Default: `auto`.
   #[schemars(extend("examples" = ["auto", "ipv4"]))]
   pub ip_family: Option<String>,
+  /// Lowest TLS version offered when dialing the tunnel server over `wss://`:
+  /// `1.2` or `1.3`. Unset leaves rustls' own set (1.2 and 1.3) in place,
+  /// which is the right default; pin it when a policy has to name the floor
+  /// rather than inherit it. A value this client cannot offer is refused at
+  /// startup rather than ignored (env: APERIO_TLS_MIN_VERSION).
+  #[schemars(extend("examples" = ["1.3"]))]
+  pub tls_min_version: Option<String>,
+  /// Exact cipher suites offered when dialing the tunnel server, by their
+  /// IANA names, comma-separated. Unset leaves rustls'
+  /// preference order alone, which is almost always better; name them only
+  /// when something external requires it. An unknown name is refused at
+  /// startup (env: APERIO_TLS_CIPHER_SUITES).
+  #[schemars(extend("examples" = ["TLS13_AES_256_GCM_SHA384,TLS13_CHACHA20_POLY1305_SHA256"]))]
+  pub tls_cipher_suites: Option<String>,
   /// The Aperio version this file was written for, e.g. `0.5.0`. On startup
   /// the client compares it against its own build and reports every recorded
   /// change to the configuration format that landed in between, refusing to

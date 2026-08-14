@@ -694,6 +694,9 @@ pub(crate) struct ClientSettings {
   /// IP family to dial the server over (auto/ipv4/ipv6). Process-wide; applied
   /// at startup via `dial::set_ip_family`.
   pub(crate) ip_family: crate::dial::IpFamily,
+  /// TLS floor and cipher suites for the tunnel dial. Process-wide like
+  /// `ip_family`, and applied at startup via `dial::set_tls_policy`.
+  pub(crate) tls_policy: crate::dial::TlsPolicy,
   /// `services:` entries from the local config file (empty = single-service
   /// mode driven by `target`). Per-entry gaps fall back to the resolved
   /// top-level values above.
@@ -1461,6 +1464,26 @@ pub(crate) fn resolve_settings(
       )
       .as_deref(),
     ),
+    // Unlike its neighbours this one can fail the resolution, because the
+    // value is a floor: see `TlsPolicy::parse`. On hot-reload that means the
+    // edit is refused and the previous configuration keeps serving, which is
+    // what every other unresolvable file does here.
+    tls_policy: crate::dial::TlsPolicy::parse(
+      layered(
+        None,
+        local.tls_min_version.clone(),
+        env_str("APERIO_TLS_MIN_VERSION"),
+        home.tls_min_version.clone(),
+      )
+      .as_deref(),
+      layered(
+        None,
+        local.tls_cipher_suites.clone(),
+        env_str("APERIO_TLS_CIPHER_SUITES"),
+        home.tls_cipher_suites.clone(),
+      )
+      .as_deref(),
+    )?,
     // The three list/map sections layer like every other key: a local file
     // that declares one replaces the home file's, and a home file alone is
     // used as written. They used to be read from the local file only, so a
