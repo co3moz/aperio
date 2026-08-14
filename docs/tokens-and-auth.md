@@ -56,9 +56,11 @@ The new secret is returned exactly once (like creation). `grace_seconds: 0` (or 
 
 ## Protecting proxied traffic
 
-Two options put a gate in front of everything the tunnel serves:
+A gate is written as `auth:`, on the server for every route or on a client's service for its own traffic, and it names a **method**. Five exist: `none` (deliberately open), `basic` (a `user:password` login), `bearer` (an opaque secret in a header, for callers with no browser), `jwt` (a token the visitor already holds, verified against its issuer's keys) and `forward` (ask an endpoint you run). [Configuration](configuration.md#visitor-authentication) is the reference; the two below are what most deployments start with.
 
-- **Visitor password**, `APERIO_SERVER_AUTH=user:password` shows a login form to every visitor.
+- **Visitor password**, `APERIO_SERVER_AUTH=user:password` shows a login form to every visitor. It is the scalar spelling of `auth: {method: basic, users: ...}` and still works exactly as it always did.
+
+  **It is a key to the site and not to Aperio.** The session it creates reaches every proxied hostname, so somebody who signs in on one is not asked again on the next, and it opens nothing on the dashboard or its API. To administer Aperio, use the master token or a named user.
 - **OIDC / SSO**, redirect unauthenticated visitors to an identity provider (Google, Keycloak, Authentik, ...), Cloudflare-Access style:
 
   ```bash
@@ -74,12 +76,13 @@ A client can opt its own service out of the gate by declaring itself **public** 
 
 ### Client-set visitor password (per service)
 
-Instead of opting out, a client can supply its **own** visitor login for its service, `--visitor-auth user:password`, env `APERIO_VISITOR_AUTH`, or per `services:` entry `auth: user:password`. The server then shows the normal login form for that service and accepts only these credentials, whether or not the server itself set `APERIO_SERVER_AUTH`:
+Instead of opting out, a client can supply its **own** gate for its service, `--visitor-auth user:password`, env `APERIO_VISITOR_AUTH`, or per `services:` entry `auth:`. The flag and the environment variable are single values, so they always mean `basic`; in the file a client may write any method except `forward`, whose URL the *server* would call, from the server's network. The server then gates that service with what the client declared, whether or not the server itself set `APERIO_SERVER_AUTH`:
 
 - It reuses the same *may publish public services* token permission (master always may); a client without it has its `auth` ignored (and logged).
-- When set, it **supersedes** the server's own visitor password *for that service*: the `APERIO_SERVER_AUTH` credentials no longer work there, only the client's credentials, plus the always-valid `aperio:<master token>` and the dashboard password.
+- When set, it **supersedes** the server's own visitor password *for that service*: the `APERIO_SERVER_AUTH` credentials no longer work there, only the client's, plus the always-valid `aperio:<master token>`.
 - A successful login with client credentials yields a session **scoped to that hostname only**, it never unlocks the dashboard or another host. (If several path-bound services share one hostname with *different* `auth`, a login covers the whole hostname; give each its own hostname to isolate them. All clients serving one route must declare the same `auth`, mirroring the `public` rule.)
 - The server operator can turn the whole feature off with **`APERIO_IGNORE_CLIENT_AUTH=1`**, which makes the server ignore every client-declared `auth` and keep sole control of the gate with its own `APERIO_SERVER_AUTH` / OIDC.
+- Anything beyond `basic` is **agreed with the server on the handshake** before it is declared. A server that does not accept the method means the client does not serve that service at all, saying which side is too old, rather than connecting under a gate the server was never told about.
 
 To let specific people through a protected site *without* an account, use [Share Links](share-links.md).
 
@@ -87,7 +90,9 @@ To let specific people through a protected site *without* an account, use [Share
 
 The dashboard password is the master token. To let someone in without handing them root, create a named dashboard user (Users page) or give them their own [organization](organizations.md) rather than sharing a second server-wide password; `APERIO_DASHBOARD=0` disables the dashboard entirely. The Prometheus endpoint always requires its own token (`APERIO_METRICS_TOKEN`).
 
-Named dashboard users are created on the *Users* page and carry a role (viewer / operator / admin). The built-in `aperio` admin, the master token, dashboard password, and OIDC logins, is the super-admin.
+Named dashboard users are created on the *Users* page and carry a role (viewer / operator / admin). The built-in `aperio` admin, which is the master token and the OIDC logins, is the super-admin.
+
+**The two planes are separate.** Signing in with a visitor password creates a session for viewing sites, not for administering Aperio, and only the master token, a named user, a passkey or OIDC create a dashboard session. A dashboard session does still carry its holder past the visitor gate, fenced to the hostnames their own [organization](organizations.md) serves.
 
 ## Organizations
 

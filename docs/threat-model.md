@@ -54,6 +54,12 @@ Controls:
 
 - Session authentication with role-based access (viewer / operator / admin) and
   optional TOTP / passkey second factor.
+- **A visitor's session is not an admin session.** The credentials that gate
+  proxied traffic, the server's visitor password and a client's own `auth:`,
+  create a session for viewing sites and nothing else. Only the master token, a
+  named user, a passkey or OIDC open this surface. The reverse is deliberate:
+  an admin session does carry its holder past the visitor gate, fenced to the
+  hostnames their own organization serves.
 - Optional network fence: `APERIO_ADMIN_ALLOWED_IPS` (yaml `admin_allowed_ips`) restricts the dashboard and
   its API to operator CIDRs, answering `403` otherwise, while leaving the login
   page and visitor-auth endpoints reachable so password-gated proxied services

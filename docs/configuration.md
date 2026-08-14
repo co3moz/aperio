@@ -431,19 +431,23 @@ auth:                                             # several: any one admits
     users: [admin:s3cret, ops:hunter2]
 ```
 
-The list is **any-of**: a visitor is admitted by the first method that admits them, which is what lets one route say "a browser signs in, a script presents a key" once the methods for it exist. Two methods exist today:
+The list is **any-of**: a visitor is admitted by the first method that admits them, which is what lets one route say "a browser signs in, a script presents a key". Five methods exist, simplest first:
 
-| `method:` | What it does |
-| --- | --- |
-| `none` | Deliberately open. The long spelling of `public: true` on a client, and it needs the same token permission. |
-| `basic` | A `user:password` login. `users:` takes one credential or a list of them, all alternatives on the same gate. |
-| `forward` | **Server-side only.** Ask an endpoint you run about each request: `2xx` admits it, anything else refuses it and the endpoint's own answer is what the visitor gets. The escape hatch that lets the set stay closed. |
-| `jwt` | A token the visitor already holds, verified against keys the issuer publishes (`jwks_url:`) or a shared secret (`hmac_secret:`). No round trip per request, which is the operational difference from `forward`. |
-| `bearer` | An opaque secret presented as `Authorization: Bearer <secret>`. `secret:` takes one or a list, so a key can be rotated by adding the new one before withdrawing the old. |
+| `method:` | What it does | Where it may be written |
+| --- | --- | --- |
+| `none` | Deliberately open. The long spelling of `public: true`, and it needs the same token permission. | both |
+| `basic` | A `user:password` login. `users:` takes one credential or a list, all alternatives on the same gate. | both |
+| `bearer` | An opaque secret presented as `Authorization: Bearer <secret>`. `secret:` takes one or a list, so a key rotates by adding the new one before withdrawing the old. | both |
+| `jwt` | A token the visitor already holds, verified against the keys its issuer publishes (`jwks_url:`) or a shared secret (`hmac_secret:`). No round trip per request. | both |
+| `forward` | Ask an endpoint you run about each request: `2xx` admits it, anything else refuses it and the endpoint's own answer is what the visitor gets. | server only |
 
-`oidc` on this plane is still its own piece of work. The set is closed on purpose rather than being a plugin interface, and `forward` is what lets it stay closed: anything deliberately left out (LDAP, SAML, a rule nobody anticipated) is thirty lines behind that URL, in a process that is not Aperio's, with a contract that is two HTTP messages rather than an ABI. A `method:` this build does not know **refuses the start** and names the ones it does, so a gate is never silently absent.
+The set is closed on purpose rather than being a plugin interface, and `forward` is what lets it stay closed: anything deliberately left out (LDAP, SAML, a rule nobody anticipated) is thirty lines behind that URL, in a process that is not Aperio's, with a contract that is two HTTP messages rather than an ABI. A `method:` this build does not know **refuses the start** and names the ones it does, so a gate is never silently absent. `oidc` as a visitor method is still its own piece of work.
 
-**A refusal now has a shape.** A browser navigation (`GET` with `Accept: text/html`) is still redirected to the login page. Anything else, when the gate has a `bearer` method, gets `401` with `WWW-Authenticate: Bearer`: redirecting a script to an HTML form answers a question it did not ask, and it is why a gated route could not be reached with `curl` at all.
+#### How a refusal is shaped
+
+A browser navigation (a `GET` carrying `Accept: text/html`) is sent to the login page. Anything else, where the gate has a method a caller can satisfy on the request itself (`bearer` or `jwt`), is answered `401` with `WWW-Authenticate: Bearer`. Redirecting a script to an HTML login form answers a question it did not ask, and it is why a gated route could not be reached with `curl` at all. A `forward` refusal is the endpoint's own answer, whatever it chose.
+
+So one route serves a person and a script each in the form they can act on:
 
 ```yaml
 auth:
@@ -451,12 +455,21 @@ auth:
     users: "admin:s3cret"
   - method: bearer                 # a script, with no browser
     secret: ${API_SECRET}
-    query: true                    # ... and, optionally, in the URL
 ```
 
-`query: true` also accepts the secret as `?aperio_token=<secret>`, for the callers that cannot set a header: an `<img src>`, a link in an email, a sender with a fixed request shape. **Off by default**, because a query string reaches the `Referer` header, browser history and every proxy in front. Aperio keeps its own record clean: the access log has only ever stored the path, the inspector masks the value, the parameter is stripped before the request reaches the backend, and a *page load* carrying one is answered with a redirect to the clean address plus a short-lived cookie, so the secret is not repeated on each of the page's assets. That last move is what a share link already does on its first click, and it reuses the same cookie.
+#### The `bearer` method
 
-##### `forward`
+An opaque secret, compared verbatim. `secret:` takes one value or a list, so a key is rotated by adding the new one and withdrawing the old afterwards.
+
+`query: true` additionally accepts the secret as `?aperio_token=<secret>`, for callers that cannot set a header: an `<img src>`, a link in an email, a sender with a fixed request shape. **Off by default**, because a query string reaches the `Referer` header, browser history and every proxy in front, and it is per method, so a gate that never asked for it cannot be opened that way.
+
+Aperio keeps its own record clean: the access log has only ever stored the path, the inspector masks the value beside `aperio_share`, the parameter is stripped before the request reaches the backend, and a *page load* carrying one is answered with a redirect to the clean address plus a short-lived cookie, so the secret is not repeated on every asset of that page. That last move is what a share link already does on its first click, and it reuses the same cookie.
+
+The secret itself does not travel: an `Authorization` header that opened Aperio's gate is stripped before the request is forwarded, on the same rule that already strips the `aperio_session` and `aperio_share` cookies while leaving every other cookie alone. A credential addressed to the gate is not addressed to what is behind it. An `Authorization` header that did *not* open the gate is the visitor's own and passes through untouched.
+
+A `bearer` secret is compared verbatim rather than hashed, unlike a `basic` password: it is a high-entropy value the operator generated, so there is no dictionary to defend against and no user half to slow a guess down. That is also why one shorter than 16 characters is refused where it is written.
+
+#### The `forward` method
 
 ```yaml
 auth:
@@ -482,7 +495,7 @@ What nginx spells `auth_request` and Traefik spells ForwardAuth. Five decisions,
 
 The URL goes through the server's [outbound policy](threat-model.md), like every other destination the server is told to call.
 
-##### `jwt`
+#### The `jwt` method
 
 ```yaml
 auth:
@@ -504,13 +517,17 @@ A token in the `Authorization` header is Aperio's credential and is stripped bef
 
 `jsonwebtoken` is pinned to its 9 line deliberately. It builds on `ring`, which rustls already puts in every Aperio binary, so the method adds no crypto implementation and no cross-compilation surface; 10 and later want a different backend, which would be a third crypto stack here. `aperio-server/Cargo.toml` carries the reason.
 
-A `bearer` secret is compared verbatim rather than hashed, unlike a `basic` password: it is a high-entropy value the operator generated, so there is no dictionary to defend against and no user half to slow a guess down. That is also why one shorter than 16 characters is refused where it is written.
+#### What a client may declare, and how that is agreed
 
-The scalar keeps working everywhere it worked, and it is still what `APERIO_SERVER_AUTH`, `APERIO_VISITOR_AUTH`, `--visitor-auth` and the dashboard's visitor-password field carry, since those surfaces are single values. A policy written in the file that a single credential cannot express (several users, or `method: none`) shows as empty in that field; `GET /aperio/api/settings` carries `visitor_auth_methods` beside it so what is actually in force is still readable.
+A client may write `none`, `basic`, `bearer` and `jwt`. `forward` is server-only: its URL would be called by the *server*, from the server's network, so a client writing `localhost:7070` would mean the server's localhost and not its own.
 
-**A client may declare `none`, `basic`, `bearer` and `jwt`; `forward` is server-side only.** A `forward` URL would be called by the *server*, from the server's network, so a client writing `localhost:7070` would mean the server's localhost and not its own.
+Which of those actually travel is **negotiated on the handshake rather than assumed**. The server announces the methods it accepts from a client on the upgrade response, and a client whose `auth:` needs one that is missing **does not serve that service**: it says which side is too old and retries, instead of connecting under a gate the server was never told about. A server too old to send the announcement sends nothing, which reads as "only `none` and `basic`", the two that always travelled.
 
-Which of those actually travel is negotiated on the handshake rather than assumed: the server announces the methods it accepts from a client on the upgrade response, and a client whose `auth:` needs one that is missing **does not serve that service**, saying which side is too old and retrying, instead of connecting under a gate the server was never told about. A server too old to send the announcement sends nothing, which reads as "only `none` and `basic`", the two that always travelled. This matters because a server that silently ignored a policy it did not understand would read the client as declaring no gate at all, and the route would come up open. Only that one service stops; its siblings are untouched.
+That is worth the machinery because of what the alternative does quietly: a server that ignored a policy it did not understand would read the client as declaring *no* gate, and the route would come up open. Only the one service stops; its siblings keep serving.
+
+#### The scalar spelling, and what still reads it
+
+The scalar keeps working everywhere it worked, and it is still what `APERIO_SERVER_AUTH`, `APERIO_VISITOR_AUTH`, `--visitor-auth` and the dashboard's visitor-password field carry, since each of those is a single value. A policy the scalar cannot express (several users, or `method: none`) shows as empty in that field, so `GET /aperio/api/settings` reports `visitor_auth_methods` beside it and what is in force stays readable.
 
 #### Telling the backend who came in
 

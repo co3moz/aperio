@@ -1637,32 +1637,51 @@ and it can never open a tunnel.
 \chapter{Protecting proxied traffic}
 \label{ch:visitor-auth}
 
-\section{Three gates, one decision}
+\section{One gate, decided in one order}
 
-A visitor reaching a proxied site meets at most one gate, chosen in this
-order of specificity:
+A visitor reaching a proxied site meets at most one gate. Which one is
+settled in a fixed order, and the order is worth reading once because
+every later question in this chapter is "where does this fit in it".
 
 \begin{enumerate}[leftmargin=1.5em]
-  \item A \textbf{client-declared per-service login}
-        (\code{visitor\_auth: user:password}), if the token permits it and
-        the server has not set \code{APERIO\_IGNORE\_CLIENT\_AUTH}.
-  \item The server's own \textbf{visitor password}
-        (\code{APERIO\_SERVER\_AUTH}) or \textbf{OIDC} configuration.
-  \item Nothing, if the service declared itself \code{public} and its
-        token allows that.
+  \item \textbf{A path that could escape its own scope.} A request whose
+        path contains \code{..} is never treated as public and never
+        unlocks a client's credentials, since a backend that resolves it
+        would serve a sibling path. Such a request needs a full session.
+  \item \textbf{The gate the serving clients declared}, if the token
+        permits it and the server has not set
+        \code{APERIO\_IGNORE\_CLIENT\_AUTH}. This is a whole
+        \code{auth:} policy today, not only a password
+        (Section~\ref{sec:visitor-auth}).
+  \item \textbf{Declared open.} \code{public: true}, or its long spelling
+        \code{method: none}, and only where the token allows it. This is
+        the one sentence that opens a route under either posture, which
+        is why it is asked before anything else about the server's own
+        configuration.
+  \item \textbf{Nothing gates the route.} What that means is
+        \code{default\_access} (Section~\ref{sec:default-access}):
+        served, which is the default, or refused.
+  \item \textbf{The server's own \code{auth:}}, evaluated method by
+        method until one admits: a session, a credential presented on the
+        request itself, or an endpoint asked about it.
+  \item \textbf{A share link}, which is checked last and can still admit
+        a visitor a gate has just refused.
 \end{enumerate}
 
-A dashboard session carries its holder past the gate as well, since the
-two share one session store, and that is fenced by organization: a
-session fixed to a tenant admits only on hostnames that tenant serves,
-by the same rule maintenance flags and share links already use, covered
-by the fence \emph{and} not currently served by another organization's
-client. A master session is unfenced here as everywhere else.
+\textbf{Unanimity decides steps 2 and 3.} A route is public only when
+\emph{every} client that could serve it says so, and a client-declared
+gate applies only when they all declare the same one; a mixed pool falls
+back to the server's. So a request can never be gated by, or slip past,
+something only some members of its pool set.
 
-A service is only public when \emph{every} client in its serving pool
-agrees; a mixed pool falls back to the gate. The same all-must-agree rule
-applies to client-declared credentials, so a request can never be gated
-by, or slip past, an override that only some pool members set.
+A dashboard session also carries its holder past the gate, since the two
+planes share one session store, and that is fenced by organization: a
+session fixed to a tenant admits only on hostnames that tenant serves,
+by the same rule maintenance flags and share links use, covered by the
+fence \emph{and} not currently served by another organization's client.
+A master session is unfenced here as everywhere else. The reverse does
+not hold: a visitor session opens no part of Aperio
+(Section~\ref{sec:two-planes}).
 
 \section{How a gate is written}
 \label{sec:visitor-auth}
@@ -1885,6 +1904,7 @@ so a visitor cannot claim an identity and a backend that trusts these
 need not check whether the announcement is even on.
 
 \subsection{Two planes, one cookie}
+\label{sec:two-planes}
 
 A session is for one of two things: administering Aperio, or viewing a
 site behind it. They share a store and a cookie, and what tells them

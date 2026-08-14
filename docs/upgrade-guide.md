@@ -33,6 +33,15 @@ log a warning when they differ. The protocol is designed to tolerate skew:
   working against a newer server** and vice-versa, it just does not benefit
   from the newer feature. Every per-service flag (cache, resilience, response
   timeout, device key, …) was added this way.
+- **Except where being ignored would be worse than being refused**, which is
+  the one case that is negotiated instead. A client's `auth:` gate is the
+  example: an older server that ignored a method it does not understand would
+  read the client as declaring *no* gate, and the route would come up open. So
+  the server announces on the handshake which methods it accepts from a
+  client, and a client whose gate needs one that is missing **does not serve
+  that service**, logging which side is too old. Only that service stops; the
+  client's others keep running. `none` and `basic` have always travelled and
+  are assumed of any server.
 - **A protocol-version bump signals a breaking frame change.** When the major
   tunnel behavior changes (the v1→v2 streamed-body frames, the v2→v3 per-stream
   flow control), both sides log the mismatch. Traffic still flows for the shared
@@ -48,12 +57,14 @@ log a warning when they differ. The protocol is designed to tolerate skew:
 
 Rule of thumb: **upgrade the server first, then the clients.** The server stays
 backward-compatible with older clients, so a fleet can be rolled forward
-gradually with no coordinated cutover.
+gradually with no coordinated cutover. It is also the order that avoids the one
+exception above: a client upgraded first, whose file uses a newer gate, will
+hold that service back until its server catches up.
 
 | Situation | Behavior |
 | --- | --- |
 | Newer server, older client | Works; client misses newer per-service features. A pre-v3 client cannot be flow-controlled, so a download to a visitor slower than the backend is cut at `APERIO_STREAM_BACKLOG_LIMIT` instead of the producer being paused. |
-| Older server, newer client | Works; newer client's new flags are ignored by the server. |
+| Older server, newer client | Works; newer client's new flags are ignored by the server. The exception is a client-declared `auth:` gate beyond `basic`: rather than be ignored, it is negotiated, and the client holds that one service back until the server understands it. |
 | Protocol-version mismatch | Logged on both sides + shown on the dashboard; shared subset works. |
 
 The versioned config JSON Schemas (`aperio-client.<tag>.json`,
