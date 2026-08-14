@@ -45,8 +45,12 @@ use crate::state::AppState;
 /// part of a contract nobody wrote down.
 const DEFAULT_REQUEST_HEADERS: [&str; 2] = ["cookie", "authorization"];
 
-/// Largest endpoint answer read back, so a broken one cannot be answered by
-/// reading it into memory.
+/// Largest endpoint answer read back.
+///
+/// Enforced while reading rather than after it. A limit checked on a body that
+/// is already in memory is not a limit: it discards what it has just finished
+/// allocating, and the endpoint, or anything able to answer as it, decides how
+/// much that is. On this path that would be per visitor request.
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;
 
 /// Most verdicts remembered at once.
@@ -102,22 +106,8 @@ pub(crate) async fn ask(
     tracing::warn!("Refusing to ask {} about a request: {why}", cfg.url);
     return Verdict::Deny(refusal());
   }
-  let http = match reqwest::Client::builder()
-    .timeout(cfg.timeout)
-    // Redirects are **not** followed, and this is the whole method rather
-    // than a detail: a `302` is how an endpoint sends a browser to its own
-    // login, which is the commonest refusal it can give. Following it would
-    // turn the answer meant for the visitor into a request Aperio makes,
-    // and the visitor would get whatever was at the other end, or a failure
-    // to reach it, instead of being sent there.
-    .redirect(reqwest::redirect::Policy::none())
-    .build()
-  {
-    Ok(c) => c,
-    Err(e) => {
-      tracing::error!("Could not build the forward-auth client: {e}");
-      return Verdict::Deny(refusal());
-    }
+  let Some(http) = client() else {
+    return Verdict::Deny(refusal());
   };
 
   // The subrequest describes the original rather than replaying it: no body,
@@ -125,6 +115,9 @@ pub(crate) async fn ask(
   // question about a request, not asked to serve it.
   let mut req = http
     .get(&cfg.url)
+    // Per request, not on the client, because the client is shared and the
+    // timeout belongs to the method that named it.
+    .timeout(cfg.timeout)
     .header("X-Forwarded-Method", method.as_str())
     .header("X-Forwarded-Proto", "https")
     .header(
@@ -197,13 +190,40 @@ async fn relay(res: reqwest::Response) -> Response {
       builder = builder.header(name, value);
     }
   }
-  let body = res.text().await.unwrap_or_default();
-  let body = if body.len() > MAX_RESPONSE_BYTES {
-    String::new()
-  } else {
-    body
-  };
+  // The status and the headers are the answer; the body is a courtesy, so an
+  // oversized one is dropped rather than allowed to decide how much memory
+  // this request costs. The visitor still gets the endpoint's status and its
+  // `Location`, which is what it needs to act.
+  let body = crate::outbound::read_bounded(res, MAX_RESPONSE_BYTES)
+    .await
+    .unwrap_or_default();
   builder.body(Body::from(body)).unwrap_or_else(|_| refusal())
+}
+
+/// The HTTP client every forward-auth subrequest goes through.
+///
+/// **One, for the life of the process.** A `reqwest::Client` owns a connection
+/// pool, so building one per request means a fresh TCP and TLS handshake per
+/// visitor request on a gated route, which is the opposite of what a method on
+/// the request path should cost. The per-method timeout is applied to the
+/// request instead, since that is where it belongs.
+///
+/// Redirects are **not** followed, and that is the method rather than a
+/// detail: a `302` is how an endpoint sends a browser to its own login, the
+/// commonest refusal it can give. Following it would turn the answer meant for
+/// the visitor into a request Aperio makes, and the visitor would get whatever
+/// was at the other end, or a failure to reach it, instead of being sent there.
+fn client() -> Option<&'static reqwest::Client> {
+  static CLIENT: std::sync::OnceLock<Option<reqwest::Client>> = std::sync::OnceLock::new();
+  CLIENT
+    .get_or_init(|| {
+      reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .inspect_err(|e| tracing::error!("Could not build the forward-auth client: {e}"))
+        .ok()
+    })
+    .as_ref()
 }
 
 /// The cache key: the endpoint, the host, and the credential headers that

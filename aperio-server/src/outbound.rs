@@ -211,6 +211,35 @@ pub(crate) fn is_internal(ip: IpAddr) -> bool {
   }
 }
 
+/// Reads a response body, stopping the moment it exceeds `limit`.
+///
+/// `None` when it did, or when what came back is not text. **The limit is
+/// applied while reading, not after**, and that is the whole point: a length
+/// checked on a body already in memory frees what it has just finished
+/// allocating, which leaves how much that is to whatever answered. On the
+/// visitor-auth path that would be once per request.
+///
+/// The declared length is the cheap refusal: a body that says how big it is
+/// and is too big never costs a chunk, and never costs the wait for a body
+/// that is promised and never sent.
+///
+/// Lives here because every caller is the server calling somebody else, which
+/// is what this module is for, and because two copies of a bound like this
+/// drift.
+pub(crate) async fn read_bounded(mut res: reqwest::Response, limit: usize) -> Option<String> {
+  if res.content_length().is_some_and(|n| n as usize > limit) {
+    return None;
+  }
+  let mut buf: Vec<u8> = Vec::new();
+  while let Ok(Some(chunk)) = res.chunk().await {
+    if buf.len() + chunk.len() > limit {
+      return None;
+    }
+    buf.extend_from_slice(&chunk);
+  }
+  String::from_utf8(buf).ok()
+}
+
 #[cfg(test)]
 #[path = "outbound_tests.rs"]
 mod tests;

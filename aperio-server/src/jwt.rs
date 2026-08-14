@@ -36,8 +36,11 @@ const JWKS_TTL: Duration = Duration::from_secs(3600);
 /// issuer. Past this floor an unknown `kid` is simply refused.
 const JWKS_MIN_REFETCH: Duration = Duration::from_secs(30);
 
-/// Largest key-set document accepted, so a hostile or broken endpoint cannot
-/// be answered by reading it into memory.
+/// Largest key-set document accepted.
+///
+/// Enforced while reading rather than after it: a limit checked on a document
+/// already in memory discards what it has just finished allocating, which
+/// leaves how much that is up to whatever answered.
 const JWKS_MAX_BYTES: usize = 256 * 1024;
 
 /// One issuer's keys, and when they were last fetched.
@@ -237,15 +240,12 @@ async fn fetch(state: &AppState, url: &str) -> Option<Arc<JwkSet>> {
     tracing::warn!("The key set at {url} answered {}", res.status());
     return None;
   }
-  let body = res
-    .text()
-    .await
-    .inspect_err(|e| tracing::warn!("Could not read the key set at {url}: {e}"))
-    .ok()?;
-  if body.len() > JWKS_MAX_BYTES {
-    tracing::warn!("The key set at {url} is larger than {JWKS_MAX_BYTES} bytes; ignoring it");
+  let Some(body) = crate::outbound::read_bounded(res, JWKS_MAX_BYTES).await else {
+    tracing::warn!(
+      "The key set at {url} is unreadable or larger than {JWKS_MAX_BYTES} bytes; ignoring it"
+    );
     return None;
-  }
+  };
   let keys: JwkSet = serde_json::from_str(&body)
     .inspect_err(|e| tracing::warn!("The key set at {url} is not a JWKS: {e}"))
     .ok()?;

@@ -20,8 +20,45 @@ struct Endpoint {
   calls: Arc<AtomicUsize>,
 }
 
+/// Starts an endpoint that answers `status` with a `content-length` it never
+/// satisfies, which is what a broken or hostile one looks like.
+async fn endpoint_declaring(status: u16, declared: usize) -> Endpoint {
+  endpoint_promising(status, declared).await
+}
+
+/// Starts an endpoint that answers `status` with `headers` and `body_bytes`
+/// bytes of body.
+async fn endpoint_with_body(
+  status: u16,
+  headers: Vec<(&'static str, &'static str)>,
+  body_bytes: usize,
+) -> Endpoint {
+  endpoint_inner(status, headers, body_bytes).await
+}
+
 /// Starts an endpoint that answers `status` with `headers`.
 async fn endpoint(status: u16, headers: Vec<(&'static str, &'static str)>) -> Endpoint {
+  endpoint_inner(status, headers, 0).await
+}
+
+async fn endpoint_promising(status: u16, declared: usize) -> Endpoint {
+  endpoint_build(status, Vec::new(), 0, Some(declared)).await
+}
+
+async fn endpoint_inner(
+  status: u16,
+  headers: Vec<(&'static str, &'static str)>,
+  body_bytes: usize,
+) -> Endpoint {
+  endpoint_build(status, headers, body_bytes, None).await
+}
+
+async fn endpoint_build(
+  status: u16,
+  headers: Vec<(&'static str, &'static str)>,
+  body_bytes: usize,
+  promise_only: Option<usize>,
+) -> Endpoint {
   let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
   let calls = Arc::new(AtomicUsize::new(0));
   let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -53,8 +90,17 @@ async fn endpoint(status: u16, headers: Vec<(&'static str, &'static str)>) -> En
         for (k, v) in &headers {
           out.push_str(&format!("{k}: {v}\r\n"));
         }
-        out.push_str("content-length: 0\r\n\r\n");
+        let declared = promise_only.unwrap_or(body_bytes);
+        out.push_str(&format!("content-length: {declared}\r\n\r\n"));
+        if promise_only.is_none() {
+          out.push_str(&"x".repeat(body_bytes));
+        }
         let _ = sock.write_all(out.as_bytes()).await;
+        if promise_only.is_some() {
+          // Never sends what it promised, and holds the socket so the reader
+          // is waiting on it rather than on a closed connection.
+          tokio::time::sleep(Duration::from_secs(30)).await;
+        }
       });
     }
   });
@@ -303,4 +349,77 @@ async fn the_endpoint_goes_through_the_outbound_policy() {
     Verdict::Allow(_) => panic!("expected the policy to refuse the destination"),
   }
   assert_eq!(ep.calls.load(Ordering::SeqCst), 0, "never asked");
+}
+
+#[tokio::test]
+async fn an_answer_inside_the_limit_still_arrives_whole() {
+  // The guard has to be a limit, not a wall: the ordinary small body an
+  // endpoint sends to explain itself must still reach the visitor.
+  let ep = endpoint_with_body(403, vec![("content-type", "text/plain")], 64).await;
+  let state = test_state();
+  match ask(
+    &state,
+    &config(&ep.url),
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &"/".parse().unwrap(),
+    None,
+    None,
+  )
+  .await
+  {
+    Verdict::Deny(resp) => {
+      let body = axum::body::to_bytes(resp.into_body(), 1 << 20)
+        .await
+        .unwrap();
+      assert_eq!(body.len(), 64);
+    }
+    Verdict::Allow(_) => panic!("expected deny"),
+  }
+}
+
+#[tokio::test]
+async fn every_subrequest_goes_through_one_shared_client() {
+  // A `reqwest::Client` owns a connection pool, so one per request is a fresh
+  // TCP and TLS handshake per visitor request on a gated route.
+  let first = client().expect("a client");
+  let second = client().expect("the same client");
+  assert!(std::ptr::eq(first, second));
+}
+
+// --- read_bounded ------------------------------------------------------------
+//
+// Tested here rather than through `ask`, because the property it exists for,
+// that nothing past the limit is ever held, is not visible from outside: a
+// caller sees the same refusal whether the limit was applied while reading or
+// after. Measured, in fact, and the two are within a millisecond of each other.
+// So the contract is pinned where it lives, and the reason lives on the
+// constant.
+
+/// Fetches from a stand-in endpoint and hands the response to `read_bounded`.
+async fn bounded(ep: &Endpoint, limit: usize) -> Option<String> {
+  let res = client().unwrap().get(&ep.url).send().await.unwrap();
+  crate::outbound::read_bounded(res, limit).await
+}
+
+#[tokio::test]
+async fn a_body_within_the_limit_comes_back_whole() {
+  let ep = endpoint_with_body(200, vec![], 128).await;
+  assert_eq!(bounded(&ep, 256).await.map(|b| b.len()), Some(128));
+}
+
+#[tokio::test]
+async fn a_body_over_the_limit_is_refused_rather_than_truncated() {
+  // Not a prefix: half an answer is not an answer, and returning one would
+  // hand the caller something that parses and means something else.
+  let ep = endpoint_with_body(200, vec![], 512).await;
+  assert_eq!(bounded(&ep, 256).await, None);
+}
+
+#[tokio::test]
+async fn a_length_declared_over_the_limit_is_refused_without_reading() {
+  // The cheap refusal: a body that says how big it is and is too big never
+  // costs a chunk.
+  let ep = endpoint_declaring(200, 1024).await;
+  assert_eq!(bounded(&ep, 256).await, None);
 }
