@@ -347,14 +347,14 @@ jobs:
         working-directory: tests/e2e
         env:
           APERIO_CLIENT_BIN: ${{ github.workspace }}/previous/aperio-client
-        run: npx nole './specs/base/proxy.test.ts' './specs/base/admin.test.ts' --concurrency 1
+        run: npm run test:compat --ignore-scripts
 
       - name: "This client against the ${{ steps.previous.outputs.found }} server"
         if: steps.previous.outputs.found != ''
         working-directory: tests/e2e
         env:
           APERIO_SERVER_BIN: ${{ github.workspace }}/previous/aperio-server
-        run: npx nole './specs/base/proxy.test.ts' './specs/base/admin.test.ts' --concurrency 1
+        run: npm run test:compat --ignore-scripts
 
   # ---------------------------------------------------------------------------
   # Release-cache warming, for every release target.

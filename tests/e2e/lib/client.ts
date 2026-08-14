@@ -8,6 +8,35 @@ import { send } from './http.js'
 import { READY_PATH } from './backend.js'
 
 /**
+ * The spelling each of these variables replaced.
+ *
+ * Only for the compatibility runs (`npm run test:compat` against a released
+ * binary), and harmless everywhere else: a client that does not know a name
+ * ignores it, and every version since the alias landed reads both to the same
+ * value, so nothing is ambiguous.
+ *
+ * Without this, the oldest clients report as incompatible when what they
+ * actually are is *unconfigured*: `aperio-client` v0.1.0 knew only
+ * `APERIO_CLIENT_TARGET` and `APERIO_HOSTNAME_BIND`, so a suite that sets the
+ * short names alone leaves it with no backend and no hostname, and the
+ * timeout that follows looks exactly like a protocol that no longer works. A
+ * compatibility report is worth having only if a ✗ in it means what it says.
+ */
+const OLDER_SPELLING: Record<string, string> = {
+  APERIO_TARGET: 'APERIO_CLIENT_TARGET',
+  APERIO_HOSTNAME: 'APERIO_HOSTNAME_BIND',
+}
+
+/** The same environment, plus the older name of anything in it that has one. */
+function alsoOlderSpellings(env: Record<string, string>): Record<string, string> {
+  const out = { ...env }
+  for (const [modern, older] of Object.entries(OLDER_SPELLING)) {
+    if (modern in out && !(older in out)) out[older] = out[modern]
+  }
+  return out
+}
+
+/**
  * Ends a spawned process and waits for it, the one way this suite does it.
  *
  * A free function rather than a method, because the rule has to reach the
@@ -195,8 +224,10 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
           APERIO_CONNECTIONS: '1',
           APERIO_SERVER_URL: this._serverUrl(),
           APERIO_SERVER_TOKEN: this._serverToken(),
-          ...(target ? { APERIO_TARGET: target } : {}),
-          ...this._env(),
+          ...alsoOlderSpellings({
+            ...(target ? { APERIO_TARGET: target } : {}),
+            ...this._env(),
+          }),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
       })

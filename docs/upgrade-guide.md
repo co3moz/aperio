@@ -86,9 +86,22 @@ deliberately not the whole suite, which asserts features that did not exist in
 every past release, and would report the absence of a feature as an
 incompatibility.
 
-The supported window is therefore **one release of skew, proven**, and older
-than that, tolerated by design but not measured. Anyone can measure a specific
-pairing themselves, since the suite takes the binaries as inputs:
+After each release is published, a second workflow pairs the **newly released
+server with the client binary of every previous release** and prints the result
+as a table, so the wider claim is measured too rather than inferred from the
+narrow one. It is deliberately not a gate: an old client failing against a new
+server is information, not a regression. The pairing it runs is old client
+against new server, because that is the one a deployment actually produces,
+the server being upgraded first and then running ahead of its fleet for a
+while.
+
+At the time of writing, every released client from **v0.1.0 onward** passes
+that slice against the v0.9.0 server.
+
+The supported window is therefore **one release of skew, gated**, and
+everything older, measured after each release and reported rather than
+enforced. Anyone can measure a specific pairing themselves, since the suite
+takes the binaries as inputs:
 
 ```bash
 APERIO_CLIENT_BIN=/path/to/old/aperio-client npm --prefix tests/e2e run test:compat

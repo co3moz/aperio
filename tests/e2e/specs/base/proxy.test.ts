@@ -1,6 +1,7 @@
 import { Test } from 'nole'
 import assert from 'node:assert/strict'
 import { BaseServerFor, BaseBackendFor, BaseClientFor, HOST } from './fixtures.js'
+import { FOREIGN_SERVER } from '../../lib/env.js'
 
 /** This file's own server: the specs below change it, so it is not
  *  shared with another file. See `fixtures.ts`. */
@@ -20,7 +21,15 @@ export class BareServerSpec extends Test({
       ui_language: string
     }>('/aperio/health')
     assert.equal(health.status, 'healthy')
-    assert.equal(health.protocol, 7, 'the tunnel protocol version this build speaks')
+    // The exact number is this build's, so it is only asserted when the
+    // server *is* this build. Against a released binary (`test:compat`) the
+    // question is whether it reports one at all, since a differing protocol
+    // version between two releases is the normal case, not a fault.
+    if (FOREIGN_SERVER) {
+      assert.ok(health.protocol >= 1, 'the server reports a tunnel protocol version')
+    } else {
+      assert.equal(health.protocol, 7, 'the tunnel protocol version this build speaks')
+    }
     assert.ok(health.ui_language, 'the default UI language is reported')
   }
 

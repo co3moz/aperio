@@ -1,0 +1,122 @@
+# The post-release compatibility report (planned_features #90).
+#
+# `ci.yml`'s `compat` job is the gate: N-1 in both directions, and a failure
+# there stops the build. This is the wider half, and it is deliberately **not**
+# a gate. It runs after a release is published, pairs the newly released server
+# with the client binary of *every* previous release, and prints the result as
+# a table.
+#
+# It must never fail the release, and the reason is not politeness: an old
+# client failing against a new server is information, not a regression. The
+# point is to be able to say "0.11.0's server was tested against clients 0.1
+# through 0.11, and these are the ones that worked" instead of guessing.
+#
+# The pairing is old client against new server, not the reverse, because that
+# is the one a deployment actually produces: the server is one box and the
+# clients are a fleet, so the server is upgraded first and then runs for a
+# while ahead of them.
+name: Compatibility report
+
+on:
+  release:
+    types: [published]
+  # So the table can be regenerated for a release that already happened, which
+  # is what you want the first time this file exists.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to report on (defaults to the latest)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: Released clients against the released server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node.js (the E2E suite runs on it)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      # Only the helper crate: both sides of every pairing are downloaded
+      # binaries, because the report is about the artifacts people actually
+      # install, not about a tree rebuilt with today's toolchain.
+      - name: Build the suite's helper binary
+        run: cargo build -p mock-h2
+
+      - name: Install the E2E suite's dependencies
+        working-directory: tests/e2e
+        run: npm ci
+
+      # One job looping rather than a matrix: each pairing is seconds of tests
+      # behind two minutes of setup, so nineteen matrix legs would spend almost
+      # all of their runtime installing Node. Looping also puts the whole table
+      # in one place, which is the output that matters here.
+      - name: Pair every released client with the released server
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -uo pipefail
+          asset() { # <tag> <binary> -> path, or empty when that release has none
+            local tag="$1" bin="$2" dir="binaries/$tag"
+            mkdir -p "$dir"
+            if [ ! -x "$dir/$bin" ]; then
+              gh release download "$tag" --dir "$dir" --clobber \
+                --pattern "${bin}-x86_64-unknown-linux-musl.tar.gz" >/dev/null 2>&1 || return 1
+              tar xzf "$dir/${bin}-x86_64-unknown-linux-musl.tar.gz" -C "$dir" || return 1
+              chmod +x "$dir/$bin"
+            fi
+            printf '%s/%s' "$PWD/$dir" "$bin"
+          }
+
+          released="${INPUT_TAG:-$(gh release list --limit 1 --json tagName --jq '.[0].tagName')}"
+          server="$(asset "$released" aperio-server)" || {
+            echo "::warning::$released has no linux-musl server binary, nothing to report against."
+            exit 0
+          }
+
+          # Oldest first, so the table reads as history.
+          mapfile -t tags < <(gh release list --limit 100 --json tagName --jq '.[].tagName' | tac)
+
+          {
+            echo "## Clients paired with the \`$released\` server"
+            echo
+            echo "Proxying a request end to end, plus the admin API. A ✗ is"
+            echo "information rather than a regression: it means that client"
+            echo "needs its server no newer than the release before this one."
+            echo
+            echo "| Client | Result |"
+            echo "| --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for tag in "${tags[@]}"; do
+            client="$(asset "$tag" aperio-client)" || {
+              echo "| \`$tag\` | not published for this platform |" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            }
+            echo "::group::$tag client against the $released server"
+            # The same slice `ci.yml` gates on, named once in package.json.
+            # `--ignore-scripts` skips its pretest, which would build the two
+            # binaries from this tree that the whole point is to not use.
+            if APERIO_CLIENT_BIN="$client" APERIO_SERVER_BIN="$server" \
+                 npm --prefix tests/e2e run test:compat --ignore-scripts; then
+              result="✓"
+            else
+              result="✗"
+            fi
+            echo "::endgroup::"
+            echo "| \`$tag\` | $result |" >> "$GITHUB_STEP_SUMMARY"
+          done

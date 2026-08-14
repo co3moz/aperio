@@ -104,18 +104,6 @@ about compatibility, a way to install the thing, evidence that the release
 artifact is the one we built, and validation from someone other than our own
 test suite.
 
-- [ ] **#90 A post-release compatibility report over the real released
-  clients.** `#89` covers N-1 as a gate. This is the wider, non-blocking half:
-  after a release is published, fetch the `aperio-client` binaries of every
-  previous release from GitHub, run the e2e suite against the newly released
-  server once per client version, and publish the result as a table. The suite
-  has to take the client binary as a parameter for this to be possible, which
-  is the only real code in the entry. It must **not** fail the release: an
-  old client failing against a new server is information, not a regression,
-  and the point is to be able to say "0.11.0's server was tested against
-  clients 0.6 through 0.11, and these are the ones that worked" instead of
-  guessing.
-
 - [ ] **#92 Native packages and a service unit.** A release publishes tarballs
   and container images; installing on an ordinary Linux box means
   `install.sh` and then writing your own unit file. `.deb` and `.rpm` built in
@@ -599,6 +587,33 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#90 A post-release compatibility report over the real released
+  clients.** `#89` covers N-1 as a gate. This is the wider, non-blocking half:
+  after a release is published, pair the newly released server with the
+  `aperio-client` binary of every previous release and publish the result as a
+  table. It must **not** fail the release: an old client failing against a new
+  server is information, not a regression.
+  shipped: `.github/workflows/compat-report.yml`, on `release: published` and
+  on demand for a tag that already happened. It loops rather than using a
+  matrix, because each pairing is seconds of tests behind two minutes of
+  setup, and writes the table to the job summary. Both sides are downloaded
+  release binaries, so what is measured is the artifact people install rather
+  than a tree rebuilt with today's toolchain.
+  - Rehearsed locally over all 19 releases against the v0.9.0 server:
+    **every released client from v0.1.0 onward passes.**
+  - The entry said the suite taking the client binary as a parameter was the
+    only real code, and that part already existed. The real code turned out to
+    be **making a ✗ mean what it says.** Two of them did not. The oldest
+    clients failed because the suite sets `APERIO_TARGET` and `APERIO_HOSTNAME`,
+    short spellings that arrived in v0.1.1, so v0.1.0 ran with no backend and
+    no hostname and timed out looking exactly like a dead protocol. The suite
+    now also sets the spelling each one replaced (`lib/client.ts`,
+    `OLDER_SPELLING`). Separately, the slice asserted the tunnel protocol
+    version *this build* speaks, which is fine against this tree and would have
+    failed `#89`'s gate the day the protocol is bumped, reporting a suite
+    expectation as an incompatibility; against a binary from elsewhere it now
+    asks only that a version is reported.
 
 - [x] **#89 A written client/server compatibility promise, and a matrix that
   proves it.** The tunnel protocol reached v7 in a single cycle and `#46` would

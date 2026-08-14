@@ -31,6 +31,19 @@ export const SERVER_BIN = binary('aperio-server', process.env.APERIO_SERVER_BIN)
 export const CLIENT_BIN = binary('aperio-client', process.env.APERIO_CLIENT_BIN)
 
 /**
+ * True when a side is a binary from somewhere else, a released one under
+ * `npm run test:compat` rather than this tree's build.
+ *
+ * A test that pins a number this build happens to have (the tunnel protocol
+ * version it speaks, say) is asserting the tree, and against a foreign binary
+ * it asserts nothing useful: it fails the moment the two versions legitimately
+ * differ, and reports that as an incompatibility. Such a test asks the weaker
+ * question instead when these are set.
+ */
+export const FOREIGN_SERVER = !!process.env.APERIO_SERVER_BIN
+export const FOREIGN_CLIENT = !!process.env.APERIO_CLIENT_BIN
+
+/**
  * A port nothing is listening on.
  *
  * The bash suite pins every port (18100 for the server, 18101/2/8 for the
