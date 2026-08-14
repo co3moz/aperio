@@ -13,6 +13,10 @@ import { SERVER_BIN, waitFor } from '../../lib/env.js'
 const run = promisify(execFile)
 
 /** Runs the server binary in one of its report-and-exit modes. */
+/// Config files kept as they were written for an older Aperio, so the
+/// upgrade path is exercised against a real file rather than a synthetic one.
+const FIXTURES = join(import.meta.dirname, '..', '..', 'fixtures')
+
 async function serverCli(args: string[], env: Record<string, string> = {}) {
   try {
     const { stdout, stderr } = await run(SERVER_BIN, args, {
@@ -275,6 +279,54 @@ export class ServerCliSpec extends Test({ timeout: 90_000 }) {
     const quiet = await serverCli(['--check-config'], { APERIO_SERVER_CONFIG: none })
     assert.ok(quiet.ok)
     assert.match(quiet.out, /no `version:` declared/)
+  }
+
+  async anOldFileGetsExactlyTheNoticesItShould() {
+    // The compat mechanism is what lets somebody upgrade blind, and until this
+    // it was only ever tested against its own entries. This runs today's
+    // binary against a config file kept in the repository as an operator
+    // would have written it for 0.5.0 (planned_features #91).
+    const fixture = join(FIXTURES, 'aperio-server-0.5.0.yaml')
+    const res = await serverCli(['--check-config'], { APERIO_SERVER_CONFIG: fixture })
+    assert.ok(res.ok, res.out)
+
+    // The exact set, not "at least these". A new CONFIG_CHANGES entry that
+    // touches any key in that file changes what an upgrader is told, and this
+    // failing is the moment somebody looks at whether that is what they meant.
+    // A set, not a list: the report reaches both streams and the helper
+    // concatenates them, so counting occurrences would measure plumbing.
+    const notices = [
+      ...new Set(
+        [...res.out.matchAll(/\[(security|breaking|migration)\][^\n]*?\(since ([0-9.]+)\)/g)].map(
+          (m) => `${m[1]}@${m[2]}`,
+        ),
+      ),
+    ].sort()
+    assert.deepEqual(
+      notices,
+      ['breaking@0.8.0', 'migration@0.6.0', 'migration@0.9.0'],
+      `the notices a 0.5.0 file gets from this build changed:\n${res.out}`,
+    )
+
+    // An entry recorded for a version this build has not reached is dormant
+    // by design (it fires for the upgrade that ships it) and invisible here,
+    // which is exactly why a guessed version has to be corrected at release:
+    // it would otherwise never fire, or fire for the wrong upgrade.
+    assert.doesNotMatch(res.out, /since 0\.10\.0/)
+  }
+
+  async aSecurityRelevantChangeRefusesTheStartRatherThanWarning() {
+    // The half of the mechanism nothing exercised. `Security` means the file
+    // claims a protection it no longer gets, so a notice is not enough.
+    const fixture = join(FIXTURES, 'aperio-server-0.5.0-dashboard-auth.yaml')
+    const res = await serverCli(['--check-config'], { APERIO_SERVER_CONFIG: fixture })
+    assert.equal(res.ok, false, res.out)
+    // Named as the compat entry it is, and not merely "some refusal": the same
+    // key also has a hardcoded guard, and a test that accepted either would
+    // pass with the mechanism switched off entirely.
+    assert.match(res.out, /\[security\][^\n]*\(since 0\.6\.0\)/, res.out)
+    assert.match(res.out, /refusing to start/, res.out)
+    assert.match(res.out, /set `version: /, res.out)
   }
 
   async aRemovedSettingRefusesTheStartInEitherSpelling() {

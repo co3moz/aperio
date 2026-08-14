@@ -130,15 +130,6 @@ test suite.
   clients 0.6 through 0.11, and these are the ones that worked" instead of
   guessing.
 
-- [ ] **#91 An upgrade test that actually fires `CONFIG_CHANGES`.** The compat
-  mechanism in `aperio-config/src/compat.rs` is the thing that lets someone
-  upgrade blind, and it is currently only tested against its own entries. The
-  missing test is end to end: keep a config file as written for an old
-  version in the repository, start today's binary against it, and assert the
-  exact set of notices it produces, including that a `Security` entry refuses
-  to start. A mechanism whose whole job is to fire on a file nobody has tested
-  it against is a mechanism nobody has tested.
-
 - [ ] **#92 Native packages and a service unit.** A release publishes tarballs
   and container images; installing on an ordinary Linux box means
   `install.sh` and then writing your own unit file. `.deb` and `.rpm` built in
@@ -602,6 +593,28 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#91 An upgrade test that actually fires `CONFIG_CHANGES`.** shipped:
+  two config files kept in `tests/e2e/fixtures/` as an operator would have
+  written them for 0.5.0, and two phases that run today's binary against them.
+
+  The first asserts the **exact set** of notices a 0.5.0 server file draws from
+  this build, not "at least these". That is the point: a new entry touching
+  any key in that file changes what an upgrader is told, and the test failing
+  is the moment somebody looks at whether that is what they meant. The second
+  covers the half nothing exercised, that a `Security` entry **refuses the
+  start** rather than printing a notice, and it asserts on the entry's own
+  line rather than on any refusal, because the same key also has a hardcoded
+  guard and a looser test would pass with the mechanism switched off.
+
+  Two things it turned up immediately, which is the argument for having built
+  it. The `Security` refusal does reach the operator ahead of that hardcoded
+  guard, so the mechanism is not shadowed by it. And the entry added earlier
+  this cycle is **dormant**: its version is a guess above this build, so it
+  fires for nobody until the release it names exists. That is correct for an
+  unreleased change and it is exactly the shape rule 18 warns about, a guessed
+  version that silently never fires, so the test asserts its absence and says
+  why.
 
 - [x] **#106 Separate the visitor plane from the admin plane.** shipped, in
   two pieces, and both turned out to be security fixes rather than the

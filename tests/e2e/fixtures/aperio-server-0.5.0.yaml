@@ -1,0 +1,19 @@
+# A server file as an operator would have written it for Aperio 0.5.0, kept in
+# the repository so the compatibility mechanism is exercised against a real
+# file rather than only against its own entries (planned_features #91).
+#
+# Do not "tidy" this file. Its value is that it is *old*: every key here was
+# the current spelling once, and the notices today's binary produces for it are
+# what an operator upgrading from 0.5.0 actually sees. The test beside it
+# asserts the exact set, so adding a CONFIG_CHANGES entry that touches any of
+# these keys will fail until someone looks at what an upgrader is being told.
+version: 0.5.0
+
+server_token: e2e-upgrade-fixture-token-long-enough
+server_auth: "demo:secret123"
+
+# A setting whose home moved in 0.6.0.
+otel_endpoint: http://collector.example.com:4318
+
+# One of the settings the dashboard could override before 0.8.0.
+max_tunnels: 20
