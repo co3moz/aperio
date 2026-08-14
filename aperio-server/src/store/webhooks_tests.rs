@@ -410,3 +410,51 @@ fn the_default_retry_schedule_is_the_documented_one() {
   assert!(!schedule.is_empty());
   assert!(schedule.iter().all(|d| d.as_secs() >= 1));
 }
+
+/// A receiver that redirects everything it is asked to `target`.
+async fn redirecting_receiver(target: &str) -> std::net::SocketAddr {
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let addr = listener.local_addr().unwrap();
+  let target = target.to_string();
+  tokio::spawn(async move {
+    loop {
+      let Ok((mut socket, _)) = listener.accept().await else {
+        return;
+      };
+      let target = target.clone();
+      tokio::spawn(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut buf = [0u8; 4096];
+        let _ = socket.read(&mut buf).await;
+        let response = format!(
+          "HTTP/1.1 302 Found\r\nlocation: {target}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+        );
+        let _ = socket.write_all(response.as_bytes()).await;
+      });
+    }
+  });
+  addr
+}
+
+#[tokio::test]
+async fn a_redirect_does_not_carry_a_delivery_past_the_outbound_policy() {
+  // The policy is checked against the URL that was stored, at the moment of
+  // delivery. If the transport then follows a `Location`, the destination the
+  // policy actually vetted is not the destination that gets the request, and
+  // an allowed receiver can point the server at anything: the metadata
+  // service, something on the loopback, whatever the fence exists to refuse.
+  RECEIVED.lock().unwrap().clear();
+  let internal = canned_receiver(200).await;
+  let redirector = redirecting_receiver(&format!("http://{internal}/internal")).await;
+
+  let status = send_once(&hook_to(redirector, None), "{}").await;
+
+  // The redirect itself is the answer, and the place it pointed at was never
+  // asked. Following it would report 200 here and leave a request in the log
+  // of a host nobody vetted.
+  assert_eq!(status, Ok(302), "the redirect must not be followed");
+  assert!(
+    RECEIVED.lock().unwrap().is_empty(),
+    "the redirect target received a request"
+  );
+}

@@ -215,3 +215,55 @@ const TWO_KEYS: &str = r#"{"keys":[
   {"kty":"oct","kid":"k1","k":"c2VjcmV0"},
   {"kty":"oct","kid":"k2","k":"c2VjcmV0Mg"}
 ]}"#;
+
+#[tokio::test]
+async fn a_key_set_url_cannot_redirect_the_server_past_the_outbound_policy() {
+  // The policy vets the URL in the file. If a `Location` were followed, the
+  // destination it vetted would not be the destination that gets the request,
+  // and an issuer, or anyone able to answer as one, could point the server at
+  // whatever the fence exists to refuse.
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = listener.local_addr().unwrap().port();
+  let reached = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+  let reached_task = reached.clone();
+  tokio::spawn(async move {
+    loop {
+      let Ok((mut sock, _)) = listener.accept().await else {
+        return;
+      };
+      let reached = reached_task.clone();
+      tokio::spawn(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut buf = [0u8; 4096];
+        let n = sock.read(&mut buf).await.unwrap_or(0);
+        let head = String::from_utf8_lossy(&buf[..n]).to_string();
+        let out = if head.contains("/moved") {
+          reached.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+          let body = r#"{"keys":[]}"#;
+          format!(
+            "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+          )
+        } else {
+          "HTTP/1.1 302 Found\r\nlocation: /moved\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+            .to_string()
+        };
+        let _ = sock.write_all(out.as_bytes()).await;
+      });
+    }
+  });
+
+  let state = test_state();
+  let cfg = JwtConfig {
+    jwks_url: Some(format!("http://127.0.0.1:{port}/keys.json")),
+    hmac_secret: None,
+    ..hmac_config()
+  };
+  let t = token(serde_json::json!({"sub": "u", "exp": at(600)}));
+  assert!(verify(&state, &cfg, &t).await.is_none());
+  assert_eq!(
+    reached.load(std::sync::atomic::Ordering::SeqCst),
+    0,
+    "the redirect target was fetched"
+  );
+}

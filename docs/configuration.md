@@ -509,7 +509,7 @@ auth:
 
 One `jwt` method subsumes a shelf of provider integrations: Cloudflare Access, an ALB doing OIDC, and anyone running their own auth service all hand out the same thing. That is the argument for it over anything vendor-shaped.
 
-Two ways of knowing who signed a token, and exactly one of them per method: `jwks_url:`, the issuer's public keys, fetched and cached for an hour and re-fetched when a token names a key id that is not in the cache (which is what a key rotation looks like from here, so rotation needs no restart); or `hmac_secret:` for `HS256`, when the issuer is your own service. The key-set URL goes through the server's [outbound policy](threat-model.md) like any other destination the server is told to call.
+Two ways of knowing who signed a token, and exactly one of them per method: `jwks_url:`, the issuer's public keys, fetched and cached for an hour and re-fetched when a token names a key id that is not in the cache (which is what a key rotation looks like from here, so rotation needs no restart); or `hmac_secret:` for `HS256`, when the issuer is your own service. The key-set URL goes through the server's [outbound policy](threat-model.md) like any other destination the server is told to call, and no redirect from it is followed: the policy vets the URL in the file, and a `Location` would mean the address it vetted is not the address that gets the request.
 
 **`iss` and `aud` are only checked when the file asks, and asking means the claim must be present.** An unset `audience:` is not "accept any audience", and a configured one refuses a token that carries none, which is exactly the token the requirement was written to keep out. `exp` is required whatever the file says: a token with no expiry is one that never stops working.
 

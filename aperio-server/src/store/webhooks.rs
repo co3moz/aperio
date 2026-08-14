@@ -304,8 +304,17 @@ async fn send_once(hook: &Webhook, body: &str) -> Result<u16, String> {
   // Fail rather than fall back to a default client: the default has no
   // timeout at all, so a receiver that accepts the connection and never
   // answers would hang this delivery task forever.
+  //
+  // **Redirects are not followed.** The outbound policy is checked against
+  // the URL that was stored, and following a `Location` would mean the
+  // destination it vetted is not the destination that gets the request: an
+  // allowed receiver could answer `302` and point the server at the metadata
+  // service, at something on the loopback, at whatever the fence exists to
+  // refuse. A redirect is reported as the status it is, which is also more
+  // useful to whoever configured a webhook against a URL that moved.
   let client = reqwest::Client::builder()
     .timeout(std::time::Duration::from_secs(10))
+    .redirect(reqwest::redirect::Policy::none())
     .build()
     .map_err(|e| format!("cannot build the http client: {e}"))?;
   let mut req = client

@@ -227,6 +227,11 @@ async fn fetch(state: &AppState, url: &str) -> Option<Arc<JwkSet>> {
   // request path is the one thing this must not be.
   let http = reqwest::Client::builder()
     .timeout(Duration::from_secs(10))
+    // Not followed, for the reason the policy check above exists: a key-set
+    // URL that passes the fence must not be able to hand the server a
+    // `Location` pointing behind it. An issuer that genuinely moved its keys
+    // should say so in its configuration.
+    .redirect(reqwest::redirect::Policy::none())
     .build()
     .inspect_err(|e| tracing::error!("Could not build the key-set HTTP client: {e}"))
     .ok()?;

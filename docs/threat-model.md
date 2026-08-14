@@ -112,6 +112,13 @@ deployments point webhooks at a service on the same network. Controls:
 - `APERIO_OUTBOUND_BLOCK_PRIVATE` is the weaker form for deployments that
   cannot enumerate their receivers: refuse destinations that are, or resolve
   to, internal addresses.
+- **No redirects are followed on any of these calls.** The policy vets the URL
+  that was configured, so following a `Location` would mean the destination it
+  vetted is not the destination that receives the request: an allowed receiver
+  could answer `302` and aim the server wherever the fence exists to refuse.
+  This covers webhook deliveries, autoscaling hooks, and the key-set fetch a
+  `jwt` visitor-auth method makes. A redirect is reported as the status it is,
+  which is also what tells an operator their receiver has moved.
 
 Both default to off, so this boundary is only as tight as the operator makes
 it. Tighten it wherever webhook creators are not fully trusted, which in
