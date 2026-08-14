@@ -96,6 +96,7 @@ fn test_spec(ws_url: &str, target: &str) -> ServiceSpec {
     health_threshold: 1,
     public: false,
     visitor_auth: None,
+    visitor_auth_policy: None,
     allowed_ips: Vec::new(),
     tunnels: Vec::new(),
     headers: None,

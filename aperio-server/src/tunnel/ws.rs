@@ -12,6 +12,29 @@ use futures_util::{sink::SinkExt, stream::StreamExt};
 /// that just connected. The client sizes its fan of connections from it, so
 /// the number lives on the server where the resource is.
 pub(crate) const MAX_CONNECTIONS_HEADER: &str = "x-aperio-max-connections";
+
+/// The visitor-auth methods a client may declare, announced on the handshake
+/// response (`planned_features.md` #111).
+///
+/// It is announced *here*, on the upgrade response, rather than in the `Pong`,
+/// and that placement is the whole safety of the feature. A client reads it
+/// before it has sent anything, so a client whose `auth:` needs a method this
+/// server does not know can leave without ever declaring a service. On a
+/// server too old to send the header at all there is nothing to read, which
+/// is the same answer: an absent header means "assume only the two that
+/// always travelled". Negotiated rather than assumed, which is what rule 23
+/// asks for, and the alternative, sending a rich policy to a server that
+/// silently ignores it, would bring the route up with no gate at all.
+pub(crate) const VISITOR_AUTH_METHODS_HEADER: &str = "x-aperio-visitor-auth-methods";
+
+/// The methods a *client* may declare, which is not the whole set.
+///
+/// `forward` is deliberately absent. The URL would be called by the server,
+/// from the server's network, so a client writing `localhost:7070` would mean
+/// the server's localhost and not its own: a footgun whose safe version
+/// carries the check over the tunnel, and that is a feature rather than a
+/// field (#111).
+pub(crate) const CLIENT_DECLARABLE_METHODS: &[&str] = &["none", "basic", "bearer", "jwt"];
 /// Other servers a client may fall back to (planned_features #52),
 /// comma-separated.
 pub(crate) const ALTERNATE_SERVERS_HEADER: &str = "x-aperio-alternate-servers";
@@ -204,6 +227,11 @@ pub(crate) async fn ws_handler(
     });
   if let Ok(value) = axum::http::HeaderValue::from_str(&ceiling.to_string()) {
     response.headers_mut().insert(MAX_CONNECTIONS_HEADER, value);
+  }
+  if let Ok(value) = axum::http::HeaderValue::from_str(&CLIENT_DECLARABLE_METHODS.join(",")) {
+    response
+      .headers_mut()
+      .insert(VISITOR_AUTH_METHODS_HEADER, value);
   }
   // Announced on every handshake rather than once: a migration is set up by
   // editing this server, and a client that reconnects should pick up the new
@@ -1069,6 +1097,7 @@ impl ConnCtx {
     let TunnelMessage::Ping {
       client_id: cid,
       timestamp,
+      visitor_auth_methods,
       path_bind,
       hostname_bind,
       hostname_binds,
@@ -1414,6 +1443,43 @@ impl ConnCtx {
           }
           other => other,
         };
+        // The full policy, when the client sent one. Same permission as the
+        // scalar and as `public`, and the same silent-drop rule: a method
+        // this build does not know, or one a client has no business
+        // declaring, is dropped rather than guessed at, and the methods
+        // beside it stay in force.
+        let declared_policy = visitor_auth_methods.as_ref().and_then(|specs| {
+          if !handle.perms.allow_public {
+            return None;
+          }
+          let usable: Vec<aperio_config::AuthMethodSpec> = specs
+            .iter()
+            .filter(|spec| {
+              CLIENT_DECLARABLE_METHODS.contains(&spec.method.trim().to_ascii_lowercase().as_str())
+            })
+            .cloned()
+            .collect();
+          if usable.len() != specs.len() && !handle.visitor_auth_denied_warned {
+            handle.visitor_auth_denied_warned = true;
+            warn!(
+              "Client {} declared a visitor-auth method this server does not accept from a client; ignoring it",
+              client_id
+            );
+          }
+          (!usable.is_empty())
+            .then(|| crate::visitor_auth::Policy::compile(&aperio_config::AuthSetting::Any(usable)))
+            .filter(|p| p.gates() || p.admits_everyone())
+        });
+        if handle.visitor_auth_policy != declared_policy {
+          if let Some(ref p) = declared_policy {
+            info!(
+              "Client {} gates its service with method(s): {}",
+              client_id,
+              p.method_names().join(", ")
+            );
+          }
+          handle.visitor_auth_policy = declared_policy;
+        }
         if handle.visitor_auth != effective_auth {
           let now_set = effective_auth.is_some();
           handle.visitor_auth = effective_auth;
@@ -2259,6 +2325,7 @@ pub(crate) async fn handle_socket(
         public: false,
         public_denied_warned: false,
         visitor_auth: None,
+        visitor_auth_policy: None,
         visitor_auth_denied_warned: false,
         ungated_warned: false,
         allowed_ips: Vec::new(),

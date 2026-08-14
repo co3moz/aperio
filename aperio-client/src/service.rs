@@ -421,6 +421,10 @@ pub(crate) struct ServiceSpec {
   /// Per-service visitor login (`user:password`) the server should gate this
   /// service behind, overriding its own APERIO_SERVER_AUTH (None = no override).
   pub(crate) visitor_auth: Option<String>,
+  /// The full `auth:` policy for this service, when it says more than the
+  /// scalar above can carry. Announced only to a server that said it
+  /// understands the methods in it (`planned_features.md` #111).
+  pub(crate) visitor_auth_policy: Option<aperio_config::AuthSetting>,
   /// Visitor IPs/CIDRs allowed to reach this service (empty = everyone);
   /// announced via Ping and enforced by the server before dispatch.
   pub(crate) allowed_ips: Vec<String>,
@@ -1154,6 +1158,10 @@ pub(crate) async fn run_service(
   // grows at runtime and a config reload rebuilds the spec, which is the right
   // moment to forget what was learned.
   let mut ws_urls: Vec<String> = spec.ws_urls.clone();
+  // Cloned once for the whole reconnect loop: the policy is what the file
+  // said, and each connection decides separately whether this server accepts
+  // it (planned_features #111).
+  let visitor_auth_policy_ping = spec.visitor_auth_policy.clone();
   // Self-reported health for this connection: the ping task fills it in, the
   // read loop times the pongs, and the reconnect counter lives across
   // attempts, which is the point of it.
@@ -1239,6 +1247,67 @@ pub(crate) async fn run_service(
             // a one-way door: a client that failed over keeps coming back to
             // try the primary, and a server that was briefly restarting gets
             // its clients back on the next pass.
+            // What this server accepts as a client-declared visitor gate
+            // (planned_features #111). Read here, from the handshake
+            // response, because it is the only moment where the answer is
+            // known and nothing has been declared yet: a server too old to
+            // send the header sends nothing, which reads as "only the two
+            // that always travelled", and a policy needing more than that
+            // must not be announced to it. A server that ignored a rich
+            // policy would read this client as declaring no gate at all, and
+            // the route would come up open.
+            let server_methods: Vec<String> = response
+              .headers()
+              .get("x-aperio-visitor-auth-methods")
+              .and_then(|v| v.to_str().ok())
+              .map(|v| {
+                v.split(',')
+                  .map(|m| m.trim().to_ascii_lowercase())
+                  .filter(|m| !m.is_empty())
+                  .collect()
+              })
+              .unwrap_or_else(|| vec!["none".to_string(), "basic".to_string()]);
+            let declared_methods: Vec<String> = visitor_auth_policy_ping
+              .as_ref()
+              .map(|p| {
+                p.methods()
+                  .iter()
+                  .map(|m| m.method.trim().to_ascii_lowercase())
+                  .collect()
+              })
+              .unwrap_or_default();
+            let unsupported: Vec<&String> = declared_methods
+              .iter()
+              .filter(|m| !server_methods.contains(m))
+              .collect();
+            if !unsupported.is_empty() {
+              // Refusing the connection is the only safe answer: this client
+              // cannot serve the route under the gate that was written, and
+              // staying connected without one would be worse than being
+              // absent. Only this service stops; its siblings are untouched.
+              error!(
+                "[{}] This server does not accept `{}` as a client-declared visitor gate (it accepts: {}). Not serving this service: upgrade the server, or write a gate it understands. Retrying.",
+                label,
+                unsupported
+                  .iter()
+                  .map(|m| m.as_str())
+                  .collect::<Vec<_>>()
+                  .join(", "),
+                server_methods.join(", ")
+              );
+              continue;
+            }
+            // Sent only where the scalar cannot carry the policy: an older
+            // server keeps gating on the scalar exactly as it did.
+            let visitor_auth_methods_ping = visitor_auth_policy_ping
+              .as_ref()
+              .filter(|p| p.as_single_credential().is_none())
+              .filter(|p| {
+                !p.methods()
+                  .iter()
+                  .all(|m| m.method.trim().eq_ignore_ascii_case("none"))
+              })
+              .map(|p| p.methods());
             if let Some(learned) = response
               .headers()
               .get("x-aperio-alternate-servers")
@@ -1494,6 +1563,7 @@ pub(crate) async fn run_service(
                   service_custom_name: service_custom_name_ping.clone(),
                   public,
                   visitor_auth: visitor_auth_ping.clone(),
+                  visitor_auth_methods: visitor_auth_methods_ping.clone(),
                   allowed_ips: allowed_ips_ping.clone(),
                   tunnels: tunnels_ping.clone(),
                   cache,

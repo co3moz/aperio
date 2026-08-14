@@ -706,6 +706,50 @@ pub(crate) async fn route_visitor_auth(
   creds.map(str::to_string)
 }
 
+/// The full visitor-auth policy the clients of this route declare, when they
+/// all declare the same one (`planned_features.md` #111).
+///
+/// Same unanimity rule as [`route_visitor_auth`], and for the same reason: a
+/// request must never be gated by, or slip past, a policy that only some
+/// members of the pool set. A mixed pool falls back to the server's own gate,
+/// which is the strictest thing that can be said about a route nobody agrees
+/// on.
+pub(crate) async fn route_visitor_policy(
+  state: &AppState,
+  uri_path: &str,
+  request_host: Option<&str>,
+) -> Option<crate::visitor_auth::Policy> {
+  if state.config().ignore_client_auth {
+    return None;
+  }
+  if request_path_has_traversal(uri_path) {
+    return None;
+  }
+  let clients = state.clients.read().await;
+  let (pool, _) = select_client_pool(
+    &clients,
+    uri_path,
+    request_host,
+    state.config().require_hostname_bind,
+    state.config().client_down_threshold,
+  )?;
+  if pool.is_empty() {
+    return None;
+  }
+  let mut policy: Option<&crate::visitor_auth::Policy> = None;
+  for id in &pool {
+    match clients.get(id).and_then(|c| c.visitor_auth_policy.as_ref()) {
+      Some(p) => match policy {
+        None => policy = Some(p),
+        Some(existing) if existing == p => {}
+        Some(_) => return None,
+      },
+      None => return None,
+    }
+  }
+  policy.cloned()
+}
+
 /// True when any connected client that could serve this host declares a
 /// per-service visitor password. Used for traversal paths, where the matched
 /// path scope cannot be trusted: the gate must assume the strictest override

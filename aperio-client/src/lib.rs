@@ -886,6 +886,10 @@ async fn serve_port(
 /// `method: none` is the deliberate open gate, which the handshake already
 /// spells as `public`, so it resolves to that and inherits its token
 /// permission rather than becoming a second way to say the same thing.
+///
+/// A policy the scalar cannot carry is no longer refused here: it travels as
+/// the full policy, and whether the server on the other end understands it is
+/// a question only the handshake can answer (#111).
 fn resolve_visitor_gate(
   label: &str,
   policy: Option<&aperio_config::AuthSetting>,
@@ -902,13 +906,11 @@ fn resolve_visitor_gate(
   {
     return Ok((true, None));
   }
-  match policy.as_single_credential() {
-    Some(creds) => Ok((public, Some(creds.to_string()))),
-    None => Err(format!(
-      "{label}: this build can announce one `basic` credential to the server and nothing \
-       further, so `auth:` here says more than the tunnel handshake can carry"
-    )),
-  }
+  // Anything richer travels as the full policy, and whether it may travel at
+  // all is settled per connection against what the server announced
+  // (planned_features #111), not here: this function knows the file, and only
+  // the handshake knows the server.
+  Ok((public, policy.as_single_credential().map(str::to_string)))
 }
 
 /// Validates the resolved settings and builds the runnable service specs.
@@ -1210,6 +1212,7 @@ fn build_specs(
       health_threshold: settings.health_threshold,
       public: top_public,
       visitor_auth: top_visitor_auth,
+      visitor_auth_policy: settings.visitor_auth.clone(),
       allowed_ips: settings.allowed_ips.clone(),
       resilience: settings.resilience,
       capture: settings.capture,
@@ -1389,6 +1392,7 @@ fn build_specs(
           .max(1),
         public: entry_public,
         visitor_auth: entry_visitor_auth,
+        visitor_auth_policy: entry.auth.clone().or_else(|| settings.visitor_auth.clone()),
         allowed_ips: entry
           .allowed_ips
           .clone()

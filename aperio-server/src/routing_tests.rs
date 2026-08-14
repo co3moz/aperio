@@ -60,6 +60,7 @@ fn base_handle() -> ClientHandle {
     public: false,
     public_denied_warned: false,
     visitor_auth: None,
+    visitor_auth_policy: None,
     visitor_auth_denied_warned: false,
     ungated_warned: false,
     allowed_ips: Vec::new(),

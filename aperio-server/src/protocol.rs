@@ -424,6 +424,17 @@ pub enum TunnelMessage {
     /// APERIO_IGNORE_CLIENT_AUTH. None = no override.
     #[serde(default)]
     visitor_auth: Option<String>,
+    /// The client's full visitor-auth policy, when it says more than the one
+    /// `user:password` above can carry (`planned_features.md` #111).
+    ///
+    /// Sent only to a server that announced it understands the methods in it,
+    /// on the handshake response: a server that ignored this field would read
+    /// the client as declaring no gate at all, and the route would come up
+    /// open. The scalar above is still sent alongside whenever the policy
+    /// happens to be expressible as one, so an older server keeps gating
+    /// exactly as it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    visitor_auth_methods: Option<Vec<aperio_config::AuthMethodSpec>>,
     /// Visitor IPs/CIDRs allowed to reach this service (empty = everyone).
     /// Enforced against every visitor request before dispatch.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

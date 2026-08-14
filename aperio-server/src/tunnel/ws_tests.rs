@@ -156,6 +156,7 @@ fn base_ping() -> TunnelMessage {
     service: None,
     public: false,
     visitor_auth: None,
+    visitor_auth_methods: None,
     allowed_ips: Vec::new(),
     tunnels: Vec::new(),
     cache: false,

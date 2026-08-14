@@ -1170,6 +1170,10 @@ pub(crate) struct ClientHandle {
   pub(crate) allowed_ips: Vec<String>,
   /// Ensures the "visitor_auth requested but not permitted/invalid" warning
   /// logs once per connection.
+  /// The client's full visitor-auth policy, when it declared one that the
+  /// single `user:password` above cannot carry (`planned_features.md` #111).
+  /// `None` means the scalar is the whole of what it said.
+  pub(crate) visitor_auth_policy: Option<crate::visitor_auth::Policy>,
   pub(crate) visitor_auth_denied_warned: bool,
   /// Ensures the "nothing gates this service" warning fires once per client
   /// connection rather than on every heartbeat. It is the nudge before the

@@ -179,7 +179,11 @@ export class PublicServiceSpec extends Test({
 
   async theProtectedHostnameKeepsItsGate() {
     const res = await this.server._fetch('/hello', { host: HOST })
-    assert.match(res.headers['location'] ?? '', /\/aperio\/auth/)
+    assert.match(
+      res.headers['location'] ?? '',
+      /\/aperio\/auth/,
+      `status ${res.status} body ${res.body.slice(0, 200)}`,
+    )
   }
 
   async aTokenWithoutAllowPublicCannotOpenAService() {
@@ -713,5 +717,121 @@ export class ForwardMethodSpec extends Test({
     })
     assert.equal(res.status, 302)
     assert.equal(res.headers['location'], 'https://sso.e2e.local/start')
+  }
+}
+
+const DECLARED_SECRET = '0123456789abcdef-client-declared'
+const DECLARED_HOST = 'declared-gate.e2e.local'
+
+/** Its own server: the polling below would otherwise drain the shared one's
+ *  per-IP bucket and fail whatever test ran next. */
+export class DeclaredGateServer extends AperioServerBase({
+  env: { APERIO_SERVER_AUTH: 'demo:secret123' },
+}) {}
+
+export class DeclaredGateBackend extends StandardBackendBase() {}
+
+class DeclaredGateClient extends ClientFor(
+  () => DeclaredGateServer,
+  () => DeclaredGateBackend,
+) {}
+
+/** A client whose own `auth:` is a method the scalar cannot carry. */
+export class RichGateClient extends DeclaredGateClient {
+  _autoStart() {
+    return false
+  }
+  _hostname() {
+    return ''
+  }
+  _config() {
+    return [
+      'server:',
+      `  url: ${this.server._url}`,
+      `  token: ${this.server._token}`,
+      'services:',
+      '  - name: declared_bearer',
+      `    target: ${this._backendUrl()}`,
+      `    hostname: ${DECLARED_HOST}`,
+      '    auth:',
+      '      method: bearer',
+      `      secret: "${DECLARED_SECRET}"`,
+      '',
+    ].join('\n')
+  }
+}
+
+/** A client declaring a method a client has no business declaring. */
+export class ForwardDeclaringClient extends DeclaredGateClient {
+  _autoStart() {
+    return false
+  }
+  _hostname() {
+    return ''
+  }
+  _config() {
+    return [
+      'server:',
+      `  url: ${this.server._url}`,
+      `  token: ${this.server._token}`,
+      'services:',
+      '  - name: declared_forward',
+      `    target: ${this._backendUrl()}`,
+      '    hostname: declared-forward.e2e.local',
+      '    auth:',
+      '      method: forward',
+      '      url: http://127.0.0.1:9/_authcheck',
+      '',
+    ].join('\n')
+  }
+}
+
+export class ClientDeclaredGateSpec extends Test({
+  timeout: 90_000,
+  dependencies: {
+    server: () => DeclaredGateServer,
+    backend: () => DeclaredGateBackend,
+    rich: () => RichGateClient,
+    forwarding: () => ForwardDeclaringClient,
+  },
+}) {
+  async before() {
+    await this.rich._start()
+  }
+
+  async aClientCanDeclareAGateTheScalarCannotCarry() {
+    // The whole point: `bearer` travels now, because the server said on the
+    // handshake that it understands it.
+    await waitFor(
+      async () => {
+        const res = await this.server._fetch('/hello', {
+          host: DECLARED_HOST,
+          headers: { authorization: `Bearer ${DECLARED_SECRET}` },
+        })
+        return res.body === `backend ${this.backend._port} GET /hello`
+      },
+      { label: "the client's own bearer gate to admit" },
+    )
+  }
+
+  async andItGatesEverythingElse() {
+    const res = await this.server._fetch('/hello', { host: DECLARED_HOST })
+    assert.equal(res.status, 401)
+    assert.equal(res.headers['www-authenticate'], 'Bearer')
+    // The server's own password does not open a client-declared gate, which
+    // is the rule the scalar spelling already followed.
+    const wrong = await this.server._fetch('/hello', {
+      host: DECLARED_HOST,
+      headers: { authorization: 'Bearer not-the-secret-here-at-all' },
+    })
+    assert.equal(wrong.status, 401)
+  }
+
+  async aMethodAClientMayNotDeclareIsRefusedByTheServer() {
+    // `forward` would have the *server* call the URL, from the server's
+    // network, so a client writing localhost would mean the server's. The
+    // server does not announce it, so the client will not send it.
+    await this.forwarding._start().catch(() => {})
+    await this.forwarding._waitForLog('does not accept `forward`')
   }
 }

@@ -437,9 +437,9 @@ The list is **any-of**: a visitor is admitted by the first method that admits th
 | --- | --- |
 | `none` | Deliberately open. The long spelling of `public: true` on a client, and it needs the same token permission. |
 | `basic` | A `user:password` login. `users:` takes one credential or a list of them, all alternatives on the same gate. |
-| `forward` | Ask an endpoint you run about each request: `2xx` admits it, anything else refuses it and the endpoint's own answer is what the visitor gets. The escape hatch that lets the set stay closed. |
-| `jwt` | A token the visitor already holds, verified against keys the issuer publishes (`jwks_url:`) or a shared secret (`hmac_secret:`). No round trip per request, which is the operational difference from a future `forward`. Server-side only, like `bearer`. |
-| `bearer` | An opaque secret presented as `Authorization: Bearer <secret>`. `secret:` takes one or a list, so a key can be rotated by adding the new one before withdrawing the old. Server-side only for now: the tunnel handshake carries a client's gate as one `user:password`, so a client declaring `bearer` refuses to start rather than announcing a weaker gate. |
+| `forward` | **Server-side only.** Ask an endpoint you run about each request: `2xx` admits it, anything else refuses it and the endpoint's own answer is what the visitor gets. The escape hatch that lets the set stay closed. |
+| `jwt` | A token the visitor already holds, verified against keys the issuer publishes (`jwks_url:`) or a shared secret (`hmac_secret:`). No round trip per request, which is the operational difference from `forward`. |
+| `bearer` | An opaque secret presented as `Authorization: Bearer <secret>`. `secret:` takes one or a list, so a key can be rotated by adding the new one before withdrawing the old. |
 
 `oidc` on this plane is still its own piece of work. The set is closed on purpose rather than being a plugin interface, and `forward` is what lets it stay closed: anything deliberately left out (LDAP, SAML, a rule nobody anticipated) is thirty lines behind that URL, in a process that is not Aperio's, with a contract that is two HTTP messages rather than an ABI. A `method:` this build does not know **refuses the start** and names the ones it does, so a gate is never silently absent.
 
@@ -508,7 +508,9 @@ A `bearer` secret is compared verbatim rather than hashed, unlike a `basic` pass
 
 The scalar keeps working everywhere it worked, and it is still what `APERIO_SERVER_AUTH`, `APERIO_VISITOR_AUTH`, `--visitor-auth` and the dashboard's visitor-password field carry, since those surfaces are single values. A policy written in the file that a single credential cannot express (several users, or `method: none`) shows as empty in that field; `GET /aperio/api/settings` carries `visitor_auth_methods` beside it so what is actually in force is still readable.
 
-A client refuses to start when its `auth:` says more than the tunnel handshake can carry, rather than announcing a weaker gate than the one written.
+**A client may declare `none`, `basic`, `bearer` and `jwt`; `forward` is server-side only.** A `forward` URL would be called by the *server*, from the server's network, so a client writing `localhost:7070` would mean the server's localhost and not its own.
+
+Which of those actually travel is negotiated on the handshake rather than assumed: the server announces the methods it accepts from a client on the upgrade response, and a client whose `auth:` needs one that is missing **does not serve that service**, saying which side is too old and retrying, instead of connecting under a gate the server was never told about. A server too old to send the announcement sends nothing, which reads as "only `none` and `basic`", the two that always travelled. This matters because a server that silently ignored a policy it did not understand would read the client as declaring no gate at all, and the route would come up open. Only that one service stops; its siblings are untouched.
 
 #### Telling the backend who came in
 

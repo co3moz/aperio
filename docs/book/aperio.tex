@@ -1702,9 +1702,7 @@ line already written. Two methods exist today:
   \item[\code{bearer}] An opaque secret presented as
         \code{Authorization: Bearer <secret>}. \code{secret:} takes one
         or a list, so a key rotates by adding the new one before
-        withdrawing the old. Server-side for now: the handshake carries a
-        client's gate as one \code{user:password}, so a client declaring
-        it refuses to start rather than announcing something weaker.
+        withdrawing the old.
 \end{description}
 
 \subsection{The shape of a refusal}
@@ -1839,9 +1837,23 @@ The scalar keeps working wherever it worked, and it is still what
 since each of those is a single value. A policy the scalar cannot express
 shows as empty there, so \code{GET /aperio/api/settings} reports
 \code{visitor\_auth\_methods} beside it and what is in force stays
-readable. On the client side a policy saying more than the tunnel
-handshake can carry refuses the start, rather than announcing a gate
-weaker than the one written.
+readable. A client may declare \code{none}, \code{basic}, \code{bearer} and
+\code{jwt}; \code{forward} is server-side only, since its URL would be
+called by the \emph{server}, from the server's network, so a client
+writing \code{localhost:7070} would mean the server's localhost rather
+than its own.
+
+Which of those actually travel is negotiated on the handshake rather
+than assumed. The server announces the methods it accepts from a client
+on the upgrade response, and a client whose \code{auth:} needs one that
+is missing \textbf{does not serve that service}: it says which side is
+too old and retries, rather than connecting under a gate the server was
+never told about. A server too old to send the announcement sends
+nothing, which reads as the two methods that always travelled. This is
+the case rule 23 exists for: a server that silently ignored a policy it
+did not understand would read the client as declaring no gate at all,
+and the route would come up open. Only the one service stops, its
+siblings are untouched.
 
 \subsection{Telling the backend who came in}
 

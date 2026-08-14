@@ -565,7 +565,58 @@ pub(crate) async fn check_visitor_gate(
     return VisitorGate::Deny(login_redirect(login_path, &uri.to_string()));
   }
 
-  // 1. Client-declared per-service visitor password override.
+  // 1a. A client-declared policy richer than a password: the same methods
+  // the server's own gate has, evaluated by the same code, because a gate
+  // written on the client and a gate written on the server are one grammar
+  // (#105) and would otherwise be two implementations of it (#111).
+  if let Some(declared) = crate::routing::route_visitor_policy(state, path, host).await {
+    if declared.admits_everyone() {
+      return VisitorGate::Allow(None);
+    }
+    if validate_session_for_host(state, headers, host).await {
+      return VisitorGate::Allow(session_identity(state, headers).await);
+    }
+    if let Some(presented) = presented_secret(headers, uri, &declared)
+      && declared.admits_bearer(&presented.value, presented.from_query)
+    {
+      return VisitorGate::Allow(Some(VisitorIdentity {
+        how: "bearer",
+        who: None,
+        extra_headers: Vec::new(),
+        consumed_authorization: !presented.from_query,
+      }));
+    }
+    for cfg in declared.jwt_methods() {
+      let Some(token) = jwt_token_from_request(headers, cfg) else {
+        continue;
+      };
+      if let Some(verified) = crate::jwt::verify(state, cfg, &token).await {
+        return VisitorGate::Allow(Some(VisitorIdentity {
+          how: "jwt",
+          who: verified.who,
+          extra_headers: Vec::new(),
+          consumed_authorization: cfg.cookie.is_none(),
+        }));
+      }
+    }
+    return match check_share_access(state, headers, uri, host) {
+      Some(Some(redirect)) => VisitorGate::Deny(redirect),
+      Some(None) => VisitorGate::Allow(Some(VisitorIdentity {
+        how: "share",
+        who: None,
+        extra_headers: Vec::new(),
+        consumed_authorization: false,
+      })),
+      None => VisitorGate::Deny(refuse_visitor(
+        &declared,
+        navigation,
+        "/aperio/auth",
+        &uri.to_string(),
+      )),
+    };
+  }
+
+  // 1b. Client-declared per-service visitor password override.
   if crate::routing::route_visitor_auth(state, path, host)
     .await
     .is_some()
