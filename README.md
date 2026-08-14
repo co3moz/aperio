@@ -45,6 +45,12 @@ curl -sSf https://raw.githubusercontent.com/co3moz/aperio/master/install.sh | sh
 aperio-client 3000 --server-url https://tunnel.example.com --server-token apr_xxxx
 ```
 
+With Homebrew, or Scoop on Windows:
+
+```bash
+brew install --formula https://github.com/co3moz/aperio/releases/latest/download/aperio-client.rb
+```
+
 On an ordinary Linux box, a package with a hardened service unit:
 
 ```bash

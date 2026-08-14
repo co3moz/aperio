@@ -415,6 +415,48 @@ jobs:
           fi
           ls -R dist-pkg
 
+      # Homebrew formulae and Scoop manifests (planned_features #93), rendered
+      # from the assets that were just downloaded. They are attached to the
+      # release, which is what makes them usable with no tap and no bucket:
+      #
+      #   brew install --formula https://github.com/co3moz/aperio/releases/latest/download/aperio-client.rb
+      #   scoop install https://github.com/co3moz/aperio/releases/latest/download/aperio-client.json
+      #
+      # Rendered before the checksum step on purpose, so they end up in
+      # SHA256SUMS and under the same signature as everything else.
+      - name: Render the Homebrew formulae and Scoop manifests
+        run: |
+          packaging/render-manifests.sh "${GITHUB_REF_NAME#v}" dist-pkg dist-pkg
+          cat dist-pkg/aperio-client.rb
+
+      # The tap is a second repository, so this is the one step that cannot be
+      # self-contained. It is skipped, with a notice rather than a failure,
+      # when no token is configured: a release must not fail because an
+      # optional distribution channel is not set up.
+      - name: Publish the formulae to the tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAP_TOKEN:-}" ] || [ -z "${TAP_REPO:-}" ]; then
+            echo "::notice::No HOMEBREW_TAP_TOKEN secret or HOMEBREW_TAP_REPO variable; skipping the tap. The formulae are attached to the release either way."
+            exit 0
+          fi
+          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/${TAP_REPO}.git" tap
+          mkdir -p tap/Formula
+          cp dist-pkg/aperio-client.rb dist-pkg/aperio-server.rb tap/Formula/
+          cd tap
+          git config user.name "aperio release"
+          git config user.email "noreply@github.com"
+          git add Formula
+          if git diff --cached --quiet; then
+            echo "Tap already at ${GITHUB_REF_NAME}."
+            exit 0
+          fi
+          git commit -m "aperio ${GITHUB_REF_NAME}"
+          git push
+
       # One manifest over every asset, rather than trusting the per-asset
       # `.sha256` files that sit next to them: a verifier wants one list to
       # check and one signature to check it with, and a checksum file is worth

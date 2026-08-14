@@ -86,13 +86,6 @@ about compatibility, a way to install the thing, evidence that the release
 artifact is the one we built, and validation from someone other than our own
 test suite.
 
-- [ ] **#93 Homebrew tap and a Windows package.** A tap repository with a
-  formula for both binaries, updated by the release workflow, plus a Scoop
-  manifest or a winget submission for the Windows side. Mechanical work whose
-  value is entirely in reach: `brew install` is how a large share of the
-  audience expects to try a tool at all, and a client nobody can install in
-  one line is a client nobody evaluates.
-
 - [ ] **#94 A Helm chart, and the Kubernetes story around it.** The largest
   population of self-hosted deployments is on Kubernetes, and there is
   currently no supported way in: a chart for the server (Deployment or
@@ -559,6 +552,30 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#93 Homebrew tap and a Windows package.** Mechanical work whose value
+  is entirely in reach: `brew install` is how a large share of the audience
+  tries a tool at all, and a client nobody can install in one line is a client
+  nobody evaluates.
+  shipped: `packaging/render-manifests.sh`, which renders a Homebrew formula
+  and a Scoop manifest per binary and is called by the release job before the
+  checksum step, so both files are release assets covered by the signed
+  manifest. Differed from the plan in the part that matters: the entry assumed
+  a tap repository, and **the tap is no longer the thing that makes this
+  work.** `brew install --formula <release-asset-url>` and
+  `scoop install <release-asset-url>` install from the release itself, so the
+  one-line install exists whether or not a second repository does.
+  - Hashes are read from the `<file>.sha256` beside each asset rather than
+    recomputed, so a formula and the signed checksum manifest cannot disagree,
+    they are the same number read once.
+  - A script rather than a block of YAML, so it could be run against the real
+    v0.9.0 assets and the output checked before it ever ran in CI: the rendered
+    hash was compared against the downloaded tarball, and `brew style` was
+    clean after fixing the three things it found (description over 80
+    characters, missing sigils).
+  - The tap push remains, guarded by `HOMEBREW_TAP_REPO`/`HOMEBREW_TAP_TOKEN`
+    and **skipped with a notice** when unset. Creating that repository and its
+    token is the operator's, not something a release should fail without.
 
 - [x] **#92 Native packages and a service unit.** A release publishes tarballs
   and container images; installing on an ordinary Linux box meant `install.sh`

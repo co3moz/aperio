@@ -672,6 +672,15 @@ Installing starts nothing. The shipped config carries a placeholder master
 token, and a tunnel server that comes up on \code{apt install} with a token
 published in a package is worse than one that does not come up at all.
 
+On macOS and Windows the same release carries a Homebrew formula and a Scoop
+manifest, rendered from the release's own checksums. Neither needs a tap or a
+bucket to exist, since the file is itself a release asset:
+
+\begin{lstlisting}[language=aperiosh]
+brew install --formula \
+  https://github.com/co3moz/aperio/releases/latest/download/aperio-client.rb
+\end{lstlisting}
+
 The client's unit is a \emph{template}, and the name after the \code{@} is the
 config file it reads, because a machine usually fronts more than one thing and
 the alternative to a template is copies of a unit file that drift:
