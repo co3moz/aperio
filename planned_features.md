@@ -245,28 +245,6 @@ test suite.
   that fails to actually fill anything would assert that on a path nothing
   went wrong on.
 
-- [ ] **#112 `retention::tests::disk_guard_warns_once_near_the_cap` fails about
-  one full run in ten.** Seen 2026-08-14 while working on #111: one failure in
-  the workspace suite, then nine clean full runs, and it passes every time in
-  isolation (five for five) and on the tree without those changes (three clean
-  full runs). So it is not that change; it is a test that is order-sensitive
-  under the suite's parallelism, which is exactly the shape rule 13 exists to
-  catch and exactly the shape that gets dismissed as "just rerun it".
-
-  **Where to look.** The disk-guard tests share two process-wide things, a
-  `DISK_WARNED` static and a `DISK_LOCK` that serializes them, and this one
-  additionally asserts on a *count*: it takes `state.audit.recent().len()`
-  before a second guard cycle and asserts the count is unchanged after. A
-  count is only stable if nothing else can append to that log, so the first
-  question is whether `test_state()` gives every test its own audit or
-  whether two tests can end up writing to the same one. If they can, the fix
-  is to assert on the absence of a second `disk_usage_warning` event rather
-  than on a length, which is what the test actually means.
-
-  Worth doing rather than muting: an assertion that fails one run in ten
-  trains everybody to rerun the suite, and the next real failure gets the same
-  treatment.
-
 - [ ] **#106 Separate the visitor plane from the admin plane.** (the
   structural half; the security half shipped, see below) There is one
   session store, one cookie and one login endpoint serving two unrelated jobs:
@@ -677,6 +655,33 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#112 `retention::tests::disk_guard_warns_once_near_the_cap` fails a
+  full run now and then.** shipped: found by reading rather than by
+  reproducing, and the cause is one the existing `DISK_LOCK` comment had
+  half-written already.
+
+  `DISK_WARNED` is process-global and the three tests with `disk_guard` in
+  their names all take that lock. **Two `spawn` tests drive the same global
+  and were not taking it**: setting `APERIO_DB_MAX_BYTES` starts the real
+  pruner, whose first tick fires immediately and calls the same
+  `disk_guard_cycle`, on its own runtime, on another thread, in parallel with
+  whatever else `cargo test` is running. A guard cycle on an almost-empty
+  directory stores `false`, and landing in the middle of the warn test fails
+  it. Both take `DISK_LOCK` now, held across the sleep their spawned cycle
+  runs in.
+
+  The warn test also compared the audit log's *total length* before and after
+  a second cycle, which is a promise about the whole process rather than about
+  this test. It counts `disk_usage_warning` events now, which is what "one
+  warning per episode" actually means and is robust to anything else
+  appending.
+
+  **The rate this entry was opened with was wrong and worth correcting:** it
+  said about one run in ten, from a single failure in four runs. It is nearer
+  one in twenty, and twelve further runs before the fix never reproduced it,
+  which is why this was settled by reading the code instead. After the fix:
+  forty runs of the retention module and six full workspace runs, clean.
 
 - [x] **#111 The tunnel handshake carries a client's gate as one
   `user:password`, so four of the five methods are server-side only.**

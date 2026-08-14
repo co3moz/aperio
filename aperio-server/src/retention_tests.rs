@@ -18,10 +18,20 @@ static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// disk-guard tests, each of which seeds it and asserts what a cycle did to
 /// it, corrupt each other when they interleave: one test's cycle stores
 /// `false` between another's cycle and its assertion. Reproduced at 21
-/// failures in 40 runs of the three tests alone; every disk-guard test takes
-/// this lock first. A tokio mutex because the guard is held across the
-/// cycle's awaits, and an async lock neither trips the held-across-await
-/// lint nor can be poisoned by a failing test.
+/// failures in 40 runs of the three tests alone. A tokio mutex because the
+/// guard is held across the cycle's awaits, and an async lock neither trips
+/// the held-across-await lint nor can be poisoned by a failing test.
+///
+/// **Every test that can drive a cycle takes it, which is more than the tests
+/// with `disk_guard` in the name** (`planned_features.md` #112). A `spawn`
+/// test that sets `APERIO_DB_MAX_BYTES` starts the real pruner, whose first
+/// tick fires immediately and calls the same `disk_guard_cycle` against the
+/// same global, on its own runtime, on another thread, in parallel with
+/// whatever else `cargo test` is running. Those two were holding only
+/// `ENV_LOCK`, so a guard cycle on an almost-empty directory could store
+/// `false` in the middle of the warn test and fail it about one full run in
+/// twenty: rare enough to read as noise, which is what makes it worth
+/// naming rather than rerunning.
 static DISK_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 const ALL_VARS: [&str; 5] = [
@@ -420,9 +430,19 @@ async fn disk_guard_warns_once_near_the_cap() {
   assert!(recent.iter().all(|e| e.event != "disk_pruned"));
 
   // A second cycle at the same size does not warn again (one per episode).
-  let before = state.audit.lock().await.recent().len();
+  // Counted by event rather than by the log's total length: a length is only
+  // stable while nothing else can append, which is a promise about the whole
+  // process rather than about this test, and it is not what this is checking.
   disk_guard_cycle(&state, 1000, &dir).await;
-  assert_eq!(state.audit.lock().await.recent().len(), before);
+  let warnings = state
+    .audit
+    .lock()
+    .await
+    .recent()
+    .iter()
+    .filter(|e| e.event == "disk_usage_warning")
+    .count();
+  assert_eq!(warnings, 1, "one warning per episode, not one per cycle");
 }
 
 #[tokio::test]
@@ -482,6 +502,9 @@ async fn spawn_is_inert_when_nothing_is_configured() {
 
 #[tokio::test]
 async fn spawn_runs_one_cycle_and_audits_the_prune() {
+  // Sets a disk cap, so the pruner it starts runs a guard cycle against the
+  // process-global `DISK_WARNED` on its first (immediate) tick.
+  let _serial = DISK_LOCK.lock().await;
   let _g = EnvGuard::new(&[
     ("APERIO_RETENTION_CAPTURES", "1"),
     ("APERIO_DB_MAX_BYTES", "1000000000"),
@@ -505,6 +528,9 @@ async fn spawn_runs_one_cycle_and_audits_the_prune() {
 
 #[tokio::test]
 async fn spawn_enabled_by_disk_cap_alone() {
+  // The disk cap is the whole point of this one, so it certainly runs a
+  // guard cycle: same global, same lock.
+  let _serial = DISK_LOCK.lock().await;
   let _g = EnvGuard::new(&[("APERIO_DB_MAX_BYTES", "1000000000")]);
   let state = std::sync::Arc::new(test_state());
   // Only the disk cap is set (no retention TTLs): covers the branch where
