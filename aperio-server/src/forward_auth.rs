@@ -20,8 +20,10 @@
 //! 2. **A timeout refuses.** An auth gate that opens when its check is
 //!    unreachable is not a gate, so the endpoint's availability becomes the
 //!    route's, and that is the trade being made rather than an accident.
-//! 3. **The verdict is cacheable**, keyed on the credential that produced it,
-//!    because a round trip per request is unusable on anything busy.
+//! 3. **The verdict is cacheable**, keyed on everything the subrequest
+//!    carries, because a round trip per request is unusable on anything busy
+//!    and because a key made of less than the answer depends on is a key that
+//!    is willing to be wrong.
 //! 4. **The destination is an outbound callback** and goes through the same
 //!    policy as webhooks, scaling hooks and JWKS fetches.
 //! 5. **A refusal is the endpoint's own answer**, forwarded verbatim, so it
