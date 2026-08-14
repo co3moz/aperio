@@ -11,6 +11,24 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{error, info};
 
+/// Which of the two things a session is for.
+///
+/// Deliberately defaults to [`Plane::Visitor`], the lesser of the two: a
+/// session row written before this field existed cannot say which it was, and
+/// the safe reading of an unknown session is the one that opens nothing
+/// administrative. In practice that signs out the admin sessions live at the
+/// moment of an upgrade, which is what a privilege fix should do, and they
+/// last a day anyway.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Plane {
+  /// Viewing a site behind Aperio. Passes the visitor gate, opens nothing else.
+  #[default]
+  Visitor,
+  /// Administering Aperio: the dashboard and its API.
+  Admin,
+}
+
 /// Server-side state of one `aperio_session` cookie.
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct SessionInfo {
@@ -26,10 +44,22 @@ pub(crate) struct SessionInfo {
   /// User-Agent of the signing-in browser, for the sessions list.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub(crate) user_agent: Option<String>,
+  /// Which plane this session belongs to: administering Aperio, or viewing a
+  /// site behind it (`planned_features.md` #106).
+  ///
+  /// One store serves both, and until this existed the only thing telling
+  /// them apart was `scope_host`, which answers a different question. A
+  /// login against the server's visitor password produced a session with no
+  /// host scope, and "no host scope" was read everywhere as "full access", so
+  /// the value an operator hands to whoever should see the *site* opened the
+  /// dashboard as an admin.
+  #[serde(default)]
+  pub(crate) plane: Plane,
   /// When `Some(host)`, the session only authorizes proxied traffic for that
   /// exact request host, a login against a client-set visitor password. It
-  /// never authorizes the dashboard or other hosts. `None` = a full/global
-  /// session (server password, dashboard password, master token, or OIDC).
+  /// never authorizes the dashboard or other hosts. `None` = every host,
+  /// which for a visitor session is the server-wide visitor password and for
+  /// an admin session is the dashboard.
   pub(crate) scope_host: Option<String>,
   /// Dashboard identity: the user this session belongs to (None = master
   /// token / dashboard password / visitor session).

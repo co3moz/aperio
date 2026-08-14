@@ -835,3 +835,43 @@ export class ClientDeclaredGateSpec extends Test({
     await this.forwarding._waitForLog('does not accept `forward`')
   }
 }
+
+/** The visitor password is a key to the site, not to Aperio. */
+export class VisitorPlaneSpec extends Test({
+  timeout: 90_000,
+  after: () => [VisitorGateSpec],
+  dependencies: {
+    server: () => AuthServer,
+    backend: () => AuthBackend,
+    gated: () => GatedClient,
+  },
+}) {
+  async theVisitorPasswordOpensTheSiteAndNotTheDashboard() {
+    const login = await this.server._fetch(`/aperio/auth?redirect=/hello`, {
+      host: HOST,
+      method: 'POST',
+      headers: {
+        authorization: `Basic ${Buffer.from('demo:secret123').toString('base64')}`,
+      },
+    })
+    assert.ok(login.status < 400, `the visitor password should log in, got ${login.status}`)
+    const cookie = (login.headers['set-cookie'] ?? '').split(';')[0]
+    assert.match(cookie, /aperio_session=/)
+
+    // The site: served.
+    await waitFor(
+      async () => {
+        const res = await this.server._fetch('/hello', { host: HOST, headers: { cookie } })
+        return res.body === `backend ${this.backend._port} GET /hello`
+      },
+      { label: 'the visitor session to serve the site' },
+    )
+
+    // Aperio: not. The admin surface answers an unauthenticated caller by
+    // sending them to the login page, so being sent there is the evidence
+    // that this session authorized nothing administrative.
+    const api = await this.server._fetch('/aperio/api/stats', { headers: { cookie } })
+    assert.notEqual(api.status, 200, 'the visitor password reached the admin API')
+    assert.match(api.headers['location'] ?? '', /\/aperio\/auth/)
+  }
+}

@@ -1884,6 +1884,26 @@ headers are stripped from every proxied request whatever this is set to,
 so a visitor cannot claim an identity and a backend that trusts these
 need not check whether the announcement is even on.
 
+\subsection{Two planes, one cookie}
+
+A session is for one of two things: administering Aperio, or viewing a
+site behind it. They share a store and a cookie, and what tells them
+apart is the credential that created the session. The master token, a
+named dashboard user, a passkey and OIDC create an \textbf{admin}
+session: the dashboard, its API, and, fenced by organisation, the
+visitor gate. \code{server.auth} creates a \textbf{visitor} session:
+every proxied hostname, and nothing administrative. A client's own
+\code{auth:} creates one too, on its hostname alone.
+
+The distinction is worth stating because the scope of a session and the
+plane it belongs to are different questions, and until they were asked
+separately only the first was: a visitor session has no host scope
+either, since the server's gate is server-wide, so "no scope" read as
+"full access" and the password an operator hands to whoever should see
+the site opened the dashboard. The visitor password is still server-wide,
+so signing in on one hostname is not asked again on the next; what it
+never opens is Aperio.
+
 \subsection{Closed by default}
 \label{sec:default-access}
 

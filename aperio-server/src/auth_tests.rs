@@ -77,6 +77,7 @@ async fn seed_custom(
   state.sessions.lock().await.insert(
     &token,
     SessionInfo {
+      plane: crate::store::sessions::Plane::Admin,
       expires_at,
       created_at: now,
       ip: Some("127.0.0.1".to_string()),
@@ -1617,4 +1618,120 @@ async fn resolve_org_oidc_cache_and_misses() {
     .create("acme", Vec::new(), None)
     .unwrap();
   assert!(resolve_org_oidc(&state, &org.id).await.is_none());
+}
+
+#[tokio::test]
+async fn the_visitor_password_is_not_a_dashboard_credential() {
+  // `server_auth` is documented as a login form in front of proxied traffic:
+  // an operator hands it to whoever should see the *site*. If the session it
+  // creates also opens the dashboard, that value is an admin credential and
+  // nothing says so.
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("visitor:pass");
+  let state = Arc::new(test_state_with(cfg));
+  let res = call_login(
+    state.clone(),
+    basic_headers("visitor:pass", Some("site.test")),
+    login_query(Some("/some/page")),
+  )
+  .await
+  .unwrap();
+  // From the `Set-Cookie`, since the store keys sessions by a hash of the
+  // token rather than by the token: reading the map would give a key no
+  // request could ever present, and the assertion below would then pass for
+  // the wrong reason.
+  let set_cookie = res
+    .headers()
+    .get("set-cookie")
+    .unwrap()
+    .to_str()
+    .unwrap()
+    .to_string();
+  let token = set_cookie
+    .split(';')
+    .next()
+    .and_then(|kv| kv.split_once('='))
+    .map(|(_, v)| v.to_string())
+    .expect("a session token in the cookie");
+  let headers = crate::test_support::cookie_headers(&token);
+
+  // First prove the cookie is real and found, or the assertion below would
+  // pass for the wrong reason: a session nobody can read opens nothing.
+  assert!(
+    crate::auth::validate_session(&state, &headers).await,
+    "the session cookie should be valid for a proxied request"
+  );
+  assert!(
+    crate::auth::dashboard_role(&state, &headers)
+      .await
+      .is_none(),
+    "the visitor password opened the dashboard"
+  );
+}
+
+#[tokio::test]
+async fn a_visitor_session_still_reaches_every_proxied_host() {
+  // The scope and the plane are different questions, and the fix must not
+  // answer the first one by accident: the server's gate is server-wide, so a
+  // visitor who signed in on one hostname should not be asked again on the
+  // next. Only the dashboard is closed to them.
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("visitor:pass");
+  let state = Arc::new(test_state_with(cfg));
+  let res = call_login(
+    state.clone(),
+    basic_headers("visitor:pass", Some("one.example.com")),
+    login_query(Some("/some/page")),
+  )
+  .await
+  .unwrap();
+  let token = res
+    .headers()
+    .get("set-cookie")
+    .and_then(|v| v.to_str().ok())
+    .and_then(|c| c.split(';').next())
+    .and_then(|kv| kv.split_once('='))
+    .map(|(_, v)| v.to_string())
+    .expect("a session token");
+  let headers = crate::test_support::cookie_headers(&token);
+
+  for host in ["one.example.com", "two.example.com"] {
+    assert!(
+      crate::auth::validate_session_for_visitor(&state, &headers, Some(host)).await,
+      "the visitor gate should admit this session on {host}"
+    );
+  }
+  assert!(
+    crate::auth::dashboard_role(&state, &headers)
+      .await
+      .is_none()
+  );
+}
+
+#[tokio::test]
+async fn an_admin_session_is_still_an_admin_session() {
+  // The master token and a named user administer Aperio, and this change must
+  // not quietly demote them.
+  let state = Arc::new(test_state());
+  let master = format!("aperio:{}", state.config().token);
+  let res = call_login(
+    state.clone(),
+    basic_headers(&master, Some("site.test")),
+    login_query(Some("/aperio")),
+  )
+  .await
+  .unwrap();
+  let token = res
+    .headers()
+    .get("set-cookie")
+    .and_then(|v| v.to_str().ok())
+    .and_then(|c| c.split(';').next())
+    .and_then(|kv| kv.split_once('='))
+    .map(|(_, v)| v.to_string())
+    .expect("a session token");
+  let headers = crate::test_support::cookie_headers(&token);
+  assert_eq!(
+    crate::auth::dashboard_role(&state, &headers).await,
+    Some(Role::Admin)
+  );
 }

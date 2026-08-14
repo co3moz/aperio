@@ -580,6 +580,8 @@ pub(crate) async fn passkey_login_finish_handler(
   state.sessions.lock().await.insert(
     &session_token,
     SessionInfo {
+      // A passkey identifies a named user of the dashboard.
+      plane: crate::store::sessions::Plane::Admin,
       expires_at: crate::store::sessions::now_secs() + 86400,
       created_at: crate::store::sessions::now_secs(),
       ip: Some(client_ip.to_string()),
@@ -828,6 +830,8 @@ pub(crate) async fn passkey_discoverable_finish_handler(
   state.sessions.lock().await.insert(
     &session_token,
     SessionInfo {
+      // A passkey identifies a named user of the dashboard.
+      plane: crate::store::sessions::Plane::Admin,
       expires_at: crate::store::sessions::now_secs() + 86400,
       created_at: crate::store::sessions::now_secs(),
       ip: Some(client_ip.to_string()),

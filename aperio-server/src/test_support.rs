@@ -415,6 +415,7 @@ pub(crate) async fn seed_session(
   state.sessions.lock().await.insert(
     &token,
     SessionInfo {
+      plane: crate::store::sessions::Plane::Admin,
       expires_at: now + 86400,
       created_at: now,
       ip: Some("127.0.0.1".to_string()),

@@ -10,6 +10,7 @@ fn temp_dir() -> String {
 
 fn info(expires_at: u64, username: Option<&str>) -> SessionInfo {
   SessionInfo {
+    plane: Plane::Admin,
     expires_at,
     created_at: 0,
     ip: None,

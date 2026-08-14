@@ -1255,6 +1255,7 @@ async fn one_gc_beat_sweeps_stale_buckets_and_expired_sessions() {
     },
   );
   let session = |expires_at: u64| crate::store::sessions::SessionInfo {
+    plane: crate::store::sessions::Plane::Admin,
     expires_at,
     created_at: 0,
     ip: None,

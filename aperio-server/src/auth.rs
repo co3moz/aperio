@@ -196,6 +196,12 @@ pub(crate) async fn auth_login_handler(
   //   Some(Some(host)) -> scoped to this host (client-set visitor credentials)
   //   None             -> authentication failed
   let mut scope: Option<Option<String>> = None;
+  // Which plane the matched credential belongs to. The master token and a
+  // named user administer Aperio; the visitor passwords, the server's own and
+  // a client's, are for seeing a site behind it. Until this was tracked, both
+  // produced the same session and "no host scope" was read as full access, so
+  // the value handed to whoever should see the site opened the dashboard.
+  let mut plane = crate::store::sessions::Plane::Admin;
   // Dashboard identity of the matched credential (username + role); master
   // and dashboard-password logins act as the built-in admin "aperio".
   let mut identity: (Option<String>, Role) = (None, Role::Admin);
@@ -285,6 +291,7 @@ pub(crate) async fn auth_login_handler(
         && constant_time_eq_str(&decoded_str, creds)
       {
         scope = Some(Some(h.clone()));
+        plane = crate::store::sessions::Plane::Visitor;
       }
       // Server visitor gate -> full access, but only when the route is not
       // under a client override (an override supersedes the server's own gate
@@ -295,7 +302,12 @@ pub(crate) async fn auth_login_handler(
         && custom_creds.is_none()
         && cfg.visitor_auth.admits_credential(&decoded_str)
       {
+        // Every proxied host, since this gate is server-wide, and **not** the
+        // dashboard: the scope of a session and the plane it belongs to are
+        // two different questions, and answering only the first is what made
+        // this credential an admin one.
         scope = Some(None);
+        plane = crate::store::sessions::Plane::Visitor;
       }
     }
   }
@@ -372,6 +384,7 @@ pub(crate) async fn auth_login_handler(
       created_at: crate::store::sessions::now_secs(),
       ip: Some(client_ip.to_string()),
       user_agent: crate::store::sessions::session_user_agent(&headers),
+      plane,
       scope_host: session_scope,
       username: identity.0,
       role: identity.1,
@@ -1006,7 +1019,13 @@ pub(crate) async fn dashboard_role(state: &AppState, headers: &HeaderMap) -> Opt
       sessions
         .get(token)
         .filter(|info| {
-          info.expires_at > crate::store::sessions::now_secs() && info.scope_host.is_none()
+          // The plane, not just the scope. A visitor session has no host
+          // scope either, because the server's visitor password gates every
+          // route, so reading "no scope" as "may administer Aperio" handed
+          // the dashboard to whoever was given that password.
+          info.expires_at > crate::store::sessions::now_secs()
+            && info.scope_host.is_none()
+            && info.plane == crate::store::sessions::Plane::Admin
         })
         .map(|info| (info.role, info.username.clone()))
     };
@@ -1031,7 +1050,10 @@ pub(crate) async fn dashboard_username(state: &AppState, headers: &HeaderMap) ->
   let username = {
     let sessions = state.sessions.lock().await;
     let info = sessions.get(token)?;
-    if info.expires_at <= crate::store::sessions::now_secs() || info.scope_host.is_some() {
+    if info.expires_at <= crate::store::sessions::now_secs()
+      || info.scope_host.is_some()
+      || info.plane != crate::store::sessions::Plane::Admin
+    {
       return None;
     }
     info.username.clone()?
@@ -1429,6 +1451,8 @@ pub(crate) async fn oidc_callback_handler(
       created_at: crate::store::sessions::now_secs(),
       ip: Some(caller_ip.to_string()),
       user_agent: crate::store::sessions::session_user_agent(&headers),
+      // An allowlisted identity signing in to administer Aperio.
+      plane: crate::store::sessions::Plane::Admin,
       scope_host: None,
       username: Some(email.clone()),
       role: Role::Admin,

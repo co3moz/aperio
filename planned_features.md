@@ -245,81 +245,6 @@ test suite.
   that fails to actually fill anything would assert that on a path nothing
   went wrong on.
 
-- [ ] **#106 Separate the visitor plane from the admin plane.** (the
-  structural half; the security half shipped, see below) There is one
-  session store, one cookie and one login endpoint serving two unrelated jobs:
-  administering Aperio, and viewing a site behind it. `/aperio/auth` accepts
-  the master token, a named user with TOTP, a passkey and OIDC, and each of
-  them creates a session with `scope_host: None`; the visitor gate accepts any
-  such session. Only a client-declared `user:password` produces a host-scoped
-  one (`auth.rs`, `session_scope`).
-
-  The consequence to fix: **signing in to the dashboard with SSO also opens
-  every gated site on that server**, because the OIDC callback writes
-  `role: Role::Admin` and `scope_host: None` like any other global login. It
-  is not an accident, it is one session concept stretched over two problems,
-  and it is why per-organization OIDC (`OrgOidc`, `store/orgs.rs`, which does
-  exist) cannot serve visitors: it produces an org-scoped *admin*, not a
-  hostname's visitor identity.
-
-  **Shipped: the half that was a hole rather than a wart.** The gate asked
-  only "is this a global session", so a session fixed to an organization, a
-  per-org SSO login or a named user of a child org, walked past the visitor
-  gate on *every* hostname on the server, another tenant's included; a
-  read-only Viewer of one organization could browse another's gated site.
-  The visitor path now asks the organization too, with the same rule
-  maintenance flags and share links use (covered by the fence *and* not
-  served by another organization's client), and master stays unfenced, so an
-  operator's own dashboard login is unchanged. It is a fix rather than a
-  break, which is why it went first and on its own.
-
-  **What is left is the structural half:** a distinct visitor session kind and
-  cookie, a login page that knows which plane it is serving, and the
-  deliberate break that a dashboard session no longer admits a visitor request
-  at all. That break is now an ergonomic one rather than a security one, which
-  changes how it should be staged: nobody is exposed while it waits, so it can
-  follow the pattern #108 used, a setting first and the default later. Once
-  split, `oidc` becomes a visitor method (#105's set) with the things a
-  visitor gate needs and an admin gate does not: a `client_id` per hostname,
-  since ten sites behind one IdP application is not the same as ten
-  applications, and a group or claim requirement beside `allowed_emails`.
-
-- [ ] **#107 A `bearer` method, and the `?aperio_token=` form beside it.**
-  Today a machine can administer Aperio without a screen (admin API keys, the
-  master token, `APERIO_METRICS_TOKEN`) and cannot **use** a tunnelled service
-  without one: `check_visitor_gate` reads only the session cookie and a share
-  link, `Authorization: Basic` on a proxied request means nothing, and every
-  refusal is a 302. So there is no way to `curl` a gated route.
-
-  **Most of it is already written, in the wrong place.** `metrics_handler`
-  (`aperio-server/src/api/metrics.rs`) accepts `Authorization: Bearer` *or*
-  `?token=`, compares in constant time, and answers **401**. That is exactly
-  what the visitor gate needs and exactly what it does not do.
-
-  **The query form is worth having and has to be paid for.** It is what an
-  `<img src>`, a sender that cannot set headers, a link in an email and a
-  flagless `curl` need. But a query string reaches the access log, the
-  `Referer` header, browser history and the fronting proxy's logs, and
-  Aperio's own `access_log` writes `uri` per line, so the naive version writes
-  the secret to disk by default. Share links already solve half of this: the
-  first click **redirects to the clean URL** and moves the credential into a
-  cookie (`share.rs`). Reuse that shape: `query:` is opt-in per method and
-  defaults to **false**; on a browser navigation it does the share-link dance
-  and leaves a visitor session behind; on anything else it authenticates that
-  one request. Stripping the token from the logged URI and from the inspector
-  capture is part of the work, not a follow-up, and `inspector_redact` is the
-  pattern for it.
-
-  **Write down why this secret is not hashed** while #105 is hashing `basic`.
-  A bearer secret is high-entropy and operator-generated, so there is no
-  dictionary surface to defend, and it has to be comparable in constant time
-  against what the operator wrote in the file. Without that sentence it reads
-  as an inconsistency six months from now.
-
-  First of the methods to build: no new dependency, no crypto, and it is the
-  precondition for #108, because once routes start closing, scripts need a
-  door or everyone reopens them with `public: true` and nothing was gained.
-
 - [ ] **#108 Closed by default: a route is reachable because something says
   so.** (stage two, the flip; stage one shipped, see below) Today, a server with no `server_auth` and no OIDC serves every route
   to anyone, and `public: true` is an exemption from a gate that may not
@@ -655,6 +580,39 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#106 Separate the visitor plane from the admin plane.** shipped, in
+  two pieces, and both turned out to be security fixes rather than the
+  ergonomic split this entry expected.
+
+  **First: the gate asked only "is this a global session".** A session fixed
+  to an organization walked past it on *every* hostname on the server,
+  another tenant's included, so a read-only Viewer of one organization could
+  browse another's private site. The visitor path asks the organization too
+  now, with the rule maintenance flags and share links already use, and
+  master stays unfenced.
+
+  **Second, and the one this entry was really about: the visitor password
+  was a dashboard admin credential.** `server.auth` is what an operator hands
+  to whoever should see the site. The session it created had no host scope,
+  because that gate is server-wide, and "no host scope" was read everywhere
+  as "full session", so that password opened the dashboard, its API, the
+  settings and the tokens. Sessions now record which plane they belong to and
+  the dashboard requires the admin one.
+
+  **What the entry got wrong is worth keeping.** It expected a break to
+  arrange: a second cookie, a login page that knows which plane it serves,
+  and a deliberate change to what a dashboard session admits. None of that
+  was needed, because the two planes were already distinguishable and the bug
+  was that nothing distinguished them. The scope of a session and the plane
+  it belongs to are different questions; the entry, like the code, had them
+  as one. A visitor session still reaches every proxied hostname, so nothing
+  about a visitor's day changes, and the second cookie has no work left to do.
+
+  What *is* left is smaller than this entry and belongs to whoever wants it:
+  `oidc` as a visitor method, with a `client_id` per hostname and a group or
+  claim requirement, which is now an ordinary addition to #105's set rather
+  than something waiting on a split.
 
 - [x] **#112 `retention::tests::disk_guard_warns_once_near_the_cap` fails a
   full run now and then.** shipped: found by reading rather than by

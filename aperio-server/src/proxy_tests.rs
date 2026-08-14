@@ -1748,6 +1748,7 @@ async fn a_session_from_one_organization_does_not_open_another_ones_gated_site()
     state.sessions.lock().await.insert(
       &token,
       crate::store::sessions::SessionInfo {
+        plane: crate::store::sessions::Plane::Admin,
         expires_at: now + 86400,
         created_at: now,
         ip: Some("127.0.0.1".to_string()),
@@ -1828,6 +1829,7 @@ async fn a_fenced_session_without_a_host_header_is_refused() {
     state.sessions.lock().await.insert(
       &token,
       crate::store::sessions::SessionInfo {
+        plane: crate::store::sessions::Plane::Admin,
         expires_at: now + 86400,
         created_at: now,
         ip: Some("127.0.0.1".to_string()),

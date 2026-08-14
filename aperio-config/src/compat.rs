@@ -197,6 +197,36 @@ pub struct ConfigChange {
 /// recorded here in the same commit that makes it (see CLAUDE.md).
 pub const CONFIG_CHANGES: &[ConfigChange] = &[
   ConfigChange {
+    // Guessed: 0.9.0 is tagged and the in-repo version has not been bumped
+    // yet, so the release this ships in is not known here. Rule 19's release
+    // audit is where it gets corrected, and it is named as a guess so that
+    // audit has something to find rather than something to trust.
+    version: "0.10.0",
+    surface: ConfigSurface::Server,
+    // The key is unchanged and still does what it is documented to do; what
+    // stops is a side effect it was never documented to have. `Breaking`
+    // rather than `Migration` because nothing was translated and an operator
+    // who was using this value to reach their own dashboard has to do
+    // something about it.
+    //
+    // Not `Security`, deliberately, even though the change came out of a
+    // privilege-escalation fix: that severity is for a file that claims a
+    // protection it no longer gets, and refuses the start until acknowledged.
+    // Here the file was granting *more* than it said and now grants what it
+    // says, so nobody is left exposed by upgrading, and refusing the start of
+    // every server that sets a visitor password would be an outage in place
+    // of a notice.
+    severity: ChangeSeverity::Breaking,
+    applies: Applies::WhenSet,
+    fields: &["server_auth", "server.auth", "auth"],
+    summary: "the visitor password no longer opens the dashboard: the session it creates reaches \
+              every proxied hostname and nothing administrative",
+    action: "if you were signing in to the dashboard with the visitor password, use the master \
+             token (`aperio:<token>`) or a named dashboard user instead. Nothing else changes: \
+             the value still gates proxied traffic exactly as before, and a visitor who signs in \
+             on one hostname still reaches the others without signing in again.",
+  },
+  ConfigChange {
     version: "0.9.0",
     surface: ConfigSurface::Client,
     // The removal the 0.6.0 entry below has been announcing. Breaking, and

@@ -525,6 +525,18 @@ The secret itself does not travel: an `Authorization` header that opened Aperio'
 
 Off by default: it is the same new trust surface as `identity_headers` and should be adopted as deliberately. A route that is open or ungated identifies nobody and sends neither header, since a value meaning "anonymous" is noise a backend has to learn to ignore. The forgery half is already done, inbound `x-aperio-*` headers are stripped from every proxied request whatever this is set to.
 
+#### Two planes, one cookie
+
+A session is for one of two things: administering Aperio, or viewing a site behind it. They share a store and a cookie, and what tells them apart is which credential created the session:
+
+| Credential | Plane |
+| --- | --- |
+| Master token, a named dashboard user, a passkey, OIDC | **admin**: the dashboard, its API, and (fenced by organization) the visitor gate |
+| `server.auth` / `APERIO_SERVER_AUTH` | **visitor**: every proxied hostname, nothing administrative |
+| A client's own `auth:` | **visitor**, and only on that hostname |
+
+The visitor password is server-wide, so a visitor who signs in on one hostname is not asked again on the next; what it never opens is Aperio itself.
+
 #### Closed by default
 
 `default_access` (`APERIO_DEFAULT_ACCESS`) says what a route **nobody gated** means:
@@ -800,7 +812,7 @@ Most deployments only need a handful of settings. These everyday knobs cover the
 | `HOST` / `PORT` | Bind address and listen port. | `0.0.0.0` / `8080` |
 | `APERIO_DATA_DIR` | Directory for persisted state. **Mount a volume here in Docker.** | `./data` |
 | `LOG_LEVEL` | `error` / `warn` / `info` / `debug` / `trace`. | `info` |
-| `APERIO_SERVER_AUTH` | The default visitor gate in front of all proxied traffic: `user:password`. In yaml `server.auth` also takes a method block or a list of them. See [Visitor authentication](#visitor-authentication). |  |
+| `APERIO_SERVER_AUTH` | The default visitor gate in front of all proxied traffic: `user:password`. A key to the site and **not** to Aperio: the session it creates reaches every proxied hostname and nothing on the dashboard or its API. In yaml `server.auth` also takes a method block or a list of them. See [Visitor authentication](#visitor-authentication). |  |
 | `APERIO_TRUST_PROXY` + `APERIO_TRUSTED_PROXIES` | Trust `X-Forwarded-For` behind your reverse proxy / CDN, and which hops to trust. | `0` |
 | `APERIO_RANDOM_SUBDOMAIN` | Auto-assign every client a random subdomain from a `*` pattern. |  |
 | `APERIO_LB_STRATEGY` | Load balancing: `round-robin`, `primary-standby`, or `sticky`. | `round-robin` |

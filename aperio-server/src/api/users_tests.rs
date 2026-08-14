@@ -761,6 +761,7 @@ async fn session_org_maps_unnamed_session_to_master() {
   let state = Arc::new(test_state());
   let map = username_org_map(&state).await;
   let info = SessionInfo {
+    plane: crate::store::sessions::Plane::Admin,
     expires_at: 0,
     created_at: 0,
     ip: None,
