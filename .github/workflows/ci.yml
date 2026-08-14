@@ -280,6 +280,83 @@ jobs:
         run: npm run test:ci
 
   # ---------------------------------------------------------------------------
+  # Client/server compatibility, N-1 in both directions (planned_features #89).
+  #
+  # A server is one box and its clients are a fleet, so the two sides are
+  # always upgraded at different times. Everything else in this file tests one
+  # tree against itself, which is exactly the pairing no deployment runs.
+  #
+  # It is a gate rather than a report: the promise is that the previous
+  # release's client works against this server and this client works against
+  # the previous release's server, and a promise nothing checks is a wish. The
+  # wider report over *every* past release is #90 and is deliberately not a
+  # gate, because an old client failing a new server is information.
+  compat:
+    name: Compatibility (previous release, both directions)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node.js (the E2E suite runs on it)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      # The musl builds, because they are static: a release binary from an
+      # older toolchain has to run on this runner without matching its glibc.
+      - name: Fetch the previous release's binaries
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release list --limit 1 --json tagName --jq '.[0].tagName // empty')
+          if [ -z "$tag" ]; then
+            echo "No release yet, so there is no previous version to pair with."
+            echo "found=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir -p previous && cd previous
+          for bin in aperio-server aperio-client; do
+            gh release download "$tag" \
+              --pattern "${bin}-x86_64-unknown-linux-musl.tar.gz" --clobber
+            tar xzf "${bin}-x86_64-unknown-linux-musl.tar.gz"
+            chmod +x "$bin"
+          done
+          echo "found=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Build this tree's binaries
+        if: steps.previous.outputs.found != ''
+        run: cargo build -p aperio-server -p aperio-client -p mock-h2
+
+      - name: Install the E2E suite's dependencies
+        if: steps.previous.outputs.found != ''
+        working-directory: tests/e2e
+        run: npm ci
+
+      # Named separately so a failure says which pairing broke, which is the
+      # first thing anybody wants to know.
+      - name: "${{ steps.previous.outputs.found }} client against this server"
+        if: steps.previous.outputs.found != ''
+        working-directory: tests/e2e
+        env:
+          APERIO_CLIENT_BIN: ${{ github.workspace }}/previous/aperio-client
+        run: npx nole './specs/base/proxy.test.ts' './specs/base/admin.test.ts' --concurrency 1
+
+      - name: "This client against the ${{ steps.previous.outputs.found }} server"
+        if: steps.previous.outputs.found != ''
+        working-directory: tests/e2e
+        env:
+          APERIO_SERVER_BIN: ${{ github.workspace }}/previous/aperio-server
+        run: npx nole './specs/base/proxy.test.ts' './specs/base/admin.test.ts' --concurrency 1
+
+  # ---------------------------------------------------------------------------
   # Release-cache warming, for every release target.
   #
   # Every release target builds with vendored OpenSSL for the server (a

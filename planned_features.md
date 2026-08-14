@@ -104,20 +104,6 @@ about compatibility, a way to install the thing, evidence that the release
 artifact is the one we built, and validation from someone other than our own
 test suite.
 
-- [ ] **#89 A written client/server compatibility promise, and a matrix that
-  proves it.** The tunnel protocol reached v7 in a single cycle and `#46` would
-  make it v8, but nothing in the repository states which client versions a
-  given server accepts. Operators upgrade the two sides at different times,
-  always: the server is one box and the clients are a fleet. The work is a
-  documented support window (at minimum N-1 in both directions), the version
-  handshake that enforces it, and a CI job that runs a slice of the e2e suite
-  with a *previous* release's client binary against `HEAD`'s server, and the
-  reverse. Until this exists, the compatibility story is whatever the code
-  happens to do this week. See also the CLAUDE.md rule on protocol changes,
-  which is the other half: a break has to be approved before it is written, and
-  a broken pairing has to be refused at connect time with a message that says
-  so, rather than failing somewhere deeper.
-
 - [ ] **#90 A post-release compatibility report over the real released
   clients.** `#89` covers N-1 as a gate. This is the wider, non-blocking half:
   after a release is published, fetch the `aperio-client` binaries of every
@@ -290,6 +276,26 @@ test suite.
   Nothing is lost while it waits. An operator who wants the posture writes one
   line today, and a client that connects with a service nothing gates is
   warned once per connection either way, naming the line to write.
+
+- [ ] **#113 Refuse an unsupported client/server pairing at connect time.** The
+  other half of `#89`, split off because it is not the same kind of decision.
+  `#89` documents a window and proves it; this one *enforces* a window, and
+  enforcing means some pairing that works today stops connecting tomorrow.
+  Per the CLAUDE.md rule on protocol changes that is a product decision with a
+  fleet-wide upgrade behind it, so it waits for an approved break rather than
+  being switched on speculatively: there is nothing to refuse yet, and a
+  version gate with no incompatibility to enforce only invents outages.
+  - The prerequisite is that the release version travels **early enough**. It
+    already travels, in `Ping.version`, which is after the WebSocket upgrade
+    has succeeded, so a refusal there is not a refused connection, it is a
+    connection that establishes and then drops. Refusing at connect time means
+    the client announcing it on the upgrade request (alongside
+    `x-aperio-instance`), and the server answering the supported range on the
+    handshake response, which is additive both ways and how the visitor-auth
+    method set is already negotiated.
+  - When it is built, the refusal names the incompatibility: which side is too
+    old, and what to upgrade. The failure to avoid is a connection that comes
+    up and misbehaves three layers deeper.
 
 ## Withdrawn
 
@@ -593,6 +599,26 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#89 A written client/server compatibility promise, and a matrix that
+  proves it.** The tunnel protocol reached v7 in a single cycle and `#46` would
+  make it v8, but nothing in the repository stated which client versions a
+  given server accepts. Operators upgrade the two sides at different times,
+  always: the server is one box and the clients are a fleet.
+  shipped: the promise in `docs/upgrade-guide.md` gained a "What is actually
+  checked" section, and a `compat` job in CI now runs a slice of the e2e suite
+  against the **previous release's real binaries in both directions**, that
+  release's client against `HEAD`'s server and `HEAD`'s client against that
+  release's server, downloading them from the GitHub release rather than
+  building an old tree. The slice (`npm run test:compat`: proxying end to end,
+  plus the admin API) is deliberately not the whole suite, which asserts
+  features that did not exist in every past release and would report a missing
+  feature as an incompatibility. Verified against the real v0.9.0 binaries,
+  both directions, 26 passing each way. Differed from the plan in one way: the
+  **version handshake that enforces the window was split out as `#113`** and
+  left open. Documenting a window costs nothing, while enforcing one refuses
+  pairings that work today, which is a fleet decision and belongs to whoever
+  operates the fleet, not to the change that wrote the document.
 
 - [x] **#91 An upgrade test that actually fires `CONFIG_CHANGES`.** shipped:
   two config files kept in `tests/e2e/fixtures/` as an operator would have

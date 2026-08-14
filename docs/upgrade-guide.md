@@ -71,6 +71,30 @@ The versioned config JSON Schemas (`aperio-client.<tag>.json`,
 `aperio-server.<tag>.json`) are attached to each GitHub Release, so an editor
 validates the exact keys a given version accepts.
 
+### What is actually checked
+
+The paragraphs above are a promise, and a promise nothing checks is a wish. CI
+runs a slice of the end-to-end suite against the **previous release's real
+binaries, in both directions**: that release's client against this server, and
+this client against that server. A change that breaks either pairing fails the
+build rather than reaching a fleet.
+
+The slice is proxying a request end to end plus the admin API, because those
+are what the promise is *about*: whatever else changed between two versions, a
+request still reaches the backend and an operator can still see it. It is
+deliberately not the whole suite, which asserts features that did not exist in
+every past release, and would report the absence of a feature as an
+incompatibility.
+
+The supported window is therefore **one release of skew, proven**, and older
+than that, tolerated by design but not measured. Anyone can measure a specific
+pairing themselves, since the suite takes the binaries as inputs:
+
+```bash
+APERIO_CLIENT_BIN=/path/to/old/aperio-client npm --prefix tests/e2e run test:compat
+APERIO_SERVER_BIN=/path/to/old/aperio-server npm --prefix tests/e2e run test:compat
+```
+
 ## Recommended upgrade procedure
 
 1. **Read the [CHANGELOG](../CHANGELOG.md).** Breaking changes are called out

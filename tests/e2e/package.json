@@ -10,6 +10,8 @@
     "test:ci": "nole './specs/**/*.test.ts' --concurrency 2",
     "pretest:serial": "npm run pretest",
     "test:serial": "nole './specs/**/*.test.ts'",
+    "pretest:compat": "npm run pretest",
+    "test:compat": "nole './specs/base/proxy.test.ts' './specs/base/admin.test.ts' --concurrency 1",
     "typecheck": "tsc -b"
   },
   "devDependencies": {

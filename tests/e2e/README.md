@@ -130,3 +130,25 @@ what the next person should not give back:
 - **The lifecycle belongs to the runner.** The old config phase carried a
   comment explaining that a forgotten `stop_server` took down the *next*
   phase. `cleanUp` cannot forget.
+
+## The compatibility slice (`npm run test:compat`)
+
+A server is one box and its clients are a fleet, so the two sides are always
+upgraded at different times. `test:compat` is the slice that has to hold across
+that skew: proxying a request end to end, and the admin API that an operator
+reaches for when it does not. It is run in CI against the previous release's
+binaries, in both directions, by pointing the suite at them:
+
+```bash
+APERIO_CLIENT_BIN=/path/to/old/aperio-client npm run test:compat
+APERIO_SERVER_BIN=/path/to/old/aperio-server npm run test:compat
+```
+
+Those two variables are read by every spec, not only this slice, so any part of
+the suite can be aimed at an older binary when a specific question comes up.
+
+It is deliberately a *slice*. The whole suite asserts features that did not
+exist in every past release, so running all of it against an old binary would
+report the absence of a feature as a compatibility failure, which is noise
+rather than news. What this slice asserts is the promise: whatever else
+changed, a request still reaches the backend and an operator can still see it.
