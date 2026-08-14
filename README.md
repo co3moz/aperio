@@ -45,6 +45,16 @@ curl -sSf https://raw.githubusercontent.com/co3moz/aperio/master/install.sh | sh
 aperio-client 3000 --server-url https://tunnel.example.com --server-token apr_xxxx
 ```
 
+On an ordinary Linux box, a package with a hardened service unit:
+
+```bash
+sudo dpkg -i aperio-client_0.9.0_amd64.deb    # or rpm -i, both attached to every release
+sudo cp /etc/aperio/aperio-client.yaml.example /etc/aperio/myapp.yaml
+sudo systemctl enable --now aperio-client@myapp
+```
+
+See **[Native packages and service units](docs/packages.md)**.
+
 Dashboard at `/aperio` (user `aperio`, password = your token). Full walkthrough: **[Getting Started](docs/getting-started.md)**.
 
 ## What it carries

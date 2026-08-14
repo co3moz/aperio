@@ -103,6 +103,55 @@ jobs:
             (cd dist-pkg && shasum -a 256 "${bin}-${{ matrix.target }}.tar.gz" > "${bin}-${{ matrix.target }}.tar.gz.sha256")
           done
 
+      # Native packages, from the binaries built two steps up (planned_features
+      # #92). Only for Linux: a .deb or .rpm is a Linux artifact, and the two
+      # musl targets are the ones an ordinary server runs.
+      #
+      # nfpm rather than cargo-deb plus a second tool for rpm: one description
+      # produces both formats, and neither format's own tooling has to exist on
+      # the runner, which has neither dpkg nor rpmbuild.
+      - name: Package (deb, rpm)
+        if: contains(matrix.target, 'linux-musl')
+        env:
+          NFPM_VER: "2.47.0"
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) nfpm_arch=x86_64 ;;
+            aarch64) nfpm_arch=arm64 ;;
+            *) echo "unknown runner arch $(uname -m)"; exit 1 ;;
+          esac
+          curl -sSfL -o /tmp/nfpm.tar.gz \
+            "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VER}/nfpm_${NFPM_VER}_Linux_${nfpm_arch}.tar.gz"
+          tar -C /tmp -xzf /tmp/nfpm.tar.gz nfpm
+
+          # The package's own arch name, which is not the runner's spelling.
+          case "${{ matrix.target }}" in
+            x86_64-*) export NFPM_ARCH=amd64 ;;
+            aarch64-*) export NFPM_ARCH=arm64 ;;
+          esac
+          # Tag without the leading v: neither format accepts it.
+          export NFPM_VERSION="${GITHUB_REF_NAME#v}"
+
+          # nfpm globs `src` before expanding variables in it, so the binary is
+          # staged at a fixed path rather than named through the environment.
+          # The shipped config declares the version it was written for, which
+          # is what makes the upgrade check work for someone who installed from
+          # a package and never edited that line. A literal here would go stale
+          # the moment it shipped, so it is stamped now.
+          mkdir -p dist
+          for f in packaging/etc/*; do
+            sed "s/__APERIO_VERSION__/${NFPM_VERSION}/" "$f" > "dist/$(basename "$f")"
+          done
+
+          for bin in aperio-server aperio-client; do
+            cp "target/${{ matrix.target }}/release/${bin}" "dist/${bin}"
+            for fmt in deb rpm; do
+              /tmp/nfpm package -f "packaging/nfpm-${bin#aperio-}.yaml" -p "$fmt" -t dist-pkg
+            done
+          done
+          (cd dist-pkg && for f in *.deb *.rpm; do shasum -a 256 "$f" > "$f.sha256"; done)
+
       - name: Package (zip)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -399,6 +448,8 @@ jobs:
           subject-path: |
             dist-pkg/**/*.tar.gz
             dist-pkg/**/*.zip
+            dist-pkg/**/*.deb
+            dist-pkg/**/*.rpm
             dist-pkg/SHA256SUMS
 
       - name: Create GitHub Release

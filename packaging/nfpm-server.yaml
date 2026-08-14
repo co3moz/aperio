@@ -1,0 +1,66 @@
+# .deb and .rpm for the server, from the binary the release already built.
+#
+# nfpm is used rather than cargo-deb plus a second tool for rpm: one
+# description produces both formats, and neither format's tooling has to exist
+# on the machine that builds it, which matters because the release job runs on
+# a runner that has neither dpkg nor rpmbuild.
+#
+# NFPM_VERSION (without the leading v) and NFPM_ARCH (amd64/arm64) come from
+# the environment. The binary does not: nfpm expands variables in scalar
+# fields but globs `src` before expanding it, so the release job stages the
+# built binary at `dist/aperio-server` and this points there.
+name: aperio-server
+arch: ${NFPM_ARCH}
+version: ${NFPM_VERSION}
+section: net
+priority: optional
+maintainer: Aperio maintainers <noreply@github.com>
+description: |
+  Tunnel server for Aperio.
+  Accepts outbound WebSocket connections from Aperio clients and proxies
+  visitor HTTP traffic to whatever they expose, with a dashboard, tokens,
+  organizations and per-route policy.
+vendor: Aperio
+homepage: https://github.com/co3moz/aperio
+license: MIT
+
+contents:
+  - src: dist/aperio-server
+    dst: /usr/bin/aperio-server
+
+  - src: packaging/systemd/aperio-server.service
+    dst: /usr/lib/systemd/system/aperio-server.service
+
+  # Named per package: two Debian packages may not carry the same path, and
+  # both of these declare /etc/aperio. sysusers and tmpfiles are idempotent,
+  # so saying it twice is saying it once.
+  - src: packaging/sysusers.d/aperio.conf
+    dst: /usr/lib/sysusers.d/aperio-server.conf
+
+  - src: packaging/tmpfiles.d/aperio-server.conf
+    dst: /usr/lib/tmpfiles.d/aperio-server.conf
+
+  # Never overwritten on upgrade: a new default arrives as .rpmnew or
+  # .dpkg-dist beside it. This file holds the master token.
+  - src: dist/aperio-server.yaml
+    dst: /etc/aperio/aperio-server.yaml
+    type: config|noreplace
+    file_info:
+      mode: 0640
+
+  - dst: /etc/aperio
+    type: dir
+    file_info:
+      mode: 0750
+
+scripts:
+  postinstall: packaging/scripts/postinstall-server.sh
+  preremove: packaging/scripts/preremove-server.sh
+
+overrides:
+  rpm:
+    depends:
+      - systemd
+  deb:
+    depends:
+      - systemd

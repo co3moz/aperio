@@ -86,16 +86,6 @@ about compatibility, a way to install the thing, evidence that the release
 artifact is the one we built, and validation from someone other than our own
 test suite.
 
-- [ ] **#92 Native packages and a service unit.** A release publishes tarballs
-  and container images; installing on an ordinary Linux box means
-  `install.sh` and then writing your own unit file. `.deb` and `.rpm` built in
-  the release job (nfpm reads the binaries that are already there), each
-  carrying a hardened `aperio-server.service` and `aperio-client@.service`,
-  a config at `/etc/aperio/`, and a `sysusers`/`tmpfiles` drop-in so the
-  service does not run as root. The unit file is the part with actual content:
-  `DynamicUser`, `ProtectSystem=strict`, `NoNewPrivileges`, a
-  `ReadWritePaths` for the data directory only.
-
 - [ ] **#93 Homebrew tap and a Windows package.** A tap repository with a
   formula for both binaries, updated by the release workflow, plus a Scoop
   manifest or a winget submission for the Windows side. Mechanical work whose
@@ -569,6 +559,30 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#92 Native packages and a service unit.** A release publishes tarballs
+  and container images; installing on an ordinary Linux box meant `install.sh`
+  and then writing your own unit file. The unit file is the part with actual
+  content.
+  shipped: `packaging/`, with nfpm descriptions producing `.deb` and `.rpm`
+  for both binaries on amd64 and arm64 from the binaries the release job has
+  already built, plus `docs/packages.md` and a guide section. The packages are
+  covered by the existing checksum manifest and were added to the
+  build-provenance attestation, so a package carries the same evidence a
+  tarball does. Built locally against the real v0.9.0 linux-musl binaries and
+  the contents inspected, both formats.
+  - **Two design errors that only showed up once the packages existed.** The
+    unit first used `DynamicUser`, which cannot work: the config holds a token
+    so it is not world-readable, and a file that is not world-readable has to
+    be readable by someone with a name, while a dynamic user has a different
+    uid on every start. Both units now run as a named `aperio` account from
+    `sysusers.d`. And both packages first shipped the same
+    `sysusers.d`/`tmpfiles.d` paths, which two Debian packages may not do, so
+    installing both would have failed on a file conflict; each now carries its
+    own name for an idempotent declaration. Checked by diffing the file lists
+    of the two built `.deb`s.
+  - The shipped config's `version:` is stamped at package time rather than
+    written literally, so it cannot go stale one release after it ships.
 
 - [x] **#86 A `TokenSpec` for the token store's `create`/`update`.** (triage 25)
   `TokenStore::create` took fourteen positional arguments and `update` the same

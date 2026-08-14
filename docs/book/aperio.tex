@@ -655,6 +655,59 @@ respawns the services, so every setting takes effect without a restart.
 \part{Configuring}
 % =====================================================================
 
+\section{Installing as a service}
+
+Every release attaches a \code{.deb} and an \code{.rpm} for both binaries, on
+amd64 and arm64. They exist because the alternative, a tarball and a unit file
+you write yourself, is where hardening quietly does not happen. Both packages
+can be installed on the same machine; they share no files.
+
+\begin{lstlisting}[language=aperiosh]
+sudo dpkg -i aperio-server_0.9.0_amd64.deb   # or: rpm -i aperio-server-...rpm
+sudoedit /etc/aperio/aperio-server.yaml      # set server.token
+sudo systemctl enable --now aperio-server
+\end{lstlisting}
+
+Installing starts nothing. The shipped config carries a placeholder master
+token, and a tunnel server that comes up on \code{apt install} with a token
+published in a package is worse than one that does not come up at all.
+
+The client's unit is a \emph{template}, and the name after the \code{@} is the
+config file it reads, because a machine usually fronts more than one thing and
+the alternative to a template is copies of a unit file that drift:
+
+\begin{lstlisting}[language=aperiosh]
+sudo cp /etc/aperio/aperio-client.yaml.example /etc/aperio/myapp.yaml
+sudoedit /etc/aperio/myapp.yaml
+sudo systemctl enable --now aperio-client@myapp
+\end{lstlisting}
+
+Both units run as the \code{aperio} system account and are sandboxed the same
+way: \code{NoNewPrivileges}, \code{ProtectSystem=strict}, \code{ProtectHome},
+\code{PrivateTmp}, \code{PrivateDevices}, \code{ProtectProc=invisible}, the
+\code{ProtectKernel*} set, \code{RestrictNamespaces},
+\code{MemoryDenyWriteExecute}, \code{SystemCallFilter=@system-service}, and
+\code{RestrictAddressFamilies} narrowed to IP (the client also gets unix
+sockets, since it may be pointed at a backend over one). Read that list as the
+set of things you would otherwise have to trust the process not to do.
+
+One consequence is worth knowing before it surprises you: \code{ProtectSystem=%
+strict} makes the filesystem read-only apart from what is named, so moving the
+data directory takes two lines rather than one.
+
+\begin{lstlisting}[language=aperiosh]
+sudo systemctl edit aperio-server
+# [Service]
+# Environment=APERIO_DATA_DIR=/srv/aperio
+# ReadWritePaths=/srv/aperio
+\end{lstlisting}
+
+A named account is used rather than systemd's \code{DynamicUser}, which would
+otherwise be the better answer. The config file holds a token, so it is not
+world-readable, and a file that is not world-readable has to be readable by
+someone with a name; a dynamic user has a different uid on every start, so no
+mode on that file can admit it and nothing else.
+
 \chapter{The configuration model}
 \label{ch:config-model}
 

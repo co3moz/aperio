@@ -1,0 +1,63 @@
+[Unit]
+Description=Aperio tunnel client (%i)
+Documentation=https://github.com/co3moz/aperio
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/aperio-client run --config /etc/aperio/%i.yaml
+Restart=always
+RestartSec=2s
+
+# A template unit, `systemctl enable --now aperio-client@myapp`, reading
+# /etc/aperio/myapp.yaml. One machine usually fronts more than one thing, and
+# the alternative to a template is copies of a unit file that drift.
+#
+# The same `aperio` account the server uses, created by systemd-sysusers when
+# the package is installed. It has to be an account with a name for two
+# reasons: the token in its config file is not world-readable, and the client's
+# whole job is to reach something local, a backend on a port, a unix socket, a
+# directory of static files, so its account is something the operator has to
+# grant access *to*, by group or by ACL.
+User=aperio
+Group=aperio
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# AF_UNIX as well as IP: a client may be pointed at a backend over a unix
+# socket, which the server has no equivalent of.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+# Per-instance state (the persistent client id, so failover and `bind-tunnels`
+# recognize this client across restarts).
+StateDirectory=aperio-client/%i
+Environment=APERIO_DATA_DIR=/var/lib/aperio-client/%i
+
+# Nothing else is writable. A client serving a static directory needs that
+# directory readable, which ProtectSystem=strict already allows; if it needs to
+# *write* somewhere, that is a deliberate override:
+#   systemctl edit aperio-client@myapp
+#   [Service]
+#   ReadWritePaths=/srv/myapp/uploads
+
+[Install]
+WantedBy=multi-user.target

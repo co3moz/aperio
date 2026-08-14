@@ -9,6 +9,7 @@ Prefer one long read? [**The Complete Guide**](book/aperio.tex) is a single-file
 - [Getting Started](getting-started.md), expose your first local service in five minutes, with Docker or the CLI.
 - [Configuration Reference](configuration.md), every setting on both sides: the env/CLI/yaml naming standard, precedence layers, full tables, and the HTTP endpoint list.
 - [Configuration Examples](examples/README.md), ready-to-adapt `aperio.yaml` + `aperio-server.yaml` pairs for common scenarios, from the minimal setup to load balancing, tunnels, and SSO.
+- [Native Packages & Service Units](packages.md), the `.deb`/`.rpm` on every release: where files land, the hardened systemd units, one client instance per config file, and how to move the data directory past `ProtectSystem=strict`.
 
 ## Core Features
 

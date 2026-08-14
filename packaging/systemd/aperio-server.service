@@ -1,0 +1,67 @@
+[Unit]
+Description=Aperio tunnel server
+Documentation=https://github.com/co3moz/aperio
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/aperio-server
+Environment=APERIO_SERVER_CONFIG=/etc/aperio/aperio-server.yaml
+Restart=on-failure
+RestartSec=2s
+
+# The server is one process that listens and holds a SQLite store. It needs a
+# port, a data directory, and nothing else on the machine, so it is given
+# nothing else.
+#
+# A static account rather than DynamicUser, and the reason is the config file.
+# The master token lives in /etc/aperio/aperio-server.yaml, which is therefore
+# not world-readable, and a file that is not world-readable has to be readable
+# by *someone* nameable. A dynamic user has a different uid and gid on every
+# start, so no mode on that file can admit it and nothing else. The account is
+# created by systemd-sysusers when the package is installed.
+User=aperio
+Group=aperio
+Environment=APERIO_DATA_DIR=/var/lib/aperio
+
+# Everything below is a refusal, not a tuning knob. Read them as the list of
+# things an operator would otherwise have to trust this process not to do.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# Outbound webhooks, ACME and OIDC are HTTP over IP; nothing here speaks any
+# other address family.
+RestrictAddressFamilies=AF_INET AF_INET6
+
+# ProtectSystem=strict makes everything read-only, so the one writable path has
+# to be named. Point the config's data directory somewhere else and this line
+# is the one that has to follow it:
+#   systemctl edit aperio-server
+#   [Service]
+#   ReadWritePaths=/srv/aperio
+ReadWritePaths=/var/lib/aperio
+
+# A tunnel server holds one socket per connected client plus the visitor
+# connections in front of them, and the default of 1024 is low for that.
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

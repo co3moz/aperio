@@ -47,3 +47,6 @@ docs/book/*.pdf
 tests/conformance/reports/
 tests/conformance/fuzzingclient.json
 tests/conformance/.data/
+
+# Staged binaries for the native-package build (packaging/nfpm-*.yaml)
+/dist/

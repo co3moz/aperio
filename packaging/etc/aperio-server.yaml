@@ -1,0 +1,34 @@
+# Aperio server configuration, read by aperio-server.service.
+#
+# Package upgrades never overwrite this file; a new default lands beside it as
+# aperio-server.yaml.rpmnew or .dpkg-dist for you to diff.
+#
+# The full reference is docs/configuration.md, and every key here is also an
+# APERIO_* environment variable, which is what to reach for when a value comes
+# from a secret store rather than from this file:
+#   systemctl edit aperio-server
+#   [Service]
+#   Environment=APERIO_SERVER_TOKEN=...
+
+server:
+  # The master token. Clients present it to connect, and it signs in to the
+  # dashboard as `aperio:<token>`. Change it before starting, and treat it the
+  # way you treat a root password.
+  token: apr_change_me_before_starting
+
+# The address the service listens on. Aperio does not terminate TLS: put it
+# behind a reverse proxy (nginx, Caddy, Traefik) and let that hold the
+# certificate. See docs/edge-proxy.md.
+host: 127.0.0.1
+port: 8080
+
+# Uncomment when a proxy is in front, so visitor IPs in the logs and in
+# `allowed_ips` are the real ones rather than the proxy's.
+# trusted_proxies:
+#   - 127.0.0.1
+
+# The version this file was written for. On startup the server compares it
+# against its own build and reports every recorded change to the configuration
+# format that landed in between, refusing to start when one of them has
+# security consequences. Keep it current when you upgrade.
+version: __APERIO_VERSION__

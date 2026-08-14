@@ -1,0 +1,57 @@
+# .deb and .rpm for the client. See packaging/nfpm-server.yaml for why nfpm.
+#
+# NFPM_VERSION and NFPM_ARCH come from the environment; the binary is staged
+# at `dist/aperio-client` by the release job, because nfpm globs `src` before
+# expanding variables in it.
+name: aperio-client
+arch: ${NFPM_ARCH}
+version: ${NFPM_VERSION}
+section: net
+priority: optional
+maintainer: Aperio maintainers <noreply@github.com>
+description: |
+  Tunnel client for Aperio.
+  Dials an Aperio server over an outbound WebSocket and serves a local
+  backend, a static directory or a private TCP port through it, so nothing
+  has to be reachable from the internet.
+vendor: Aperio
+homepage: https://github.com/co3moz/aperio
+license: MIT
+
+contents:
+  - src: dist/aperio-client
+    dst: /usr/bin/aperio-client
+
+  # A template unit: `systemctl enable --now aperio-client@myapp` reads
+  # /etc/aperio/myapp.yaml.
+  - src: packaging/systemd/aperio-client@.service
+    dst: /usr/lib/systemd/system/aperio-client@.service
+
+  # Named per package: see the server's file for why.
+  - src: packaging/sysusers.d/aperio.conf
+    dst: /usr/lib/sysusers.d/aperio-client.conf
+
+  - src: packaging/tmpfiles.d/aperio-client.conf
+    dst: /usr/lib/tmpfiles.d/aperio-client.conf
+
+  # An example rather than a config: an instance is a copy of this under its
+  # own name, so there is no single file for the package to own or clobber.
+  - src: dist/aperio-client.yaml.example
+    dst: /etc/aperio/aperio-client.yaml.example
+
+  - dst: /etc/aperio
+    type: dir
+    file_info:
+      mode: 0750
+
+scripts:
+  postinstall: packaging/scripts/postinstall-client.sh
+  preremove: packaging/scripts/preremove-client.sh
+
+overrides:
+  rpm:
+    depends:
+      - systemd
+  deb:
+    depends:
+      - systemd
