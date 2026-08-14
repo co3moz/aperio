@@ -558,11 +558,13 @@ async fn test_check_token_limits_rps_and_quota() {
   // A token with a 1 rps limit allows one request, then rejects.
   let rps_id = {
     let mut store = state.token_store.lock().await;
-    let (tok, _secret) = store.create(TokenSpec {
-      name: "rps".to_string(),
-      max_rps: Some(1.0),
-      ..Default::default()
-    });
+    let (tok, _secret) = store
+      .create(TokenSpec {
+        name: "rps".to_string(),
+        max_rps: Some(1.0),
+        ..Default::default()
+      })
+      .expect("the test store can be written to");
     tok.id
   };
   assert!(state.check_token_limits(Some(&rps_id)).await.is_ok());
@@ -574,11 +576,13 @@ async fn test_check_token_limits_rps_and_quota() {
   // A token with a daily byte quota rejects once usage reaches it.
   let quota_id = {
     let mut store = state.token_store.lock().await;
-    let (tok, _secret) = store.create(TokenSpec {
-      name: "quota".to_string(),
-      daily_max_bytes: Some(100),
-      ..Default::default()
-    });
+    let (tok, _secret) = store
+      .create(TokenSpec {
+        name: "quota".to_string(),
+        daily_max_bytes: Some(100),
+        ..Default::default()
+      })
+      .expect("the test store can be written to");
     tok.id
   };
   // Under quota: allowed. Zero bytes is a no-op.

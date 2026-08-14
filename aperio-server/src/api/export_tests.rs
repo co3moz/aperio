@@ -324,15 +324,19 @@ async fn without_organizations_only_masters_rows_travel() {
     .id;
   {
     let mut tokens = state.token_store.lock().await;
-    tokens.create(TokenSpec {
-      name: "master-one".into(),
-      ..Default::default()
-    });
-    tokens.create(TokenSpec {
-      name: "acme-one".into(),
-      org_id: Some(org.clone()),
-      ..Default::default()
-    });
+    tokens
+      .create(TokenSpec {
+        name: "master-one".into(),
+        ..Default::default()
+      })
+      .expect("the test store can be written to");
+    tokens
+      .create(TokenSpec {
+        name: "acme-one".into(),
+        org_id: Some(org.clone()),
+        ..Default::default()
+      })
+      .expect("the test store can be written to");
   }
   state
     .persistent_stats

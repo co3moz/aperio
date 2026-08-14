@@ -12,7 +12,21 @@ use tracing::info;
 use crate::auth::valid_ip_entry;
 use crate::routing::{extract_client_ip, normalize_hostname_bind, normalize_path_bind};
 use crate::state::AppState;
-use crate::store::tokens::{TokenPatch, TokenSpec};
+use crate::store::tokens::{NotWritten, TokenPatch, TokenSpec};
+
+/// The answer when a change was undone because it could not be saved.
+///
+/// A 500 rather than an "ok": the record is not in the store, so telling the
+/// caller it worked would leave them with a token that stops existing at the
+/// next restart. The cause is almost always a full disk, and the server's log
+/// carries the underlying error from SQLite.
+pub(crate) fn not_persisted() -> axum::response::Response {
+  (
+    StatusCode::INTERNAL_SERVER_ERROR,
+    "The change could not be saved to the store and was rolled back; see the server log",
+  )
+    .into_response()
+}
 
 /// Public view of a dynamic token record (never includes hash or secret).
 #[derive(Serialize)]
@@ -264,7 +278,7 @@ pub(crate) fn validate_token_perms(
 #[utoipa::path(post, path = "/aperio/api/tokens", tag = "tokens",
   description = "Creates a dynamic token; the plaintext secret is returned exactly once.",
   request_body = TokenCreateRequest,
-  responses((status = 200, description = "Created token + secret", body = serde_json::Value), (status = 400, description = "Invalid permissions")))]
+  responses((status = 200, description = "Created token + secret", body = serde_json::Value), (status = 400, description = "Invalid permissions"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn tokens_create_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -318,7 +332,7 @@ pub(crate) async fn tokens_create_handler(
     .org_quota(org.as_deref())
     .await
     .and_then(|q| q.max_tokens);
-  let (record, secret) = {
+  let created = {
     let mut store = state.token_store.lock().await;
     if let Some(resp) = org_token_quota_reached(&store, org.as_deref(), quota_max) {
       return resp;
@@ -339,6 +353,9 @@ pub(crate) async fn tokens_create_handler(
       allow_otel: payload.allow_otel,
       canary: payload.canary,
     })
+  };
+  let Ok((record, secret)) = created else {
+    return not_persisted();
   };
   info!(
     "Dynamic token created: {} (id={}, hostnames={:?}, paths={:?}, ips={:?}, expires_at={:?})",
@@ -436,7 +453,7 @@ async fn token_in_effective_org(state: &Arc<AppState>, headers: &HeaderMap, id: 
   description = "Edits a token's scope/limits/expiry in place without changing the secret. A narrowed `topics` applies to the clients already connected under the token: every live subscription the new list no longer covers is withdrawn at once and reported to that client.",
   params(("id" = String, Path, description = "Token record id")),
   request_body = TokenUpdateRequest,
-  responses((status = 200, description = "Updated record", body = serde_json::Value), (status = 404, description = "Unknown token id")))]
+  responses((status = 200, description = "Updated record", body = serde_json::Value), (status = 404, description = "Unknown token id"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn tokens_update_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(id): axum::extract::Path<String>,
@@ -522,7 +539,7 @@ pub(crate) async fn tokens_update_handler(
   );
 
   match updated {
-    Some(record) => {
+    Ok(record) => {
       // A narrowed `topics` has to reach the connections already holding
       // subscriptions under the old grant, or it only takes effect whenever
       // each client next reconnects. Runs on any edit that names `topics`,
@@ -563,7 +580,8 @@ pub(crate) async fn tokens_update_handler(
         .await;
       Json(serde_json::json!({"status": "ok"})).into_response()
     }
-    None => (StatusCode::NOT_FOUND, "Token not found").into_response(),
+    Err(NotWritten::NoSuchToken) => (StatusCode::NOT_FOUND, "Token not found").into_response(),
+    Err(NotWritten::NotPersisted) => not_persisted(),
   }
 }
 
@@ -576,7 +594,7 @@ pub(crate) async fn tokens_update_handler(
 /// already-expired token cannot resurrect itself.
 #[utoipa::path(post, path = "/aperio/api/tokens/refresh", tag = "tokens",
   description = "Slides a TTL-token's expiry forward by its creation TTL. Authenticates with the token secret itself (Bearer); no dashboard session needed. Rate-limited per IP.",
-  responses((status = 200, description = "New expiry", body = serde_json::Value), (status = 401, description = "Unknown/expired secret"), (status = 409, description = "Token never expires")))]
+  responses((status = 200, description = "New expiry", body = serde_json::Value), (status = 401, description = "Unknown/expired secret"), (status = 409, description = "Token never expires"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn tokens_refresh_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -607,7 +625,7 @@ pub(crate) async fn tokens_refresh_handler(
   };
   let refreshed = state.token_store.lock().await.refresh(&secret);
   match refreshed {
-    Some(record) => {
+    Ok(record) => {
       info!(
         "Dynamic token refreshed: {} (id={}, new expires_at={:?})",
         record.name, record.id, record.expires_at
@@ -630,11 +648,12 @@ pub(crate) async fn tokens_refresh_handler(
       }))
       .into_response()
     }
-    None => (
+    Err(NotWritten::NoSuchToken) => (
       StatusCode::UNAUTHORIZED,
       "Unknown, expired, or non-expiring token",
     )
       .into_response(),
+    Err(NotWritten::NotPersisted) => not_persisted(),
   }
 }
 
@@ -655,7 +674,7 @@ pub(crate) struct TokenRotateRequest {
   description = "Rotates a token's secret; the old secret stays valid for grace_seconds. The new secret is returned exactly once.",
   params(("id" = String, Path, description = "Token record id")),
   request_body = TokenRotateRequest,
-  responses((status = 200, description = "New secret + grace deadline", body = serde_json::Value), (status = 404, description = "Unknown token id")))]
+  responses((status = 200, description = "New secret + grace deadline", body = serde_json::Value), (status = 404, description = "Unknown token id"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn tokens_rotate_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(id): axum::extract::Path<String>,
@@ -689,7 +708,7 @@ pub(crate) async fn tokens_rotate_handler(
     .await
     .rotate(&id, payload.grace_seconds);
   match rotated {
-    Some((record, secret)) => {
+    Ok((record, secret)) => {
       info!(
         "Dynamic token rotated: {} (id={}, grace_seconds={}, prev_expires_at={:?})",
         record.name, record.id, payload.grace_seconds, record.prev_expires_at
@@ -729,7 +748,8 @@ pub(crate) async fn tokens_rotate_handler(
       )
         .into_response()
     }
-    None => (StatusCode::NOT_FOUND, "Token not found").into_response(),
+    Err(NotWritten::NoSuchToken) => (StatusCode::NOT_FOUND, "Token not found").into_response(),
+    Err(NotWritten::NotPersisted) => not_persisted(),
   }
 }
 
@@ -739,7 +759,7 @@ pub(crate) async fn tokens_rotate_handler(
 #[utoipa::path(delete, path = "/aperio/api/tokens/{id}", tag = "tokens",
   description = "Revokes a token and immediately drops any tunnel connections using it.",
   params(("id" = String, Path, description = "Token record id")),
-  responses((status = 200, description = "Revoked"), (status = 404, description = "Unknown token id")))]
+  responses((status = 200, description = "Revoked"), (status = 404, description = "Unknown token id"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn tokens_revoke_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(id): axum::extract::Path<String>,
@@ -759,7 +779,10 @@ pub(crate) async fn tokens_revoke_handler(
     return (StatusCode::NOT_FOUND, "Token not found").into_response();
   }
   let revoked = state.token_store.lock().await.revoke(&id);
-  if revoked {
+  if revoked == Err(NotWritten::NotPersisted) {
+    return not_persisted();
+  }
+  if revoked.is_ok() {
     info!("Dynamic token revoked: {}", id);
     // An autoscaling record must never outlive the credential that armed it:
     // otherwise a revoked token would keep the server calling a scaling

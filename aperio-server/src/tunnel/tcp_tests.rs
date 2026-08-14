@@ -128,10 +128,12 @@ async fn seed_client(state: &AppState, id: &str, f: impl FnOnce(&mut ClientHandl
 /// Mints a dynamic token in the store and returns its secret.
 async fn make_token(state: &AppState) -> String {
   let mut store = state.token_store.lock().await;
-  let (_rec, secret) = store.create(TokenSpec {
-    name: "caller".into(),
-    ..Default::default()
-  });
+  let (_rec, secret) = store
+    .create(TokenSpec {
+      name: "caller".into(),
+      ..Default::default()
+    })
+    .expect("the test store can be written to");
   secret
 }
 

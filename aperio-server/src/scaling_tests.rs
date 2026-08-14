@@ -471,6 +471,7 @@ async fn a_visitor_the_owning_tokens_would_reject_cannot_bill_a_cold_start() {
         allowed_ips: vec!["10.0.0.0/8".into()],
         ..Default::default()
       })
+      .expect("the test store can be written to")
       .0
       .id
       .clone()

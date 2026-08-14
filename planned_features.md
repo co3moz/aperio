@@ -236,22 +236,21 @@ test suite.
     old, and what to upgrade. The failure to avoid is a connection that comes
     up and misbehaves three layers deeper.
 
-- [ ] **#114 `create` and `update` report success when the store could not be
-  written.** Found by `#100`'s test, and left open because it is a behaviour
-  change rather than a test. On a full disk, creating a token returns 200: the
-  record is in memory, `replace_all` logged a failure, and the token is gone
-  after a restart. `TokenStore::revoke`, two methods further down the same
-  file, already does the right thing, it puts the removed record back so
-  memory matches disk and returns `false` so the caller reports the failure.
-  So the pattern exists and is deliberate; `create` and `update` simply ignore
-  the bool. The same shape is worth checking across the other stores.
-  - The fix is small and its consequence is not: calls that used to answer 200
-    would answer 500 when the disk is full, which is correct and is still a
-    change to what an operator's tooling sees. Worth doing with that said out
-    loud rather than as a drive-by.
-  - Severity is not uniform. A create that silently did not happen is a
-    surprise; a *revoke* that silently did not happen is a credential that
-    comes back from the dead, which is why that one was handled first.
+- [ ] **#115 The same sweep over the other stores.** `#114` fixed the token
+  store and, in doing so, counted the rest: about forty mutations across
+  `users`, `orgs`, `webhooks`, `inbox`, `scaling` and `admin_keys` still ignore
+  what `persist` returns, so each of them can report a success it did not save.
+  The instrument now exists, `TokenStore::commit` is eight lines and every
+  mutation in that file goes through it.
+  - **Not uniform in severity, so not one undifferentiated sweep.** A user
+    deleted, a passkey removed, a TOTP disabled and an organization deleted are
+    the `revoke` case: a false success is access that comes back from the dead.
+    A webhook delivery record or a pruned inbox entry is bookkeeping, where a
+    logged failure may well be the right answer and a rollback is noise.
+  - Each store's call sites answer an API caller, so this is the same
+    behaviour change as `#114` repeated: `200` becomes `500` where the disk is
+    failing. Worth doing store by store rather than in one commit nobody can
+    review.
 
 ## Withdrawn
 
@@ -555,6 +554,31 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#114 `create` and `update` report success when the store could not be
+  written.** Found by `#100`'s test. On a full disk, creating a token returned
+  200: the record was in memory, `replace_all` logged a failure, and the token
+  was gone after a restart. `TokenStore::revoke` already did the right thing,
+  so the pattern existed and the other mutations ignored the bool.
+  shipped: a `commit` helper that snapshots the records, runs the change,
+  saves, and puts them back when the save failed, and **every mutation in the
+  token store goes through it**: `create`, `update`, `revoke`, `rotate`,
+  `refresh`, `pin_key`. The endpoints answer `500` with a message saying the
+  change was rolled back, and the OpenAPI document declares it.
+  - Went further than the entry in two places, both because the change made
+    them visible. `revoke` returned one `false` for "no such token" and for
+    "the write failed", so a caller could not tell a 404 from a 500; there is
+    now a `NotWritten` enum with those two cases kept apart. And a device pin
+    that could not be recorded now **refuses the connection**: it used to fall
+    into a `_ => {}` arm and be admitted, which leaves the operator with a
+    pinning control that reports itself enabled and holds nothing.
+  - Pinned by three unit tests that break writes by dropping the table, so the
+    failure is deterministic and instant, plus the real full-disk assertion in
+    `#100`'s e2e spec, which now requires the 500 rather than recording the
+    old behaviour. All three unit tests were confirmed to fail with the
+    rollback removed.
+  - The sweep over the other stores is `#115`: about forty more mutations, and
+    they are not all the same severity.
 
 - [x] **#100 A disk that fills under the SQLite store.** Split out of `#99`
   when the rest of it shipped. Every portable way to simulate it is a

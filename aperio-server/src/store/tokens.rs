@@ -190,6 +190,21 @@ pub struct TokenPatch {
   pub canary: Option<bool>,
 }
 
+/// Why a change to a token did not happen.
+///
+/// Two reasons, kept apart, because the caller answers them differently and
+/// used to be unable to tell them apart at all: `revoke` returned one `false`
+/// for both "no such token" and "the disk is full", so a 404 and a 500 were
+/// the same value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotWritten {
+  /// No token matched. Nothing was attempted.
+  NoSuchToken,
+  /// The change was made and then undone, because it could not be saved.
+  /// Memory matches disk, and the caller must report a failure.
+  NotPersisted,
+}
+
 /// Persistent store for dynamic API tokens, backed by the `tokens` table of
 /// the shared SQLite store (`<data_dir>/aperio.db`).
 pub struct TokenStore {
@@ -234,9 +249,32 @@ impl TokenStore {
     crate::store::replace_all(&mut self.conn, "tokens", &rows)
   }
 
+  /// Runs `change`, saves, and puts the records back when the save failed.
+  ///
+  /// **Every mutation in this file goes through here**, and the reason is the
+  /// one `revoke` was already written by hand for: a change that is in memory
+  /// and not on disk is a change that disappears at the next restart, and a
+  /// caller told it succeeded has been told something false. On a full disk
+  /// that was a token which existed until the process was restarted; for a
+  /// revocation it would have been a credential coming back from the dead.
+  ///
+  /// The snapshot is the whole record list, which is O(n) per mutation, and
+  /// that is affordable precisely because these are administrative actions on
+  /// a list of tokens rather than anything on the request path.
+  fn commit<R>(&mut self, change: impl FnOnce(&mut Self) -> R) -> Result<R, NotWritten> {
+    let snapshot = self.tokens.clone();
+    let out = change(self);
+    if self.persist() {
+      Ok(out)
+    } else {
+      self.tokens = snapshot;
+      Err(NotWritten::NotPersisted)
+    }
+  }
+
   /// Creates a new token, persists it, and returns the record together with
   /// the plaintext secret. The secret is only available at creation time.
-  pub fn create(&mut self, spec: TokenSpec) -> (ApiToken, String) {
+  pub fn create(&mut self, spec: TokenSpec) -> Result<(ApiToken, String), NotWritten> {
     let secret = format!(
       "apr_{}{}",
       uuid::Uuid::new_v4().simple(),
@@ -266,14 +304,15 @@ impl TokenStore {
       prev_expires_at: None,
       pinned_key: None,
     };
-    self.tokens.push(record.clone());
-    self.persist();
-    (record, secret)
+    self.commit(|store| {
+      store.tokens.push(record.clone());
+      (record, secret)
+    })
   }
 
   /// Updates a token's scope (permissions/expiry) in place without touching
   /// the secret. Returns the updated record, or None when the ID is unknown.
-  pub fn update(&mut self, id: &str, patch: TokenPatch) -> Option<ApiToken> {
+  pub fn update(&mut self, id: &str, patch: TokenPatch) -> Result<ApiToken, NotWritten> {
     let TokenPatch {
       name,
       hostnames,
@@ -289,50 +328,57 @@ impl TokenStore {
       canary,
       topics,
     } = patch;
-    let token = self.tokens.iter_mut().find(|t| t.id == id)?;
-    if let Some(n) = name {
-      token.name = n;
+    if !self.tokens.iter().any(|t| t.id == id) {
+      return Err(NotWritten::NoSuchToken);
     }
-    if let Some(h) = hostnames {
-      token.hostnames = h;
-    }
-    if let Some(p) = paths {
-      token.paths = p;
-    }
-    if let Some(ips) = allowed_ips {
-      token.allowed_ips = ips;
-    }
-    if let Some(ttl) = ttl_seconds {
-      token.expires_at = ttl.map(|t| now_secs().saturating_add(t));
-      token.ttl_seconds = ttl;
-    }
-    if let Some(rps) = max_rps {
-      token.max_rps = rps.filter(|v| *v > 0.0);
-    }
-    if let Some(quota) = daily_max_bytes {
-      token.daily_max_bytes = quota.filter(|v| *v > 0);
-    }
-    if let Some(conns) = max_connections {
-      token.max_connections = conns.filter(|v| *v > 0);
-    }
-    if let Some(p) = allow_public {
-      token.allow_public = p;
-    }
-    if let Some(b) = allow_bind {
-      token.allow_bind = b;
-    }
-    if let Some(o) = allow_otel {
-      token.allow_otel = o;
-    }
-    if let Some(t) = topics {
-      token.topics = t;
-    }
-    if let Some(c) = canary {
-      token.canary = c;
-    }
-    let updated = token.clone();
-    self.persist();
-    Some(updated)
+    self.commit(|store| {
+      let token = store
+        .tokens
+        .iter_mut()
+        .find(|t| t.id == id)
+        .expect("checked just above, and nothing else holds the store");
+      if let Some(n) = name {
+        token.name = n;
+      }
+      if let Some(h) = hostnames {
+        token.hostnames = h;
+      }
+      if let Some(p) = paths {
+        token.paths = p;
+      }
+      if let Some(ips) = allowed_ips {
+        token.allowed_ips = ips;
+      }
+      if let Some(ttl) = ttl_seconds {
+        token.expires_at = ttl.map(|t| now_secs().saturating_add(t));
+        token.ttl_seconds = ttl;
+      }
+      if let Some(rps) = max_rps {
+        token.max_rps = rps.filter(|v| *v > 0.0);
+      }
+      if let Some(quota) = daily_max_bytes {
+        token.daily_max_bytes = quota.filter(|v| *v > 0);
+      }
+      if let Some(conns) = max_connections {
+        token.max_connections = conns.filter(|v| *v > 0);
+      }
+      if let Some(p) = allow_public {
+        token.allow_public = p;
+      }
+      if let Some(b) = allow_bind {
+        token.allow_bind = b;
+      }
+      if let Some(o) = allow_otel {
+        token.allow_otel = o;
+      }
+      if let Some(t) = topics {
+        token.topics = t;
+      }
+      if let Some(c) = canary {
+        token.canary = c;
+      }
+      token.clone()
+    })
   }
 
   /// Removes a token by ID. Returns true when a token was actually removed
@@ -340,17 +386,13 @@ impl TokenStore {
   /// reverted so memory matches disk, otherwise a "revoked" token would come
   /// back on the next restart, and `false` is returned so the caller reports
   /// the failure rather than a false success.
-  pub fn revoke(&mut self, id: &str) -> bool {
+  pub fn revoke(&mut self, id: &str) -> Result<(), NotWritten> {
     let Some(pos) = self.tokens.iter().position(|t| t.id == id) else {
-      return false;
+      return Err(NotWritten::NoSuchToken);
     };
-    let removed = self.tokens.remove(pos);
-    if self.persist() {
-      true
-    } else {
-      self.tokens.insert(pos, removed);
-      false
-    }
+    self.commit(|store| {
+      store.tokens.remove(pos);
+    })
   }
 
   /// Returns all token records (hashes included; strip before exposing).
@@ -383,48 +425,58 @@ impl TokenStore {
   /// Trust-on-first-use pin: records `key` as the token's device pin when it
   /// has none (persisting), reports a match when it equals the existing pin,
   /// or a mismatch otherwise. Returns None for an unknown token id.
-  pub fn pin_key(&mut self, id: &str, key: &str) -> Option<PinOutcome> {
-    let token = self.tokens.iter_mut().find(|t| t.id == id)?;
-    let outcome = match token.pinned_key.as_deref() {
-      None => {
-        token.pinned_key = Some(key.to_string());
-        PinOutcome::Pinned
-      }
-      Some(existing) if existing == key => PinOutcome::Match,
-      Some(_) => PinOutcome::Mismatch,
+  pub fn pin_key(&mut self, id: &str, key: &str) -> Result<PinOutcome, NotWritten> {
+    let Some(token) = self.tokens.iter().find(|t| t.id == id) else {
+      return Err(NotWritten::NoSuchToken);
     };
-    if outcome == PinOutcome::Pinned {
-      self.persist();
+    // Only a *new* pin is a change, so the two answers that read the existing
+    // pin never touch the disk and cannot fail on it.
+    match token.pinned_key.as_deref() {
+      Some(existing) if existing == key => return Ok(PinOutcome::Match),
+      Some(_) => return Ok(PinOutcome::Mismatch),
+      None => {}
     }
-    Some(outcome)
+    self.commit(|store| {
+      if let Some(token) = store.tokens.iter_mut().find(|t| t.id == id) {
+        token.pinned_key = Some(key.to_string());
+      }
+      PinOutcome::Pinned
+    })
   }
 
   /// Rotates a token's secret in place: a fresh secret becomes current and
   /// the old one stays accepted for `grace_seconds` (0 = immediate cutover).
   /// Permissions, limits and expiry are untouched. Returns the updated
   /// record together with the new plaintext secret.
-  pub fn rotate(&mut self, id: &str, grace_seconds: u64) -> Option<(ApiToken, String)> {
-    let token = self.tokens.iter_mut().find(|t| t.id == id)?;
-    let secret = format!(
-      "apr_{}{}",
-      uuid::Uuid::new_v4().simple(),
-      uuid::Uuid::new_v4().simple()
-    );
-    if grace_seconds > 0 {
-      token.prev_token_hash = Some(token.token_hash.clone());
-      token.prev_expires_at = Some(now_secs().saturating_add(grace_seconds));
-    } else {
-      token.prev_token_hash = None;
-      token.prev_expires_at = None;
+  pub fn rotate(&mut self, id: &str, grace_seconds: u64) -> Result<(ApiToken, String), NotWritten> {
+    if !self.tokens.iter().any(|t| t.id == id) {
+      return Err(NotWritten::NoSuchToken);
     }
-    token.token_hash = hash_token(&secret);
-    token.token_prefix = secret.chars().take(12).collect();
-    // A rotated secret is a fresh trust anchor: drop the device pin so the
-    // next connecting client re-pins (e.g. after moving the token to a new box).
-    token.pinned_key = None;
-    let rotated = token.clone();
-    self.persist();
-    Some((rotated, secret))
+    self.commit(|store| {
+      let token = store
+        .tokens
+        .iter_mut()
+        .find(|t| t.id == id)
+        .expect("checked above");
+      let secret = format!(
+        "apr_{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+      );
+      if grace_seconds > 0 {
+        token.prev_token_hash = Some(token.token_hash.clone());
+        token.prev_expires_at = Some(now_secs().saturating_add(grace_seconds));
+      } else {
+        token.prev_token_hash = None;
+        token.prev_expires_at = None;
+      }
+      token.token_hash = hash_token(&secret);
+      token.token_prefix = secret.chars().take(12).collect();
+      // A rotated secret is a fresh trust anchor: drop the device pin so the
+      // next connecting client re-pins (e.g. after moving the token to a new box).
+      token.pinned_key = None;
+      (token.clone(), secret)
+    })
   }
 
   /// Slides the expiry of the (non-expired) token matching `secret` forward by
@@ -432,17 +484,23 @@ impl TokenStore {
   /// keeps using it. Returns the refreshed record. `None` when the secret is
   /// unknown, already expired, or the token has no TTL (nothing to refresh,
   /// it never expires).
-  pub fn refresh(&mut self, secret: &str) -> Option<ApiToken> {
+  pub fn refresh(&mut self, secret: &str) -> Result<ApiToken, NotWritten> {
     let hash = hash_token(secret);
-    let token = self
+    let Some(pos) = self
       .tokens
-      .iter_mut()
-      .find(|t| crate::auth::constant_time_eq_str(&t.token_hash, &hash) && !t.is_expired())?;
-    let ttl = token.ttl_seconds?;
-    token.expires_at = Some(now_secs().saturating_add(ttl));
-    let refreshed = token.clone();
-    self.persist();
-    Some(refreshed)
+      .iter()
+      .position(|t| crate::auth::constant_time_eq_str(&t.token_hash, &hash) && !t.is_expired())
+    else {
+      return Err(NotWritten::NoSuchToken);
+    };
+    // No TTL is "nothing to refresh", not a failure to write one.
+    let Some(ttl) = self.tokens[pos].ttl_seconds else {
+      return Err(NotWritten::NoSuchToken);
+    };
+    self.commit(|store| {
+      store.tokens[pos].expires_at = Some(now_secs().saturating_add(ttl));
+      store.tokens[pos].clone()
+    })
   }
 }
 

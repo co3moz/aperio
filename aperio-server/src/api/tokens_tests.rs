@@ -53,11 +53,16 @@ fn empty_update() -> TokenUpdateRequest {
 
 /// Seeds a token directly in the store within the given org, returning its id.
 async fn seed_token(state: &AppState, name: &str, org: Option<String>) -> String {
-  let (record, _secret) = state.token_store.lock().await.create(TokenSpec {
-    name: name.to_string(),
-    org_id: org,
-    ..Default::default()
-  });
+  let (record, _secret) = state
+    .token_store
+    .lock()
+    .await
+    .create(TokenSpec {
+      name: name.to_string(),
+      org_id: org,
+      ..Default::default()
+    })
+    .expect("the test store can be written to");
   record.id
 }
 
@@ -305,11 +310,16 @@ async fn update_ttl_zero_clears_expiry() {
   let state = Arc::new(test_state());
   let headers = admin_headers(&state).await;
   // Seed a token that expires, then clear its expiry with ttl_seconds = 0.
-  let (record, _s) = state.token_store.lock().await.create(TokenSpec {
-    name: "ttl".to_string(),
-    ttl_seconds: Some(3600),
-    ..Default::default()
-  });
+  let (record, _s) = state
+    .token_store
+    .lock()
+    .await
+    .create(TokenSpec {
+      name: "ttl".to_string(),
+      ttl_seconds: Some(3600),
+      ..Default::default()
+    })
+    .expect("the test store can be written to");
   let mut req = empty_update();
   req.ttl_seconds = Some(0);
   let resp = tokens_update_handler(
@@ -485,11 +495,16 @@ fn bearer(secret: &str) -> HeaderMap {
 #[tokio::test]
 async fn refresh_success_slides_expiry() {
   let state = Arc::new(test_state());
-  let (_record, secret) = state.token_store.lock().await.create(TokenSpec {
-    name: "ci".to_string(),
-    ttl_seconds: Some(3600),
-    ..Default::default()
-  });
+  let (_record, secret) = state
+    .token_store
+    .lock()
+    .await
+    .create(TokenSpec {
+      name: "ci".to_string(),
+      ttl_seconds: Some(3600),
+      ..Default::default()
+    })
+    .expect("the test store can be written to");
   let resp = tokens_refresh_handler(
     State(state.clone()),
     ConnectInfo(test_peer()),

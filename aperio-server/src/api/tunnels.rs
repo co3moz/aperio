@@ -9,11 +9,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::info;
 
-use crate::api::tokens::{org_token_quota_reached, validate_token_perms};
+use crate::api::tokens::{not_persisted, org_token_quota_reached, validate_token_perms};
 use crate::auth::{constant_time_eq_str, extract_token};
 use crate::routing::{extract_client_ip, normalize_hostname_bind, random_subdomain_hostname};
 use crate::state::AppState;
-use crate::store::tokens::TokenSpec;
+use crate::store::tokens::{NotWritten, TokenSpec};
 
 /// Payload for the programmatic tunnel provisioning endpoint
 /// (`POST /aperio/api/tunnels`).
@@ -197,7 +197,7 @@ pub(crate) async fn tunnels_create_handler(
     .org_quota(org.as_deref())
     .await
     .and_then(|q| q.max_tokens);
-  let (record, secret) = {
+  let created = {
     let mut store = state.token_store.lock().await;
     if let Some(resp) = org_token_quota_reached(&store, org.as_deref(), quota_max) {
       return resp;
@@ -216,6 +216,9 @@ pub(crate) async fn tunnels_create_handler(
       ttl_seconds: Some(ttl),
       ..Default::default()
     })
+  };
+  let Ok((record, secret)) = created else {
+    return not_persisted();
   };
   info!(
     "Ephemeral tunnel provisioned: {} → {} (id={}, expires_at={:?})",
@@ -317,7 +320,10 @@ pub(crate) async fn tunnels_delete_handler(
     return (StatusCode::NOT_FOUND, "Unknown tunnel id").into_response();
   }
   let revoked = state.token_store.lock().await.revoke(&id);
-  if revoked {
+  if revoked == Err(NotWritten::NotPersisted) {
+    return not_persisted();
+  }
+  if revoked.is_ok() {
     info!("Ephemeral tunnel deleted: {}", id);
     let dropped = state.disconnect_token_clients(&id).await;
     if dropped > 0 {

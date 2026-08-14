@@ -1187,13 +1187,18 @@ async fn authorize_tunnel_master_and_missing() {
 #[tokio::test]
 async fn authorize_tunnel_store_token_ip_and_alerts() {
   let state = test_state();
-  let (_t, secret) = state.token_store.lock().await.create(TokenSpec {
-    name: "svc".to_string(),
-    hostnames: vec!["site.test".to_string()],
-    allowed_ips: vec!["10.0.0.0/8".to_string()],
-    org_id: Some("org-7".to_string()),
-    ..Default::default()
-  });
+  let (_t, secret) = state
+    .token_store
+    .lock()
+    .await
+    .create(TokenSpec {
+      name: "svc".to_string(),
+      hostnames: vec!["site.test".to_string()],
+      allowed_ips: vec!["10.0.0.0/8".to_string()],
+      org_id: Some("org-7".to_string()),
+      ..Default::default()
+    })
+    .expect("the test store can be written to");
   let mut h = HeaderMap::new();
   h.insert("authorization", format!("Bearer {secret}").parse().unwrap());
 
@@ -1228,11 +1233,16 @@ async fn authorize_tunnel_store_token_ip_and_alerts() {
 #[tokio::test]
 async fn authorize_tunnel_canary_trips_alert() {
   let state = test_state();
-  let (_t, secret) = state.token_store.lock().await.create(TokenSpec {
-    name: "decoy".to_string(),
-    canary: true,
-    ..Default::default()
-  });
+  let (_t, secret) = state
+    .token_store
+    .lock()
+    .await
+    .create(TokenSpec {
+      name: "decoy".to_string(),
+      canary: true,
+      ..Default::default()
+    })
+    .expect("the test store can be written to");
   let mut h = HeaderMap::new();
   h.insert("authorization", format!("Bearer {secret}").parse().unwrap());
   // Using a canary token authenticates but trips the breach alert path.

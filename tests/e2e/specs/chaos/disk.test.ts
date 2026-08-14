@@ -109,17 +109,17 @@ export class DiskFullSpec extends Test({
     assert.ok(written > 0, 'the filler wrote something')
     assert.equal(await freeBytes(disk!.dir), 0, 'no free space is left on the store’s filesystem')
 
-    // 3. Ask for something that has to be written down. The API call may
-    //    succeed or fail; what it must not do is take the server with it.
-    let apiAnswered = true
-    try {
-      await this.server._api('/aperio/api/tokens', {
-        method: 'POST',
-        body: JSON.stringify({ name: 'written-to-a-full-disk', hostnames: [DISK_HOST] }),
-      })
-    } catch {
-      apiAnswered = false
-    }
+    // 3. Ask for something that has to be written down. It must fail, and say
+    //    so: the record cannot be saved, so answering "created" would hand the
+    //    caller a token that stops existing at the next restart. This is what
+    //    #114 fixed, and this spec is where the real full disk proves it,
+    //    rather than a dropped table standing in for one.
+    const created = await this.server._fetch('/aperio/api/tokens', {
+      method: 'POST',
+      headers: { cookie: await this.server._login(), 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'written-to-a-full-disk', hostnames: [DISK_HOST] }),
+    })
+    assert.equal(created.status, 500, 'a create that could not be saved is refused, not reported')
 
     // 4. The second proof that the disk really filled: the server itself says
     //    a write failed. Without this the test could pass on a filesystem that
@@ -136,14 +136,13 @@ export class DiskFullSpec extends Test({
     assert.equal(health.status, 200, 'the server still reports its health')
     assert.equal(this.server._proc?.exitCode, null, 'the server process did not exit')
 
-    // Not asserted, and worth knowing: at the time of writing the API answers
-    // **success** here. The token is in memory, the write failed, and it is
-    // gone after a restart. `TokenStore::revoke` already handles this properly
-    // (it rolls the removal back and returns false so the caller reports the
-    // failure), and `create`/`update` do not. That is its own change, tracked
-    // as #114; this spec is about the site staying up, which it does either
-    // way, so it records the fact rather than pinning it.
-    void apiAnswered
+    // 7. And the refusal did not leave a ghost behind: nothing was written, so
+    //    nothing is listed.
+    const listed = await this.server._api<{ name: string }[]>('/aperio/api/tokens')
+    assert.ok(
+      !listed.some((t) => t.name === 'written-to-a-full-disk'),
+      'the token that could not be saved is not in the store either',
+    )
   }
 
   /** Freeing the space must let the store work again, or the failure was not

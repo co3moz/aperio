@@ -1626,11 +1626,11 @@ impl ConnCtx {
           // closed). A key-less client can never satisfy pinning, so
           // enabling APERIO_TOKEN_PINNING requires every client to
           // carry a device key (APERIO_DEVICE_KEY[_FILE]).
-          None => Some(crate::store::tokens::PinOutcome::Mismatch),
+          None => Ok(crate::store::tokens::PinOutcome::Mismatch),
         }
       };
       match verdict {
-        Some(crate::store::tokens::PinOutcome::Mismatch) => {
+        Ok(crate::store::tokens::PinOutcome::Mismatch) => {
           warn!(
             "Token pinning: client {} presented token '{}' without a matching device key, rejecting the connection",
             client_id, token_name
@@ -1653,13 +1653,30 @@ impl ConnCtx {
             .await;
           return false;
         }
-        Some(crate::store::tokens::PinOutcome::Pinned) => {
+        Ok(crate::store::tokens::PinOutcome::Pinned) => {
           info!(
             "Token pinning: pinned token '{}' to the connecting device",
             token_name
           );
         }
-        _ => {}
+        // The pin was made and rolled back because it could not be saved.
+        // **Refuse**, for the reason pinning exists: a pin that is not written
+        // down does not bind the next connection to this device, so admitting
+        // this one would leave the operator with a control that reports itself
+        // enabled and holds nothing. The same argument as an auth gate that
+        // opens when its check is unreachable.
+        Err(crate::store::tokens::NotWritten::NotPersisted) => {
+          warn!(
+            "Token pinning: could not record the pin for token '{}', refusing the connection",
+            token_name
+          );
+          return false;
+        }
+        // Match, or a token that disappeared between authorization and here.
+        // Both leave the store as it was, and neither is this block's decision
+        // to make.
+        Ok(crate::store::tokens::PinOutcome::Match)
+        | Err(crate::store::tokens::NotWritten::NoSuchToken) => {}
       }
     }
 

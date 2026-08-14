@@ -181,11 +181,13 @@ fn base_ping() -> TunnelMessage {
 /// Creates a dynamic token in the store and returns its secret and record id.
 async fn make_dynamic_token(state: &AppState, allow_public: bool) -> (String, String) {
   let mut store = state.token_store.lock().await;
-  let (rec, secret) = store.create(TokenSpec {
-    name: "dyn".into(),
-    allow_public,
-    ..Default::default()
-  });
+  let (rec, secret) = store
+    .create(TokenSpec {
+      name: "dyn".into(),
+      allow_public,
+      ..Default::default()
+    })
+    .expect("the test store can be written to");
   (secret, rec.id)
 }
 

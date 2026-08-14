@@ -2112,21 +2112,25 @@ async fn one_expiry_tick_warns_once_and_rearms_on_refresh() {
   let now = crate::store::tokens::now_secs();
   let (expiring_soon, _) = {
     let mut store = state.token_store.lock().await;
-    store.create(TokenSpec {
-      name: "expiring".into(),
-      // Expires in half an hour, inside the 24h window.
-      ttl_seconds: Some(1800),
-      ..Default::default()
-    })
+    store
+      .create(TokenSpec {
+        name: "expiring".into(),
+        // Expires in half an hour, inside the 24h window.
+        ttl_seconds: Some(1800),
+        ..Default::default()
+      })
+      .expect("the test store can be written to")
   };
   {
     let mut store = state.token_store.lock().await;
-    store.create(TokenSpec {
-      name: "fresh".into(),
-      // A week out, outside the window.
-      ttl_seconds: Some(7 * 24 * 3600),
-      ..Default::default()
-    });
+    store
+      .create(TokenSpec {
+        name: "fresh".into(),
+        // A week out, outside the window.
+        ttl_seconds: Some(7 * 24 * 3600),
+        ..Default::default()
+      })
+      .expect("the test store can be written to");
   }
 
   let mut warned = std::collections::HashSet::new();

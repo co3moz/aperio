@@ -1394,11 +1394,16 @@ async fn handler_token_daily_quota_returns_429() {
   let state = connected(test_config());
   mark_connected(&state).await;
   // A token with a 1-byte daily quota, already over budget for today.
-  let (token, _secret) = state.token_store.lock().await.create(TokenSpec {
-    name: "t".to_string(),
-    daily_max_bytes: Some(1),
-    ..Default::default()
-  });
+  let (token, _secret) = state
+    .token_store
+    .lock()
+    .await
+    .create(TokenSpec {
+      name: "t".to_string(),
+      daily_max_bytes: Some(1),
+      ..Default::default()
+    })
+    .expect("the test store can be written to");
   let today = crate::store::stats::period_keys()[0].clone();
   state
     .token_daily_bytes

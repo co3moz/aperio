@@ -242,14 +242,19 @@ async fn create_then_delete_roundtrip() {
 async fn delete_is_org_scoped() {
   let state = Arc::new(test_state());
   // A tunnel token owned by "other" org.
-  let (record, _secret) = state.token_store.lock().await.create(TokenSpec {
-    name: "foreign".to_string(),
-    hostnames: vec!["svc.example.com".to_string()],
-    allowed_ips: vec!["0.0.0.0/0".to_string()],
-    ttl_seconds: Some(60),
-    org_id: Some("other".to_string()),
-    ..Default::default()
-  });
+  let (record, _secret) = state
+    .token_store
+    .lock()
+    .await
+    .create(TokenSpec {
+      name: "foreign".to_string(),
+      hostnames: vec!["svc.example.com".to_string()],
+      allowed_ips: vec!["0.0.0.0/0".to_string()],
+      ttl_seconds: Some(60),
+      org_id: Some("other".to_string()),
+      ..Default::default()
+    })
+    .expect("the test store can be written to");
   // A master-admin session (master org) cannot see the foreign token.
   let headers = admin_headers(&state).await;
   let resp = tunnels_delete_handler(

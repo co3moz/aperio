@@ -105,17 +105,21 @@ async fn a_granted_bind_no_client_serves_is_reported_as_offline() {
   let state = Arc::new(test_state());
   {
     let mut tokens = state.token_store.lock().await;
-    tokens.create(TokenSpec {
-      name: "deployed".into(),
-      hostnames: vec!["live.example.com".into()],
-      ..Default::default()
-    });
-    tokens.create(TokenSpec {
-      name: "not-yet".into(),
-      hostnames: vec!["offline.example.com".into(), "*".into()],
-      paths: vec!["/api".into()],
-      ..Default::default()
-    });
+    tokens
+      .create(TokenSpec {
+        name: "deployed".into(),
+        hostnames: vec!["live.example.com".into()],
+        ..Default::default()
+      })
+      .expect("the test store can be written to");
+    tokens
+      .create(TokenSpec {
+        name: "not-yet".into(),
+        hostnames: vec!["offline.example.com".into(), "*".into()],
+        paths: vec!["/api".into()],
+        ..Default::default()
+      })
+      .expect("the test store can be written to");
   }
   state.clients.write().await.insert(
     "c1".to_string(),
@@ -147,12 +151,17 @@ async fn a_granted_bind_no_client_serves_is_reported_as_offline() {
 #[tokio::test]
 async fn an_expired_tokens_binds_are_not_expected_services() {
   let state = Arc::new(test_state());
-  state.token_store.lock().await.create(TokenSpec {
-    name: "expired".into(),
-    hostnames: vec!["gone.example.com".into()],
-    ttl_seconds: Some(0),
-    ..Default::default()
-  });
+  state
+    .token_store
+    .lock()
+    .await
+    .create(TokenSpec {
+      name: "expired".into(),
+      hostnames: vec!["gone.example.com".into()],
+      ttl_seconds: Some(0),
+      ..Default::default()
+    })
+    .expect("the test store can be written to");
   let graph = topology_handler(State(state.clone()), admin_headers(&state).await)
     .await
     .0;
