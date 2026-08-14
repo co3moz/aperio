@@ -245,6 +245,28 @@ test suite.
   that fails to actually fill anything would assert that on a path nothing
   went wrong on.
 
+- [ ] **#112 `retention::tests::disk_guard_warns_once_near_the_cap` fails about
+  one full run in ten.** Seen 2026-08-14 while working on #111: one failure in
+  the workspace suite, then nine clean full runs, and it passes every time in
+  isolation (five for five) and on the tree without those changes (three clean
+  full runs). So it is not that change; it is a test that is order-sensitive
+  under the suite's parallelism, which is exactly the shape rule 13 exists to
+  catch and exactly the shape that gets dismissed as "just rerun it".
+
+  **Where to look.** The disk-guard tests share two process-wide things, a
+  `DISK_WARNED` static and a `DISK_LOCK` that serializes them, and this one
+  additionally asserts on a *count*: it takes `state.audit.recent().len()`
+  before a second guard cycle and asserts the count is unchanged after. A
+  count is only stable if nothing else can append to that log, so the first
+  question is whether `test_state()` gives every test its own audit or
+  whether two tests can end up writing to the same one. If they can, the fix
+  is to assert on the absence of a second `disk_usage_warning` event rather
+  than on a length, which is what the test actually means.
+
+  Worth doing rather than muting: an assertion that fails one run in ten
+  trains everybody to rerun the suite, and the next real failure gets the same
+  treatment.
+
 - [ ] **#106 Separate the visitor plane from the admin plane.** (the
   structural half; the security half shipped, see below) There is one
   session store, one cookie and one login endpoint serving two unrelated jobs:
