@@ -423,3 +423,88 @@ async fn a_length_declared_over_the_limit_is_refused_without_reading() {
   let ep = endpoint_declaring(200, 1024).await;
   assert_eq!(bounded(&ep, 256).await, None);
 }
+
+/// An endpoint that admits only what it is asked about, so a cached verdict
+/// reused for a different request is visible.
+async fn per_request_endpoint() -> Endpoint {
+  let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let calls = Arc::new(AtomicUsize::new(0));
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = listener.local_addr().unwrap().port();
+  let (seen_task, calls_task) = (seen.clone(), calls.clone());
+  tokio::spawn(async move {
+    loop {
+      let Ok((mut sock, _)) = listener.accept().await else {
+        return;
+      };
+      let (seen, calls) = (seen_task.clone(), calls_task.clone());
+      tokio::spawn(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut buf = vec![0u8; 8192];
+        let n = sock.read(&mut buf).await.unwrap_or(0);
+        let raw = String::from_utf8_lossy(&buf[..n]).to_string();
+        let lower = raw.to_ascii_lowercase();
+        seen.lock().unwrap().push((raw.clone(), Vec::new()));
+        calls.fetch_add(1, Ordering::SeqCst);
+        // Admits `/allowed`, refuses everything else, and only for GET.
+        let ok =
+          lower.contains("x-forwarded-uri: /allowed") && lower.contains("x-forwarded-method: get");
+        let status = if ok { 200 } else { 403 };
+        let out = format!("HTTP/1.1 {status} X\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+        let _ = sock.write_all(out.as_bytes()).await;
+      });
+    }
+  });
+  Endpoint {
+    url: format!("http://127.0.0.1:{port}/authcheck"),
+    seen,
+    calls,
+  }
+}
+
+#[tokio::test]
+async fn a_remembered_verdict_is_not_reused_for_a_different_request() {
+  // The endpoint is told the method and the path and may answer on them,
+  // which is the ordinary way this pattern is used. A cache keyed on the
+  // credential alone therefore carries one path's "yes" to every other path
+  // for the length of its window.
+  let ep = per_request_endpoint().await;
+  let state = test_state();
+  let mut cfg = config(&ep.url);
+  cfg.cache = Duration::from_secs(60);
+  let headers = request_headers(&[("cookie", "session=abc")]);
+  let ask_for = async |uri: &str, method: axum::http::Method| {
+    ask(
+      &state,
+      &cfg,
+      &method,
+      &headers,
+      &uri.parse().unwrap(),
+      Some("app.example.com"),
+      None,
+    )
+    .await
+  };
+
+  assert!(
+    matches!(
+      ask_for("/allowed", axum::http::Method::GET).await,
+      Verdict::Allow(_)
+    ),
+    "the endpoint admits this one"
+  );
+  assert!(
+    matches!(
+      ask_for("/admin", axum::http::Method::GET).await,
+      Verdict::Deny(_)
+    ),
+    "a yes for /allowed must not admit /admin"
+  );
+  assert!(
+    matches!(
+      ask_for("/allowed", axum::http::Method::POST).await,
+      Verdict::Deny(_)
+    ),
+    "a yes for GET must not admit POST"
+  );
+}

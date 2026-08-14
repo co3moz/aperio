@@ -491,7 +491,7 @@ What nginx spells `auth_request` and Traefik spells ForwardAuth. Five decisions,
 
 **A refusal is the endpoint's own answer**, relayed with its status, `Location`, `WWW-Authenticate`, `Content-Type` and `Set-Cookie`, so it can send a browser to a login of its own. Redirects from the endpoint are deliberately not followed: a `302` is an answer for the visitor, not a request for Aperio to make.
 
-**`cache:` remembers a verdict** for an identical credential, so a busy route does not pay a round trip per request. Only admissions are remembered, never refusals: somebody who has just been given access must not keep being turned away for the rest of the window. The key is a hash of the endpoint, the hostname and the credential headers that were sent, so no secret is held in it.
+**`cache:` remembers a verdict** for an identical *request*, so a busy route does not pay a round trip per page load. Only admissions are remembered, never refusals: somebody who has just been given access must not keep being turned away for the rest of the window. The key is a hash of everything the subrequest carried, the endpoint, the hostname, the method, the path and the credential headers, so no secret is held in it and a `yes` for one path is never a `yes` for another. Your endpoint is told the method and the path and may answer on them, which is the ordinary way this pattern is used, so a cache that keyed on the credential alone would quietly turn a per-request authorization into a per-session one.
 
 The URL goes through the server's [outbound policy](threat-model.md), like every other destination the server is told to call.
 

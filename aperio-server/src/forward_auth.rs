@@ -96,10 +96,13 @@ pub(crate) async fn ask(
     cfg.request_headers.iter().map(String::as_str).collect()
   };
 
-  if !cfg.cache.is_zero()
-    && let Some(headers) = cached(state, cfg, &names, headers, host).await
+  // Computed once, and only where it is used: the key is what the subrequest
+  // will carry, so it is the same string for the lookup and for the store.
+  let cache_key = (!cfg.cache.is_zero()).then(|| key(cfg, &names, headers, host, method, uri));
+  if let Some(ref k) = cache_key
+    && let Some(carried) = cached(state, cfg, k).await
   {
-    return Verdict::Allow(headers);
+    return Verdict::Allow(carried);
   }
 
   if let Err(why) = state.config().outbound_policy.check(&cfg.url).await {
@@ -160,8 +163,8 @@ pub(crate) async fn ask(
           .map(|v| (name.clone(), v.to_string()))
       })
       .collect();
-    if !cfg.cache.is_zero() {
-      remember(state, cfg, &names, headers, host, carried.clone()).await;
+    if let Some(k) = cache_key {
+      remember(state, cfg, k, carried.clone()).await;
     }
     return Verdict::Allow(carried);
   }
@@ -226,13 +229,37 @@ fn client() -> Option<&'static reqwest::Client> {
     .as_ref()
 }
 
-/// The cache key: the endpoint, the host, and the credential headers that
-/// were sent, hashed so no secret is held in the key itself.
-fn key(cfg: &ForwardConfig, names: &[&str], headers: &HeaderMap, host: Option<&str>) -> String {
+/// The cache key: **everything the subrequest carries**, hashed so no secret
+/// is held in the key itself.
+///
+/// Everything, because the endpoint is told the method and the path and is
+/// entitled to answer on them, which is the ordinary way this pattern is
+/// used. A key made of the credential alone carries one path's "yes" to every
+/// other path for the length of the window, which turns a per-request
+/// authorization into a per-session one without saying so. A cache may only
+/// key on less than the answer depends on if it is willing to be wrong.
+fn key(
+  cfg: &ForwardConfig,
+  names: &[&str],
+  headers: &HeaderMap,
+  host: Option<&str>,
+  method: &axum::http::Method,
+  uri: &axum::http::Uri,
+) -> String {
   let mut hasher = Sha256::default();
   hasher.update(cfg.url.as_bytes());
   hasher.update(b"\0");
   hasher.update(host.unwrap_or("-").as_bytes());
+  hasher.update(b"\0");
+  hasher.update(method.as_str().as_bytes());
+  hasher.update(b"\0");
+  hasher.update(
+    uri
+      .path_and_query()
+      .map(|p| p.as_str())
+      .unwrap_or("/")
+      .as_bytes(),
+  );
   for name in names {
     hasher.update(b"\0");
     hasher.update(name.as_bytes());
@@ -243,16 +270,9 @@ fn key(cfg: &ForwardConfig, names: &[&str], headers: &HeaderMap, host: Option<&s
 }
 
 /// A verdict remembered for this exact credential, if it is still fresh.
-async fn cached(
-  state: &AppState,
-  cfg: &ForwardConfig,
-  names: &[&str],
-  headers: &HeaderMap,
-  host: Option<&str>,
-) -> Option<Vec<(String, String)>> {
-  let key = key(cfg, names, headers, host);
+async fn cached(state: &AppState, cfg: &ForwardConfig, key: &str) -> Option<Vec<(String, String)>> {
   let cache = state.forward_auth_cache.lock().await;
-  let entry = cache.get(&key)?;
+  let entry = cache.get(key)?;
   (entry.decided.elapsed() < cfg.cache).then(|| entry.headers.clone())
 }
 
@@ -262,12 +282,9 @@ async fn cached(
 async fn remember(
   state: &AppState,
   cfg: &ForwardConfig,
-  names: &[&str],
-  headers: &HeaderMap,
-  host: Option<&str>,
+  key: String,
   carried: Vec<(String, String)>,
 ) {
-  let key = key(cfg, names, headers, host);
   let mut cache = state.forward_auth_cache.lock().await;
   if cache.len() >= MAX_CACHED {
     cache.retain(|_, v| v.decided.elapsed() < cfg.cache);
