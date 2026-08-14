@@ -278,6 +278,28 @@ test suite.
   availability, and calling it `Security` would refuse the start of every
   server in the range for a change that took nothing away.
 
+  **Measured 2026-08-14, and the number is the reason this is still open.**
+  The flip was written and run against the suites: the Rust tests pass, and
+  **129 of the 241 e2e phases go dark**. The pattern is uniform, every fixture
+  whose client declares neither a gate nor `public: true` stops being
+  routable, so its start hook times out and everything depending on it fails.
+
+  Translated: a server with `server.auth` or OIDC is **unaffected**, because
+  its routes are gated and therefore reachable after a login. The deployments
+  that go dark are the ones with no visitor auth at all, which is a tunnel
+  publishing a public site, the flagship use of this product. They stay dark
+  until every service declares `public: true`.
+
+  So the flip is not one release note, it is a migration for the commonest
+  deployment there is, and it needs the release that carries it to say so:
+  a major, an `upgrade-guide` entry, and the `CONFIG_CHANGES` entry above.
+  The measurement is written down here so nobody has to rediscover it by
+  turning the suite red.
+
+  Nothing is lost while it waits. An operator who wants the posture writes one
+  line today, and a client that connects with a service nothing gates is
+  warned once per connection either way, naming the line to write.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and

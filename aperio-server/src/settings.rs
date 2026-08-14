@@ -801,7 +801,7 @@ pub(crate) fn config_reload_diff(old: &ServerConfig, new: &ServerConfig) -> Vec<
 /// reachable, yes or no".
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub(crate) enum DefaultAccess {
-  /// Serve it. What the server has always done.
+  /// Serve it. What the server has always done, and still the default.
   #[default]
   Allow,
   /// Refuse it, indistinguishably from a route nobody serves.

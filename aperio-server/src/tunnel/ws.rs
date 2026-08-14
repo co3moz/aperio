@@ -1498,16 +1498,27 @@ impl ConnCtx {
         // policy, and the route is simply refused (planned_features #108).
         if !handle.ungated_warned
           && handle.visitor_auth.is_none()
+          && handle.visitor_auth_policy.is_none()
           && !handle.public
           && !state.config().visitor_auth.gates()
           && state.oidc.is_none()
-          && state.config().default_access == crate::settings::DefaultAccess::Allow
         {
           handle.ungated_warned = true;
-          warn!(
-            "Client {} serves traffic that nothing gates: this server has no `auth:` and the service declares neither a gate nor `public: true`, so it is reachable by anyone. Declare it (`auth:` / `public: true`), or set `default_access: deny` to refuse what nothing declares.",
-            client_id
-          );
+          if state.config().default_access == crate::settings::DefaultAccess::Deny {
+            // The one message that turns "the site went dark after we
+            // upgraded" from an afternoon into a minute. It fires where the
+            // cause is, on the connection whose service is being refused,
+            // and it names the line to write rather than the state it found.
+            warn!(
+              "Client {} declares no gate and is not declared open, so its traffic is refused (`default_access` is `deny`). Write `public: true` on the service if it is meant to be reachable by anyone, or give it an `auth:`.",
+              client_id
+            );
+          } else {
+            warn!(
+              "Client {} serves traffic that nothing gates: this server has no `auth:` and the service declares neither a gate nor `public: true`, so it is reachable by anyone. Declare it (`auth:` / `public: true`), or set `default_access: deny` to refuse what nothing declares.",
+              client_id
+            );
+          }
         }
         // Client-declared visitor IP allowlist. Purely restrictive
         // (it can only narrow who reaches the client), so no token
