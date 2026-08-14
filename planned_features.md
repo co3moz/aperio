@@ -245,7 +245,51 @@ test suite.
   that fails to actually fill anything would assert that on a path nothing
   went wrong on.
 
-- [ ] **#106 Separate the visitor plane from the admin plane.** There is one
+- [ ] **#111 The tunnel handshake carries a client's gate as one
+  `user:password`, so four of the five methods are server-side only.** The
+  `auth:` grammar is the same on both sides (#105), and on the client side
+  only `basic` and `none` can actually travel: the Ping's field is
+  `visitor_auth: Option<String>`. A client declaring `bearer`, `jwt` or
+  `forward` refuses to start, which is #105's rule working as intended (never
+  announce a gate weaker than the one written) and is also the thing to fix.
+
+  **What makes this more than adding a field.** The field itself is additive
+  and safe in one direction: a new client sends
+  `visitor_auth_methods: [...]` beside the existing scalar, and a new server
+  reads it. The danger is the other direction. An **old** server ignores the
+  new field, so a client declaring `bearer` would be understood as declaring
+  *nothing*, and its route would come up ungated. That is a silent downgrade
+  from a gate to no gate, on an upgrade the operator did not think was risky,
+  and it is exactly what rule 23 says to negotiate rather than assume.
+
+  **What the code says today.** The client declares first: it sends `Ping`
+  and the server answers `Pong`, which already carries `version` and
+  `protocol`. So a capability list belongs on the `Pong`, and the client
+  cannot pre-check its first declaration. The shape that follows: announce
+  `visitor_auth_methods` on the `Pong`; a client declares a method beyond
+  `basic`/`none` only once it has seen a `Pong` listing it; and against a
+  server that lists nothing (an old one) it **holds the bind back for that
+  service** and says which side is too old, rather than serving the route
+  under a gate the server was never told about. Holding one service back is
+  the improvement over today's refusal to start, which takes the client's
+  other services down with it.
+
+  **`forward` declared by a client is a separate question and probably a
+  footgun.** The URL would be called by the *server*, from the server's
+  network, so a client writing `url: http://localhost:7070` would mean the
+  server's localhost, not its own. Either refuse it client-side, or, the
+  interesting version, carry the check over the tunnel so the endpoint runs
+  next to the backend where it belongs. That is the shape that makes a
+  client-declared `forward` mean something rather than mean something
+  dangerous, and it is a bigger feature than the field.
+
+  Also to settle: whether declaring these needs the same token permission as
+  `public` and a client-set password do (`allow_public`), and what
+  `APERIO_IGNORE_CLIENT_AUTH` does to a rich policy, since today it drops the
+  whole client-declared gate.
+
+- [ ] **#106 Separate the visitor plane from the admin plane.** (the
+  structural half; the security half shipped, see below) There is one
   session store, one cookie and one login endpoint serving two unrelated jobs:
   administering Aperio, and viewing a site behind it. `/aperio/auth` accepts
   the master token, a named user with TOTP, a passkey and OIDC, and each of
@@ -320,7 +364,7 @@ test suite.
   door or everyone reopens them with `public: true` and nothing was gained.
 
 - [ ] **#108 Closed by default: a route is reachable because something says
-  so.** Today, a server with no `server_auth` and no OIDC serves every route
+  so.** (stage two, the flip; stage one shipped, see below) Today, a server with no `server_auth` and no OIDC serves every route
   to anyone, and `public: true` is an exemption from a gate that may not
   exist. The visible symptom is operators writing a throwaway
   `auth: DUMMY:DUMMY` on services they do not want public, which is the
