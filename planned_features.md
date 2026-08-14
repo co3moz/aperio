@@ -352,44 +352,6 @@ test suite.
   availability, and calling it `Security` would refuse the start of every
   server in the range for a change that took nothing away.
 
-- [ ] **#104 A `forward` method: a route delegates its gate to an endpoint the
-  operator runs.** The shape nginx spells `auth_request` and Traefik spells
-  ForwardAuth: before dispatching, the server asks a URL the operator names,
-  and a 2xx admits the request while anything else refuses it with the answer
-  the endpoint gave. Opened alongside #103, which withdrew a WASM plugin host:
-  authentication is the category of request-path customisation that actually
-  keeps arriving, and this covers it declaratively, executing no operator code
-  inside the server. It is also what makes #105's method set able to stay
-  closed, since it is the escape hatch for everything deliberately left out.
-
-  **What to settle before building it, because these are the whole feature:**
-  - **Which headers cross, in both directions.** The subrequest should carry
-    the original method, path, host and the visitor's address, and the
-    operator names which request headers travel; the answer contributes a
-    named allowlist of headers to the upstream request (this is how the
-    pattern delivers identity, feeding #109, and it is also how it becomes a
-    header injection if the list is open).
-  - **Fail-open or fail-closed on a timeout**, and it has to be a written
-    default rather than an accident. Fail-closed is the honest one for an
-    auth gate, which means the endpoint's availability becomes the route's.
-  - **Caching the verdict**, keyed on whatever the operator says identifies a
-    session, or every request pays a round trip. Without this the method is
-    unusable on anything busy, so it is not a later refinement.
-  - **The destination is an outbound callback.** `outbound.rs` and the
-    existing `APERIO_OUTBOUND_ALLOWLIST` / `APERIO_OUTBOUND_BLOCK_PRIVATE`
-    policy must apply to it exactly as they do to webhooks and scaling hooks,
-    or this becomes a way to make the server fetch arbitrary internal URLs on
-    a visitor's schedule.
-  - **Whether a share link satisfies it**, and what happens when a client
-    declares a `forward` while the server declares something else. #105 owns
-    the general disagreement rule; this method needs its own answer written in
-    the doc comment rather than discovered.
-
-  **What it deliberately is not:** a way to run operator code in the server.
-  The endpoint is a separate process reached over HTTP, which is the shape
-  `run:`, webhooks and scaling hooks all already use, and it is the reason
-  this is a bounded feature where #103 was not.
-
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
@@ -692,6 +654,34 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#104 A `forward` method: a route delegates its gate to an endpoint the
+  operator runs.** shipped: `{method: forward, url: ...}`, what nginx spells
+  `auth_request` and Traefik spells ForwardAuth, and the escape hatch that
+  lets #105's method set stay closed. All five of the questions this entry
+  said had to be settled first were, and each is a doc comment and a test:
+
+  - **What crosses.** To the endpoint, a `GET` describing the request rather
+    than replaying it (`X-Forwarded-Method` / `-Proto` / `-Host` / `-Uri` /
+    `-For`) plus the request headers the operator names, defaulting to
+    `cookie` and `authorization` rather than everything the visitor sent.
+    Back, only the response headers they name, empty by default.
+  - **A timeout refuses**, so the endpoint's availability becomes the route's,
+    stated rather than discovered.
+  - **`cache:` remembers admissions only.** Caching a refusal would keep
+    turning away somebody who has just been given access.
+  - **The destination goes through the outbound policy**, like webhooks,
+    scaling hooks and JWKS fetches.
+  - **A refusal is the endpoint's own answer**, relayed with its status and
+    the headers a browser acts on. A share link still gets its chance first:
+    the refusal is held rather than returned, which is this entry's answer to
+    the composition question.
+
+  One thing the tests found that no amount of design would have: `reqwest`
+  follows redirects by default, so a `302` from the endpoint, which is the
+  commonest refusal it can give and the entire reason to relay its answer,
+  was being followed instead of handed to the visitor. Redirects are off on
+  that client now.
 
 - [x] **#110 A `jwt` method: verify a bearer or cookie token against a JWKS.**
   shipped: `{method: jwt, jwks_url: ...}` or `hmac_secret:` for `HS256`, with

@@ -30,6 +30,7 @@ mod deny_list;
 mod error_pages;
 mod expose;
 mod fallbacks;
+mod forward_auth;
 mod headers;
 mod jwt;
 mod limits;
@@ -1338,6 +1339,7 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     telemetry_tx,
     pending_messages: Mutex::new(HashMap::new()),
     jwks_cache: Mutex::new(HashMap::new()),
+    forward_auth_cache: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
     client_connected: client_connected_tx,
     dashboard_enabled,

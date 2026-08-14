@@ -437,10 +437,11 @@ The list is **any-of**: a visitor is admitted by the first method that admits th
 | --- | --- |
 | `none` | Deliberately open. The long spelling of `public: true` on a client, and it needs the same token permission. |
 | `basic` | A `user:password` login. `users:` takes one credential or a list of them, all alternatives on the same gate. |
+| `forward` | Ask an endpoint you run about each request: `2xx` admits it, anything else refuses it and the endpoint's own answer is what the visitor gets. The escape hatch that lets the set stay closed. |
 | `jwt` | A token the visitor already holds, verified against keys the issuer publishes (`jwks_url:`) or a shared secret (`hmac_secret:`). No round trip per request, which is the operational difference from a future `forward`. Server-side only, like `bearer`. |
 | `bearer` | An opaque secret presented as `Authorization: Bearer <secret>`. `secret:` takes one or a list, so a key can be rotated by adding the new one before withdrawing the old. Server-side only for now: the tunnel handshake carries a client's gate as one `user:password`, so a client declaring `bearer` refuses to start rather than announcing a weaker gate. |
 
-Further methods (`oidc`, `forward`) are each their own piece of work; the set is closed on purpose rather than being a plugin interface. A `method:` this build does not know **refuses the start** and names the ones it does, so a gate is never silently absent.
+`oidc` on this plane is still its own piece of work. The set is closed on purpose rather than being a plugin interface, and `forward` is what lets it stay closed: anything deliberately left out (LDAP, SAML, a rule nobody anticipated) is thirty lines behind that URL, in a process that is not Aperio's, with a contract that is two HTTP messages rather than an ABI. A `method:` this build does not know **refuses the start** and names the ones it does, so a gate is never silently absent.
 
 **A refusal now has a shape.** A browser navigation (`GET` with `Accept: text/html`) is still redirected to the login page. Anything else, when the gate has a `bearer` method, gets `401` with `WWW-Authenticate: Bearer`: redirecting a script to an HTML form answers a question it did not ask, and it is why a gated route could not be reached with `curl` at all.
 
@@ -454,6 +455,32 @@ auth:
 ```
 
 `query: true` also accepts the secret as `?aperio_token=<secret>`, for the callers that cannot set a header: an `<img src>`, a link in an email, a sender with a fixed request shape. **Off by default**, because a query string reaches the `Referer` header, browser history and every proxy in front. Aperio keeps its own record clean: the access log has only ever stored the path, the inspector masks the value, the parameter is stripped before the request reaches the backend, and a *page load* carrying one is answered with a redirect to the clean address plus a short-lived cookie, so the secret is not repeated on each of the page's assets. That last move is what a share link already does on its first click, and it reuses the same cookie.
+
+##### `forward`
+
+```yaml
+auth:
+  - method: forward
+    url: http://127.0.0.1:7070/_authcheck
+    request_headers: [cookie, authorization]   # the default
+    response_headers: [x-auth-user]            # empty by default
+    timeout: 5                                 # seconds; a timeout refuses
+    cache: 30                                  # seconds; 0 (default) asks every time
+```
+
+What nginx spells `auth_request` and Traefik spells ForwardAuth. Five decisions, each deliberate:
+
+**What crosses, to the endpoint.** A `GET` describing the request rather than replaying it: `X-Forwarded-Method`, `X-Forwarded-Proto`, `X-Forwarded-Host`, `X-Forwarded-Uri`, `X-Forwarded-For`, plus the request headers you name. The default is `cookie` and `authorization`, the two that carry an identity, rather than everything the visitor sent: handing the endpoint the whole request makes every header it happens to read part of a contract nobody wrote down.
+
+**What crosses back.** Only the response headers you name, and the list is empty by default. It is how the pattern delivers an identity onto the request that reaches your backend, and an open list is how it becomes a header injection.
+
+**A timeout refuses.** An auth gate that opens when its check is unreachable is not a gate. This means the endpoint's availability becomes the route's, which is the trade you are making, and it is stated rather than discovered.
+
+**A refusal is the endpoint's own answer**, relayed with its status, `Location`, `WWW-Authenticate`, `Content-Type` and `Set-Cookie`, so it can send a browser to a login of its own. Redirects from the endpoint are deliberately not followed: a `302` is an answer for the visitor, not a request for Aperio to make.
+
+**`cache:` remembers a verdict** for an identical credential, so a busy route does not pay a round trip per request. Only admissions are remembered, never refusals: somebody who has just been given access must not keep being turned away for the rest of the window. The key is a hash of the endpoint, the hostname and the credential headers that were sent, so no secret is held in it.
+
+The URL goes through the server's [outbound policy](threat-model.md), like every other destination the server is told to call.
 
 ##### `jwt`
 

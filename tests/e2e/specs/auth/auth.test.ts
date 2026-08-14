@@ -5,6 +5,7 @@ import { StandardBackendBase } from '../../lib/backend.js'
 import { ClientFor } from '../../lib/client.js'
 import { waitFor } from '../../lib/env.js'
 import { createHmac } from 'node:crypto'
+import { createServer } from 'node:http'
 
 const HOST = 'app.e2e.local'
 
@@ -610,5 +611,107 @@ export class JwtMethodSpec extends Test({
       headers: { authorization: `Bearer ${forged}` },
     })
     assert.equal(res.status, 401)
+  }
+}
+
+const FORWARD_HOST = 'forward.e2e.local'
+
+/**
+ * The operator's own endpoint, standing in for whatever they actually run.
+ * `x-e2e-user: alice` is admitted and comes back as an identity; anything
+ * else is sent to a login of the endpoint's own choosing.
+ */
+export class AuthCheckEndpoint extends Test({ timeout: 30_000 }) {
+  _port = 0
+  _server?: ReturnType<typeof createServer>
+
+  async hookListen() {
+    this._server = createServer((req, res) => {
+      if (req.headers['x-e2e-user'] === 'alice') {
+        res.writeHead(200, { 'x-auth-user': 'alice', 'x-not-asked-for': 'surprise' })
+        res.end()
+        return
+      }
+      res.writeHead(302, { location: 'https://sso.e2e.local/start' })
+      res.end()
+    })
+    await new Promise<void>((ok) => this._server!.listen(0, '127.0.0.1', ok))
+    this._port = (this._server!.address() as { port: number }).port
+  }
+
+  async cleanUp() {
+    this._server?.close()
+  }
+}
+
+export class ForwardServer extends AperioServerBase({
+  env: { APERIO_VISITOR_IDENTITY_HEADERS: '1' },
+  dependencies: { endpoint: () => AuthCheckEndpoint },
+}) {
+  declare endpoint: AuthCheckEndpoint
+  _configFile() {
+    return [
+      'server:',
+      '  auth:',
+      '    - method: forward',
+      `      url: http://127.0.0.1:${this.endpoint._port}/_authcheck`,
+      '      request_headers: [x-e2e-user]',
+      '      response_headers: [x-auth-user]',
+      '',
+    ].join('\n')
+  }
+}
+
+export class ForwardBackend extends StandardBackendBase() {}
+
+export class ForwardClient extends ClientFor(() => ForwardServer, () => ForwardBackend) {
+  _hostname() {
+    return ''
+  }
+  _env() {
+    return { APERIO_HOSTNAME: FORWARD_HOST }
+  }
+}
+
+export class ForwardMethodSpec extends Test({
+  timeout: 90_000,
+  dependencies: {
+    endpoint: () => AuthCheckEndpoint,
+    server: () => ForwardServer,
+    backend: () => ForwardBackend,
+    client: () => ForwardClient,
+  },
+}) {
+  async theEndpointAdmitsAndItsHeaderReachesTheBackend() {
+    await waitFor(
+      async () => {
+        const res = await this.server._fetch('/echo-headers', {
+          host: FORWARD_HOST,
+          headers: { 'x-e2e-user': 'alice' },
+        })
+        return res.status === 200
+      },
+      { label: 'the forward gate to admit' },
+    )
+    const res = await this.server._fetch('/echo-headers', {
+      host: FORWARD_HOST,
+      headers: { 'x-e2e-user': 'alice' },
+    })
+    // Named in `response_headers:`, so it crosses.
+    assert.match(res.body, /x-auth-user: alice/)
+    // Not named, so it does not: an open list is a header injection.
+    assert.doesNotMatch(res.body, /x-not-asked-for/)
+    assert.match(res.body, /x-aperio-visitor-how: forward/)
+  }
+
+  async aRefusalIsTheEndpointsOwnAnswer() {
+    // Its 302, relayed rather than followed and rather than flattened into a
+    // generic 401: sending the visitor to that login is the whole point.
+    const res = await this.server._fetch('/hello', {
+      host: FORWARD_HOST,
+      headers: { 'x-e2e-user': 'mallory' },
+    })
+    assert.equal(res.status, 302)
+    assert.equal(res.headers['location'], 'https://sso.e2e.local/start')
   }
 }

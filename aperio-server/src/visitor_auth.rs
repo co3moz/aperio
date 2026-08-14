@@ -6,11 +6,11 @@
 //! the gate never re-parses configuration per request and never has to know
 //! which of the three spellings produced it.
 //!
-//! Four methods exist today: `none`, `basic`, `bearer` (#107) and `jwt`
-//! (#110). The set is closed on purpose, the open version was considered and
-//! withdrawn (#103), and each further method (`oidc` #106, `forward` #104) is
-//! its own entry that lands here as another variant rather than as another
-//! top-level setting somewhere else in the file.
+//! Five methods exist: `none`, `basic`, `bearer` (#107), `jwt` (#110) and
+//! `forward` (#104). The set is closed on purpose, the open version was
+//! considered and withdrawn (#103), and `forward` is what lets it stay closed:
+//! anything deliberately left out is an endpoint away, in a process that is
+//! not ours. `oidc` on this plane is still #106.
 //!
 //! **A policy of several methods admits on the first that admits.** That is
 //! what lets one route say "a browser signs in, a script presents a key", and
@@ -43,6 +43,9 @@ pub(crate) enum Method {
   /// and the cache live, because this is the one method whose answer needs
   /// state and the network rather than only the request.
   Jwt(Box<crate::jwt::JwtConfig>),
+  /// Delegated: an endpoint the operator runs is asked about each request.
+  /// The escape hatch that lets this set stay closed.
+  Forward(Box<crate::forward_auth::ForwardConfig>),
 }
 
 /// A route's visitor gate: the methods that may admit a visitor, in the order
@@ -83,6 +86,15 @@ impl Policy {
               .map(|u| u.as_slice().to_vec())
               .unwrap_or_default(),
           }),
+          "forward" => Some(Method::Forward(Box::new(
+            crate::forward_auth::ForwardConfig {
+              url: spec.url.clone().unwrap_or_default(),
+              request_headers: spec.request_headers.clone().unwrap_or_default(),
+              response_headers: spec.response_headers.clone().unwrap_or_default(),
+              timeout: std::time::Duration::from_secs(spec.timeout.unwrap_or(5).max(1)),
+              cache: std::time::Duration::from_secs(spec.cache.unwrap_or(0)),
+            },
+          ))),
           "jwt" => Some(Method::Jwt(Box::new(crate::jwt::JwtConfig {
             jwks_url: spec.jwks_url.clone(),
             hmac_secret: spec.hmac_secret.clone(),
@@ -180,6 +192,7 @@ impl Policy {
         Method::Basic { .. } => "basic",
         Method::Bearer { .. } => "bearer",
         Method::Jwt(_) => "jwt",
+        Method::Forward(_) => "forward",
       })
       .collect()
   }
@@ -227,6 +240,16 @@ impl Policy {
       .methods
       .iter()
       .any(|m| matches!(m, Method::Bearer { .. } | Method::Jwt(_)))
+  }
+
+  /// The `forward` methods in force, in the order they were written.
+  pub(crate) fn forward_methods(
+    &self,
+  ) -> impl Iterator<Item = &crate::forward_auth::ForwardConfig> {
+    self.methods.iter().filter_map(|m| match m {
+      Method::Forward(cfg) => Some(cfg.as_ref()),
+      _ => None,
+    })
   }
 
   /// The `jwt` methods in force, in the order they were written.

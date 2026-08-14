@@ -1691,6 +1691,9 @@ line already written. Two methods exist today:
         \code{public: true}, and it needs the same token permission.
   \item[\code{basic}] A \code{user:password} login. \code{users:} takes
         one credential or a list, all alternatives on one gate.
+  \item[\code{forward}] Ask an endpoint you run about each request:
+        \code{2xx} admits it, anything else refuses it and the endpoint's
+        own answer is what the visitor gets.
   \item[\code{jwt}] A token the visitor already holds, verified against
         keys the issuer publishes (\code{jwks\_url:}) or a shared secret
         (\code{hmac\_secret:}). No round trip per request, which is the
@@ -1736,6 +1739,46 @@ so the secret is not repeated on every asset of that page. The last move
 is what a share link already does on its first click, and it reuses the
 same cookie rather than inventing a second one.
 
+\subsection{Asking an endpoint you run}
+
+\begin{codecard}[aperioyaml]{aperio-server.yaml}
+auth:
+  - method: forward
+    url: http://127.0.0.1:7070/_authcheck
+    request_headers: [cookie, authorization]   # the default
+    response_headers: [x-auth-user]            # empty by default
+    timeout: 5                                 # seconds; a timeout refuses
+    cache: 30                                  # seconds; 0 asks every time
+\end{codecard}
+
+Five decisions, each deliberate. \textbf{What crosses to the endpoint} is
+a \code{GET} describing the request rather than replaying it: the
+\code{X-Forwarded-*} names that pattern already uses, plus the request
+headers you name, defaulting to \code{cookie} and \code{authorization}
+rather than everything the visitor sent, since handing over the whole
+request makes every header it happens to read part of a contract nobody
+wrote down. \textbf{What crosses back} is only the response headers you
+name, empty by default: that list is how the pattern delivers an identity
+onto the request reaching your backend, and an open one is how it becomes
+a header injection.
+
+\textbf{A timeout refuses.} A gate that opens when its check is
+unreachable is not a gate, so the endpoint's availability becomes the
+route's; that is the trade, stated rather than discovered. \textbf{A
+refusal is the endpoint's own answer}, relayed with its status,
+\code{Location}, \code{WWW-Authenticate}, \code{Content-Type} and
+\code{Set-Cookie}, so it can send a browser to a login of its own.
+Redirects from it are deliberately not followed: a \code{302} is an
+answer for the visitor, not a request for Aperio to make.
+
+\textbf{\code{cache:} remembers a verdict} for an identical credential,
+so a busy route does not pay a round trip per request. Only admissions
+are remembered, never refusals: somebody just given access must not keep
+being turned away for the rest of the window. The key is a hash of the
+endpoint, the hostname and the credential headers sent, so no secret is
+held in it. The URL goes through the outbound policy like every other
+destination the server is told to call.
+
 \subsection{Verifying a token the visitor already holds}
 
 \begin{codecard}[aperioyaml]{aperio-server.yaml}
@@ -1780,8 +1823,12 @@ user half to slow a guess down. It is also why one shorter than sixteen
 characters is refused where it is written, since its length is the whole
 of its strength.
 
-The set is closed on purpose rather than being an extension point, and a
-\code{method:} this build does not know \textbf{refuses the start},
+The set is closed on purpose rather than being an extension point, and
+\code{forward} is what lets it stay closed: anything deliberately left
+out, LDAP, SAML, a rule nobody anticipated, is thirty lines behind that
+URL, in a process that is not ours, with a contract that is two HTTP
+messages rather than an ABI. A \code{method:} this build does not know
+\textbf{refuses the start},
 naming the ones it does. An operator who wrote a gate should never be
 given no gate, which is exactly what accepting an unknown method and
 ignoring it would produce.

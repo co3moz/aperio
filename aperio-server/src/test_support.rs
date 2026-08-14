@@ -244,6 +244,7 @@ pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
     stream_counts: Arc::new(std::sync::Mutex::new(HashMap::new())),
     pending_messages: Mutex::new(HashMap::new()),
     jwks_cache: Mutex::new(HashMap::new()),
+    forward_auth_cache: Mutex::new(HashMap::new()),
     message_metrics: Default::default(),
     client_connected: client_connected_tx,
     connection_state: Mutex::new(ConnectionState {

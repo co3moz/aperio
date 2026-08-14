@@ -2501,6 +2501,36 @@ pub struct AuthMethodSpec {
   #[serde(default)]
   #[schemars(extend("examples" = ["CF_Authorization"]))]
   pub cookie: Option<String>,
+  /// `forward`: the endpoint asked about each request. `2xx` admits it;
+  /// anything else refuses it, and the endpoint's own answer is what the
+  /// visitor gets, so it can redirect to a login of its own.
+  #[serde(default)]
+  #[schemars(extend("examples" = ["http://127.0.0.1:7070/_authcheck"]))]
+  pub url: Option<String>,
+  /// `forward`: request headers copied to the subrequest.
+  /// Default: `cookie` and `authorization`, the two that carry an identity.
+  #[serde(default)]
+  #[schemars(extend("examples" = [["cookie", "authorization", "x-api-key"]]))]
+  pub request_headers: Option<Vec<String>>,
+  /// `forward`: headers of a `2xx` answer copied onto the request that goes
+  /// to the backend. This is how the pattern delivers an identity, and an
+  /// open list is how it becomes a header injection, so it is named
+  /// explicitly and empty by default.
+  #[serde(default)]
+  #[schemars(extend("examples" = [["x-auth-user", "x-auth-groups"]]))]
+  pub response_headers: Option<Vec<String>>,
+  /// `forward`: seconds to wait for the endpoint. A timeout **refuses** the
+  /// request: an auth gate that opens when its check is unreachable is not a
+  /// gate. Default: `5`.
+  #[serde(default)]
+  #[schemars(extend("examples" = [5]))]
+  pub timeout: Option<u64>,
+  /// `forward`: seconds to remember a verdict for an identical credential,
+  /// so a busy route does not pay a round trip per request. `0` (the default)
+  /// asks every time.
+  #[serde(default)]
+  #[schemars(extend("examples" = [30]))]
+  pub cache: Option<u64>,
 }
 
 /// A `basic` method's credentials: one `user:password` or a list of them.
@@ -2579,7 +2609,7 @@ impl AuthMethodSpec {
 /// Deliberately a closed set: the open version was considered and withdrawn
 /// (`planned_features.md` #103). Further methods each arrive as their own
 /// entry rather than as a plugin interface.
-pub const AUTH_METHODS: &[&str] = &["none", "basic", "bearer", "jwt"];
+pub const AUTH_METHODS: &[&str] = &["none", "basic", "bearer", "jwt", "forward"];
 
 /// Shortest `bearer` secret accepted.
 ///
@@ -2639,6 +2669,7 @@ pub fn validate_auth_setting(setting: &AuthSetting) -> Result<(), String> {
           || spec.secret.is_some()
           || spec.jwks_url.is_some()
           || spec.hmac_secret.is_some()
+          || spec.url.is_some()
         {
           return Err(at(
             "`method: none` is the open gate and takes no credentials".to_string(),
@@ -2671,6 +2702,37 @@ pub fn validate_auth_setting(setting: &AuthSetting) -> Result<(), String> {
               "this `secret:` is {} characters; a bearer secret is compared verbatim and has no user half to slow a guess down, so it carries the whole of the gate and needs at least {MIN_BEARER_SECRET_LEN}",
               secret.len()
             )));
+          }
+        }
+      }
+      "forward" => {
+        if spec.users.is_some() || spec.secret.is_some() {
+          return Err(at(
+            "`method: forward` asks an endpoint; it takes `url:`, not `users:` / `secret:`"
+              .to_string(),
+          ));
+        }
+        let Some(url) = spec.url.as_deref() else {
+          return Err(at(
+            "`method: forward` needs `url:`, the endpoint asked about each request".to_string(),
+          ));
+        };
+        if !url.starts_with("https://") && !url.starts_with("http://") {
+          return Err(at(format!("`url:` is not a URL: `{url}`")));
+        }
+        for (label, list) in [
+          ("request_headers", spec.request_headers.as_ref()),
+          ("response_headers", spec.response_headers.as_ref()),
+        ] {
+          for name in list.into_iter().flatten() {
+            if name.trim().is_empty() {
+              return Err(at(format!("`{label}:` has a blank entry")));
+            }
+            if name.contains('*') {
+              return Err(at(format!(
+                "`{label}:` takes header names, not patterns; `{name}` would be a rule nobody can read back"
+              )));
+            }
           }
         }
       }

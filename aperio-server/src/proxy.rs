@@ -322,6 +322,9 @@ pub(crate) struct VisitorIdentity {
   /// username behind a session, or a share link's own id. A `bearer` secret
   /// identifies a caller and not a person, so it has none.
   pub(crate) who: Option<String>,
+  /// Headers a `forward` endpoint asked to be carried onto the request that
+  /// reaches the backend. This is how that pattern delivers an identity.
+  pub(crate) extra_headers: Vec<(String, String)>,
   /// True when the `Authorization` header was the credential that opened the
   /// gate, and is therefore **Aperio's own** rather than the visitor's
   /// message to the backend.
@@ -498,6 +501,7 @@ async fn session_identity(state: &AppState, headers: &HeaderMap) -> Option<Visit
   Some(VisitorIdentity {
     how: "session",
     who: crate::auth::session_username_any_scope(state, headers).await,
+    extra_headers: Vec::new(),
     consumed_authorization: false,
   })
 }
@@ -529,6 +533,13 @@ pub(crate) async fn check_visitor_gate(
   host: Option<&str>,
 ) -> VisitorGate {
   let path = uri.path();
+  // Resolved once, and only where a `forward` method will send it on: the
+  // header is what tells the endpoint who is asking.
+  let visitor_ip: Option<String> = headers
+    .get("x-forwarded-for")
+    .and_then(|v| v.to_str().ok())
+    .and_then(|v| v.split(',').next())
+    .map(|v| v.trim().to_string());
   let navigation = is_navigation(method, headers);
 
   // 0. Traversal paths never weaken the gate. `/a/../b` matches an `/a` path
@@ -567,6 +578,7 @@ pub(crate) async fn check_visitor_gate(
       Some(None) => VisitorGate::Allow(Some(VisitorIdentity {
         how: "share",
         who: None,
+        extra_headers: Vec::new(),
         consumed_authorization: false,
       })),
       None => VisitorGate::Deny(login_redirect("/aperio/auth", &uri.to_string())),
@@ -616,6 +628,7 @@ pub(crate) async fn check_visitor_gate(
       return VisitorGate::Allow(Some(VisitorIdentity {
         how: "bearer",
         who: None,
+        extra_headers: Vec::new(),
         consumed_authorization: !presented.from_query,
       }));
     }
@@ -636,6 +649,7 @@ pub(crate) async fn check_visitor_gate(
     return VisitorGate::Allow(Some(VisitorIdentity {
       how: "bearer",
       who: None,
+      extra_headers: Vec::new(),
       consumed_authorization: !presented.from_query,
     }));
   }
@@ -650,6 +664,7 @@ pub(crate) async fn check_visitor_gate(
       return VisitorGate::Allow(Some(VisitorIdentity {
         how: "jwt",
         who: verified.who,
+        extra_headers: Vec::new(),
         // Only when it was the bearer header that carried it: a token in a
         // cookie is the visitor's own, and stripping the whole cookie header
         // would take the application's session with it.
@@ -657,11 +672,43 @@ pub(crate) async fn check_visitor_gate(
       }));
     }
   }
+  // Delegated: an endpoint the operator runs is asked about this request.
+  // Last of the methods, because it is the only one that costs a round trip,
+  // and its refusal is held rather than returned so a share link still gets
+  // its chance below.
+  let mut delegated_refusal = None;
+  for cfg in policy.forward_methods() {
+    match crate::forward_auth::ask(
+      state,
+      cfg,
+      method,
+      headers,
+      uri,
+      host,
+      visitor_ip.as_deref(),
+    )
+    .await
+    {
+      crate::forward_auth::Verdict::Allow(carried) => {
+        return VisitorGate::Allow(Some(VisitorIdentity {
+          how: "forward",
+          who: carried
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("x-auth-user"))
+            .map(|(_, v)| v.clone()),
+          extra_headers: carried,
+          consumed_authorization: false,
+        }));
+      }
+      crate::forward_auth::Verdict::Deny(resp) => delegated_refusal = Some(resp),
+    }
+  }
   match check_share_access(state, headers, uri, host) {
     Some(Some(redirect)) => VisitorGate::Deny(redirect),
     Some(None) => VisitorGate::Allow(Some(VisitorIdentity {
       how: "share",
       who: None,
+      extra_headers: Vec::new(),
       consumed_authorization: false,
     })),
     None => {
@@ -670,12 +717,19 @@ pub(crate) async fn check_visitor_gate(
       } else {
         "/aperio/auth"
       };
-      VisitorGate::Deny(refuse_visitor(
-        policy,
-        navigation,
-        login_path,
-        &uri.to_string(),
-      ))
+      // The endpoint's own answer wins over the generic refusal: a redirect
+      // to its login, a page explaining itself, whatever its author chose.
+      // Flattening that into a 401 would discard the only part of this
+      // method they wrote.
+      match delegated_refusal {
+        Some(resp) => VisitorGate::Deny(resp),
+        None => VisitorGate::Deny(refuse_visitor(
+          policy,
+          navigation,
+          login_path,
+          &uri.to_string(),
+        )),
+      }
     }
   }
 }
@@ -1862,6 +1916,15 @@ async fn proxy_http_request(
       dispatch_headers.push(("x-aperio-visitor-how".to_string(), visitor.how.to_string()));
       if let Some(ref who) = visitor.who {
         dispatch_headers.push(("x-aperio-visitor-id".to_string(), who.clone()));
+      }
+    }
+    // Headers a `forward` endpoint asked to be carried onward. Not behind the
+    // switch above: the operator named these one at a time in the file, which
+    // is a more explicit request than the announcement setting is, and they
+    // are the whole point of running the endpoint.
+    if let Some(ref visitor) = visitor {
+      for (name, value) in &visitor.extra_headers {
+        dispatch_headers.push((name.clone(), value.clone()));
       }
     }
     let dispatch_msg = if stream_request {

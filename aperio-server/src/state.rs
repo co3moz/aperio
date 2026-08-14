@@ -2242,6 +2242,10 @@ pub(crate) struct AppState {
   /// happened to yield first.
   pub(crate) pending_messages:
     Mutex<HashMap<crate::tunnel::pubsub::PendingKey, Vec<crate::tunnel::pubsub::Pending>>>,
+  /// Verdicts remembered for the `forward` visitor-auth method, keyed on the
+  /// credential that produced them. Only admissions are kept, so a visitor
+  /// who has just been let in is not turned away for the rest of the window.
+  pub(crate) forward_auth_cache: Mutex<HashMap<String, crate::forward_auth::CachedVerdict>>,
   /// Public keys fetched for the `jwt` visitor-auth method, by JWKS URL.
   ///
   /// Cached because verifying a token must not be a request to somebody
