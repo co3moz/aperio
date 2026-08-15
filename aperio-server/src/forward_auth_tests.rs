@@ -375,6 +375,7 @@ async fn the_endpoint_goes_through_the_outbound_policy() {
   cfg.outbound_policy = crate::outbound::OutboundPolicy {
     allowlist: Vec::new(),
     block_private: true,
+    egress: Default::default(),
   };
   let state = test_state_with(cfg);
   match ask(

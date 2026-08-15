@@ -182,43 +182,6 @@ readable without scrolling past what is already done.
     old, and what to upgrade. The failure to avoid is a connection that comes
     up and misbehaves three layers deeper.
 
-- [ ] **#118 An egress proxy the server is told about, so the outbound policy
-  and a proxy can both be in force.** Today they cannot, and the server
-  refuses to start when it finds both, because the policy decides by resolving
-  the destination locally while a proxy resolves it on its own network and
-  connects for us. That refusal is honest but it is a refusal: an operator
-  whose server can only reach the internet through a proxy has to give up
-  `APERIO_OUTBOUND_BLOCK_PRIVATE` to get out at all, which is the wrong way
-  round for the deployment that most needs the fence.
-
-  The fix is the same shape as `#117` on the client, and the reason it is a
-  separate entry is that the server has the policy to reconcile and the client
-  does not.
-
-  - **The proxy becomes configuration, not ambient environment.** An explicit
-    `egress_proxy:` (with `APERIO_EGRESS_PROXY`) that the server reads, and the
-    ambient `HTTP_PROXY` family stops being consulted by the outbound clients.
-    Reading the environment is what made this quiet: nothing in the deployment
-    ever said "these callbacks go through a proxy", it was simply inherited.
-  - **What the policy means under a proxy has to be decided, not assumed.**
-    Resolving locally and checking addresses is no longer the mechanism, so
-    the choices are to check the *name* against the allowlist and drop the
-    resolution-based half (honest, weaker, and it must say which entries it
-    can no longer honor), or to keep resolving locally as an approximation and
-    document it as advisory. The first is preferable: a check that is exact
-    about a smaller claim beats one that is vague about a larger one.
-    Whichever is chosen, `block_private` cannot be enforced through a proxy at
-    all and the startup log should say so in one line.
-  - **A `no_proxy`-style exception list is part of this, not a follow-up.** The
-    common server shape is a `forward` auth endpoint or an OIDC issuer inside
-    the network and webhooks outside it, so a single switch is not enough.
-    Note that reqwest was measured *not* to honor `NO_PROXY=*` as
-    bypass-everything, so this list has to be ours and applied by us rather
-    than delegated to the client library's own parsing.
-  - When it lands, the startup refusal added with the #117 work goes away and
-    its `CONFIG_CHANGES` entry gets a successor saying the combination is
-    supported again.
-
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
@@ -521,6 +484,63 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#118 An egress proxy the server is told about, so the outbound policy
+  and a proxy can both be in force.** Today they cannot, and the server
+  refuses to start when it finds both, because the policy decides by resolving
+  the destination locally while a proxy resolves it on its own network and
+  connects for us. That refusal is honest but it is a refusal: an operator
+  whose server can only reach the internet through a proxy has to give up
+  `APERIO_OUTBOUND_BLOCK_PRIVATE` to get out at all, which is the wrong way
+  round for the deployment that most needs the fence.
+
+  The fix is the same shape as `#117` on the client, and the reason it is a
+  separate entry is that the server has the policy to reconcile and the client
+  does not.
+
+  - **The proxy becomes configuration, not ambient environment.** An explicit
+    `egress_proxy:` (with `APERIO_EGRESS_PROXY`) that the server reads, and the
+    ambient `HTTP_PROXY` family stops being consulted by the outbound clients.
+    Reading the environment is what made this quiet: nothing in the deployment
+    ever said "these callbacks go through a proxy", it was simply inherited.
+  - **What the policy means under a proxy has to be decided, not assumed.**
+    Resolving locally and checking addresses is no longer the mechanism, so
+    the choices are to check the *name* against the allowlist and drop the
+    resolution-based half (honest, weaker, and it must say which entries it
+    can no longer honor), or to keep resolving locally as an approximation and
+    document it as advisory. The first is preferable: a check that is exact
+    about a smaller claim beats one that is vague about a larger one.
+    Whichever is chosen, `block_private` cannot be enforced through a proxy at
+    all and the startup log should say so in one line.
+  - **A `no_proxy`-style exception list is part of this, not a follow-up.** The
+    common server shape is a `forward` auth endpoint or an OIDC issuer inside
+    the network and webhooks outside it, so a single switch is not enough.
+    Note that reqwest was measured *not* to honor `NO_PROXY=*` as
+    bypass-everything, so this list has to be ours and applied by us rather
+    than delegated to the client library's own parsing.
+  - When it lands, the startup refusal added with the #117 work goes away and
+    its `CONFIG_CHANGES` entry gets a successor saying the combination is
+    supported again.
+
+  shipped: `outbound.proxy` and `outbound.no_proxy`
+  (`APERIO_OUTBOUND_PROXY`, `APERIO_OUTBOUND_NO_PROXY`), under the existing
+  `outbound:` block rather than a new `egress:` one, so the naming rule gives
+  the env names and an operator finds the whole subject in one place. The
+  ambient `HTTP_PROXY` family is no longer read by anything, and a server that
+  still has it set is told at startup that it does nothing. The policy took
+  the first of the two options above: through a proxy it judges what the URL
+  says as text and does not run the resolution half, saying so in one line
+  that names `block_private` and counts the CIDR entries it cannot honor. The
+  bypass list turned out to be more than a convenience, since a bypassed
+  destination is dialed by the server and therefore keeps the *whole* policy,
+  which is the honest answer for an internal auth endpoint. Two things the
+  plan did not foresee: the parser moved to `aperio-config` because both
+  binaries needed the identical value and a second copy of a redaction rule is
+  one too many, and the seven hand-assembled outbound clients became one
+  builder, which is what stopped the no-ambient-proxy rule from being enforced
+  by repetition. The startup refusal from the commit before it is gone, and
+  its `CONFIG_CHANGES` entry was removed rather than superseded: it described
+  a refusal that existed only between two commits of an unreleased version.
 
 - [x] **#117 Dial the tunnel through an egress proxy.** shipped: `egress_proxy:`
   (`APERIO_EGRESS_PROXY`, `--egress-proxy`), an `egress` module doing HTTP

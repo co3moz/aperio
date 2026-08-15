@@ -142,7 +142,7 @@ pub(crate) async fn forward(
   };
   let payload = crate::otlp_identity::stamp(payload, identity);
   let url = format!("{}/{}", endpoint.trim_end_matches('/'), signal_path);
-  let client = reqwest::Client::builder()
+  let client = crate::outbound::client_builder()
     .timeout(std::time::Duration::from_secs(30))
     .build()
     .map_err(|e| format!("cannot build the http client: {e}"))?;

@@ -328,7 +328,7 @@ async fn send_once(hook: &Webhook, body: &str) -> Result<u16, String> {
   // service, at something on the loopback, at whatever the fence exists to
   // refuse. A redirect is reported as the status it is, which is also more
   // useful to whoever configured a webhook against a URL that moved.
-  let client = reqwest::Client::builder()
+  let client = crate::outbound::client_builder()
     .timeout(std::time::Duration::from_secs(10))
     .redirect(reqwest::redirect::Policy::none())
     .build()

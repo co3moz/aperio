@@ -45,7 +45,7 @@ pub(crate) async fn fetch_json<T: serde::de::DeserializeOwned>(
     .check(url)
     .await
     .map_err(|why| FetchFailure::Call(format!("refused by the outbound policy: {why}")))?;
-  let http = reqwest::Client::builder()
+  let http = crate::outbound::client_builder()
     .timeout(std::time::Duration::from_secs(15))
     .redirect(reqwest::redirect::Policy::none())
     .build()

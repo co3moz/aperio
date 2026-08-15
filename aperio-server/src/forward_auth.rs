@@ -230,7 +230,7 @@ fn client() -> Option<&'static reqwest::Client> {
   static CLIENT: std::sync::OnceLock<Option<reqwest::Client>> = std::sync::OnceLock::new();
   CLIENT
     .get_or_init(|| {
-      reqwest::Client::builder()
+      crate::outbound::client_builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .inspect_err(|e| tracing::error!("Could not build the forward-auth client: {e}"))

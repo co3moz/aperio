@@ -370,7 +370,7 @@ pub(crate) async fn call_endpoint(
     "max": record.max,
   });
 
-  let client = reqwest::Client::builder()
+  let client = crate::outbound::client_builder()
     .timeout(Duration::from_secs(10))
     .redirect(reqwest::redirect::Policy::none())
     .build()

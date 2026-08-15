@@ -10,6 +10,7 @@
 
 pub mod authoring;
 pub mod compat;
+pub mod egress;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -2343,6 +2344,22 @@ pub struct OutboundGroup {
   /// Default: `false`.
   #[schemars(extend("examples" = [true]))]
   pub block_private: Option<bool>,
+  /// HTTP proxy these callbacks go through, on a network with no direct
+  /// outbound connection: `host:port` or `http://host:port`, with an optional
+  /// `user:password@`. The ambient `HTTP_PROXY` is *not* read; this is the
+  /// only way to send them through a proxy. Note what it costs the checks
+  /// above: through a proxy the destination's name is resolved by the proxy,
+  /// so `block_private` covers literal addresses only and CIDR allowlist
+  /// entries cannot admit a named destination. Unset: call directly.
+  #[schemars(extend("examples" = ["proxy.corp:3128"]))]
+  pub proxy: Option<String>,
+  /// Destinations that skip the proxy and are called directly: exact names,
+  /// or `.suffix` / `*.suffix` for a domain and everything under it. The
+  /// usual case is an auth endpoint or an issuer inside your own network.
+  /// Loopback is always direct, listed or not. These keep the whole policy,
+  /// since the server chooses their addresses itself.
+  #[schemars(extend("examples" = [["auth.internal", ".svc.cluster.local"]]))]
+  pub no_proxy: Option<Vec<String>>,
 }
 
 /// Scheduled snapshots of the SQLite store.
@@ -3376,6 +3393,12 @@ pub struct ServerFileConfig {
   /// Flat spelling of `outbound.block_private` (env: APERIO_OUTBOUND_BLOCK_PRIVATE).
   #[schemars(extend("examples" = [true]))]
   pub outbound_block_private: Option<bool>,
+  /// Flat spelling of `outbound.proxy` (env: APERIO_OUTBOUND_PROXY).
+  #[schemars(extend("examples" = ["proxy.corp:3128"]))]
+  pub outbound_proxy: Option<String>,
+  /// Flat spelling of `outbound.no_proxy` (env: APERIO_OUTBOUND_NO_PROXY).
+  #[schemars(extend("examples" = [["auth.internal", ".svc.cluster.local"]]))]
+  pub outbound_no_proxy: Option<Vec<String>>,
   /// Flat spelling of `stream.pause_bytes` (env: APERIO_STREAM_PAUSE_BYTES).
   #[schemars(extend("examples" = [2097152]))]
   pub stream_pause_bytes: Option<u64>,

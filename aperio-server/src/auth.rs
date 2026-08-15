@@ -1361,7 +1361,7 @@ pub(crate) async fn oidc_callback_handler(
     }
   }
   // Exchange the authorization code for an access token.
-  let http = match reqwest::Client::builder()
+  let http = match crate::outbound::client_builder()
     .timeout(Duration::from_secs(15))
     // Not followed, for the reason the check above exists: an endpoint that
     // passes the fence must not be able to answer with a `Location` pointing

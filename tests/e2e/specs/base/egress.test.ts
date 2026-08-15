@@ -90,46 +90,57 @@ async function startAndAwaitExit(
 }
 
 export class OutboundPolicyUnderAProxySpec extends Test({ timeout: 90_000 }) {
-  async theServerRefusesToRunAPolicyItCannotEnforce() {
-    const res = await startAndAwaitExit({
-      APERIO_OUTBOUND_BLOCK_PRIVATE: '1',
-      HTTPS_PROXY: 'http://proxy.invalid:3128',
-    })
-    assert.ok(res.exited, `the server kept running instead of refusing:\n${res.out}`)
-    assert.match(res.out, /Refusing to start/, res.out)
-    // Named, both sides of it: a refusal that does not say which variable and
-    // which setting leaves an operator guessing at their own environment.
-    assert.match(res.out, /HTTPS_PROXY/, res.out)
-    assert.match(res.out, /APERIO_OUTBOUND_BLOCK_PRIVATE/, res.out)
+  async theAmbientProxyEnvironmentIsIgnoredAndSaidSo() {
+    // It used to be read by the HTTP client, so a deployment could be proxying
+    // its callbacks with nothing saying so. Now nothing reads it, and the
+    // server says as much rather than let a working route vanish in silence.
+    const res = await startAndAwaitExit(
+      { APERIO_OUTBOUND_BLOCK_PRIVATE: '1', HTTPS_PROXY: 'http://proxy.invalid:3128' },
+      6_000,
+    )
+    assert.equal(res.exited, false, `the server refused instead of starting:\n${res.out}`)
+    assert.match(res.out, /HTTPS_PROXY[^"]*no longer used/, res.out)
+    assert.match(res.out, /APERIO_OUTBOUND_PROXY/, res.out)
   }
 
-  async everySpellingOfTheVariableIsNoticed() {
-    for (const name of ['HTTP_PROXY', 'http_proxy', 'ALL_PROXY']) {
-      const res = await startAndAwaitExit({
-        APERIO_OUTBOUND_ALLOWLIST: 'hooks.example.com',
-        [name]: 'http://proxy.invalid:3128',
-      })
-      assert.ok(res.exited, `${name} did not stop the start:\n${res.out}`)
-      assert.match(res.out, new RegExp(`Refusing to start[^]*${name}`), `${name}: ${res.out}`)
-    }
+  async aConfiguredProxyNamesWhatThePolicyCanStillCover() {
+    // The honest half of the reconciliation: an operator who set a policy is
+    // told which part of it a proxy takes away, rather than left believing all
+    // of it is in force.
+    const res = await startAndAwaitExit(
+      {
+        APERIO_OUTBOUND_BLOCK_PRIVATE: '1',
+        APERIO_OUTBOUND_PROXY: 'proxy.invalid:3128',
+      },
+      6_000,
+    )
+    assert.equal(res.exited, false, `the server refused instead of starting:\n${res.out}`)
+    assert.match(res.out, /Outbound callbacks go through the proxy proxy.invalid:3128/, res.out)
+    assert.match(res.out, /cannot cover a hostname's resolved addresses/, res.out)
+    assert.match(res.out, /literal addresses only/, res.out)
+  }
+
+  async anInvalidProxyRefusesTheStartRatherThanBeingIgnored() {
+    // A server told to go through a proxy is on a network where going direct
+    // does not work, so dropping an unreadable value would produce a failure
+    // whose cause is a typo somewhere else.
+    const res = await startAndAwaitExit({ APERIO_OUTBOUND_PROXY: 'https://proxy.invalid:3128' })
+    assert.ok(res.exited, `an https:// proxy should refuse the start:\n${res.out}`)
+    assert.match(res.out, /APERIO_OUTBOUND_PROXY is invalid/, res.out)
   }
 
   async aProxyWithoutAPolicyIsNotTheServersBusiness() {
-    // The other half of the guard, and the one that keeps it from being an
-    // outage generator: the overwhelming majority of servers with a proxy set
-    // have no outbound policy at all, and must start exactly as before.
-    const res = await startAndAwaitExit(
-      { HTTPS_PROXY: 'http://proxy.invalid:3128' },
-      6_000,
-    )
+    const res = await startAndAwaitExit({ APERIO_OUTBOUND_PROXY: 'proxy.invalid:3128' }, 6_000)
     assert.equal(res.exited, false, `the server refused a proxy alone:\n${res.out}`)
-    assert.doesNotMatch(res.out, /Refusing to start/, res.out)
+    assert.doesNotMatch(res.out, /cannot cover/, res.out)
   }
 
-  async aPolicyWithoutAProxyStillComesUp() {
+  async aPolicyWithoutAProxyStillComesUpUnqualified() {
     const res = await startAndAwaitExit({ APERIO_OUTBOUND_BLOCK_PRIVATE: '1' }, 6_000)
     assert.equal(res.exited, false, `the policy alone stopped the start:\n${res.out}`)
     assert.match(res.out, /Outbound callback policy active/, res.out)
+    // No qualification, because nothing is taken away when the server dials.
+    assert.doesNotMatch(res.out, /cannot cover/, res.out)
   }
 }
 

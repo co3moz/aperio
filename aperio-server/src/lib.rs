@@ -921,41 +921,74 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     let block_private = std::env::var("APERIO_OUTBOUND_BLOCK_PRIVATE")
       .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
       .unwrap_or(false);
+    // Where these calls leave from, which the policy has to know because it
+    // changes what the policy can decide. Configured rather than inherited:
+    // the environment's `HTTP_PROXY` is no longer read by anything here, so a
+    // deployment that proxies its callbacks says so.
+    let egress = {
+      let proxy = match std::env::var("APERIO_OUTBOUND_PROXY")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+      {
+        Some(raw) => match aperio_config::egress::EgressProxy::parse(&raw) {
+          Ok(proxy) => Some(proxy),
+          Err(e) => {
+            // Refused rather than ignored, for the same reason a partial
+            // allowlist is: a server told to go through a proxy is on a
+            // network where going direct does not work, and silently
+            // dropping the value produces a failure whose cause is a typo.
+            error!("APERIO_OUTBOUND_PROXY is invalid ({e}); refusing to start");
+            return None;
+          }
+        },
+        None => None,
+      };
+      let bypass = aperio_config::egress::EgressBypass::parse(
+        &std::env::var("APERIO_OUTBOUND_NO_PROXY").unwrap_or_default(),
+      );
+      crate::outbound::Egress { proxy, bypass }
+    };
+    // The machine that was relying on the old behaviour. These used to be read
+    // by the HTTP client and are not read by anything now, so a route that
+    // worked yesterday would otherwise disappear without a word.
+    if egress.proxy.is_none() {
+      let stale = crate::outbound::proxy_env_vars();
+      if !stale.is_empty() {
+        warn!(
+          "{} set in the environment, and no longer used: outbound callbacks now go where \
+           APERIO_OUTBOUND_PROXY says, and direct when it says nothing. Set it to the same value \
+           to keep the route you had.",
+          stale.join(", ")
+        );
+      }
+    }
+    if let Some(ref proxy) = egress.proxy {
+      info!(
+        "Outbound callbacks go through the proxy {}{}{}",
+        proxy.redacted(),
+        if proxy.has_credentials() {
+          " (with a credential)"
+        } else {
+          ""
+        },
+        if egress.bypass.is_empty() {
+          String::new()
+        } else {
+          format!(", except {} destination(s)", egress.bypass.len())
+        }
+      );
+    }
     let policy = crate::outbound::OutboundPolicy {
       allowlist,
       block_private,
+      egress: egress.clone(),
     };
-    // A proxy in the environment and this policy cannot both be in force.
-    // The policy decides by resolving the destination here; a proxy means the
-    // name is resolved somewhere else and connected to from there, so what was
-    // vetted is not what is reached. Refusing is the same answer the mechanism
-    // gives to a configuration whose security-relevant meaning changed: an
-    // operator who set `APERIO_OUTBOUND_BLOCK_PRIVATE` believes something is
-    // gated, and running on while it is not is the one outcome worth an
-    // outage. Only a server that has both is stopped, so a deployment with a
-    // proxy and no policy, or a policy and no proxy, is untouched.
+    // Set from the same value the policy holds, in this one place, so the
+    // copy that reasons about a destination and the copy that dials it cannot
+    // drift apart.
+    crate::outbound::set_egress(egress);
     if policy.restricted() {
-      let proxies = crate::outbound::proxy_env_vars();
-      if !proxies.is_empty() {
-        error!(
-          "Refusing to start: the outbound callback policy \
-           (APERIO_OUTBOUND_ALLOWLIST / APERIO_OUTBOUND_BLOCK_PRIVATE) cannot be \
-           enforced while {} set in the environment. The policy resolves a \
-           destination here and checks the addresses it maps to, but a proxy \
-           resolves the name itself and connects on our behalf, so a hostname \
-           pointing at an internal address would be refused by the check and \
-           reached anyway. Unset {} to keep the policy, or unset the policy if \
-           the proxy is what you need; see planned_features.md #118 for making \
-           the two work together.",
-          if proxies.len() == 1 {
-            format!("{} is", proxies[0])
-          } else {
-            format!("{} are", proxies.join(", "))
-          },
-          proxies.join(", ")
-        );
-        return None;
-      }
       info!(
         "Outbound callback policy active: {} allowlist entr{}, block_private={}",
         policy.allowlist.len(),
@@ -966,6 +999,28 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
         },
         policy.block_private
       );
+      // What a proxy takes away, said once and plainly. The policy decides by
+      // resolving a destination here and looking at the addresses; through a
+      // proxy the name is resolved elsewhere, so that half judges nothing and
+      // is not run. An operator who set this believes something is gated, and
+      // the honest thing is to name the part that is not.
+      if policy.egress.proxy.is_some() {
+        let cidrs = policy
+          .allowlist
+          .iter()
+          .filter(|p| matches!(p, crate::outbound::OutboundPattern::Cidr(..)))
+          .count();
+        warn!(
+          "Through the proxy this policy covers what the URL says as text: a literal address, \
+           and hostname or *.suffix allowlist entries. It cannot cover a hostname's resolved \
+           addresses, because the proxy resolves the name on its own network: \
+           block_private={} applies to literal addresses only, and {cidrs} CIDR allowlist \
+           entr{} cannot admit a named destination. Destinations on APERIO_OUTBOUND_NO_PROXY are \
+           dialed by this server and keep the whole policy.",
+          policy.block_private,
+          if cidrs == 1 { "y" } else { "ies" }
+        );
+      }
     }
     policy
   };

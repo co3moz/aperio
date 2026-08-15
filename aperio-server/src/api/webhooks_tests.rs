@@ -393,6 +393,7 @@ async fn create_refuses_a_destination_the_outbound_policy_blocks() {
   config.outbound_policy = crate::outbound::OutboundPolicy {
     allowlist: crate::outbound::parse_patterns("hooks.example.com").unwrap(),
     block_private: false,
+    egress: Default::default(),
   };
   let state = Arc::new(test_state_with(config));
   let headers = admin_headers(&state).await;

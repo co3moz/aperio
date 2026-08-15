@@ -18,6 +18,27 @@
 //!
 //! Enforced when the call is made, not only when the URL is stored, so a
 //! policy added later also covers webhooks created before it.
+//!
+//! It also owns *how* those calls leave (#118), because the two questions
+//! turn out to be one:
+//!
+//! - `outbound.proxy` (`APERIO_OUTBOUND_PROXY`): the proxy to send them
+//!   through, on a network with no direct route out.
+//! - `outbound.no_proxy` (`APERIO_OUTBOUND_NO_PROXY`): the destinations that
+//!   skip it, for the auth endpoint or issuer inside your own network.
+//!
+//! **A proxy changes what the policy can decide, so the policy has to know
+//! about it.** Half of the policy reads the URL as text (a literal address, a
+//! hostname pattern) and is unaffected. The other half resolves the name here
+//! and looks at the addresses, and through a proxy the name is resolved on the
+//! proxy's network and connected to from there, so that half would be judging
+//! an answer that does not apply. It is therefore not run, the startup log
+//! says so, and the destinations on the bypass list keep the whole policy
+//! because the server dials those itself.
+//!
+//! The ambient `HTTP_PROXY` family is not read by anything here. It used to be
+//! read by the HTTP client, which is how a deployment could be proxying its
+//! callbacks with nothing saying so and this policy unable to tell.
 
 use std::net::IpAddr;
 
@@ -86,23 +107,19 @@ const PROXY_ENV_VARS: [&str; 6] = [
 
 /// Proxy variables set in this process's environment.
 ///
-/// **Why the policy has to care.** This policy works by resolving the
-/// destination's name here and inspecting the addresses it maps to, which is
-/// the only reason it can refuse a hostname that points at `127.0.0.1` or the
-/// metadata service. A proxy takes that apart: the client stops resolving the
-/// name at all and hands it to the proxy, which resolves it on its own network
-/// and connects for us. The address this policy vetted is then not the address
-/// anything connects to, and the two halves that depend on resolution, the
-/// private-address block and CIDR allowlist entries, decide nothing. The
-/// halves that read the URL as text, a literal IP and a hostname pattern, are
-/// unaffected, which is what makes the failure quiet: the policy still refuses
-/// things, just not the ones it exists for.
+/// **Nothing acts on these any more, which is why they have to be reported.**
+/// The HTTP client used to read them by default, so a deployment could be
+/// sending its callbacks through a proxy with nothing in its configuration
+/// saying so, and the policy below could not tell. Now the server is told
+/// instead, through `APERIO_OUTBOUND_PROXY`, and this exists only to notice the
+/// machine that still has the old variables set and say that they no longer
+/// do anything, rather than let a working route disappear in silence.
 ///
-/// `NO_PROXY` is deliberately not consulted as an escape. It is measured
-/// behaviour, not caution: a request to a loopback address with `NO_PROXY=*`
-/// set still went to the proxy, so treating that variable as "the proxy is off"
-/// would reopen the hole for exactly the operator who thought they had closed
-/// it.
+/// `NO_PROXY` is not among them, and not treated as an escape anywhere. It is
+/// measured behaviour, not caution: a request to a loopback address with
+/// `NO_PROXY=*` set still went to the proxy, so a rule that matters cannot be
+/// delegated to a library's reading of that variable. `APERIO_OUTBOUND_NO_PROXY`
+/// is ours and is applied by us.
 pub(crate) fn proxy_env_vars() -> Vec<&'static str> {
   proxy_vars_from(|name| std::env::var(name).ok())
 }
@@ -123,12 +140,113 @@ fn proxy_vars_from(lookup: impl Fn(&str) -> Option<String>) -> Vec<&'static str>
     .collect()
 }
 
+/// Where this server's outbound calls go when the network has no direct route
+/// out (`planned_features.md` #118).
+///
+/// Configuration rather than ambient environment, and that is the point. The
+/// `HTTP_PROXY` family was being read by the HTTP client all along, so a
+/// deployment could be sending its callbacks through a proxy without anything
+/// in the deployment saying so, and the policy below could not know. Here the
+/// server is *told*, which is what lets the two be reconciled instead of
+/// silently disagreeing.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Egress {
+  pub(crate) proxy: Option<aperio_config::egress::EgressProxy>,
+  pub(crate) bypass: aperio_config::egress::EgressBypass,
+}
+
+impl Egress {
+  /// Whether a call to `host` is made by this server directly.
+  ///
+  /// True when there is no proxy at all, and for the destinations the bypass
+  /// list keeps off it. It decides more than routing: a direct call is one
+  /// whose address this server chooses, so it is the only kind the policy's
+  /// resolution-based half can judge.
+  pub(crate) fn direct_to(&self, host: &str) -> bool {
+    self.proxy.is_none() || self.bypass.covers(host)
+  }
+
+  /// The builder every outbound HTTP client starts from.
+  ///
+  /// **The ambient environment is never consulted.** reqwest reads
+  /// `HTTP_PROXY` and friends by default, which is how a deployment ended up
+  /// proxying its callbacks without saying so and without the policy above
+  /// being able to tell. `no_proxy()` turns that off for good, and whatever
+  /// route this server takes is the one it was configured to take.
+  ///
+  /// The proxy is applied per destination rather than wholesale, because the
+  /// common server has both kinds at once: a `forward` auth endpoint on the
+  /// same host and a webhook receiver on the internet. `Proxy::custom` is
+  /// given the bypass rule so one client serves both.
+  pub(crate) fn client_builder(&self) -> reqwest::ClientBuilder {
+    let builder = reqwest::Client::builder().no_proxy();
+    let Some(ref proxy) = self.proxy else {
+      return builder;
+    };
+    let url = format!("http://{}:{}", proxy.host(), proxy.port());
+    let bypass = self.bypass.clone();
+    let routed = reqwest::Proxy::custom(move |target| {
+      match target.host_str() {
+        // A destination on the bypass list, or on this machine, is ours to
+        // dial: handing it to a proxy elsewhere could not reach it anyway.
+        Some(host) if bypass.covers(host) => None,
+        _ => url.parse::<reqwest::Url>().ok(),
+      }
+    });
+    let routed = match proxy.credentials() {
+      Some((user, password)) => routed.basic_auth(user, password),
+      None => routed,
+    };
+    builder.proxy(routed)
+  }
+}
+
+/// The egress every outbound client is built from.
+///
+/// Process-wide, because it is: the value comes from configuration read once
+/// at startup and no call can be made under a different one. A global rather
+/// than a parameter threaded through six call chains for a value that never
+/// varies, and the same shape the client uses for its own dial settings.
+///
+/// It is set from the same configuration as `OutboundPolicy::egress`, in one
+/// place, so the copy the policy reasons about and the copy the client dials
+/// through cannot disagree. The policy keeps its own so that `check` can be
+/// tested without a global.
+static EGRESS: std::sync::OnceLock<Egress> = std::sync::OnceLock::new();
+
+/// Records the process's egress. Idempotent; a second call is ignored.
+pub(crate) fn set_egress(egress: Egress) {
+  let _ = EGRESS.set(egress);
+}
+
+/// The builder every outbound HTTP client in the server starts from.
+///
+/// One constructor rather than seven hand-assembled ones, which is also what
+/// keeps the four-part rule (no ambient proxy, the configured proxy, no
+/// redirects, a bounded read) from being enforced by repetition.
+pub(crate) fn client_builder() -> reqwest::ClientBuilder {
+  match EGRESS.get() {
+    Some(egress) => egress.client_builder(),
+    // Before startup has run, and in tests: still never the environment.
+    None => reqwest::Client::builder().no_proxy(),
+  }
+}
+
 /// The effective outbound policy, snapshotted into the server config at
 /// startup. Default: no restriction (today's behaviour).
 #[derive(Clone, Debug, Default)]
 pub(crate) struct OutboundPolicy {
   pub(crate) allowlist: Vec<OutboundPattern>,
   pub(crate) block_private: bool,
+  /// How the calls this policy judges actually leave.
+  ///
+  /// Part of the policy rather than beside it, because it changes what the
+  /// policy *means*: a destination reached through a proxy is one whose name
+  /// the proxy resolves on its own network, so the addresses checked here are
+  /// not the addresses connected to. The policy is not weaker everywhere, it
+  /// is weaker for exactly those destinations, and it can only say so if it
+  /// knows which they are.
+  pub(crate) egress: Egress,
 }
 
 impl OutboundPolicy {
@@ -141,6 +259,17 @@ impl OutboundPolicy {
   /// Checks one destination URL against the policy. `Ok(())` when the
   /// policy is empty, when the host matches an allowlist entry, or when
   /// (allowlist-less) every resolved address is public.
+  ///
+  /// **What a proxy changes.** For a destination this server reaches through
+  /// a proxy, the name is resolved by the proxy and the connection is made
+  /// from there, so resolving it here decides nothing about where the request
+  /// ends up. Those checks are therefore not performed rather than performed
+  /// on the wrong answer: a CIDR entry cannot match a hostname, and
+  /// `block_private` covers only an address written as one. Everything the
+  /// URL says as text (a literal IP, a hostname pattern) is judged exactly as
+  /// before, because the name is what the proxy is handed. The startup log
+  /// says which half is in force, and the destinations on the bypass list are
+  /// dialed by this server and keep the whole policy.
   pub(crate) async fn check(&self, url_str: &str) -> Result<(), String> {
     if !self.restricted() {
       return Ok(());
@@ -153,6 +282,10 @@ impl OutboundPolicy {
     // Bracketed IPv6 literals come back as `[::1]` from host_str.
     let bare = host.trim_start_matches('[').trim_end_matches(']');
     let literal_ip = bare.parse::<IpAddr>().ok();
+    // A literal address is still judged under a proxy: the proxy is asked to
+    // connect to that exact address, so the URL saying `169.254.169.254` is
+    // as good a statement of intent as it ever was.
+    let resolves_here = self.egress.direct_to(&host);
 
     if !self.allowlist.is_empty() {
       let port = url.port_or_known_default().unwrap_or(443);
@@ -184,7 +317,7 @@ impl OutboundPolicy {
         .allowlist
         .iter()
         .any(|p| matches!(p, OutboundPattern::Cidr(..)));
-      if literal_ip.is_none() && has_cidrs {
+      if literal_ip.is_none() && has_cidrs && resolves_here {
         let addrs = tokio::net::lookup_host((bare, port))
           .await
           .map_err(|e| format!("cannot resolve {host}: {e}"))?;
@@ -210,6 +343,14 @@ impl OutboundPolicy {
           "destination {host} is an internal address (refused by APERIO_OUTBOUND_BLOCK_PRIVATE)"
         ));
       }
+      return Ok(());
+    }
+    // Through a proxy this name is resolved elsewhere and connected to from
+    // there, so there is nothing here to judge. Allowed rather than refused,
+    // because refusing every named destination would take the feature away
+    // from the deployment that needs it most, and the startup log has already
+    // said that this is what the setting covers on this server.
+    if !resolves_here {
       return Ok(());
     }
     let port = url.port_or_known_default().unwrap_or(443);

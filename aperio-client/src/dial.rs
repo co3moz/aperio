@@ -357,7 +357,7 @@ where
   // unreachable family and finds it applying somewhere else.
   let proxy = egress_proxy();
   let (dial_host, dial_port) = match proxy {
-    Some(proxy) => (proxy.host.clone(), proxy.port),
+    Some(proxy) => (proxy.host().to_string(), proxy.port()),
     None => (host.clone(), port),
   };
   let addrs = resolve_ordered(&dial_host, dial_port, ip_family()).await?;

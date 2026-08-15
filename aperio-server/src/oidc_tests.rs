@@ -382,6 +382,7 @@ async fn the_issuer_goes_through_the_outbound_policy() {
   let blocking = crate::outbound::OutboundPolicy {
     allowlist: Vec::new(),
     block_private: true,
+    egress: Default::default(),
   };
   let err = build_runtime(
     &blocking,

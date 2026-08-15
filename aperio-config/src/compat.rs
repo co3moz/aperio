@@ -197,44 +197,45 @@ pub struct ConfigChange {
 /// recorded here in the same commit that makes it (see CLAUDE.md).
 pub const CONFIG_CHANGES: &[ConfigChange] = &[
   ConfigChange {
-    // Guessed for the same reason as the entries below, and corrected by rule
-    // 19's release audit.
+    // Guessed for the same reason as the entries below.
     version: "0.10.0",
     surface: ConfigSurface::Server,
-    // Neither key changed meaning, and on a server with no proxy in its
-    // environment nothing about this file behaves differently. What changed is
-    // that one combination is now refused instead of accepted: this policy
-    // decides by resolving the destination here and looking at the addresses,
-    // and a proxy resolves the name on its own network and connects for us, so
-    // the addresses that were vetted are not the ones reached. The half of the
-    // policy that reads the URL as text still worked, which is what made the
-    // other half's silence hard to see.
+    // There was briefly a second entry here, recording that a policy and a
+    // proxy refused to start together. It is gone rather than kept: that
+    // refusal existed only between two commits of an unreleased version, so
+    // no file was ever read by a binary that behaved that way, and two
+    // entries firing on one upgrade would have said opposite things. What
+    // reaches an operator is this: the ambient
+    // `HTTP_PROXY` family stopped being read, so a server that was proxying
+    // its callbacks by inheritance is now calling directly until it is told
+    // where to go.
     //
-    // `Breaking` rather than `Security`, on the same reasoning as the entries
-    // below: `Security` is for a file left exposed *by upgrading*, and refuses
-    // every start in the range until acknowledged. Here upgrading is what
-    // closes the exposure and names it at startup, precisely, only on the
-    // machines that have both. A second refusal aimed at everyone who ever
-    // wrote these keys would hit mostly people who never had a proxy.
-    //
-    // `WhenSet`: a file that configures no outbound policy cannot be affected.
+    // `Breaking`, not `Security`: nobody is left exposed by upgrading. The
+    // policy is honest about what it covers for the first time, and a route
+    // that silently existed now has to be written down. `WhenSet`, because a
+    // file with no outbound policy is not affected, and the startup warning
+    // reaches the rest.
     severity: ChangeSeverity::Breaking,
     applies: Applies::WhenSet,
     fields: &[
       "outbound",
       "outbound.allowlist",
       "outbound.block_private",
+      "outbound.proxy",
       "outbound_allowlist",
       "outbound_block_private",
+      "outbound_proxy",
     ],
-    summary: "an outbound callback policy and a proxy in the environment are refused together, \
-              because the policy cannot govern a connection the proxy makes",
-    action: "if the server stops starting after the upgrade and the log names HTTP_PROXY, \
-             HTTPS_PROXY or ALL_PROXY, decide which of the two you meant. Unset the proxy \
-             variable to keep the policy enforced, or drop the policy if the proxy is how this \
-             server reaches its receivers. Until now the private-address block and any CIDR \
-             entries were deciding nothing on that machine, which is what the refusal is \
-             telling you.",
+    summary: "an outbound policy and a proxy work together again: the proxy is configured with \
+              `outbound.proxy` instead of inherited from the environment, and the policy says \
+              which half of itself a proxy leaves in force",
+    action: "if this server reaches the internet through a proxy, set `outbound.proxy` \
+             (APERIO_OUTBOUND_PROXY) to what HTTP_PROXY used to say, and list any internal \
+             destinations in `outbound.no_proxy`. Nothing reads HTTP_PROXY now, so callbacks go \
+             direct until you do, and the startup log names the variables it found and ignored. \
+             Read the second startup line as well: through a proxy, `block_private` covers \
+             addresses written as addresses, and CIDR allowlist entries cannot admit a named \
+             destination, because the proxy resolves the name on its own network.",
   },
   ConfigChange {
     // Guessed for the reason the entry below says, and corrected by rule 19's

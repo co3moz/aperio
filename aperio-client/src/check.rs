@@ -34,7 +34,7 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
   crate::dial::set_egress_proxy(settings.egress_proxy.clone());
   let mut http_builder = reqwest::Client::builder().timeout(Duration::from_secs(5));
   if let Some(ref proxy) = settings.egress_proxy {
-    match proxy.as_reqwest() {
+    match crate::egress::as_reqwest(proxy) {
       Ok(configured) => http_builder = http_builder.proxy(configured),
       Err(e) => println!("  warn  egress proxy: {e}"),
     }

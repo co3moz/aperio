@@ -225,7 +225,7 @@ async fn fetch(state: &AppState, url: &str) -> Option<Arc<JwkSet>> {
   // Built here rather than shared, matching the OIDC discovery fetch: a
   // default client would drop the timeout, and an unbounded fetch on the
   // request path is the one thing this must not be.
-  let http = reqwest::Client::builder()
+  let http = crate::outbound::client_builder()
     .timeout(Duration::from_secs(10))
     // Not followed, for the reason the policy check above exists: a key-set
     // URL that passes the fence must not be able to hand the server a

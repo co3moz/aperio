@@ -169,6 +169,7 @@ async fn a_key_set_is_never_fetched_from_a_destination_the_outbound_policy_refus
   cfg.outbound_policy = crate::outbound::OutboundPolicy {
     allowlist: Vec::new(),
     block_private: true,
+    egress: Default::default(),
   };
   let state = crate::test_support::test_state_with(cfg);
   let jwks = JwtConfig {

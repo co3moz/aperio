@@ -389,6 +389,7 @@ async fn an_outbound_policy_refusal_never_contacts_the_receiver() {
     crate::outbound::OutboundPolicy {
       allowlist: Vec::new(),
       block_private: true,
+      egress: Default::default(),
     },
   )
   .await;
