@@ -1,0 +1,18 @@
+apiVersion: v2
+name: aperio-server
+description: The Aperio tunnel server, with its SQLite store on a PersistentVolume
+type: application
+# The chart's own version. `appVersion` tracks the release it was written
+# against and is the default image tag.
+version: 0.1.0
+appVersion: "0.9.0"
+home: https://github.com/co3moz/aperio
+sources:
+  - https://github.com/co3moz/aperio
+keywords:
+  - tunnel
+  - ingress
+  - reverse-proxy
+maintainers:
+  - name: Aperio maintainers
+    url: https://github.com/co3moz/aperio

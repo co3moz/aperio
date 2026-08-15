@@ -1,0 +1,21 @@
+{{- /*
+  `values.config` rendered as the server's own yaml, unchanged.
+
+  A ConfigMap rather than a Secret: the master token is deliberately not in
+  here (it arrives as APERIO_SERVER_TOKEN from a Secret), and a config an
+  operator can read with `kubectl get cm -o yaml` is worth more than one they
+  have to base64-decode. Anything else secret belongs in `extraEnv`.
+
+  The checksum annotation on the pod is what makes `helm upgrade` restart the
+  server when this changes; without it the file changes under a process that
+  only reads it at startup.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "aperio-server.fullname" . }}
+  labels:
+    {{- include "aperio-server.labels" . | nindent 4 }}
+data:
+  aperio-server.yaml: |
+    {{- toYaml .Values.config | nindent 4 }}

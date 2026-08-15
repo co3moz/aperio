@@ -71,16 +71,6 @@ readable without scrolling past what is already done.
   is the open door for the operator with forty services, who is the only one
   who pays for the current design.
 
-- [ ] **#94 A Helm chart, and the Kubernetes story around it.** The largest
-  population of self-hosted deployments is on Kubernetes, and there is
-  currently no supported way in: a chart for the server (Deployment or
-  StatefulSet with a PVC for the SQLite store, Service, Ingress, a Secret for
-  the master token, and the probe endpoints from `#61` already wired), and a
-  chart or a sidecar pattern for the client. The chart's values file is the
-  interesting design: it has to map cleanly onto the yaml config surface
-  rather than inventing a second one, which is the trap every chart falls
-  into.
-
 - [ ] **#98 A scheduled soak run that reports the memory curve.** `tests/soak.js`
   exists and is run by hand, which means it is run when someone suspects
   something, which is after the fact. Weekly, against a stack the workflow
@@ -519,6 +509,35 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#94 A Helm chart, and the Kubernetes story around it.** The largest
+  population of self-hosted deployments is on Kubernetes, and there was no
+  supported way in. The chart's values file is the interesting design: it has
+  to map cleanly onto the yaml config surface rather than inventing a second
+  one, which is the trap every chart falls into.
+  shipped: `charts/aperio-server` (StatefulSet, PVC, Service, optional
+  Ingress, token Secret, `healthz`/`readyz` probes) and `docs/kubernetes.md`.
+  - **The trap is avoided by not translating anything**: `values.config` is
+    written out verbatim as `aperio-server.yaml`. The chart does not read it,
+    validate it or know what is in it, so a setting added to Aperio works here
+    on the day it ships. CI *proves* that rather than claiming it, by feeding
+    the rendered ConfigMap to `aperio-server --check-config`. Verified locally
+    with a config using `cache`, `alert`, `backup`, `retention` and
+    `trusted_proxies`: every block materialized into the right `APERIO_*`
+    variable and the check passed.
+  - A StatefulSet and one replica, with the reason written down where somebody
+    will look for it: SQLite on a ReadWriteOnce volume has one writer, and a
+    Deployment with a PVC hands the same volume to a new pod while the old one
+    may still hold it.
+  - **No client chart, and that is the answer rather than a gap.** A client's
+    job is to reach one workload, so it belongs in that workload's pod as a
+    sidecar, where `localhost` is the backend and nothing needs a Service or a
+    NetworkPolicy. Scaling the workload scales the tunnel. The documented
+    snippet is what a chart would have contained.
+  - Running the CI steps locally caught the obvious wrong tool: `kubectl apply
+    --dry-run=client` downloads the OpenAPI schema from an API server, so it
+    needs a cluster and there is none on a runner. `kubeconform` validates the
+    manifests offline.
 
 - [x] **#97 HTTP/2 conformance for the `h2://` path, with h2spec.** The same
   argument as `#96`, one layer down and smaller in scope, since the HTTP/2

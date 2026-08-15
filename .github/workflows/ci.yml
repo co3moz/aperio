@@ -280,6 +280,95 @@ jobs:
         run: npm run test:ci
 
   # ---------------------------------------------------------------------------
+  # The Helm chart (planned_features #94).
+  #
+  # Linting a chart proves it renders. What is worth proving here is the one
+  # claim the chart makes: that `values.config` is the *server's own*
+  # configuration and not a second vocabulary. So the rendered ConfigMap is
+  # fed to `aperio-server --check-config`, which is the same validator an
+  # operator would run against a hand-written file. A key that stops being
+  # accepted, or a block that stops being materialized, fails here rather than
+  # on somebody's cluster.
+  chart:
+    name: Helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Node.js (the server build embeds the dashboard)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Lint the chart
+        run: helm lint charts/aperio-server
+
+      # kubeconform rather than `kubectl apply --dry-run=client`, which is the
+      # obvious choice and the wrong one: it downloads the OpenAPI schema from
+      # an API server, so it needs a cluster, and there is none here. This
+      # validates against the published Kubernetes schemas offline.
+      - name: Install kubeconform
+        run: |
+          curl -sSfL -o /tmp/kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
+          tar -C /tmp -xzf /tmp/kubeconform.tar.gz kubeconform
+
+      - name: Render it, in the shapes people use
+        run: |
+          set -euo pipefail
+          helm template a charts/aperio-server > /tmp/default.yaml
+          helm template a charts/aperio-server \
+            --set masterToken=apr_test \
+            --set ingress.enabled=true \
+            --set persistence.existingClaim=aperio-data > /tmp/full.yaml
+          helm template a charts/aperio-server \
+            --set persistence.enabled=false > /tmp/ephemeral.yaml
+          for f in /tmp/default.yaml /tmp/full.yaml /tmp/ephemeral.yaml; do
+            test -s "$f"
+            # Valid Kubernetes objects, not just valid YAML.
+            /tmp/kubeconform -strict -summary "$f"
+          done
+
+      - name: Build the server
+        run: cargo build --locked -p aperio-server
+
+      # The claim under test: what the chart writes is a configuration the
+      # server accepts, blocks and all.
+      - name: The rendered config is a configuration the server accepts
+        run: |
+          set -euo pipefail
+          cat > /tmp/values.yaml <<'YAML'
+          config:
+            host: 0.0.0.0
+            port: 8080
+            log_level: info
+            trusted_proxies: ["10.0.0.0/8"]
+            cache: { enabled: true, max_bytes: 268435456 }
+            alert: { error_rate: 5 }
+            retention: { audit_days: 30 }
+            backup: { interval: 86400, dir: /var/lib/aperio/backups }
+          YAML
+          helm template a charts/aperio-server -f /tmp/values.yaml \
+            | python3 -c "
+          import sys, yaml
+          docs = [d for d in yaml.safe_load_all(sys.stdin) if d]
+          cm = [d for d in docs if d['kind'] == 'ConfigMap'][0]
+          open('/tmp/aperio-server.yaml', 'w').write(cm['data']['aperio-server.yaml'])
+          "
+          cat /tmp/aperio-server.yaml
+          APERIO_SERVER_TOKEN=apr_ci \
+          APERIO_SERVER_CONFIG=/tmp/aperio-server.yaml \
+          APERIO_DATA_DIR=/tmp/aperio-data \
+            ./target/debug/aperio-server --check-config
+
+  # ---------------------------------------------------------------------------
   # Client/server compatibility, N-1 in both directions (planned_features #89).
   #
   # A server is one box and its clients are a fleet, so the two sides are

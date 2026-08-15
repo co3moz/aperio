@@ -1,0 +1,140 @@
+{{- /*
+  A StatefulSet rather than a Deployment, because the store is the identity.
+
+  A Deployment with a PVC hands the same ReadWriteOnce volume to a new pod
+  while the old one may still hold it, and the rolling update deadlocks or,
+  worse, two servers briefly share a SQLite file. A StatefulSet's
+  `volumeClaimTemplates` bind a volume to an ordinal, and OnDelete/RollingUpdate
+  stops the old pod before starting the new one, which is what a single-writer
+  store needs.
+*/ -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "aperio-server.fullname" . }}
+  labels:
+    {{- include "aperio-server.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "aperio-server.fullname" . }}
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "aperio-server.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Restart on a config change: the server reads the file at startup.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "aperio-server.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "aperio-server.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      containers:
+        - name: aperio-server
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            - name: APERIO_SERVER_CONFIG
+              value: /etc/aperio/aperio-server.yaml
+            - name: APERIO_DATA_DIR
+              value: /var/lib/aperio
+            {{- if or .Values.existingSecret .Values.masterToken }}
+            - name: APERIO_SERVER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "aperio-server.tokenSecretName" . }}
+                  key: {{ .Values.tokenKey }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.config.port | default 8080 }}
+              protocol: TCP
+          {{- if .Values.probes.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /aperio/healthz
+              port: http
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+          {{- end }}
+          {{- if .Values.probes.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /aperio/readyz
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/aperio
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/aperio
+            # readOnlyRootFilesystem is on, and something has to be writable
+            # for temporary files.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "aperio-server.fullname" . }}
+        - name: tmp
+          emptyDir: {}
+        {{- if or (not .Values.persistence.enabled) .Values.persistence.existingClaim }}
+        - name: data
+          {{- if .Values.persistence.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim }}
+          {{- else }}
+          # No persistence: the store is lost with the pod, which loses every
+          # token, user and session. For a demo, never for a deployment.
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.accessModes | nindent 10 }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+  {{- end }}

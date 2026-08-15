@@ -1,0 +1,127 @@
+# The Aperio server's own configuration, verbatim.
+#
+# **This is the whole design decision of the chart.** Everything under
+# `config:` is written out as `aperio-server.yaml` and handed to the server as
+# `APERIO_SERVER_CONFIG`, unchanged and unvalidated by the templates. So the
+# reference is docs/configuration.md and the JSON Schema published with each
+# release, not a second vocabulary invented here, and a key added to Aperio
+# works in this chart on the day it ships without the chart being touched.
+#
+# The trap this avoids is the usual one: a chart that mirrors a subset of the
+# application's settings as its own values, which then drift, cover less every
+# release, and force an operator to learn two names for one thing.
+config:
+  host: 0.0.0.0
+  port: 8080
+  # The master token belongs in a Secret rather than here. Leave this out and
+  # set `masterToken` (or `existingSecret`) below; it is injected as
+  # APERIO_SERVER_TOKEN, which wins over the file.
+  #
+  # server:
+  #   token: ...
+
+# The master token. Written into a Secret created by this chart.
+#
+# Leave empty and set `existingSecret` instead when the token comes from an
+# external secret manager, which is the arrangement worth having: a token in
+# a values file is a token in whatever holds your values files.
+masterToken: ""
+# Name of a Secret that already exists, holding the token under `tokenKey`.
+existingSecret: ""
+tokenKey: token
+
+# Extra environment for the container, for values that come from elsewhere.
+# Every setting is reachable as an APERIO_* variable, so this is the escape
+# hatch for anything a Secret or a downward-API field has to supply.
+extraEnv: []
+#  - name: APERIO_OIDC_CLIENT_SECRET
+#    valueFrom:
+#      secretKeyRef: { name: aperio-oidc, key: client-secret }
+
+image:
+  repository: ghcr.io/co3moz/aperio-server
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# One replica, and that is not a placeholder.
+#
+# The store is SQLite on a ReadWriteOnce volume, and two servers sharing it
+# would corrupt it. Running more than one means running more than one
+# deployment, each with its own volume and its own hostnames, which is a
+# decision to make deliberately rather than by raising a number here.
+replicaCount: 1
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # Unset uses the cluster's default StorageClass.
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  # Reuse a volume that already exists instead of the claim template.
+  existingClaim: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+# Aperio does not terminate TLS; the ingress controller in front of it does.
+# See docs/edge-proxy.md.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: tunnel.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# The probes are the endpoints added for orchestrators: `healthz` is bodiless
+# and takes no locks, and `readyz` answers 503 from the moment a shutdown
+# signal arrives while the process is still serving, so the load balancer
+# stops routing here before the drain finishes what is in flight.
+probes:
+  liveness:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 10
+  readiness:
+    enabled: true
+    initialDelaySeconds: 2
+    periodSeconds: 5
+
+resources: {}
+#  limits: { cpu: 1, memory: 512Mi }
+#  requests: { cpu: 100m, memory: 128Mi }
+
+# A tunnel server holds one socket per connected client plus the visitor
+# connections in front of them, so it gets more time to drain than the default
+# 30 seconds. Pair it with `shutdown_drain` in `config:`.
+terminationGracePeriodSeconds: 60
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+podLabels: {}

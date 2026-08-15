@@ -1,0 +1,33 @@
+{{ include "aperio-server.fullname" . }} is installed.
+
+{{- if not (or .Values.masterToken .Values.existingSecret) }}
+
+  WARNING: no master token is configured, and the server refuses to start
+  without one. Set `masterToken`, or point `existingSecret` at a Secret you
+  manage:
+
+      helm upgrade {{ .Release.Name }} aperio/aperio-server \
+        --set existingSecret=aperio-token
+{{- end }}
+
+{{- if not .Values.persistence.enabled }}
+
+  WARNING: persistence is off, so the store lives and dies with the pod, and
+  with it every token, user and session. For a demo, never for a deployment.
+{{- end }}
+
+Reach it:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "aperio-server.fullname" . }} 8080:{{ .Values.service.port }}
+  open http://127.0.0.1:8080/aperio
+
+{{- if not .Values.ingress.enabled }}
+
+Aperio does not terminate TLS. Put an ingress controller in front of it
+(`ingress.enabled=true`) and let that hold the certificate.
+{{- end }}
+
+Point a client at it with the master token, or with a scoped token minted
+from the dashboard. The values under `config:` are the server's own
+configuration, documented at
+https://github.com/co3moz/aperio/blob/master/docs/configuration.md
