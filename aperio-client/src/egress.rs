@@ -48,13 +48,12 @@ pub(crate) use aperio_config::egress::EgressProxy;
 /// proxy-only network reports the server unreachable while the client it is
 /// meant to be diagnosing connects perfectly well.
 pub(crate) fn as_reqwest(proxy: &EgressProxy) -> Result<reqwest::Proxy, String> {
-  let built =
-    reqwest::Proxy::all(format!("http://{}:{}", proxy.host(), proxy.port())).map_err(|e| {
-      format!(
-        "the proxy {} cannot be used for HTTP: {e}",
-        proxy.redacted()
-      )
-    })?;
+  let built = reqwest::Proxy::all(proxy.url()).map_err(|e| {
+    format!(
+      "the proxy {} cannot be used for HTTP: {e}",
+      proxy.redacted()
+    )
+  })?;
   Ok(match proxy.credentials() {
     Some((user, password)) => built.basic_auth(user, password),
     None => built,
@@ -81,12 +80,41 @@ fn connect_request(proxy: &EgressProxy, host: &str, port: u16) -> Vec<u8> {
   req.into_bytes()
 }
 
-/// Turns an open socket to the proxy into a tunnel to `host:port`.
+/// Turns an open socket to the proxy into a tunnel, under a time budget.
+///
+/// **The budget is the whole reason this is a separate function.** The socket
+/// is open by the time it is called, so nothing above it is watching the
+/// clock: `dial`'s connect timeout has already been spent and its handshake
+/// timeout does not start until this returns. Without one, a proxy that
+/// accepts the connection and then says nothing leaves the dial blocked here
+/// forever, with no error for the reconnect loop to act on, which is the
+/// failure `HANDSHAKE_TIMEOUT` exists to prevent one layer down.
+///
+/// Handed in rather than a constant here, so the test for a silent proxy does
+/// not have to wait out the real one.
+pub(crate) async fn connect_through_within(
+  stream: TcpStream,
+  proxy: &EgressProxy,
+  host: &str,
+  port: u16,
+  budget: std::time::Duration,
+) -> Result<TcpStream, String> {
+  match tokio::time::timeout(budget, connect_through(stream, proxy, host, port)).await {
+    Ok(result) => result,
+    Err(_) => Err(format!(
+      "the proxy {} accepted the connection but did not answer CONNECT within {:?}",
+      proxy.redacted(),
+      budget
+    )),
+  }
+}
+
+/// The exchange itself, unbounded, wrapped by the function above.
 ///
 /// On success the stream is a transparent byte pipe and the caller runs the
 /// ordinary TLS and WebSocket handshakes over it, which is why this returns
 /// the same `TcpStream` it was given.
-pub(crate) async fn connect_through(
+async fn connect_through(
   mut stream: TcpStream,
   proxy: &EgressProxy,
   host: &str,

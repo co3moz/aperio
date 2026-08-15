@@ -115,6 +115,44 @@ fn a_status_line_is_read_out_of_the_response_head() {
 }
 
 #[tokio::test]
+async fn a_proxy_that_never_answers_is_given_up_on_rather_than_waited_on_forever() {
+  // The socket is open by the time CONNECT is sent, so nothing above this is
+  // watching the clock: the dial's connect timeout is already spent and its
+  // handshake timeout has not started. Without a budget here the reconnect
+  // loop gets no error to act on and the service stays down in silence, which
+  // is the failure HANDSHAKE_TIMEOUT exists to prevent one layer down.
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let addr = listener.local_addr().unwrap();
+  let held = tokio::spawn(async move {
+    let (sock, _) = listener.accept().await.unwrap();
+    // Accepted and kept, deliberately unanswered, for longer than the budget.
+    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+    drop(sock);
+  });
+
+  let sock = TcpStream::connect(addr).await.unwrap();
+  let proxy = EgressProxy::parse(&format!("{addr}")).unwrap();
+  let started = std::time::Instant::now();
+  let err = connect_through_within(
+    sock,
+    &proxy,
+    "tunnel.example.com",
+    443,
+    std::time::Duration::from_millis(300),
+  )
+  .await
+  .unwrap_err();
+
+  assert!(
+    started.elapsed() < std::time::Duration::from_secs(5),
+    "it gave up promptly"
+  );
+  assert!(err.contains("did not answer CONNECT"), "{err}");
+  assert!(err.contains(&format!("{addr}")), "{err}");
+  held.abort();
+}
+
+#[tokio::test]
 async fn a_proxy_that_accepts_and_then_says_nothing_is_reported() {
   let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
   let addr = listener.local_addr().unwrap();

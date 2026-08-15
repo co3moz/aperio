@@ -42,6 +42,13 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// handshake in well under this.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 
+/// How long the proxy's `CONNECT` exchange may take once its socket is open.
+///
+/// Shorter than the handshake budget because it is one request and one
+/// response over an established connection, with no TLS in it: a proxy that
+/// has not answered in this long is not going to.
+const CONNECT_EXCHANGE_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Which IP address family to dial the server over. `Auto` tries both
 /// (IPv4 first, interleaved); `V4`/`V6` restrict to that family, letting an
 /// operator dodge an unreachable family deterministically.
@@ -394,9 +401,14 @@ where
   // which is the point: TLS and the WebSocket handshake run end to end inside
   // the tunnel the proxy just opened.
   let stream = match proxy {
-    Some(proxy) => crate::egress::connect_through(stream, proxy, &host, port)
-      .await
-      .map_err(|e| Error::Io(std::io::Error::other(e)))?,
+    // Under the same budget as the handshake below, and for the same reason:
+    // the socket is open, so a proxy that accepts and then says nothing would
+    // otherwise block here with no error for the reconnect loop to act on.
+    Some(proxy) => {
+      crate::egress::connect_through_within(stream, proxy, &host, port, CONNECT_EXCHANGE_TIMEOUT)
+        .await
+        .map_err(|e| Error::Io(std::io::Error::other(e)))?
+    }
     None => stream,
   };
 

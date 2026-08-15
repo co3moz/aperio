@@ -57,6 +57,50 @@ fn the_values_that_cannot_work_are_refused_with_the_reason() {
 }
 
 #[test]
+fn the_url_brackets_an_ipv6_literal() {
+  // Unbracketed, `http://2001:db8::1:3128` is not a URL at all: it fails with
+  // InvalidPort. Both callers formatted this by hand and both got it wrong,
+  // and on the server the parse failure read as "do not proxy this request",
+  // so a configured proxy was skipped in silence.
+  let v6 = EgressProxy::parse("[2001:db8::1]:3128").unwrap();
+  assert_eq!(v6.url(), "http://[2001:db8::1]:3128");
+
+  let named = EgressProxy::parse("proxy.corp:3128").unwrap();
+  assert_eq!(named.url(), "http://proxy.corp:3128");
+  let v4 = EgressProxy::parse("10.0.0.9:8080").unwrap();
+  assert_eq!(v4.url(), "http://10.0.0.9:8080");
+
+  // The credential stays out of the URL, so it cannot be logged as part of a
+  // destination; it travels in a header the caller adds.
+  let with = EgressProxy::parse("alice:s3cret@proxy.corp:3128").unwrap();
+  assert_eq!(with.url(), "http://proxy.corp:3128");
+}
+
+#[test]
+fn a_port_with_no_host_is_refused() {
+  // It used to fall through to the no-port branch and become a *hostname* of
+  // ":3128" on port 80, which parses, starts, and fails somewhere else.
+  let err = EgressProxy::parse(":3128").unwrap_err();
+  assert!(err.contains("names a port but no host"), "{err}");
+  let err = EgressProxy::parse("http://:3128").unwrap_err();
+  assert!(err.contains("names a port but no host"), "{err}");
+}
+
+#[test]
+fn an_at_sign_with_no_credential_is_refused() {
+  // Left as a credential it is worse than ignored: `has_credentials` says
+  // yes, the startup line reports the proxy as authenticated, and an empty
+  // `Basic` goes on the wire, so a 407 is reported as a rejected password
+  // that was never written.
+  let err = EgressProxy::parse("@proxy.corp:3128").unwrap_err();
+  assert!(err.contains("no credential in front of it"), "{err}");
+
+  // A password-only credential is still a credential, and is not refused.
+  let only_password = EgressProxy::parse(":s3cret@proxy.corp:3128").unwrap();
+  assert_eq!(only_password.credentials(), Some(("", "s3cret")));
+}
+
+#[test]
 fn a_credential_is_hidden_even_when_the_value_fails_to_parse() {
   let err = EgressProxy::parse("http://alice:s3cret@proxy.corp:3128/path").unwrap_err();
   assert!(!err.contains("s3cret"), "{err}");

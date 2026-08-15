@@ -183,7 +183,7 @@ impl Egress {
     let Some(ref proxy) = self.proxy else {
       return builder;
     };
-    let url = format!("http://{}:{}", proxy.host(), proxy.port());
+    let url = proxy.url();
     let bypass = self.bypass.clone();
     let routed = reqwest::Proxy::custom(move |target| {
       match target.host_str() {

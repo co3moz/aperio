@@ -81,6 +81,17 @@ impl EgressProxy {
       return Err("egress proxy names no host".to_string());
     }
     let (host, port) = split_host_port(hostport)?;
+    // A `@` with nothing in front of it is a typo, not a credential. Left as
+    // one it would be worse than ignored: `has_credentials` would say yes, the
+    // startup line would report the proxy as authenticated, and an empty
+    // `Basic` would go on the wire, so a proxy's `407` would be reported as a
+    // rejected password the operator never wrote.
+    if credential.is_some_and(|c| c.is_empty()) {
+      return Err(format!(
+        "egress proxy '{}' has a '@' with no credential in front of it",
+        redact_raw(raw)
+      ));
+    }
     // The *first* colon splits them: a password may contain one, a user name
     // may not, which is what basic auth's own grammar says.
     let credentials = credential.map(|c| match c.split_once(':') {
@@ -122,6 +133,27 @@ impl EgressProxy {
   pub fn redacted(&self) -> &str {
     &self.redacted
   }
+
+  /// The proxy as a URL an HTTP client will accept.
+  ///
+  /// **Here rather than at the call sites, because of the bracket.** An IPv6
+  /// literal is stored unbracketed, and `http://2001:db8::1:3128` is not a
+  /// URL: it fails to parse with `InvalidPort`. Both callers formatted the
+  /// authority by hand and both got it wrong, and on the server the parse
+  /// failure turned into `None`, which reqwest reads as "do not proxy this
+  /// request", so a configured proxy was skipped with nothing said. One
+  /// method, so there is one place that knows about the bracket.
+  ///
+  /// The credential is deliberately *not* in the URL: it goes in a header the
+  /// caller adds, so it cannot be logged as part of a destination.
+  pub fn url(&self) -> String {
+    if self.host.contains(':') {
+      // Unbracketed colons mean an IPv6 literal; a hostname cannot contain one.
+      format!("http://[{}]:{}", self.host, self.port)
+    } else {
+      format!("http://{}:{}", self.host, self.port)
+    }
+  }
 }
 
 /// Splits `host:port`, including the `[v6]:port` form.
@@ -137,8 +169,14 @@ fn split_host_port(raw: &str) -> Result<(String, u16), String> {
   }
   match raw.rsplit_once(':') {
     Some((host, port)) if !host.is_empty() => Ok((host.to_string(), parse_port(port, raw)?)),
-    // No port is the scheme default, which is what every other tool does with
-    // the same string. Named in the docs, since a proxy on 80 is unusual.
+    // A colon with nothing before it names a port and forgets the host. It
+    // used to fall through to the branch below and become a *hostname* of
+    // ":3128", which parses, starts, and then fails somewhere else entirely.
+    // Startup is the one place a typo in this setting is still cheap.
+    Some(("", _)) => Err(format!("egress proxy '{raw}' names a port but no host")),
+    // No port at all is the scheme default, which is what every other tool
+    // does with the same string. Named in the docs, since a proxy on 80 is
+    // unusual and a missing port is more often an omission than a choice.
     _ => Ok((raw.to_string(), 80)),
   }
 }
