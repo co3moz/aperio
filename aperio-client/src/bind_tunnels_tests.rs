@@ -67,6 +67,7 @@ fn settings_with(
     denied: None,
     ip_family: crate::dial::IpFamily::Auto,
     tls_policy: crate::dial::TlsPolicy::default(),
+    egress_proxy: None,
     services: Vec::new(),
     client_id: None,
     tunnels: Vec::new(),

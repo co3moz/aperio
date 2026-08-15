@@ -11,6 +11,7 @@ mod check;
 mod config;
 mod dial;
 mod e2e;
+mod egress;
 mod flow;
 mod health_report;
 mod messages_http;
@@ -146,6 +147,21 @@ pub async fn run() {
   // a hot-reload cannot change it (mirrors other connection-level globals).
   dial::set_ip_family(settings.ip_family);
   dial::set_tls_policy(settings.tls_policy.clone());
+  if let Some(ref proxy) = settings.egress_proxy {
+    // Worth a line at startup: an operator debugging a connection needs to
+    // know the dial is not going where the config's `server:` says. Redacted,
+    // because the value may carry a credential.
+    info!(
+      "Dialing the tunnel server through the proxy {}{}",
+      proxy.redacted(),
+      if proxy.has_credentials() {
+        " (with a credential)"
+      } else {
+        ""
+      }
+    );
+  }
+  dial::set_egress_proxy(settings.egress_proxy.clone());
 
   // Admin API mode: perform one call, print the JSON answer, exit.
   if let CliMode::Api(ref command) = cli.mode {

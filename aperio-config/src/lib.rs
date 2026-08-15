@@ -1342,6 +1342,15 @@ pub struct FileConfig {
   /// address the host cannot reach (env: APERIO_IP_FAMILY). Default: `auto`.
   #[schemars(extend("examples" = ["auto", "ipv4"]))]
   pub ip_family: Option<String>,
+  /// HTTP proxy to dial the tunnel server through, for a network that allows
+  /// no direct outbound connection: `host:port`, or `http://host:port`, with
+  /// an optional `user:password@` in front. The client sends `CONNECT` and
+  /// then runs TLS inside the tunnel the proxy opens, so the proxy sees the
+  /// server's hostname and nothing else. Applies to the tunnel connection
+  /// only; requests to your own backend never go through it
+  /// (env: APERIO_EGRESS_PROXY). Unset: dial the server directly.
+  #[schemars(extend("examples" = ["proxy.corp:3128", "http://user:password@proxy.corp:3128"]))]
+  pub egress_proxy: Option<String>,
   /// Lowest TLS version offered when dialing the tunnel server over `wss://`:
   /// `1.2` or `1.3`. Unset leaves rustls' own set (1.2 and 1.3) in place,
   /// which is the right default; pin it when a policy has to name the floor

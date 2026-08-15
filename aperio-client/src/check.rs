@@ -26,10 +26,20 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
     println!("  FAIL  {label}: {detail}");
   };
 
-  let http = reqwest::Client::builder()
-    .timeout(Duration::from_secs(5))
-    .build()
-    .unwrap_or_default();
+  // Both probes below have to take the route the running client takes, or
+  // this command diagnoses a connection nobody makes. The WebSocket handshake
+  // goes through `dial`, so it needs the process-wide setting applied here as
+  // startup would; the health request is an ordinary HTTP call and carries
+  // the proxy itself.
+  crate::dial::set_egress_proxy(settings.egress_proxy.clone());
+  let mut http_builder = reqwest::Client::builder().timeout(Duration::from_secs(5));
+  if let Some(ref proxy) = settings.egress_proxy {
+    match proxy.as_reqwest() {
+      Ok(configured) => http_builder = http_builder.proxy(configured),
+      Err(e) => println!("  warn  egress proxy: {e}"),
+    }
+  }
+  let http = http_builder.build().unwrap_or_default();
 
   // --- 1. Configuration resolution ---------------------------------------
   let server = settings.server.clone();
@@ -57,6 +67,24 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
       "missing (--server-token / APERIO_SERVER_TOKEN / yaml: server.token)".to_string(),
       &mut failures,
     ),
+  }
+  // Named when set, because the two probes below then say something about a
+  // route the reader cannot otherwise see, and a "server unreachable" whose
+  // real subject is the proxy is the least useful answer this command gives.
+  // Host and port only: the value may carry a credential.
+  if let Some(ref proxy) = settings.egress_proxy {
+    pass(
+      "egress proxy",
+      format!(
+        "dialing through {}{}",
+        proxy.redacted(),
+        if proxy.has_credentials() {
+          " with a credential"
+        } else {
+          ""
+        }
+      ),
+    );
   }
   // Every visitor gate is checked here rather than at the moment a visitor
   // fails to get in: a method that does not exist, or a credential missing

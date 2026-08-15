@@ -79,6 +79,21 @@ fn ip_family() -> IpFamily {
   IP_FAMILY.get().copied().unwrap_or_default()
 }
 
+/// The egress proxy, resolved once from config at startup like the family
+/// above. A change takes effect on the next process start, not on a reload:
+/// the terms a connection was opened under do not change under it.
+static EGRESS_PROXY: OnceLock<Option<crate::egress::EgressProxy>> = OnceLock::new();
+
+/// Records the configured egress proxy. Idempotent; a second call is ignored.
+pub(crate) fn set_egress_proxy(proxy: Option<crate::egress::EgressProxy>) {
+  let _ = EGRESS_PROXY.set(proxy);
+}
+
+/// The proxy every tunnel dial goes through, if one was configured.
+fn egress_proxy() -> Option<&'static crate::egress::EgressProxy> {
+  EGRESS_PROXY.get().and_then(|p| p.as_ref())
+}
+
 /// The TLS floor, and optionally the exact cipher suites, the tunnel dial
 /// offers.
 ///
@@ -335,7 +350,17 @@ where
     _ => 443,
   });
 
-  let addrs = resolve_ordered(&host, port, ip_family()).await?;
+  // With a proxy, the addresses to try are the *proxy's*: the server's name
+  // is resolved by the proxy, on its own network, and never here. So
+  // `ip_family` and the address fallback below apply to the proxy hop, which
+  // is worth knowing when an operator sets `ip_family` to dodge an
+  // unreachable family and finds it applying somewhere else.
+  let proxy = egress_proxy();
+  let (dial_host, dial_port) = match proxy {
+    Some(proxy) => (proxy.host.clone(), proxy.port),
+    None => (host.clone(), port),
+  };
+  let addrs = resolve_ordered(&dial_host, dial_port, ip_family()).await?;
 
   let mut last_err: Option<std::io::Error> = None;
   let mut stream = None;
@@ -359,10 +384,21 @@ where
     Error::Io(last_err.unwrap_or_else(|| {
       std::io::Error::new(
         std::io::ErrorKind::NotFound,
-        format!("no reachable address for {host}:{port}"),
+        format!("no reachable address for {dial_host}:{dial_port}"),
       )
     }))
   })?;
+
+  // The socket reaches the proxy; `CONNECT` turns it into one that reaches the
+  // server. Everything below this line is unchanged by the proxy's presence,
+  // which is the point: TLS and the WebSocket handshake run end to end inside
+  // the tunnel the proxy just opened.
+  let stream = match proxy {
+    Some(proxy) => crate::egress::connect_through(stream, proxy, &host, port)
+      .await
+      .map_err(|e| Error::Io(std::io::Error::other(e)))?,
+    None => stream,
+  };
 
   // The tunnel carries request/response messages, not a bulk stream: every
   // write is a message somebody is waiting on the other side of. Nagle would

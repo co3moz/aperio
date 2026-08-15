@@ -192,6 +192,15 @@ pub(crate) struct CommonOpts {
   /// (yaml: ip_family, env: APERIO_IP_FAMILY)
   #[arg(long = "ip-family", global = true, value_name = "auto|ipv4|ipv6")]
   pub(crate) ip_family: Option<String>,
+  /// HTTP proxy to dial the tunnel server through, on a network with no
+  /// direct outbound connection. Tunnel only; your backend is never reached
+  /// through it (yaml: egress_proxy, env: APERIO_EGRESS_PROXY)
+  #[arg(
+    long = "egress-proxy",
+    global = true,
+    value_name = "[user:password@]host:port"
+  )]
+  pub(crate) egress_proxy: Option<String>,
   /// Config file path (default: ./aperio.yaml)
   #[arg(long, global = true, value_name = "FILE")]
   pub(crate) config: Option<String>,
@@ -697,6 +706,9 @@ pub(crate) struct ClientSettings {
   /// TLS floor and cipher suites for the tunnel dial. Process-wide like
   /// `ip_family`, and applied at startup via `dial::set_tls_policy`.
   pub(crate) tls_policy: crate::dial::TlsPolicy,
+  /// Proxy the tunnel dial goes through, if the network needs one.
+  /// Process-wide like the two above, applied via `dial::set_egress_proxy`.
+  pub(crate) egress_proxy: Option<crate::egress::EgressProxy>,
   /// `services:` entries from the local config file (empty = single-service
   /// mode driven by `target`). Per-entry gaps fall back to the resolved
   /// top-level values above.
@@ -1484,6 +1496,22 @@ pub(crate) fn resolve_settings(
       )
       .as_deref(),
     )?,
+    // Refused rather than defaulted, on the same reasoning as the TLS floor
+    // above: a client told to go through a proxy is on a network where going
+    // direct does not work, so quietly ignoring a value it could not read
+    // would produce a connection failure whose cause is a typo three layers
+    // away.
+    egress_proxy: match layered(
+      o.egress_proxy.clone(),
+      local.egress_proxy.clone(),
+      env_str("APERIO_EGRESS_PROXY"),
+      home.egress_proxy.clone(),
+    )
+    .and_then(nonempty)
+    {
+      Some(raw) => Some(crate::egress::EgressProxy::parse(&raw)?),
+      None => None,
+    },
     // The three list/map sections layer like every other key: a local file
     // that declares one replaces the home file's, and a home file alone is
     // used as written. They used to be read from the local file only, so a

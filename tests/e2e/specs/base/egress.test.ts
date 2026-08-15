@@ -5,6 +5,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BaseServerFor, BaseBackendFor, BaseClientFor, HOST } from './fixtures.js'
+import { AperioClientBase } from '../../lib/client.js'
 import { SERVER_BIN, freePort } from '../../lib/env.js'
 
 /**
@@ -153,5 +154,192 @@ export class ProxyEnvironmentSpec extends Test({
       const res = await this.server._fetch(path, { headers: { host: HOST } })
       assert.equal(res.status, 200, `${path} was served from the backend`)
     }
+  }
+}
+
+/**
+ * The other direction, and the feature the file is named for: reaching the
+ * tunnel server *through* a proxy, on a network that allows no direct
+ * outbound connection (`planned_features.md` #117).
+ *
+ * Proved against a real proxy rather than a mock of one. It is thirty lines:
+ * accept, read the `CONNECT` line, open the upstream socket, answer `200`,
+ * then pipe bytes both ways. That last part is the whole contract the client
+ * depends on, and it is why TLS still runs end to end inside it.
+ */
+function ConnectProxyFor(opts: { require?: string; refuseWith?: number } = {}) {
+  return class extends Test({ timeout: 30_000 }) {
+    _port = 0
+    /** The request lines seen, so a test can assert a CONNECT happened. */
+    _seen: string[] = []
+    _server?: import('node:net').Server
+    /** Live sockets, so cleanUp can end a piped tunnel that would otherwise
+     *  keep the listener open for the rest of the run. */
+    _open: import('node:net').Socket[] = []
+
+    async hookListen() {
+      const net = await import('node:net')
+      this._server = net.createServer((client) => {
+        this._open.push(client)
+        client.on('error', () => {})
+        client.once('data', (chunk: Buffer) => {
+          const head = chunk.toString()
+          this._seen.push(head.split('\r\n')[0] ?? '')
+
+          if (opts.require) {
+            const want = 'Basic ' + Buffer.from(opts.require).toString('base64')
+            if (/Proxy-Authorization: ([^\r\n]+)/i.exec(head)?.[1] !== want) {
+              client.end('HTTP/1.1 407 Proxy Authentication Required\r\n\r\n')
+              return
+            }
+          }
+          if (opts.refuseWith) {
+            client.end(`HTTP/1.1 ${opts.refuseWith} Refused\r\n\r\n`)
+            return
+          }
+
+          const [host, port] = (this._seen[this._seen.length - 1]?.split(' ')[1] ?? '').split(':')
+          const upstream = net.connect(Number(port), host, () => {
+            this._open.push(upstream)
+            client.write('HTTP/1.1 200 Connection established\r\n\r\n')
+            client.pipe(upstream)
+            upstream.pipe(client)
+          })
+          upstream.on('error', () => client.destroy())
+        })
+      })
+      await new Promise<void>((r) => this._server!.listen(0, '127.0.0.1', () => r()))
+      this._port = (this._server!.address() as { port: number }).port
+    }
+
+    async cleanUp() {
+      const server = this._server
+      this._server = undefined
+      for (const sock of this._open.splice(0)) sock.destroy()
+      if (!server) return
+      await new Promise<void>((r) => server.close(() => r()))
+    }
+  }
+}
+
+class OpenProxy extends ConnectProxyFor() {}
+class AuthProxy extends ConnectProxyFor({ require: 'alice:s3cret' }) {}
+class RefusingProxy extends ConnectProxyFor({ refuseWith: 403 }) {}
+
+/** A client whose only route to the server is the proxy it is handed. */
+function ClientThrough(proxy: () => new () => { _port: number }, value: (port: number) => string) {
+  return class extends AperioClientBase({
+    dependencies: {
+      server: () => EgressServer,
+      backend: () => EgressBackend,
+      proxy,
+    },
+  }) {
+    declare readonly server: EgressServer
+    declare readonly backend: EgressBackend
+    declare readonly proxy: { _port: number }
+
+    _serverUrl() {
+      return this.server._url
+    }
+    _serverToken() {
+      return this.server._token
+    }
+    _backendUrl() {
+      return this.backend._url
+    }
+    _hostname(): string | null {
+      return HOST
+    }
+    _readyPath() {
+      return '/hello'
+    }
+    _env() {
+      return {
+        APERIO_HOSTNAME: HOST,
+        APERIO_EGRESS_PROXY: value(this.proxy._port),
+      }
+    }
+  }
+}
+
+class ProxiedClient extends ClientThrough(() => OpenProxy, (p) => `127.0.0.1:${p}`) {}
+class AuthProxiedClient extends ClientThrough(
+  () => AuthProxy,
+  (p) => `alice:s3cret@127.0.0.1:${p}`,
+) {}
+/** Never comes up: the proxy refuses. Started by the test, not by the harness.
+ *
+ *  `_hostname()` is null on purpose, so `_start` does not spend the routable
+ *  budget waiting for a route that cannot arrive. What is being tested is the
+ *  message, and waiting twenty seconds to read it would put the whole phase's
+ *  duration in the hands of a timeout. */
+class RefusedClient extends ClientThrough(() => RefusingProxy, (p) => `127.0.0.1:${p}`) {
+  _autoStart() {
+    return false
+  }
+  _hostname() {
+    return null
+  }
+}
+
+export class EgressProxySpec extends Test({
+  timeout: 90_000,
+  dependencies: {
+    server: () => EgressServer,
+    proxy: () => OpenProxy,
+    client: () => ProxiedClient,
+  },
+}) {
+  async aVisitorIsServedThroughTheTunnelTheProxyOpened() {
+    // The whole path, not a log line: the tunnel is only up if a visitor's
+    // request comes back from the backend at the other end of it.
+    const res = await this.server._fetch('/hello', { headers: { host: HOST } })
+    assert.equal(res.status, 200)
+    assert.ok(
+      this.proxy._seen.some((l) => l.startsWith('CONNECT ')),
+      `the proxy saw no CONNECT: ${JSON.stringify(this.proxy._seen)}`,
+    )
+  }
+
+  async theProxyIsToldWhereToConnectAndNothingMore() {
+    const line = this.proxy._seen.find((l) => l.startsWith('CONNECT ')) ?? ''
+    // Host and port, so TLS is still ours: a proxy asked for a path would be
+    // one reading the traffic.
+    assert.match(line, /^CONNECT [^ ]+:\d+ HTTP\/1\.1$/, line)
+  }
+}
+
+export class AuthenticatedEgressProxySpec extends Test({
+  timeout: 90_000,
+  dependencies: {
+    server: () => EgressServer,
+    client: () => AuthProxiedClient,
+  },
+}) {
+  async aCredentialedProxyAdmitsTheTunnel() {
+    const res = await this.server._fetch('/hello', { headers: { host: HOST } })
+    assert.equal(res.status, 200, 'the proxy accepted the credential and opened the tunnel')
+  }
+
+  async theCredentialNeverReachesTheLog() {
+    assert.match(this.client._log(), /through the proxy 127\.0\.0\.1:\d+/, this.client._log())
+    assert.doesNotMatch(this.client._log(), /s3cret/, 'the credential reached the log')
+  }
+}
+
+export class RefusedEgressProxySpec extends Test({
+  timeout: 90_000,
+  dependencies: { client: () => RefusedClient },
+}) {
+  async aRefusedConnectNamesTheProxyAndTheStatus() {
+    // The failure an operator must never get is a dial that fails three
+    // layers from the cause, so this asserts the cause is in the message.
+    await this.client._start().catch(() => {})
+    await this.client._waitForLog('403', 30_000).catch(() => {})
+    const log = this.client._log()
+    assert.match(log, /403/, log)
+    assert.match(log, /127\.0\.0\.1:\d+/, log)
+    await this.client._kill()
   }
 }
