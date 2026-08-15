@@ -925,7 +925,37 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
       allowlist,
       block_private,
     };
+    // A proxy in the environment and this policy cannot both be in force.
+    // The policy decides by resolving the destination here; a proxy means the
+    // name is resolved somewhere else and connected to from there, so what was
+    // vetted is not what is reached. Refusing is the same answer the mechanism
+    // gives to a configuration whose security-relevant meaning changed: an
+    // operator who set `APERIO_OUTBOUND_BLOCK_PRIVATE` believes something is
+    // gated, and running on while it is not is the one outcome worth an
+    // outage. Only a server that has both is stopped, so a deployment with a
+    // proxy and no policy, or a policy and no proxy, is untouched.
     if policy.restricted() {
+      let proxies = crate::outbound::proxy_env_vars();
+      if !proxies.is_empty() {
+        error!(
+          "Refusing to start: the outbound callback policy \
+           (APERIO_OUTBOUND_ALLOWLIST / APERIO_OUTBOUND_BLOCK_PRIVATE) cannot be \
+           enforced while {} set in the environment. The policy resolves a \
+           destination here and checks the addresses it maps to, but a proxy \
+           resolves the name itself and connects on our behalf, so a hostname \
+           pointing at an internal address would be refused by the check and \
+           reached anyway. Unset {} to keep the policy, or unset the policy if \
+           the proxy is what you need; see planned_features.md #118 for making \
+           the two work together.",
+          if proxies.len() == 1 {
+            format!("{} is", proxies[0])
+          } else {
+            format!("{} are", proxies.join(", "))
+          },
+          proxies.join(", ")
+        );
+        return None;
+      }
       info!(
         "Outbound callback policy active: {} allowlist entr{}, block_private={}",
         policy.allowlist.len(),

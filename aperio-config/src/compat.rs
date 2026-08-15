@@ -197,6 +197,46 @@ pub struct ConfigChange {
 /// recorded here in the same commit that makes it (see CLAUDE.md).
 pub const CONFIG_CHANGES: &[ConfigChange] = &[
   ConfigChange {
+    // Guessed for the same reason as the entries below, and corrected by rule
+    // 19's release audit.
+    version: "0.10.0",
+    surface: ConfigSurface::Server,
+    // Neither key changed meaning, and on a server with no proxy in its
+    // environment nothing about this file behaves differently. What changed is
+    // that one combination is now refused instead of accepted: this policy
+    // decides by resolving the destination here and looking at the addresses,
+    // and a proxy resolves the name on its own network and connects for us, so
+    // the addresses that were vetted are not the ones reached. The half of the
+    // policy that reads the URL as text still worked, which is what made the
+    // other half's silence hard to see.
+    //
+    // `Breaking` rather than `Security`, on the same reasoning as the entries
+    // below: `Security` is for a file left exposed *by upgrading*, and refuses
+    // every start in the range until acknowledged. Here upgrading is what
+    // closes the exposure and names it at startup, precisely, only on the
+    // machines that have both. A second refusal aimed at everyone who ever
+    // wrote these keys would hit mostly people who never had a proxy.
+    //
+    // `WhenSet`: a file that configures no outbound policy cannot be affected.
+    severity: ChangeSeverity::Breaking,
+    applies: Applies::WhenSet,
+    fields: &[
+      "outbound",
+      "outbound.allowlist",
+      "outbound.block_private",
+      "outbound_allowlist",
+      "outbound_block_private",
+    ],
+    summary: "an outbound callback policy and a proxy in the environment are refused together, \
+              because the policy cannot govern a connection the proxy makes",
+    action: "if the server stops starting after the upgrade and the log names HTTP_PROXY, \
+             HTTPS_PROXY or ALL_PROXY, decide which of the two you meant. Unset the proxy \
+             variable to keep the policy enforced, or drop the policy if the proxy is how this \
+             server reaches its receivers. Until now the private-address block and any CIDR \
+             entries were deciding nothing on that machine, which is what the refusal is \
+             telling you.",
+  },
+  ConfigChange {
     // Guessed for the reason the entry below says, and corrected by rule 19's
     // release audit.
     version: "0.10.0",

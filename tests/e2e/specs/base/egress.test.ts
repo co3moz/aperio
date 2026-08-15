@@ -1,6 +1,11 @@
 import { Test } from 'nole'
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { BaseServerFor, BaseBackendFor, BaseClientFor, HOST } from './fixtures.js'
+import { SERVER_BIN, freePort } from '../../lib/env.js'
 
 /**
  * What this file pins down: the environment of a machine inside a company
@@ -41,6 +46,89 @@ class ProxiedEnvClient extends BaseClientFor(
       http_proxy: BLACK_HOLE,
       https_proxy: BLACK_HOLE,
     }
+  }
+}
+
+/**
+ * Starts a server and waits for it to exit on its own.
+ *
+ * Bounded rather than open-ended, because the regression this guards against
+ * is a server that *does not* refuse: through a helper that waits for exit,
+ * that would hang until the phase timed out instead of failing. Here it is
+ * killed and reported as "kept running", which says what went wrong.
+ */
+async function startAndAwaitExit(
+  env: Record<string, string>,
+  budgetMs = 15_000,
+): Promise<{ exited: boolean; code: number | null; out: string }> {
+  const dir = await mkdtemp(join(tmpdir(), 'aperio-e2e-egress-'))
+  const proc = spawn(SERVER_BIN, [], {
+    env: {
+      ...process.env,
+      APERIO_DATA_DIR: dir,
+      // The bare name, as the standard has it for host/port/log_level.
+      PORT: String(await freePort()),
+      APERIO_SERVER_TOKEN: 'e2e-egress-token-long-enough',
+      ...env,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let out = ''
+  proc.stdout?.on('data', (c: Buffer) => (out += c.toString()))
+  proc.stderr?.on('data', (c: Buffer) => (out += c.toString()))
+
+  const code = await new Promise<number | null>((resolve) => {
+    const timer = setTimeout(() => resolve(null), budgetMs)
+    proc.once('exit', (c) => {
+      clearTimeout(timer)
+      resolve(c)
+    })
+  })
+  if (code === null) proc.kill('SIGKILL')
+  return { exited: code !== null, code, out }
+}
+
+export class OutboundPolicyUnderAProxySpec extends Test({ timeout: 90_000 }) {
+  async theServerRefusesToRunAPolicyItCannotEnforce() {
+    const res = await startAndAwaitExit({
+      APERIO_OUTBOUND_BLOCK_PRIVATE: '1',
+      HTTPS_PROXY: 'http://proxy.invalid:3128',
+    })
+    assert.ok(res.exited, `the server kept running instead of refusing:\n${res.out}`)
+    assert.match(res.out, /Refusing to start/, res.out)
+    // Named, both sides of it: a refusal that does not say which variable and
+    // which setting leaves an operator guessing at their own environment.
+    assert.match(res.out, /HTTPS_PROXY/, res.out)
+    assert.match(res.out, /APERIO_OUTBOUND_BLOCK_PRIVATE/, res.out)
+  }
+
+  async everySpellingOfTheVariableIsNoticed() {
+    for (const name of ['HTTP_PROXY', 'http_proxy', 'ALL_PROXY']) {
+      const res = await startAndAwaitExit({
+        APERIO_OUTBOUND_ALLOWLIST: 'hooks.example.com',
+        [name]: 'http://proxy.invalid:3128',
+      })
+      assert.ok(res.exited, `${name} did not stop the start:\n${res.out}`)
+      assert.match(res.out, new RegExp(`Refusing to start[^]*${name}`), `${name}: ${res.out}`)
+    }
+  }
+
+  async aProxyWithoutAPolicyIsNotTheServersBusiness() {
+    // The other half of the guard, and the one that keeps it from being an
+    // outage generator: the overwhelming majority of servers with a proxy set
+    // have no outbound policy at all, and must start exactly as before.
+    const res = await startAndAwaitExit(
+      { HTTPS_PROXY: 'http://proxy.invalid:3128' },
+      6_000,
+    )
+    assert.equal(res.exited, false, `the server refused a proxy alone:\n${res.out}`)
+    assert.doesNotMatch(res.out, /Refusing to start/, res.out)
+  }
+
+  async aPolicyWithoutAProxyStillComesUp() {
+    const res = await startAndAwaitExit({ APERIO_OUTBOUND_BLOCK_PRIVATE: '1' }, 6_000)
+    assert.equal(res.exited, false, `the policy alone stopped the start:\n${res.out}`)
+    assert.match(res.out, /Outbound callback policy active/, res.out)
   }
 }
 

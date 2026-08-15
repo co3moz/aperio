@@ -139,6 +139,50 @@ fn a_bad_cidr_fails_the_whole_parse() {
   assert!(parse_patterns("10.0.0.0/8/extra").is_err());
 }
 
+#[test]
+fn every_spelling_of_a_proxy_variable_is_noticed() {
+  // Both cases of all three names, because whichever is found first is the
+  // one that decides, so any of them is a proxy.
+  for name in [
+    "HTTP_PROXY",
+    "http_proxy",
+    "HTTPS_PROXY",
+    "https_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+  ] {
+    let found = proxy_vars_from(|n| (n == name).then(|| "http://proxy.corp:3128".to_string()));
+    assert_eq!(found, vec![name], "{name} was not noticed");
+  }
+}
+
+#[test]
+fn an_empty_or_absent_proxy_variable_is_not_a_proxy() {
+  assert!(proxy_vars_from(|_| None).is_empty(), "nothing set");
+  // Set-but-empty is how a wrapper script clears one, and it proxies nothing.
+  assert!(
+    proxy_vars_from(|_| Some(String::new())).is_empty(),
+    "empty value"
+  );
+  assert!(
+    proxy_vars_from(|_| Some("   ".to_string())).is_empty(),
+    "whitespace value"
+  );
+}
+
+#[test]
+fn no_proxy_is_not_treated_as_an_escape() {
+  // Measured, not assumed: with `NO_PROXY=*` set, a request to a loopback
+  // address still went to the proxy. So a `NO_PROXY` of any shape leaves the
+  // conflict standing, and the policy must still refuse to start.
+  let found = proxy_vars_from(|n| match n {
+    "HTTPS_PROXY" => Some("http://proxy.corp:3128".to_string()),
+    "NO_PROXY" => Some("*".to_string()),
+    _ => None,
+  });
+  assert_eq!(found, vec!["HTTPS_PROXY"]);
+}
+
 #[tokio::test]
 async fn a_url_without_a_host_is_refused_by_a_restricted_policy() {
   let policy = OutboundPolicy {

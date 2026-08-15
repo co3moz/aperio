@@ -71,6 +71,58 @@ pub(crate) fn parse_patterns(raw: &str) -> Result<Vec<OutboundPattern>, String> 
   Ok(out)
 }
 
+/// The environment variables an HTTP client reads before it connects.
+///
+/// Both spellings of each, because that is how they are read: whichever is
+/// found first decides, so finding either one is finding a proxy.
+const PROXY_ENV_VARS: [&str; 6] = [
+  "HTTP_PROXY",
+  "http_proxy",
+  "HTTPS_PROXY",
+  "https_proxy",
+  "ALL_PROXY",
+  "all_proxy",
+];
+
+/// Proxy variables set in this process's environment.
+///
+/// **Why the policy has to care.** This policy works by resolving the
+/// destination's name here and inspecting the addresses it maps to, which is
+/// the only reason it can refuse a hostname that points at `127.0.0.1` or the
+/// metadata service. A proxy takes that apart: the client stops resolving the
+/// name at all and hands it to the proxy, which resolves it on its own network
+/// and connects for us. The address this policy vetted is then not the address
+/// anything connects to, and the two halves that depend on resolution, the
+/// private-address block and CIDR allowlist entries, decide nothing. The
+/// halves that read the URL as text, a literal IP and a hostname pattern, are
+/// unaffected, which is what makes the failure quiet: the policy still refuses
+/// things, just not the ones it exists for.
+///
+/// `NO_PROXY` is deliberately not consulted as an escape. It is measured
+/// behaviour, not caution: a request to a loopback address with `NO_PROXY=*`
+/// set still went to the proxy, so treating that variable as "the proxy is off"
+/// would reopen the hole for exactly the operator who thought they had closed
+/// it.
+pub(crate) fn proxy_env_vars() -> Vec<&'static str> {
+  proxy_vars_from(|name| std::env::var(name).ok())
+}
+
+/// The same question asked of any environment.
+///
+/// Split out so the rule can be tested without writing to this process's own
+/// environment: that is global to every test sharing the binary, and a test
+/// that sets `HTTP_PROXY` would be deciding what an unrelated one sees.
+fn proxy_vars_from(lookup: impl Fn(&str) -> Option<String>) -> Vec<&'static str> {
+  PROXY_ENV_VARS
+    .into_iter()
+    .filter(|name| {
+      lookup(name)
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+    })
+    .collect()
+}
+
 /// The effective outbound policy, snapshotted into the server config at
 /// startup. Default: no restriction (today's behaviour).
 #[derive(Clone, Debug, Default)]
