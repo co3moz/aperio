@@ -220,14 +220,27 @@ const QUERY_TOKEN_COOKIE_SECS: u64 = 3600;
 /// in a URL is turned into a cookie once and never travels again: not in the
 /// access log, not in `Referer`, not in browser history, and not on each of
 /// the page's own assets.
-pub(crate) fn grant_cookie_and_redirect(state: &AppState, host: &str, clean_url: &str) -> Response {
+/// `scope` is the path bind of the route whose policy admitted the secret, and
+/// it is not optional decoration. A share cookie is read by *every* branch of
+/// the visitor gate, including the server's own, so a cookie minted from a
+/// route-scoped `bearer` secret and left host-wide would open the whole
+/// hostname: routes gated by another client's `basic`, by a `forward`
+/// endpoint, by OIDC, or by the operator's own password. The secret is a key
+/// to one route; what is minted from it may not be a key to more. `None` here
+/// means the route really is the whole host (a pool with no path bind).
+pub(crate) fn grant_cookie_and_redirect(
+  state: &AppState,
+  host: &str,
+  scope: Option<String>,
+  clean_url: &str,
+) -> Response {
   let now = std::time::SystemTime::now()
     .duration_since(std::time::UNIX_EPOCH)
     .unwrap_or_default()
     .as_secs();
   let claims = ShareClaims {
     host: host.to_string(),
-    path: None,
+    path: scope,
     exp: Some(now + QUERY_TOKEN_COOKIE_SECS),
     id: uuid::Uuid::new_v4().to_string(),
   };
@@ -244,7 +257,11 @@ pub(crate) fn grant_cookie_and_redirect(state: &AppState, host: &str, clean_url:
   info!("Query token accepted for {host}, redirected to a clean address");
   Response::builder()
     .status(StatusCode::FOUND)
-    .header("Location", clean_url)
+    // Through the same filter the login redirect uses. The clean address is
+    // built from the visitor's own path, and `//evil.example/` is a path that
+    // a browser reads as another origin, so without this the redirect is the
+    // attacker's to choose.
+    .header("Location", crate::auth::safe_redirect_path(clean_url))
     .header("Set-Cookie", cookie)
     .body(Body::empty())
     .unwrap()

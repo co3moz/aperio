@@ -592,9 +592,15 @@ async fn apply_request_methods(
       // log, the `Referer` of every outbound link and the browser's history
       // has no secret in it. What a share link does on its first click, and
       // it reuses that cookie rather than inventing a second one.
+      //
+      // Scoped to the route whose policy just admitted the secret. The cookie
+      // is read by every branch of the gate, so a host-wide one minted from a
+      // per-route secret would open routes that secret was never a key to.
+      let scope = crate::routing::route_path_bind(state, uri.path(), Some(host)).await;
       return Some(VisitorGate::Deny(crate::share::grant_cookie_and_redirect(
         state,
         host,
+        scope,
         &uri_without_token(uri),
       )));
     }

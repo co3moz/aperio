@@ -1215,6 +1215,87 @@ async fn visitor_gate_traversal_sees_a_policy_the_scalar_cannot_hold() {
 }
 
 #[tokio::test]
+async fn a_query_token_cookie_is_scoped_to_the_route_that_admitted_it() {
+  // The cookie a `?aperio_token=` page load mints is read by *every* branch of
+  // the gate, including the server's own. Minted host-wide from a per-route
+  // secret it outranked the policy that produced it: the holder of a secret
+  // for `/metrics` got the whole hostname for an hour, including routes gated
+  // by the operator's own password.
+  let mut cfg = test_config();
+  // The server's own gate covers everything this client does not.
+  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("admin:server-password");
+  let state = Arc::new(test_state_with(cfg));
+
+  let setting = serde_yaml::from_str::<aperio_config::AuthSetting>(
+    "{method: bearer, secret: a-long-route-secret, query: true}",
+  )
+  .expect("a valid auth: value");
+  let mut c = mock_client(Some("app.e2e.local"), Some("/metrics"), None, None);
+  c.visitor_auth_policy = Some(crate::visitor_auth::Policy::compile(&setting));
+  state.clients.write().await.insert("c1".to_string(), c);
+
+  let mut headers = HeaderMap::new();
+  headers.insert("host", "app.e2e.local".parse().unwrap());
+  headers.insert("accept", "text/html".parse().unwrap());
+  let uri: axum::http::Uri = "/metrics?aperio_token=a-long-route-secret".parse().unwrap();
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &headers,
+    &uri,
+    Some("app.e2e.local"),
+  )
+  .await;
+
+  // A navigation carrying the secret is redirected, with the cookie set.
+  let VisitorGate::Deny(resp) = gate else {
+    panic!("a navigation with the secret should be redirected to a clean address");
+  };
+  let cookie = resp
+    .headers()
+    .get("set-cookie")
+    .and_then(|v| v.to_str().ok())
+    .expect("a share cookie")
+    .to_string();
+  let token = cookie
+    .split(';')
+    .next()
+    .and_then(|kv| kv.split_once('='))
+    .map(|(_, v)| v.to_string())
+    .expect("a cookie value");
+
+  // The scope it carries is the route's bind, not the whole host.
+  let claims = crate::share::verify_share_token(
+    &token,
+    &crate::share::share_signing_key(&state.config().token),
+  )
+  .expect("a valid share token");
+  assert_eq!(
+    claims.path.as_deref(),
+    Some("/metrics"),
+    "the cookie must not outrank the secret that minted it"
+  );
+
+  // And it does not open the route the server's own password gates.
+  let mut with_cookie = HeaderMap::new();
+  with_cookie.insert("host", "app.e2e.local".parse().unwrap());
+  with_cookie.insert("cookie", format!("aperio_share={token}").parse().unwrap());
+  let elsewhere: axum::http::Uri = "/".parse().unwrap();
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &with_cookie,
+    &elsewhere,
+    Some("app.e2e.local"),
+  )
+  .await;
+  assert!(
+    matches!(gate, VisitorGate::Deny(_)),
+    "a cookie minted for /metrics must not open /"
+  );
+}
+
+#[tokio::test]
 async fn visitor_gate_traversal_honors_the_closed_posture() {
   // `deny` is checked in section 2, and a traversal path returns before it,
   // so a `.` in the path was the one way to switch the posture off.

@@ -750,6 +750,39 @@ pub(crate) async fn route_visitor_policy(
   policy.cloned()
 }
 
+/// The path bind of the pool that serves `uri_path`, when it has one.
+///
+/// **The scope a route's own gate speaks for.** A credential resolved by
+/// [`route_visitor_policy`] belongs to the pool that matched, and that pool
+/// covers its bind and everything under it, not the hostname: `/metrics` and
+/// `/` on one host are two routes with two gates. Anything minted from such a
+/// credential has to carry this, or it outranks the policy that produced it.
+///
+/// `None` means the pool binds no path, so it does serve the whole host and a
+/// host-wide scope is the honest answer.
+pub(crate) async fn route_path_bind(
+  state: &AppState,
+  uri_path: &str,
+  request_host: Option<&str>,
+) -> Option<String> {
+  if request_path_has_traversal(uri_path) {
+    return None;
+  }
+  let clients = state.clients.read().await;
+  let (pool, _) = select_client_pool(
+    &clients,
+    uri_path,
+    request_host,
+    state.config().require_hostname_bind,
+    state.config().client_down_threshold,
+  )?;
+  // Every client in a pool shares the bind, that is what pools them.
+  pool
+    .first()
+    .and_then(|id| clients.get(id))
+    .and_then(|c| c.effective_path_bind().cloned())
+}
+
 /// True when any connected client that could serve this host declares a
 /// visitor gate of any shape. Used for traversal paths, where the matched
 /// path scope cannot be trusted: the gate must assume the strictest override
