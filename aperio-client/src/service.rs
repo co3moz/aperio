@@ -1080,14 +1080,14 @@ pub(crate) async fn run_service(
     let flag = backend_healthy.clone();
     // Health checks never follow redirects: a 3xx to some other page must
     // not let a broken backend look healthy via the redirect target.
-    let probe_client = reqwest::Client::builder()
+    let probe_client = crate::proxy::http::backend_client_builder()
       .tcp_nodelay(true)
       .timeout(Duration::from_secs(spec.health_timeout))
       .redirect(reqwest::redirect::Policy::none())
       .build()
       .unwrap_or_else(|e| {
         error!("Failed to build the health-probe HTTP client: {e}; using a client without a timeout");
-        reqwest::Client::new()
+        crate::proxy::http::backend_client_fallback()
       });
     let (interval, threshold) = (spec.health_interval, spec.health_threshold);
     let probe_timeout = Duration::from_secs(spec.health_timeout);
@@ -1703,7 +1703,7 @@ pub(crate) async fn run_service(
             // Reqwest Client to make local forwarding requests. Same-site
             // backend redirects (http→https, same root domain) are followed
             // transparently; everything else passes through to the visitor.
-            let mut builder = reqwest::Client::builder()
+            let mut builder = crate::proxy::http::backend_client_builder()
               .redirect(crate::proxy::http::redirect_policy(spec.max_redirects))
               .timeout(Duration::from_secs(spec.timeout_secs));
             // Connect and whole-request budgets are different questions: one
@@ -1732,7 +1732,7 @@ pub(crate) async fn run_service(
               .build()
               .unwrap_or_else(|e| {
                 error!("Failed to build the forwarding HTTP client: {e}; using a client without a timeout");
-                reqwest::Client::new()
+                crate::proxy::http::backend_client_fallback()
               });
 
             // Per-connection forwarding constants shared by all request tasks.
