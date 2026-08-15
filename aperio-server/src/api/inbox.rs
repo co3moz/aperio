@@ -106,31 +106,38 @@ pub(crate) async fn inbox_detail_handler(
 /// Empties the caller's organization's inbox.
 #[utoipa::path(delete, path = "/aperio/api/inbox", tag = "dashboard",
   description = "Deletes every webhook inbox entry of the caller's organization.",
-  responses((status = 200, description = "Removed count", body = serde_json::Value)))]
+  responses((status = 200, description = "Removed count", body = serde_json::Value), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn inbox_clear_handler(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
 ) -> Response {
   let org = crate::auth::effective_org(&state, &headers).await;
-  let removed = state.inbox_store.lock().await.clear(&org);
-  Json(serde_json::json!({"status": "ok", "removed": removed})).into_response()
+  match state.inbox_store.lock().await.clear(&org) {
+    Ok(removed) => Json(serde_json::json!({"status": "ok", "removed": removed})).into_response(),
+    // An inbox holds captured request bodies, so it is cleared *because* of
+    // what is in it. "ok, removed: 0" would be indistinguishable from an inbox
+    // that was already empty, and the entries are all still there.
+    Err(_) => crate::api::tokens::not_persisted(),
+  }
 }
 
 /// Deletes one inbox entry.
 #[utoipa::path(delete, path = "/aperio/api/inbox/{id}", tag = "dashboard",
   description = "Deletes one webhook inbox entry.",
   params(("id" = String, Path, description = "Inbox entry id")),
-  responses((status = 200, description = "Deleted"), (status = 404, description = "Unknown entry")))]
+  responses((status = 200, description = "Deleted"), (status = 404, description = "Unknown entry"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn inbox_delete_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(id): axum::extract::Path<String>,
   headers: HeaderMap,
 ) -> Response {
   let org = crate::auth::effective_org(&state, &headers).await;
-  if state.inbox_store.lock().await.delete(&id, &org) {
-    (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
-  } else {
-    (StatusCode::NOT_FOUND, "Inbox entry not found").into_response()
+  match state.inbox_store.lock().await.delete(&id, &org) {
+    Ok(()) => (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response(),
+    Err(crate::store::NotWritten::NoSuchRecord) => {
+      (StatusCode::NOT_FOUND, "Inbox entry not found").into_response()
+    }
+    Err(crate::store::NotWritten::NotPersisted) => crate::api::tokens::not_persisted(),
   }
 }
 

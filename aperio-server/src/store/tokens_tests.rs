@@ -90,7 +90,7 @@ fn test_refresh_slides_expiry_by_creation_ttl() {
   // A wrong secret refreshes nothing.
   assert_eq!(
     store.refresh("apr_wrong").err(),
-    Some(NotWritten::NoSuchToken)
+    Some(NotWritten::NoSuchRecord)
   );
 
   // A never-expiring token has nothing to refresh.
@@ -100,7 +100,10 @@ fn test_refresh_slides_expiry_by_creation_ttl() {
       ..Default::default()
     })
     .expect("the test store can be written to");
-  assert_eq!(store.refresh(&forever).err(), Some(NotWritten::NoSuchToken));
+  assert_eq!(
+    store.refresh(&forever).err(),
+    Some(NotWritten::NoSuchRecord)
+  );
 
   // An already-expired token cannot resurrect itself.
   let (_, dead) = store
@@ -110,7 +113,7 @@ fn test_refresh_slides_expiry_by_creation_ttl() {
       ..Default::default()
     })
     .expect("the test store can be written to");
-  assert_eq!(store.refresh(&dead).err(), Some(NotWritten::NoSuchToken));
+  assert_eq!(store.refresh(&dead).err(), Some(NotWritten::NoSuchRecord));
 
   let _ = std::fs::remove_dir_all(&dir);
 }
@@ -148,7 +151,7 @@ fn test_rotate_with_grace_period() {
   // Unknown ids rotate nothing.
   assert_eq!(
     store3.rotate("nope", 60).err(),
-    Some(NotWritten::NoSuchToken)
+    Some(NotWritten::NoSuchRecord)
   );
 
   let _ = std::fs::remove_dir_all(&dir);
@@ -214,7 +217,7 @@ fn test_pin_key_tofu_and_clear_on_rotate() {
   assert_eq!(store3.pin_key(&record.id, "devB"), Ok(PinOutcome::Pinned));
 
   // Unknown ids pin nothing.
-  assert_eq!(store3.pin_key("nope", "x"), Err(NotWritten::NoSuchToken));
+  assert_eq!(store3.pin_key("nope", "x"), Err(NotWritten::NoSuchRecord));
 
   let _ = std::fs::remove_dir_all(&dir);
 }
@@ -374,7 +377,7 @@ fn a_missing_token_and_an_unwritable_store_are_different_answers() {
 
   assert_eq!(
     store.revoke("no-such-id").err(),
-    Some(NotWritten::NoSuchToken)
+    Some(NotWritten::NoSuchRecord)
   );
 
   break_writes(&mut store);

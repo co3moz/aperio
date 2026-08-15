@@ -190,20 +190,7 @@ pub struct TokenPatch {
   pub canary: Option<bool>,
 }
 
-/// Why a change to a token did not happen.
-///
-/// Two reasons, kept apart, because the caller answers them differently and
-/// used to be unable to tell them apart at all: `revoke` returned one `false`
-/// for both "no such token" and "the disk is full", so a 404 and a 500 were
-/// the same value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NotWritten {
-  /// No token matched. Nothing was attempted.
-  NoSuchToken,
-  /// The change was made and then undone, because it could not be saved.
-  /// Memory matches disk, and the caller must report a failure.
-  NotPersisted,
-}
+pub use crate::store::NotWritten;
 
 /// Persistent store for dynamic API tokens, backed by the `tokens` table of
 /// the shared SQLite store (`<data_dir>/aperio.db`).
@@ -331,7 +318,7 @@ impl TokenStore {
       topics,
     } = patch;
     if !self.tokens.iter().any(|t| t.id == id) {
-      return Err(NotWritten::NoSuchToken);
+      return Err(NotWritten::NoSuchRecord);
     }
     self.commit(|store| {
       let token = store
@@ -390,7 +377,7 @@ impl TokenStore {
   /// the failure rather than a false success.
   pub fn revoke(&mut self, id: &str) -> Result<(), NotWritten> {
     let Some(pos) = self.tokens.iter().position(|t| t.id == id) else {
-      return Err(NotWritten::NoSuchToken);
+      return Err(NotWritten::NoSuchRecord);
     };
     self.commit(|store| {
       store.tokens.remove(pos);
@@ -429,7 +416,7 @@ impl TokenStore {
   /// or a mismatch otherwise. Returns None for an unknown token id.
   pub fn pin_key(&mut self, id: &str, key: &str) -> Result<PinOutcome, NotWritten> {
     let Some(token) = self.tokens.iter().find(|t| t.id == id) else {
-      return Err(NotWritten::NoSuchToken);
+      return Err(NotWritten::NoSuchRecord);
     };
     // Only a *new* pin is a change, so the two answers that read the existing
     // pin never touch the disk and cannot fail on it.
@@ -452,7 +439,7 @@ impl TokenStore {
   /// record together with the new plaintext secret.
   pub fn rotate(&mut self, id: &str, grace_seconds: u64) -> Result<(ApiToken, String), NotWritten> {
     if !self.tokens.iter().any(|t| t.id == id) {
-      return Err(NotWritten::NoSuchToken);
+      return Err(NotWritten::NoSuchRecord);
     }
     self.commit(|store| {
       let token = store
@@ -493,11 +480,11 @@ impl TokenStore {
       .iter()
       .position(|t| crate::auth::constant_time_eq_str(&t.token_hash, &hash) && !t.is_expired())
     else {
-      return Err(NotWritten::NoSuchToken);
+      return Err(NotWritten::NoSuchRecord);
     };
     // No TTL is "nothing to refresh", not a failure to write one.
     let Some(ttl) = self.tokens[pos].ttl_seconds else {
-      return Err(NotWritten::NoSuchToken);
+      return Err(NotWritten::NoSuchRecord);
     };
     self.commit(|store| {
       store.tokens[pos].expires_at = Some(now_secs().saturating_add(ttl));

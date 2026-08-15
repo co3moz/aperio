@@ -40,9 +40,12 @@ fn test_insert_list_delete_persist() {
 
   // Delete is org-gated too.
   let mut store3 = InboxStore::load(&dir_str);
-  assert!(!store3.delete("a", &Some("org-1".to_string())));
-  assert!(store3.delete("a", &None));
-  assert_eq!(store3.clear(&Some("org-1".to_string())), 1);
+  assert_eq!(
+    store3.delete("a", &Some("org-1".to_string())),
+    Err(crate::store::NotWritten::NoSuchRecord)
+  );
+  assert!(store3.delete("a", &None).is_ok());
+  assert_eq!(store3.clear(&Some("org-1".to_string())), Ok(1));
   assert!(InboxStore::load(&dir_str).entries.is_empty());
 
   let _ = std::fs::remove_dir_all(&dir);
@@ -117,9 +120,10 @@ fn insert_and_import_hold_the_cap() {
 }
 
 /// An entry the operator deleted must not come back at the next restart with
-/// nothing having said so, so a delete that could not be saved answers false.
+/// nothing having said so, so a delete that could not be saved says which of
+/// the two things went wrong rather than answering as a missing entry.
 #[test]
-fn a_delete_that_cannot_be_saved_reports_false_and_keeps_the_entry() {
+fn a_delete_that_cannot_be_saved_says_so_and_keeps_the_entry() {
   let dir =
     crate::test_support::test_temp_root().join(format!("inbox-full-{}", uuid::Uuid::new_v4()));
   let dir_str = dir.to_string_lossy().to_string();
@@ -132,7 +136,36 @@ fn a_delete_that_cannot_be_saved_reports_false_and_keeps_the_entry() {
     .execute("DROP TABLE inbox", [])
     .expect("the table exists until this point");
 
-  assert!(!store.delete(&id, &None), "the removal was not saved");
+  assert_eq!(
+    store.delete(&id, &None),
+    Err(crate::store::NotWritten::NotPersisted),
+    "the removal was not saved, and says so rather than reading as a missing entry"
+  );
   assert_eq!(store.list_all().len(), 1, "so the entry is still there");
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An inbox is cleared *because* of what is in it, so a clear that could not
+/// be saved must not report the shape of an inbox that was already empty.
+#[test]
+fn a_clear_that_cannot_be_saved_is_a_failure_not_a_count_of_zero() {
+  let dir =
+    crate::test_support::test_temp_root().join(format!("inbox-clear-{}", uuid::Uuid::new_v4()));
+  let dir_str = dir.to_string_lossy().to_string();
+  let mut store = InboxStore::load(&dir_str);
+  store.insert(entry("one", None));
+  store.insert(entry("two", None));
+
+  store
+    .conn
+    .execute("DROP TABLE inbox", [])
+    .expect("the table exists until this point");
+
+  assert_eq!(
+    store.clear(&None),
+    Err(crate::store::NotWritten::NotPersisted),
+    "`Ok(0)` here would be indistinguishable from an inbox that was already empty"
+  );
+  assert_eq!(store.list_all().len(), 2, "and the entries are still there");
   let _ = std::fs::remove_dir_all(&dir);
 }

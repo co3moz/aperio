@@ -38,7 +38,7 @@ fn test_create_verify_revoke_scope_persist() {
 
   // Revoked keys stop verifying.
   let mut store3 = AdminKeyStore::load(&dir);
-  assert!(store3.revoke(&rec.id));
+  assert!(store3.revoke(&rec.id).is_ok());
   assert!(store3.verify(&secret).is_none());
 
   let _ = std::fs::remove_dir_all(&dir);
@@ -52,5 +52,37 @@ fn test_expired_key_rejected() {
     .create("short".to_string(), Role::Admin, None, Some(0))
     .expect("the test store can be written to");
   assert!(store.verify(&secret).is_none());
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A revocation that could not be saved must never answer as a key that was
+/// not there: the two readings are opposites, and the wrong one is the
+/// reassuring one.
+#[test]
+fn a_revoke_that_cannot_be_saved_is_not_reported_as_a_missing_key() {
+  let dir = temp_dir();
+  let mut store = AdminKeyStore::load(&dir);
+  let (rec, secret) = store.create("ci".into(), Role::Admin, None, None).unwrap();
+
+  store
+    .conn
+    .execute("DROP TABLE admin_keys", [])
+    .expect("the table exists until this point");
+
+  assert_eq!(
+    store.revoke(&rec.id),
+    Err(crate::store::NotWritten::NotPersisted),
+    "a full disk is a 500, and `NoSuchRecord` would be answered with a 404 reading as \"already revoked\""
+  );
+  assert!(
+    store.verify(&secret).is_some(),
+    "the key still authenticates, which is the fact the answer has to carry"
+  );
+  assert_eq!(
+    store.revoke("no-such-id"),
+    Err(crate::store::NotWritten::NoSuchRecord),
+    "and a genuinely absent key is still its own answer"
+  );
+
   let _ = std::fs::remove_dir_all(&dir);
 }

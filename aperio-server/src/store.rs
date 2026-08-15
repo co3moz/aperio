@@ -18,6 +18,29 @@ pub(crate) mod uptime;
 pub(crate) mod users;
 pub(crate) mod webhooks;
 
+/// Why a change to a stored record did not happen.
+///
+/// Two reasons, kept apart, because the caller answers them differently and
+/// used to be unable to tell them apart at all: a mutation returned one
+/// `false` for both "no such record" and "the disk is full", so a 404 and a
+/// 500 were the same value. That is the worse way round than it sounds. The
+/// 404 reads as "already gone", which is exactly what somebody revoking a
+/// credential wants to hear, so the one answer that must never be guessed is
+/// the one the conflation produced.
+///
+/// It lives here rather than in one store because every store has the same
+/// two answers, and the first version of this enum was written for tokens
+/// alone, which is why the stores beside it kept returning a bare `bool` for
+/// another release.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotWritten {
+  /// No record matched. Nothing was attempted.
+  NoSuchRecord,
+  /// The change was made and then undone, because it could not be saved.
+  /// Memory matches disk, and the caller must report a failure.
+  NotPersisted,
+}
+
 /// Opens (creating if needed) the shared SQLite store `<data_dir>/aperio.db`
 /// and ensures the schema exists. Each store holds its own connection; WAL
 /// mode plus a busy timeout make concurrent connections safe.

@@ -174,7 +174,7 @@ pub(crate) async fn admin_keys_create_handler(
 #[utoipa::path(delete, path = "/aperio/api/admin-keys/{id}", tag = "admin-keys",
   description = "Revokes an admin key.",
   params(("id" = String, Path, description = "Admin key id")),
-  responses((status = 200, description = "Revoked"), (status = 404, description = "Unknown id")))]
+  responses((status = 200, description = "Revoked"), (status = 404, description = "Unknown id"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn admin_keys_revoke_handler(
   State(state): State<Arc<AppState>>,
   Path(id): Path<String>,
@@ -192,9 +192,17 @@ pub(crate) async fn admin_keys_revoke_handler(
     &state.config().trusted_proxies,
   )
   .to_string();
-  let revoked = state.admin_key_store.lock().await.revoke(&id);
-  if !revoked {
-    return (StatusCode::NOT_FOUND, "Admin key not found").into_response();
+  match state.admin_key_store.lock().await.revoke(&id) {
+    Ok(()) => {}
+    Err(crate::store::NotWritten::NoSuchRecord) => {
+      return (StatusCode::NOT_FOUND, "Admin key not found").into_response();
+    }
+    // Never a 404 here, whatever it costs to say so: this key still
+    // authenticates, and "not found" is the one answer that would be read as
+    // "already revoked" by the operator pulling a compromised credential.
+    Err(crate::store::NotWritten::NotPersisted) => {
+      return crate::api::tokens::not_persisted();
+    }
   }
   info!("Admin key revoked: id={}", id);
   state

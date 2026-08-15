@@ -118,20 +118,25 @@ impl AdminKeyStore {
     Some((record, secret))
   }
 
-  /// Removes a key by ID. Returns true when a key was actually removed.
-  /// Revokes an admin key by id. Returns true only when it was removed *and*
-  /// durably persisted; on a write failure the removal is reverted and `false`
-  /// returned, so a revoked key can't silently reappear on restart.
-  pub fn revoke(&mut self, id: &str) -> bool {
+  /// Revokes an admin key by id. `Ok` only when it was removed *and* durably
+  /// persisted; on a write failure the removal is reverted, so a revoked key
+  /// cannot silently reappear on restart.
+  ///
+  /// The two failures are separate answers because of what the caller does
+  /// with them, and this is the mutation where it matters most: a revocation
+  /// reported as "no such key" reads as "already gone", so an operator pulling
+  /// a compromised credential on a full disk was told the job was done by the
+  /// same value that meant it had failed, and the key went on authenticating.
+  pub fn revoke(&mut self, id: &str) -> Result<(), crate::store::NotWritten> {
     let Some(pos) = self.keys.iter().position(|k| k.id == id) else {
-      return false;
+      return Err(crate::store::NotWritten::NoSuchRecord);
     };
     let removed = self.keys.remove(pos);
     if self.persist() {
-      true
+      Ok(())
     } else {
       self.keys.insert(pos, removed);
-      false
+      Err(crate::store::NotWritten::NotPersisted)
     }
   }
 

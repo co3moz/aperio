@@ -124,22 +124,21 @@ impl InboxStore {
     self.entries.iter().find(|e| e.id == id && e.org_id == *org)
   }
 
-  /// Deletes one entry (org-gated). True when something was removed.
-  /// `false` when there was no such entry **and** when the removal could not
-  /// be saved: an entry the operator deleted must not come back at the next
+  /// Deletes one entry (org-gated). `Ok` only when it was removed *and*
+  /// saved: an entry the operator deleted must not come back at the next
   /// restart with nothing having said so.
-  pub fn delete(&mut self, id: &str, org: &Option<String>) -> bool {
+  pub fn delete(&mut self, id: &str, org: &Option<String>) -> Result<(), crate::store::NotWritten> {
     let snapshot = self.entries.clone();
     let before = self.entries.len();
     self.entries.retain(|e| !(e.id == id && e.org_id == *org));
     if self.entries.len() == before {
-      return false;
+      return Err(crate::store::NotWritten::NoSuchRecord);
     }
     if self.persist() {
-      true
+      Ok(())
     } else {
       self.entries = snapshot;
-      false
+      Err(crate::store::NotWritten::NotPersisted)
     }
   }
 
@@ -184,18 +183,24 @@ impl InboxStore {
     removed
   }
 
-  /// Empties the caller's organization's inbox. Returns removed count, and
-  /// **zero when the write failed**, for the reason `delete` gives.
-  pub fn clear(&mut self, org: &Option<String>) -> usize {
+  /// Empties the caller's organization's inbox, returning how many entries
+  /// went. Rolled back on a failed write, for the reason `delete` gives.
+  ///
+  /// The failure is an `Err` rather than a count of zero, which is what it
+  /// used to be: an inbox holds captured request bodies, so clearing it is
+  /// something an operator does *because* of what is in it, and "removed: 0,
+  /// status: ok" is indistinguishable from an inbox that was already empty.
+  /// The entries were still there.
+  pub fn clear(&mut self, org: &Option<String>) -> Result<usize, crate::store::NotWritten> {
     let snapshot = self.entries.clone();
     let before = self.entries.len();
     self.entries.retain(|e| e.org_id != *org);
     let removed = before - self.entries.len();
     if removed > 0 && !self.persist() {
       self.entries = snapshot;
-      return 0;
+      return Err(crate::store::NotWritten::NotPersisted);
     }
-    removed
+    Ok(removed)
   }
 }
 

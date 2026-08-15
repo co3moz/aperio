@@ -580,7 +580,7 @@ pub(crate) async fn tokens_update_handler(
         .await;
       Json(serde_json::json!({"status": "ok"})).into_response()
     }
-    Err(NotWritten::NoSuchToken) => (StatusCode::NOT_FOUND, "Token not found").into_response(),
+    Err(NotWritten::NoSuchRecord) => (StatusCode::NOT_FOUND, "Token not found").into_response(),
     Err(NotWritten::NotPersisted) => not_persisted(),
   }
 }
@@ -648,7 +648,7 @@ pub(crate) async fn tokens_refresh_handler(
       }))
       .into_response()
     }
-    Err(NotWritten::NoSuchToken) => (
+    Err(NotWritten::NoSuchRecord) => (
       StatusCode::UNAUTHORIZED,
       "Unknown, expired, or non-expiring token",
     )
@@ -748,7 +748,7 @@ pub(crate) async fn tokens_rotate_handler(
       )
         .into_response()
     }
-    Err(NotWritten::NoSuchToken) => (StatusCode::NOT_FOUND, "Token not found").into_response(),
+    Err(NotWritten::NoSuchRecord) => (StatusCode::NOT_FOUND, "Token not found").into_response(),
     Err(NotWritten::NotPersisted) => not_persisted(),
   }
 }

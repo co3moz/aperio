@@ -1706,7 +1706,7 @@ impl ConnCtx {
         // Both leave the store as it was, and neither is this block's decision
         // to make.
         Ok(crate::store::tokens::PinOutcome::Match)
-        | Err(crate::store::tokens::NotWritten::NoSuchToken) => {}
+        | Err(crate::store::tokens::NotWritten::NoSuchRecord) => {}
       }
     }
 

@@ -356,7 +356,7 @@ pub(crate) async fn webhooks_create_handler(
 #[utoipa::path(delete, path = "/aperio/api/webhooks/{id}", tag = "webhooks",
   description = "Deletes a webhook definition.",
   params(("id" = String, Path, description = "Webhook id")),
-  responses((status = 200, description = "Deleted"), (status = 404, description = "Unknown id")))]
+  responses((status = 200, description = "Deleted"), (status = 404, description = "Unknown id"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn webhooks_delete_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(id): axum::extract::Path<String>,
@@ -383,18 +383,24 @@ pub(crate) async fn webhooks_delete_handler(
   if !in_org {
     return (StatusCode::NOT_FOUND, "Webhook not found").into_response();
   }
-  if state.webhook_store.lock().await.delete(&id) {
-    state
-      .audit_session(
-        "webhook_deleted",
-        &headers,
-        &actor_ip,
-        &format!("id={}", id),
-      )
-      .await;
-    Json(serde_json::json!({"status": "ok"})).into_response()
-  } else {
-    (StatusCode::NOT_FOUND, "Webhook not found").into_response()
+  match state.webhook_store.lock().await.delete(&id) {
+    Ok(()) => {
+      state
+        .audit_session(
+          "webhook_deleted",
+          &headers,
+          &actor_ip,
+          &format!("id={}", id),
+        )
+        .await;
+      Json(serde_json::json!({"status": "ok"})).into_response()
+    }
+    Err(crate::store::NotWritten::NoSuchRecord) => {
+      (StatusCode::NOT_FOUND, "Webhook not found").into_response()
+    }
+    // The hook is still there and still delivering, which a 404 would have
+    // said the opposite of.
+    Err(crate::store::NotWritten::NotPersisted) => crate::api::tokens::not_persisted(),
   }
 }
 

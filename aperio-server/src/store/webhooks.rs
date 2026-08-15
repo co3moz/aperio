@@ -143,19 +143,23 @@ impl WebhookStore {
     Some(hook)
   }
 
-  /// Deletes a webhook by id. Returns true only when it was removed *and*
-  /// durably persisted; on a write failure the removal is reverted and `false`
-  /// is returned, so a deleted webhook can't silently reappear on restart.
-  pub fn delete(&mut self, id: &str) -> bool {
+  /// Deletes a webhook by id. `Ok` only when it was removed *and* durably
+  /// persisted; on a write failure the removal is reverted, so a deleted
+  /// webhook cannot silently reappear on restart.
+  ///
+  /// The failure is named rather than folded into "no such webhook": one is a
+  /// 404 and the other a 500, and a hook that keeps delivering after the
+  /// dashboard reported it gone is worth telling the operator about.
+  pub fn delete(&mut self, id: &str) -> Result<(), crate::store::NotWritten> {
     let Some(pos) = self.webhooks.iter().position(|w| w.id == id) else {
-      return false;
+      return Err(crate::store::NotWritten::NoSuchRecord);
     };
     let removed = self.webhooks.remove(pos);
     if self.persist() {
-      true
+      Ok(())
     } else {
       self.webhooks.insert(pos, removed);
-      false
+      Err(crate::store::NotWritten::NotPersisted)
     }
   }
 

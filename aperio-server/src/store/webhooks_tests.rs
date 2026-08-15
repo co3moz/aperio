@@ -41,7 +41,7 @@ fn test_store_and_subscription() {
 
   // Delete
   let mut store3 = WebhookStore::load(&dir_str);
-  assert!(store3.delete(&hook.id));
+  assert!(store3.delete(&hook.id).is_ok());
   assert_eq!(store3.list().len(), 1);
 
   let _ = std::fs::remove_dir_all(&dir);
