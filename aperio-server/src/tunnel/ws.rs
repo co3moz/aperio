@@ -210,6 +210,9 @@ pub(crate) async fn ws_handler(
   let ceiling = perms.connection_ceiling(state.config().max_connections_per_service);
   // Read before the state is moved into the upgrade callback below.
   let alternates = state.config().alternate_servers.join(",");
+  // And before `perms` is: what this connection may declare is a property of
+  // its token, not of the build.
+  let may_declare_gate = perms.allow_public;
 
   // Use saturating arithmetic to prevent usize overflow with very large max_body_size.
   let mut response = ws
@@ -228,7 +231,21 @@ pub(crate) async fn ws_handler(
   if let Ok(value) = axum::http::HeaderValue::from_str(&ceiling.to_string()) {
     response.headers_mut().insert(MAX_CONNECTIONS_HEADER, value);
   }
-  if let Ok(value) = axum::http::HeaderValue::from_str(&CLIENT_DECLARABLE_METHODS.join(",")) {
+  // What this connection may declare, which is not the same as what this
+  // build supports: controlling the visitor gate is a token permission, and a
+  // token without it has its declaration dropped on the Ping. Announcing the
+  // full list to such a token would be the server contradicting itself one
+  // message later, and the client, having been told its gate was accepted,
+  // would serve the route believing it closed. So the answer is the empty
+  // list, which the negotiation already understands as "nothing may be
+  // declared here" and refuses on, rather than an announcement that is true of
+  // the build and false of this connection.
+  let declarable = if may_declare_gate {
+    CLIENT_DECLARABLE_METHODS.join(",")
+  } else {
+    String::new()
+  };
+  if let Ok(value) = axum::http::HeaderValue::from_str(&declarable) {
     response
       .headers_mut()
       .insert(VISITOR_AUTH_METHODS_HEADER, value);
@@ -1450,6 +1467,19 @@ impl ConnCtx {
         // beside it stay in force.
         let declared_policy = visitor_auth_methods.as_ref().and_then(|specs| {
           if !handle.perms.allow_public {
+            // Said out loud, like the scalar case beside it. The handshake
+            // already refused this connection the right to declare a gate (it
+            // announced an empty list), so a client that is up to date is not
+            // serving this route at all; a client that sent one anyway is
+            // reading an announcement it should have refused on, and the
+            // reason belongs in the operator's log either way.
+            if !handle.visitor_auth_denied_warned {
+              handle.visitor_auth_denied_warned = true;
+              warn!(
+                "Client {} declared a visitor-auth policy but its token does not permit controlling the visitor gate; ignoring it",
+                client_id
+              );
+            }
             return None;
           }
           let usable: Vec<aperio_config::AuthMethodSpec> = specs

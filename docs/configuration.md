@@ -529,6 +529,8 @@ Which of those actually travel is **negotiated on the handshake rather than assu
 
 That is worth the machinery because of what the alternative does quietly: a server that ignored a policy it did not understand would read the client as declaring *no* gate, and the route would come up open. Only the one service stops; its siblings keep serving.
 
+**The announcement is about the connection, not about the build.** Declaring a visitor gate needs the same token permission as `public`, so a token without it is answered with an empty list and holds the service back, rather than being told the gate was accepted and then having it dropped a message later. The server's log names the token and the reason; the client says the permission is the usual cause.
+
 #### The scalar spelling, and what still reads it
 
 The scalar keeps working everywhere it worked, and it is still what `APERIO_SERVER_AUTH`, `APERIO_VISITOR_AUTH`, `--visitor-auth` and the dashboard's visitor-password field carry, since each of those is a single value. A policy the scalar cannot express (several users, or `method: none`) shows as empty in that field, so `GET /aperio/api/settings` reports `visitor_auth_methods` beside it and what is in force stays readable.

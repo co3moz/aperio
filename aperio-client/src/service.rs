@@ -939,6 +939,15 @@ pub(crate) fn negotiate_visitor_gate(
     .iter()
     .map(|m| m.method.trim().to_ascii_lowercase())
     .collect();
+  // A policy that gates nobody is not a gate to lose, so it never refuses a
+  // connection: `method: none` says "serve this to anyone", which travels as
+  // `public` and is the one declaration a server may safely disagree with. If
+  // it does not permit this token to declare it, the route keeps whatever gate
+  // is already in front of it, which is narrower than what was asked for
+  // rather than wider.
+  if wanted.iter().all(|m| m.eq_ignore_ascii_case("none")) {
+    return GateNegotiation::Scalar;
+  }
   let unsupported: Vec<String> = wanted
     .iter()
     .filter(|m| !accepted.contains(m))
@@ -1365,12 +1374,24 @@ pub(crate) async fn run_service(
                 // cannot serve the route under the gate that was written, and
                 // staying connected without one would be worse than being
                 // absent. Only this service stops; its siblings are untouched.
-                error!(
-                  "[{}] This server does not accept `{}` as a client-declared visitor gate (it accepts: {}). Not serving this service: upgrade the server, or write a gate it understands. Retrying.",
-                  label,
-                  wanted.join(", "),
-                  accepted.join(", ")
-                );
+                if accepted.is_empty() {
+                  // The server named no method at all, which it does for a
+                  // connection that may not declare a gate rather than for one
+                  // whose method it does not know. Its own log says which
+                  // token and why; from here the honest thing is to name the
+                  // usual cause without asserting it.
+                  error!(
+                    "[{}] This server accepts no client-declared visitor gate on this connection, which is what it answers when the token may not control the visitor gate. Not serving this service: grant the token that permission, or write the gate on the server. Retrying.",
+                    label
+                  );
+                } else {
+                  error!(
+                    "[{}] This server does not accept `{}` as a client-declared visitor gate (it accepts: {}). Not serving this service: upgrade the server, or write a gate it understands. Retrying.",
+                    label,
+                    wanted.join(", "),
+                    accepted.join(", ")
+                  );
+                }
                 continue;
               }
               GateNegotiation::TooOldForPolicy { ref wanted } => {

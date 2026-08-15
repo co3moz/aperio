@@ -1875,3 +1875,48 @@ fn alternates_are_capped() {
   // reconnect into a long walk through addresses nobody chose.
   assert_eq!(parse_alternates(&many).len(), MAX_ALTERNATES);
 }
+
+// ---------------------------------------------------------------------------
+// What a connection may declare, announced on the handshake (#111)
+// ---------------------------------------------------------------------------
+
+/// The `x-aperio-visitor-auth-methods` value a handshake with this token gets.
+async fn announced_methods(url: &str, token: &str) -> String {
+  let (_ws, resp) = tokio_tungstenite::connect_async(client_request(url, token))
+    .await
+    .expect("the handshake");
+  resp
+    .headers()
+    .get(VISITOR_AUTH_METHODS_HEADER)
+    .expect("the announcement")
+    .to_str()
+    .unwrap()
+    .to_string()
+}
+
+#[tokio::test]
+async fn a_token_that_may_not_gate_is_told_it_may_declare_nothing() {
+  // The announcement is about this connection, not about the build. Declaring
+  // a visitor gate needs the same token permission as `public`, and a Ping
+  // from a token without it has its policy dropped. Announcing the full list
+  // to such a token would be the server contradicting itself one message
+  // later: the client would be told its gate was accepted, keep serving, and
+  // the route would come up with no gate at all while its own config said
+  // otherwise.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+
+  let (permitted, _) = make_dynamic_token(&state, true).await;
+  assert_eq!(
+    announced_methods(&url, &permitted).await,
+    CLIENT_DECLARABLE_METHODS.join(","),
+    "a token that may control the gate is told what this build accepts"
+  );
+
+  let (refused, _) = make_dynamic_token(&state, false).await;
+  assert_eq!(
+    announced_methods(&url, &refused).await,
+    "",
+    "a token that may not is told nothing may be declared, and holds the service back"
+  );
+}

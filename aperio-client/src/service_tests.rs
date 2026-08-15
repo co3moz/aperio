@@ -1538,6 +1538,35 @@ fn an_old_server_is_refused_a_policy_whose_shape_the_scalar_cannot_hold() {
 }
 
 #[test]
+fn a_server_that_names_no_method_is_declaring_that_none_may_be_sent() {
+  // What a server answers a connection whose token may not control the
+  // visitor gate. It is not an old server (it sent the header) and not a
+  // method it fails to understand: it is this connection that may declare
+  // nothing, so the gate would be dropped and the route served open.
+  let gate = policy_of("{method: basic, users: \"admin:s3cret\"}");
+  match negotiate_visitor_gate(Some(""), Some(&gate)) {
+    GateNegotiation::Unsupported { wanted, accepted } => {
+      assert_eq!(wanted, vec!["basic"]);
+      assert!(
+        accepted.is_empty(),
+        "the server named nothing: {accepted:?}"
+      );
+    }
+    other => panic!("a gate cannot be declared where nothing may be: {other:?}"),
+  }
+
+  // But `method: none` is not a gate to lose. It says "serve this to anyone",
+  // and a server that will not take that instruction keeps whatever gate is
+  // already in front of the route, which is narrower than what was asked for
+  // rather than wider. Refusing to serve over that would take a site down to
+  // protect it from being less open than intended.
+  assert_eq!(
+    negotiate_visitor_gate(Some(""), Some(&policy_of("{method: none}"))),
+    GateNegotiation::Scalar
+  );
+}
+
+#[test]
 fn a_server_that_accepts_the_method_is_told_the_whole_policy() {
   let rich = policy_of("{method: bearer, secret: \"0123456789abcdef-secret\"}");
   match negotiate_visitor_gate(Some("none,basic,bearer,jwt"), Some(&rich)) {
