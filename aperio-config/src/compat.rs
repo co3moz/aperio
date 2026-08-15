@@ -197,6 +197,36 @@ pub struct ConfigChange {
 /// recorded here in the same commit that makes it (see CLAUDE.md).
 pub const CONFIG_CHANGES: &[ConfigChange] = &[
   ConfigChange {
+    // Guessed for the reason the entry below says, and corrected by rule 19's
+    // release audit.
+    version: "0.10.0",
+    surface: ConfigSurface::Client,
+    // The key is unchanged and means what it always meant. What changes is
+    // what happens when the token cannot carry it: the declaration used to be
+    // dropped by the server with a warning in *its* log, and the service went
+    // on being served with no gate at all, so the file described a protection
+    // that was not in force and this side never heard about it. The client now
+    // holds the service back instead.
+    //
+    // `Breaking` and not `Security`, on the same reasoning as the server-side
+    // entry below: `Security` is for a file that is left exposed by upgrading,
+    // and here upgrading is what closes the exposure and says so. The
+    // operator's work is to grant the permission, not to re-examine what they
+    // are running. `WhenSet`, because a file that declares no visitor gate
+    // cannot be affected, and the large majority of files that do declare one
+    // are on tokens that permit it and will not notice this at all.
+    severity: ChangeSeverity::Breaking,
+    applies: Applies::WhenSet,
+    fields: &["visitor_auth", "auth"],
+    summary: "a service whose visitor gate the token may not declare is no longer served without \
+              one: the client holds it back and says so",
+    action: "if a service stops being served after the upgrade and the log names the visitor \
+             gate, its token lacks the permission that lets a client declare one (the same \
+             permission as `public:`). Grant it on the token, or move the gate to the server's \
+             own `auth:`. Until then that service was reachable by anyone despite the `auth:` in \
+             this file, which is what the refusal is telling you.",
+  },
+  ConfigChange {
     // Guessed: 0.9.0 is tagged and the in-repo version has not been bumped
     // yet, so the release this ships in is not known here. Rule 19's release
     // audit is where it gets corrected, and it is named as a guess so that
