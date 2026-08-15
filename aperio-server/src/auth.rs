@@ -190,6 +190,17 @@ pub(crate) async fn auth_login_handler(
   } else {
     crate::routing::route_visitor_auth(&state, &redirect_path, host.as_deref()).await
   };
+  // The richer form of the same override, and it has to be read here too: a
+  // `basic` method naming more than one user has no scalar spelling, so
+  // `route_visitor_auth` returns nothing for it. The gate still sends those
+  // visitors to this form, and before this was read, every credential the
+  // policy listed was refused here, which locked the route to everyone it was
+  // written to admit.
+  let custom_policy = if redirect_path.starts_with("/aperio") {
+    None
+  } else {
+    crate::routing::route_visitor_policy(&state, &redirect_path, host.as_deref()).await
+  };
 
   // The scope of the session to create, based on which credential matched:
   //   Some(None)       -> global (server / dashboard / master credentials)
@@ -285,10 +296,17 @@ pub(crate) async fn auth_login_handler(
         }
       }
       // Client-set visitor credentials for this route -> host-scoped session.
+      // The policy is asked the same way the server's own gate is below, so a
+      // client's `basic` naming several users admits any of them; the scalar
+      // is the spelling of a policy that names one, and is compared directly
+      // for the clients that only ever sent that.
       if scope.is_none()
-        && let Some(ref creds) = custom_creds
         && let Some(ref h) = host
-        && constant_time_eq_str(&decoded_str, creds)
+        && match (&custom_policy, &custom_creds) {
+          (Some(policy), _) => policy.admits_credential(&decoded_str),
+          (None, Some(creds)) => constant_time_eq_str(&decoded_str, creds),
+          (None, None) => false,
+        }
       {
         scope = Some(Some(h.clone()));
         plane = crate::store::sessions::Plane::Visitor;
@@ -300,6 +318,7 @@ pub(crate) async fn auth_login_handler(
       // and the scalar spelling behaves exactly as it always did.
       if scope.is_none()
         && custom_creds.is_none()
+        && custom_policy.is_none()
         && cfg.visitor_auth.admits_credential(&decoded_str)
       {
         // Every proxied host, since this gate is server-wide, and **not** the

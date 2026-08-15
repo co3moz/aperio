@@ -664,6 +664,49 @@ async fn login_visitor_credentials_host_scoped() {
 }
 
 #[tokio::test]
+async fn login_admits_any_user_a_clients_policy_names() {
+  // A `basic` method naming several users has no scalar spelling, so the
+  // per-route lookup that reads the scalar found nothing and every credential
+  // the policy listed was refused at this form, on a route the gate had sent
+  // the visitor to. The gate was unopenable by anyone it was written for.
+  let state = test_state();
+  let mut client = mock_client(Some("site.test"), None, None, None);
+  client.visitor_auth_policy = Some(crate::visitor_auth::Policy::compile(
+    &serde_yaml::from_str("{method: basic, users: [\"alice:one\", \"bob:two\"]}").unwrap(),
+  ));
+  state.clients.write().await.insert("c1".to_string(), client);
+  let state = Arc::new(state);
+
+  for creds in ["alice:one", "bob:two"] {
+    let res = call_login(
+      state.clone(),
+      basic_headers(creds, Some("site.test")),
+      login_query(Some("/app")),
+    )
+    .await
+    .unwrap_or_else(|_| panic!("{creds} is one of the users the policy names"));
+    assert_eq!(res.status(), StatusCode::OK);
+    let (_, info) = state.sessions.lock().await.entries().pop().unwrap();
+    assert_eq!(
+      info.scope_host.as_deref(),
+      Some("site.test"),
+      "a client's own gate scopes its session to that client's host"
+    );
+  }
+
+  // And nobody else, which is the half that would have kept passing.
+  assert!(
+    call_login(
+      state.clone(),
+      basic_headers("alice:wrong", Some("site.test")),
+      login_query(Some("/app")),
+    )
+    .await
+    .is_err()
+  );
+}
+
+#[tokio::test]
 async fn login_invalid_credentials_and_lockout_audit() {
   let state = test_state();
   // A single failure trips the lockout so the lockout-audit branch runs.
