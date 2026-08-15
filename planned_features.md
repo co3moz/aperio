@@ -71,14 +71,6 @@ readable without scrolling past what is already done.
   is the open door for the operator with forty services, who is the only one
   who pays for the current design.
 
-- [ ] **#98 A scheduled soak run that reports the memory curve.** `tests/soak.js`
-  exists and is run by hand, which means it is run when someone suspects
-  something, which is after the fact. Weekly, against a stack the workflow
-  brings up itself, recording RSS for both binaries over the plateau and
-  failing only on a *trend*, not on a threshold. The README claims memory does
-  not grow with request count; this is the only thing that would keep that
-  claim true.
-
 - [ ] **#101 An embedded profile of the tunnel protocol, and a reference C
   client for it.** An ESP32 cannot run `aperio-client`: the binary is about
   6 MB against a few hundred kilobytes of usable RAM and a flash budget in the
@@ -509,6 +501,38 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#98 A scheduled soak run that reports the memory curve.**
+  `tests/soak.js` existed and was run by hand, which means it was run when
+  someone suspected something, which is after the fact. The README claims
+  memory does not grow with request count; this is the only thing that would
+  keep that claim true.
+  shipped: `tests/soak/` (the k6 profile, now parameterized rather than
+  copied, a `run.mjs` that brings the stack up and samples both binaries' RSS,
+  and `trend.mjs` which decides) plus a weekly `soak.yml`. It fails on a trend
+  and never on a threshold, as the entry required.
+  - **The rule needs two things to be true before it calls a run growing**:
+    the least-squares slope over the plateau projects past a fraction of the
+    starting RSS, *and* the last quarter's median is above the first
+    quarter's by the same margin. A leak satisfies both; a sawtooth and a
+    cache that fills once and settles each satisfy one. That is what keeps a
+    weekly gate from firing on noise, and it is pinned by nine unit tests over
+    series whose answer is known, including the slow leak no absolute
+    threshold would catch inside one run.
+  - The ramp is deliberately not judged: memory is *supposed* to rise while
+    load is being added, and a rule that looked at it would be measuring the
+    ramp.
+  - **Inconclusive fails**, rather than passing as "nothing grew". A run that
+    could not measure is not evidence, and reporting it as a pass is how a
+    broken schedule goes unnoticed for months.
+  - The rule also runs on every push, without any load, since it is arithmetic
+    over a series. A judge that stops catching leaks is worth finding there
+    rather than in a weekly job nobody watches.
+  - Per the repository's rule on benchmarks, **no load was generated on this
+    machine**: the plumbing was verified with `--no-load` (the stack comes up,
+    both processes are sampled, the report is written) and the judge with its
+    unit tests. The traffic run is left to the schedule, the same decision as
+    `#96`'s Docker step.
 
 - [x] **#94 A Helm chart, and the Kubernetes story around it.** The largest
   population of self-hosted deployments is on Kubernetes, and there was no

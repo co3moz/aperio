@@ -1,0 +1,83 @@
+name: Soak
+
+# The memory curve, on a schedule (planned_features #98).
+#
+# The README says neither binary grows with request count. That is a claim
+# about a shape over time, and running the soak by hand means running it when
+# somebody already suspects a leak, which is after the fact. Weekly, against a
+# stack this job brings up itself.
+#
+# It fails on a **trend**, never on a threshold. An absolute limit passes a
+# leak that has not run long enough and fails a build that legitimately caches
+# more; the rule that decides is in tests/soak/trend.mjs and is unit-tested
+# against series whose answer is known.
+on:
+  schedule:
+    # Tuesday, so it does not land on the conformance run's morning.
+    - cron: "23 5 * * 2"
+  workflow_dispatch:
+    inputs:
+      plateau:
+        description: "How long to hold the plateau (e.g. 5m)"
+        default: "5m"
+  push:
+    paths:
+      - "tests/soak/**"
+      - ".github/workflows/soak.yml"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  soak:
+    name: Memory over a plateau
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      # The rule first, and without any load: if the judge is wrong, the run
+      # that follows means nothing.
+      - name: Check the trend rule
+        run: node --test 'tests/soak/*.test.mjs'
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update && sudo apt-get install -y k6
+
+      # Release, because a soak measures the binary people run and a debug
+      # build's allocation behaviour is not it.
+      - name: Build the binaries
+        run: cargo build --release --locked -p aperio-server -p aperio-client
+
+      - name: Soak
+        run: node tests/soak/run.mjs --plateau ${{ inputs.plateau || '5m' }}
+
+      # Uploaded either way: the curve is the artifact, and a pass is what
+      # keeps the README's claim standing.
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-report
+          path: tests/soak/reports
+          retention-days: 90

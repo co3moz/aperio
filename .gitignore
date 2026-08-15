@@ -52,3 +52,5 @@ tests/conformance/.data/
 /dist/
 tests/conformance/.data-h2/
 tests/conformance/.h2spec/
+tests/soak/.data/
+tests/soak/reports/

@@ -280,6 +280,29 @@ jobs:
         run: npm run test:ci
 
   # ---------------------------------------------------------------------------
+  # The soak's judge, without the soak (planned_features #98).
+  #
+  # The weekly run is where the memory curve is measured; this is the rule
+  # that reads it, which is pure arithmetic over a series and therefore cheap
+  # enough to check on every push. A judge that no longer catches a leak, or
+  # that starts calling a sawtooth one, is worth finding here rather than in a
+  # weekly job nobody watches.
+  soak-rule:
+    name: Soak trend rule
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check the rule
+        run: node --test 'tests/soak/*.test.mjs'
+
+  # ---------------------------------------------------------------------------
   # The Helm chart (planned_features #94).
   #
   # Linting a chart proves it renders. What is worth proving here is the one

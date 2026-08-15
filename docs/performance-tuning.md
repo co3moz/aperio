@@ -5,7 +5,7 @@
 The knobs that shape Aperio's throughput and latency, and the trade-offs behind
 each. Defaults are chosen for a small-to-medium deployment; tune from there
 with real numbers (the [self-health card](observability.md#server-self-health),
-the slowest-endpoints report, and the [k6 soak test](../tests/soak.js)).
+the slowest-endpoints report, and the [k6 soak test](../tests/soak/k6.js)).
 
 ## Client-side parallelism
 

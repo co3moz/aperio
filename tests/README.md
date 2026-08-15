@@ -14,7 +14,9 @@ own port.
 - `conformance/`, external suites run *against* Aperio rather than written
   for it, starting with [Autobahn](conformance/README.md) over the WebSocket
   relay. Needs Docker, runs weekly in CI, not part of the e2e suite.
-- `soak.js`, a k6 load profile. Not run in CI, and not part of the suite.
+- `soak/`, the memory soak: `k6.js` is the load profile, `run.mjs` brings a
+  stack up and watches RSS over the plateau, and `trend.mjs` decides whether a
+  curve grew. Weekly in CI, and not part of the e2e suite.
 
 ## Phases
 
