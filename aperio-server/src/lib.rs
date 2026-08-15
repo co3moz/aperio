@@ -42,6 +42,7 @@ mod otlp_identity;
 mod outbound;
 mod print_config;
 mod protocol;
+mod protocol_profile;
 mod proxy;
 mod redact;
 mod relay_log;

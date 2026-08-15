@@ -71,41 +71,24 @@ readable without scrolling past what is already done.
   is the open door for the operator with forty services, who is the only one
   who pays for the current design.
 
-- [ ] **#101 An embedded profile of the tunnel protocol, and a reference C
-  client for it.** An ESP32 cannot run `aperio-client`: the binary is about
-  6 MB against a few hundred kilobytes of usable RAM and a flash budget in the
-  low megabytes, and the reason is not the tunnel. It is TLS with a root
-  store, a full HTTP client, yaml plus a JSON Schema, the admin CLI, the
-  messaging faces, the OTel bridge, the health prober and the autoscaling
-  hooks: roughly sixteen thousand lines and forty direct dependencies, almost
-  none of which a sensor needs. Porting is the wrong verb. What is missing is
-  a **written minimum**: which messages a device must speak, which it may
-  ignore, and a guarantee that the server will not send it anything else.
-
-  **The subset is already small.** `Ping`/`Pong` and either `Request`/
-  `Response` or the streamed `RequestStart`/`Chunk`/`End` trio is a serving
-  client. Compression is negotiated (`CompressionStart`/`Ack`) and can simply
-  never be accepted. The WS, TCP and UDP relay messages only arrive for a
-  client that declared those targets. Messaging is opt-in. What a device
-  cannot ignore is flow control (`StreamPause`/`StreamResume`) and the body
-  encoding: JSON with base64 payloads costs 1.33x in a buffer that has to
-  exist all at once, which is exactly the wrong shape for 300 KB of RAM, so
-  the v2 binary frames matter far more here than they do on a laptop.
-
-  **Shape: a capability, not a transport.** The device announces an embedded
-  profile in its handshake, and the server undertakes to stay inside the
-  subset for that connection: no compression, chunk sizes under a declared
-  ceiling, `max_concurrent: 1`, no relay message types. This is an additive
-  optional field and a server-side gate, so it is a change that keeps every
-  existing peer working, which is what makes it worth doing at all. Plus a
-  reference client in C against ESP-IDF's `esp_websocket_client` and mbedtls,
-  and, more importantly than the code, a conformance answer for it: a device
-  client that silently mishandles one message type is an outage nobody can
-  debug from the device end.
-
-  **Not a second HTTP transport.** Replacing the WebSocket with keep-alive
-  polling was considered and is a downgrade for this case, see the note under
-  `#102`.
+- [ ] **#116 The embedded profile as a negotiated capability, and the
+  reference C client.** Split from `#101`, which wrote the minimum down;
+  this is the half that makes it a promise the server keeps rather than a
+  shape a device aims at.
+  - The device announces the profile in its handshake and the server
+    undertakes to stay inside it for that connection: no compression offered,
+    chunk sizes under a declared ceiling, `max_concurrent: 1`, no relay
+    message types. Additive on the wire and a server-side gate, so every
+    existing peer keeps working, which is what makes it worth doing at all.
+  - The classification the gate would consult already exists and is
+    compiler-enforced (`protocol_profile.rs`), so this is the enforcement
+    rather than the design.
+  - Plus a reference client in C against ESP-IDF's `esp_websocket_client` and
+    mbedtls and, more importantly than the code, **a conformance answer for
+    it**: a device client that silently mishandles one message type is an
+    outage nobody can debug from the device end. Worth building the way `#96`
+    and `#97` were, as a suite run against the thing rather than tests written
+    beside it.
 
 - [ ] **#102 (note, not a feature) Why the embedded client keeps the
   WebSocket.** Recorded so the question is not re-opened from memory. The
@@ -501,6 +484,30 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#101 An embedded profile of the tunnel protocol, and a reference C
+  client for it.** An ESP32 cannot run `aperio-client`, and the reason is not
+  the tunnel. What was missing is a **written minimum**: which messages a
+  device must speak, which it may ignore, and a guarantee that the server will
+  not send it anything else.
+  shipped: the written minimum, as `docs/embedded-profile.md`, and the thing
+  that keeps it true. The classification is an exhaustive `match` over all 35
+  message types in `protocol_profile.rs`, so **a new message type cannot be
+  added without saying what a device does about it**, proven by adding a fake
+  variant and watching the build stop. A second test fails when the document
+  does not mention a message the protocol has, and a third when the document
+  mentions one it does not, since a spec drifts in both directions.
+  - Seven message types are the profile: `Ping`/`Pong`, `Request`/`Response`,
+    and the `RequestStart`/`Chunk`/`End` trio, plus `StreamPause`/
+    `StreamResume`, which a device may not ignore if it streams.
+  - **The document says plainly what is not promised yet**, rather than
+    reading as a fence somebody is holding: the server does not gate itself on
+    a declared profile, so a device avoids those messages by not declaring the
+    features that produce them. That, and the reference C client with the
+    conformance answer it needs, is `#116`.
+  - The parser that reads the variant list out of the source has its own test,
+    because a parser that silently found nothing would make both document
+    tests pass for ever.
 
 - [x] **#98 A scheduled soak run that reports the memory curve.**
   `tests/soak.js` existed and was run by hand, which means it was run when

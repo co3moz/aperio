@@ -11,6 +11,7 @@ Prefer one long read? [**The Complete Guide**](book/aperio.tex) is a single-file
 - [Configuration Examples](examples/README.md), ready-to-adapt `aperio.yaml` + `aperio-server.yaml` pairs for common scenarios, from the minimal setup to load balancing, tunnels, and SSO.
 - [Installing: Packages, Formulae & Service Units](packages.md), the `.deb`/`.rpm`, Homebrew formula and Scoop manifest on every release: where files land, the hardened systemd units, one client instance per config file, and how to move the data directory past `ProtectSystem=strict`.
 - [Kubernetes](kubernetes.md), the Helm chart for the server and the sidecar pattern for the client: why the values file is the server's own configuration, why one replica, and why the client belongs in your workload's pod.
+- [The Embedded Profile](embedded-profile.md), the written minimum of the tunnel protocol for a device that cannot run the client: which messages it must handle, which it may ignore, and which it is not sent.
 
 ## Core Features
 
