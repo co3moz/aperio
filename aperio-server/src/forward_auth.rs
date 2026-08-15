@@ -100,7 +100,8 @@ pub(crate) async fn ask(
 
   // Computed once, and only where it is used: the key is what the subrequest
   // will carry, so it is the same string for the lookup and for the store.
-  let cache_key = (!cfg.cache.is_zero()).then(|| key(cfg, &names, headers, host, method, uri));
+  let cache_key =
+    (!cfg.cache.is_zero()).then(|| key(cfg, &names, headers, host, method, uri, visitor_ip));
   if let Some(ref k) = cache_key
     && let Some(carried) = cached(state, cfg, k).await
   {
@@ -240,6 +241,13 @@ fn client() -> Option<&'static reqwest::Client> {
 /// other path for the length of the window, which turns a per-request
 /// authorization into a per-session one without saying so. A cache may only
 /// key on less than the answer depends on if it is willing to be wrong.
+///
+/// The visitor's address is part of it for the same reason, and it is the part
+/// that is easiest to leave out: it is not a header the operator named, it
+/// arrives as an argument rather than in `headers`, and an endpoint that
+/// allowlists source addresses is the commonest thing this method is put in
+/// front of. Omitting it would remember one address's admission and hand it to
+/// every other address that asks the same question.
 fn key(
   cfg: &ForwardConfig,
   names: &[&str],
@@ -247,6 +255,7 @@ fn key(
   host: Option<&str>,
   method: &axum::http::Method,
   uri: &axum::http::Uri,
+  visitor_ip: Option<&str>,
 ) -> String {
   let mut hasher = Sha256::default();
   hasher.update(cfg.url.as_bytes());
@@ -262,6 +271,8 @@ fn key(
       .unwrap_or("/")
       .as_bytes(),
   );
+  hasher.update(b"\0");
+  hasher.update(visitor_ip.unwrap_or("-").as_bytes());
   for name in names {
     hasher.update(b"\0");
     hasher.update(name.as_bytes());

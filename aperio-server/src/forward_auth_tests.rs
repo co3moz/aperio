@@ -424,6 +424,85 @@ async fn a_length_declared_over_the_limit_is_refused_without_reading() {
   assert_eq!(bounded(&ep, 256).await, None);
 }
 
+/// An endpoint that admits only requests carrying `admits` in the lowercased
+/// text of the subrequest, so a cached verdict reused for a different question
+/// is visible as an admission the endpoint never gave.
+async fn endpoint_admitting(admits: &'static [&'static str]) -> Endpoint {
+  let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let calls = Arc::new(AtomicUsize::new(0));
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = listener.local_addr().unwrap().port();
+  let (seen_task, calls_task) = (seen.clone(), calls.clone());
+  tokio::spawn(async move {
+    loop {
+      let Ok((mut sock, _)) = listener.accept().await else {
+        return;
+      };
+      let (seen, calls) = (seen_task.clone(), calls_task.clone());
+      tokio::spawn(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut buf = vec![0u8; 8192];
+        let n = sock.read(&mut buf).await.unwrap_or(0);
+        let raw = String::from_utf8_lossy(&buf[..n]).to_string();
+        let lower = raw.to_ascii_lowercase();
+        seen.lock().unwrap().push((raw.clone(), Vec::new()));
+        calls.fetch_add(1, Ordering::SeqCst);
+        let ok = admits.iter().all(|needle| lower.contains(needle));
+        let status = if ok { 200 } else { 403 };
+        let out = format!("HTTP/1.1 {status} X\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+        let _ = sock.write_all(out.as_bytes()).await;
+      });
+    }
+  });
+  Endpoint {
+    url: format!("http://127.0.0.1:{port}/authcheck"),
+    seen,
+    calls,
+  }
+}
+
+#[tokio::test]
+async fn a_remembered_verdict_is_not_reused_for_a_different_address() {
+  // The address is sent to the endpoint as `X-Forwarded-For`, and allowlisting
+  // source addresses is the commonest thing this method fronts. A key that
+  // leaves it out remembers one address's admission and hands it to every
+  // other address asking the same question, with the endpoint never asked.
+  let ep = endpoint_admitting(&["x-forwarded-for: 203.0.113.7"]).await;
+  let state = test_state();
+  let mut cfg = config(&ep.url);
+  cfg.cache = Duration::from_secs(60);
+  let ask_from = async |ip: Option<&str>| {
+    ask(
+      &state,
+      &cfg,
+      &axum::http::Method::GET,
+      &HeaderMap::new(),
+      &"/reports".parse().unwrap(),
+      Some("app.example.com"),
+      ip,
+    )
+    .await
+  };
+
+  assert!(
+    matches!(ask_from(Some("203.0.113.7")).await, Verdict::Allow(_)),
+    "the endpoint admits this address"
+  );
+  assert!(
+    matches!(ask_from(Some("198.51.100.9")).await, Verdict::Deny(_)),
+    "a yes for one address must not admit another"
+  );
+  assert!(
+    matches!(ask_from(None).await, Verdict::Deny(_)),
+    "nor must it admit a request carrying no address at all"
+  );
+  assert_eq!(
+    ep.calls.load(Ordering::SeqCst),
+    3,
+    "each distinct address is its own question"
+  );
+}
+
 /// An endpoint that admits only what it is asked about, so a cached verdict
 /// reused for a different request is visible.
 async fn per_request_endpoint() -> Endpoint {
