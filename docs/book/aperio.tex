@@ -931,7 +931,7 @@ to answer on. The health probe is what tells the server to stop sending
 traffic here while the backend is restarting, so it is worth the one line
 even for a single instance.
 
-\begin{codecard}[aperioyaml]{./aperio.yaml (client) --- a web app on port 3000}
+\begin{codecard}[aperioyaml]{./aperio.yaml (client), a web app on port 3000}
 server:
   url: https://tunnel.example.com
   token: apr_xxxxxxxxxxxxxxxx
@@ -953,7 +953,7 @@ No backend process at all: the client is the web server. This is the
 shape a documentation build, a landing page, or a preview of a front-end
 branch wants, and it removes an nginx from the picture.
 
-\begin{codecard}[aperioyaml]{./aperio.yaml (client) --- ./dist, served directly}
+\begin{codecard}[aperioyaml]{./aperio.yaml (client), ./dist served directly}
 server:
   url: https://tunnel.example.com
   token: apr_xxxxxxxxxxxxxxxx
@@ -980,7 +980,7 @@ by nobody on the web. Written as \code{tunnels:} rather than
 that reaches them, only another client asking for them by name with a
 token permitted to bind them.
 
-\begin{codecard}[aperioyaml]{./aperio.yaml (client) --- next to the private service}
+\begin{codecard}[aperioyaml]{./aperio.yaml (client), next to the private service}
 server:
   url: https://tunnel.example.com
   token: apr_xxxxxxxxxxxxxxxx
@@ -2828,10 +2828,11 @@ against an actively hostile server.
 
 \section{Names}
 
-Everything Aperio addresses by name --- an organisation, a service, a tunnel
---- carries a \textbf{handle}: \code{a-z}, \code{0-9} and \code{\_}, at most
-64 characters. A handle is written in one file and read in another, typed into
-a command line, and joined with other handles to form an address
+Everything Aperio addresses by name carries a \textbf{handle}: \code{a-z},
+\code{0-9} and \code{\_}, at most 64 characters. An organisation, a service
+and a tunnel each have one. A handle is written in one file and read in
+another, typed into a command line, and joined with other handles to form an
+address
 (\code{payments@postgres}). Every character outside that set is a way for two
 people to write down what they think is the same name and be wrong:
 \code{Postgres} and \code{postgres}, \code{pg-main} and \code{pg\_main}, an
@@ -2844,8 +2845,8 @@ inside one: \code{@} already separates an organisation from a tunnel, and
 \code{-}, \code{.} and \code{*} are reserved for whatever an address needs to
 say next.
 
-Anything a person should read goes in \code{custom\_name:} --- free text, any
-language, changeable at any time, because nothing addresses it. The handle
+Anything a person should read goes in \code{custom\_name:}. It is free text,
+any language, changeable at any time, because nothing addresses it. The handle
 never changes, since an \code{expose:} rule and a binder's config on another
 machine point at it.
 
@@ -3690,9 +3691,9 @@ settings are required: the token, the server URL, and the target.
 \rowsep
 \code{APERIO\_MAX\_MESSAGE\_SIZE} &  & \code{max\_message\_size} & Max size of one tunnel message accepted from the server (memory protection). \\
 \rowsep
-\code{APERIO\_CUSTOM\_NAME} &  & \code{custom\_name} & What to call this service on screen (dashboard, client logs). Free text: any language, any punctuation, spaces, and changeable at will, because nothing addresses it --- \code{name:} is the handle that does, and it is an identifier (\code{a-z}, \code{0-9}, \code{\_}). Per \code{services:} entry via \code{custom\_name:}, and available on a \code{tunnels:} entry too. \\
+\code{APERIO\_CUSTOM\_NAME} &  & \code{custom\_name} & What to call this service on screen (dashboard, client logs). Free text: any language, any punctuation, spaces, and changeable at will, because nothing addresses it, while \code{name:} is the handle that does, and it is an identifier (\code{a-z}, \code{0-9}, \code{\_}). Per \code{services:} entry via \code{custom\_name:}, and available on a \code{tunnels:} entry too. \\
 \rowsep
-\code{APERIO\_SUBSCRIBE} &  & \code{subscribe} & Topic filters this client listens for, so the clients of one organization can signal each other over the tunnel connections they already hold (Chapter~\ref{ch:messaging}). Process-wide rather than per service: a client with a \code{services:} list receives one copy, not one per service. MQTT filter syntax --- \code{+} is one level, \code{\#} is the rest. As yaml a list entry may also be an object, \code{\{topic, run, timeout, max\_concurrent\}}, which runs a command when a message arrives; \code{run:} is deliberately file-only, since what may execute on a machine belongs in a file an operator wrote. The token must carry the topics, or the subscription is refused with its reason. \\
+\code{APERIO\_SUBSCRIBE} &  & \code{subscribe} & Topic filters this client listens for, so the clients of one organization can signal each other over the tunnel connections they already hold (Chapter~\ref{ch:messaging}). Process-wide rather than per service: a client with a \code{services:} list receives one copy, not one per service. MQTT filter syntax, where \code{+} is one level, \code{\#} is the rest. As yaml a list entry may also be an object, \code{\{topic, run, timeout, max\_concurrent\}}, which runs a command when a message arrives; \code{run:} is deliberately file-only, since what may execute on a machine belongs in a file an operator wrote. The token must carry the topics, or the subscription is refused with its reason. \\
 \rowsep
 \code{APERIO\_MESSAGES\_LISTEN} &  & \code{messages\_listen} & Address of the local HTTP face for messages, e.g. \code{127.0.0.1:1888}. \code{GET /subscribe?topic=<filter>} streams matching messages as server-sent events, \code{POST /publish?topic=<topic>} sends the body. No dependency and no codec, so \code{curl -N} is a working subscriber; a filter attached this way does not have to be in the config file, and is given back when the subscriber leaves. Loopback by default and with no authentication of its own: binding it elsewhere lets anything that can reach it publish as this client, and is warned about. \\
 \rowsep
