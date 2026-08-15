@@ -751,16 +751,30 @@ pub(crate) async fn route_visitor_policy(
 }
 
 /// True when any connected client that could serve this host declares a
-/// per-service visitor password. Used for traversal paths, where the matched
+/// visitor gate of any shape. Used for traversal paths, where the matched
 /// path scope cannot be trusted: the gate must assume the strictest override
 /// present on the host instead of resolving one per path bind.
+///
+/// **Both shapes, and that is the whole point of the first condition.** A
+/// client's gate lives in one of two fields: the scalar `visitor_auth` for a
+/// single `user:password`, and `visitor_auth_policy` for everything the
+/// scalar cannot carry, which is `bearer`, `jwt`, and a `basic` naming more
+/// than one user. This asked only about the scalar, so a route gated by any
+/// of those read as ungated here, and since this is the *entire* gate for a
+/// traversal path, the answer was to serve it: `/./admin` reached the backend
+/// with no credential while `/admin` answered 401.
 pub(crate) async fn host_has_visitor_auth(state: &AppState, request_host: Option<&str>) -> bool {
   if state.config().ignore_client_auth {
     return false;
   }
   let clients = state.clients.read().await;
   clients.values().any(|c| {
-    c.visitor_auth.is_some()
+    let declares_gate = c.visitor_auth.is_some()
+      || c
+        .visitor_auth_policy
+        .as_ref()
+        .is_some_and(|policy| policy.gates());
+    declares_gate
       && match request_host {
         Some(h) => c.matches_host(h) || !c.has_hostname_bind(),
         None => !c.has_hostname_bind(),

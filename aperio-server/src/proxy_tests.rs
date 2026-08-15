@@ -1174,6 +1174,65 @@ async fn visitor_gate_traversal_allowed_without_gate() {
   assert!(matches!(gate, VisitorGate::Allow(_)));
 }
 
+#[tokio::test]
+async fn visitor_gate_traversal_sees_a_policy_the_scalar_cannot_hold() {
+  // The traversal branch is the *entire* gate for such a path, and it asks one
+  // question: does anything on this host declare a gate. It used to ask only
+  // about the scalar `visitor_auth`, so a `bearer`, a `jwt`, or a `basic`
+  // naming two users read as ungated and `/./admin` was served with no
+  // credential while `/admin` answered 401.
+  for spelling in [
+    "{method: bearer, secret: a-long-bearer-secret}",
+    "{method: basic, users: [\"alice:one\", \"bob:two\"]}",
+  ] {
+    let setting =
+      serde_yaml::from_str::<aperio_config::AuthSetting>(spelling).expect("a valid auth: value");
+    let policy = crate::visitor_auth::Policy::compile(&setting);
+    assert!(policy.gates(), "{spelling} is a gate");
+
+    let state = Arc::new(test_state_with(test_config()));
+    let mut c = mock_client(None, None, None, None);
+    c.visitor_auth = None; // exactly the shape the bug turned on
+    c.visitor_auth_policy = Some(policy);
+    state.clients.write().await.insert("c1".to_string(), c);
+
+    for path in ["/./admin", "/x/../admin", "/."] {
+      let uri: axum::http::Uri = path.parse().unwrap();
+      let gate = check_visitor_gate(
+        &state,
+        &axum::http::Method::GET,
+        &HeaderMap::new(),
+        &uri,
+        None,
+      )
+      .await;
+      assert!(
+        matches!(gate, VisitorGate::Deny(_)),
+        "{path} under `{spelling}` must not be served without a credential"
+      );
+    }
+  }
+}
+
+#[tokio::test]
+async fn visitor_gate_traversal_honors_the_closed_posture() {
+  // `deny` is checked in section 2, and a traversal path returns before it,
+  // so a `.` in the path was the one way to switch the posture off.
+  let mut cfg = test_config();
+  cfg.default_access = crate::settings::DefaultAccess::Deny;
+  let state = Arc::new(test_state_with(cfg));
+  let uri: axum::http::Uri = "/a/../b".parse().unwrap();
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    None,
+  )
+  .await;
+  assert!(matches!(gate, VisitorGate::Deny(_)));
+}
+
 // --- SWR, denial, preview, limiter, coalescing ------------------------------
 
 #[tokio::test]

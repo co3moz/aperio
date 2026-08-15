@@ -679,6 +679,24 @@ pub(crate) async fn check_visitor_gate(
       || state.oidc.is_some()
       || crate::routing::host_has_visitor_auth(state, host).await;
     if !gated {
+      // The closed posture is decided here too, not only in section 2 below.
+      // Section 2 is where it used to be checked and a traversal path returns
+      // before ever reaching it, so `deny` was the one posture a `.` in the
+      // path could switch off. The answer is the one an unclaimed hostname
+      // gives, as it is there: a route nothing declared reachable does not
+      // announce its existence to a caller who was never going to be let in.
+      if state.config().default_access == crate::settings::DefaultAccess::Deny {
+        tracing::debug!(
+          "Refusing {} on {}: closed by default and nothing declares this route open",
+          path,
+          host.unwrap_or("-")
+        );
+        return VisitorGate::Deny(gateway_timeout_response(
+          state,
+          host,
+          "504 Gateway Timeout - No client connected in time",
+        ));
+      }
       return VisitorGate::Allow(None);
     }
     if validate_session_for_visitor(state, headers, host).await {
