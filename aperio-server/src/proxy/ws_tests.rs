@@ -196,3 +196,153 @@ async fn ws_upgrade_accepted_reaches_upgrade() {
   let resp = run(state, ws_request("/ws", true)).await;
   assert_eq!(resp.status(), StatusCode::UPGRADE_REQUIRED);
 }
+
+/// Answers the forwarded `UpgradeRequest` with a non-101 so the handler
+/// returns before the socket upgrade, and hands back the request line and
+/// headers the backend was sent.
+#[allow(clippy::type_complexity)]
+fn spawn_recording_upgrade_responder(
+  state: Arc<AppState>,
+  mut rx: mpsc::Receiver<Message>,
+) -> Arc<std::sync::Mutex<Option<(String, Vec<(String, String)>)>>> {
+  let seen = Arc::new(std::sync::Mutex::new(None));
+  let out = seen.clone();
+  tokio::spawn(async move {
+    let Some(Message::Text(text)) = rx.recv().await else {
+      return;
+    };
+    let Ok(TunnelMessage::UpgradeRequest {
+      id, uri, headers, ..
+    }) = serde_json::from_str::<TunnelMessage>(&text)
+    else {
+      return;
+    };
+    *seen.lock().unwrap() = Some((uri, headers));
+    if let Some(req) = state.pending_upgrades.lock().await.remove(&id) {
+      let _ = req.tx.send(TunnelResponse {
+        status: 502,
+        headers: Vec::new(),
+        body: None,
+        body_raw: None,
+        trailers: None,
+        stream_rx: None,
+        timings: None,
+      });
+    }
+  });
+  out
+}
+
+#[tokio::test]
+async fn a_gated_upgrade_does_not_carry_aperios_own_credential_to_the_backend() {
+  // The credential that opened the gate is Aperio's, and the HTTP path has
+  // always taken it back off the request before forwarding. The upgrade path
+  // did not, on either of the two forms it can arrive in, and the query form
+  // is the one that matters most here: a browser cannot put a header on a
+  // `WebSocket`, so `?aperio_token=` is how a gated socket is opened at all.
+  // The secret is shared by every visitor of the route, so a backend that logs
+  // its request line was publishing the key to the whole site.
+  let secret = "0123456789abcdef-secret";
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::compile(
+    &serde_yaml::from_str(&format!(
+      "{{method: bearer, secret: \"{secret}\", query: true}}"
+    ))
+    .unwrap(),
+  );
+  let state = connected(cfg);
+  mark_connected(&state).await;
+
+  // In the query, which is the form a browser has to use.
+  let rx = insert_live_client(&state, "c1").await;
+  let seen = spawn_recording_upgrade_responder(state.clone(), rx);
+  let resp = run(
+    state.clone(),
+    ws_request(&format!("/ws?aperio_token={secret}&keep=1"), false),
+  )
+  .await;
+  assert_eq!(
+    resp.status(),
+    StatusCode::BAD_GATEWAY,
+    "the gate admitted it"
+  );
+  let (uri, _) = seen.lock().unwrap().clone().expect("an upgrade was sent");
+  assert_eq!(
+    uri, "/ws?keep=1",
+    "the gate's own parameter is gone and the visitor's own is untouched"
+  );
+}
+
+#[tokio::test]
+async fn a_gated_upgrade_does_not_carry_the_bearer_header_either() {
+  // The other form the same credential arrives in, for a caller that can set
+  // a header. The HTTP path drops it once it has opened the gate; the upgrade
+  // path passed it through to the backend.
+  let secret = "0123456789abcdef-secret";
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::compile(
+    &serde_yaml::from_str(&format!("{{method: bearer, secret: \"{secret}\"}}")).unwrap(),
+  );
+  let state = connected(cfg);
+  mark_connected(&state).await;
+  let rx = insert_live_client(&state, "c1").await;
+  let seen = spawn_recording_upgrade_responder(state.clone(), rx);
+
+  let mut req = ws_request("/ws", false);
+  req.headers_mut().insert(
+    "authorization",
+    HeaderValue::from_str(&format!("Bearer {secret}")).unwrap(),
+  );
+  let resp = run(state.clone(), req).await;
+  assert_eq!(
+    resp.status(),
+    StatusCode::BAD_GATEWAY,
+    "the gate admitted it"
+  );
+
+  let (_, headers) = seen.lock().unwrap().clone().expect("an upgrade was sent");
+  assert!(
+    !headers
+      .iter()
+      .any(|(k, _)| k.eq_ignore_ascii_case("authorization")),
+    "the header that opened the gate does not travel on: {headers:?}"
+  );
+}
+
+#[tokio::test]
+async fn an_upgrade_keeps_the_same_headers_from_a_visitor_the_http_path_does() {
+  // One rule, both paths. The `x-aperio-` namespace is the server's own, and
+  // the session cookie in its `__Host-` spelling is as internal as the plain
+  // one; the upgrade path filtered neither.
+  let state = connected(test_config());
+  mark_connected(&state).await;
+  let rx = insert_live_client(&state, "c1").await;
+  let seen = spawn_recording_upgrade_responder(state.clone(), rx);
+
+  let mut req = ws_request("/ws", false);
+  let h = req.headers_mut();
+  h.insert("x-aperio-org", HeaderValue::from_static("someone-elses"));
+  h.insert(
+    "cookie",
+    HeaderValue::from_static("__Host-aperio_session=x; real=1"),
+  );
+  let resp = run(state.clone(), req).await;
+  assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
+
+  let (_, headers) = seen.lock().unwrap().clone().expect("an upgrade was sent");
+  assert!(
+    !headers
+      .iter()
+      .any(|(k, _)| k.eq_ignore_ascii_case("x-aperio-org")),
+    "a visitor's copy of the server's own namespace: {headers:?}"
+  );
+  let cookie = headers
+    .iter()
+    .find(|(k, _)| k.eq_ignore_ascii_case("cookie"))
+    .map(|(_, v)| v.as_str());
+  assert_eq!(
+    cookie,
+    Some("real=1"),
+    "the session cookie is gone in either spelling, the visitor's own stays"
+  );
+}

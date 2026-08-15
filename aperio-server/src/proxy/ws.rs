@@ -37,7 +37,12 @@ pub(crate) async fn handle_ws_proxy(
   caller_ip: IpAddr,
 ) -> Response {
   let method_str = method.to_string();
-  let uri_str = uri.to_string();
+  // Without the gate's own query parameter, exactly as the HTTP path does it.
+  // `aperio_token=` is a credential for Aperio, and a backend has no more
+  // business reading it than it has reading the session cookie. It matters
+  // more here than there, in fact: a browser cannot put a header on a
+  // `WebSocket`, so the query string is the form a gated socket has to use.
+  let uri_str = crate::proxy::uri_without_token(&uri);
   let start_time = Instant::now();
 
   // 1. Per-IP Rate Limiting
@@ -88,7 +93,10 @@ pub(crate) async fn handle_ws_proxy(
   // 2. Visitor-auth gate (shared with the HTTP path): a client-declared
   // per-service password supersedes the server's own gate; public routes skip
   // it. A share cookie set during the page load also covers its WebSockets.
-  if let crate::proxy::VisitorGate::Deny(resp) = crate::proxy::check_visitor_gate(
+  // The identity is kept, not discarded: it says whether the visitor's
+  // `Authorization` header was Aperio's credential rather than the backend's,
+  // which decides whether it travels on.
+  let visitor = match crate::proxy::check_visitor_gate(
     &state,
     // An upgrade is never a navigation: a browser opening a socket cannot be
     // sent to a login page, and a 401 is the only answer it can act on.
@@ -100,8 +108,9 @@ pub(crate) async fn handle_ws_proxy(
   )
   .await
   {
-    return resp;
-  }
+    crate::proxy::VisitorGate::Deny(resp) => return resp,
+    crate::proxy::VisitorGate::Allow(identity) => identity,
+  };
 
   // Client-declared visitor IP allowlists are enforced per candidate during
   // client selection below, exactly like the HTTP path.
@@ -225,23 +234,19 @@ pub(crate) async fn handle_ws_proxy(
 
   client_req_counter.fetch_add(1, Ordering::SeqCst);
 
-  // Serialize headers (same filtering as normal proxy)
+  // Serialize headers, by the same rules as the HTTP path and through the same
+  // code: an upgrade is a request like any other, and what Aperio keeps to
+  // itself does not depend on which of the two paths a request arrived on.
+  let carried_names = crate::proxy::carried_identity_names(&state);
+  let consumed_authorization = visitor.as_ref().is_some_and(|v| v.consumed_authorization);
   let mut serialized_headers: Vec<(String, String)> = Vec::new();
   for (k, v) in headers.iter() {
     if let Ok(val_str) = v.to_str() {
+      if crate::proxy::header_is_aperios(k.as_str(), &carried_names, consumed_authorization) {
+        continue;
+      }
       if k.as_str() == "cookie" {
-        let filtered: String = val_str
-          .split(';')
-          .filter(|part| {
-            let trimmed = part.trim();
-            // Internal aperio cookies never reach backends.
-            !trimmed.starts_with("aperio_session=")
-              && !trimmed.starts_with("aperio_share=")
-              && !trimmed.starts_with("aperio_affinity=")
-          })
-          .map(|part| part.trim())
-          .collect::<Vec<&str>>()
-          .join("; ");
+        let filtered = crate::proxy::cookies_without_aperios(val_str);
         if !filtered.is_empty() {
           serialized_headers.push((k.to_string(), filtered));
         }

@@ -435,6 +435,62 @@ fn uri_without_token(uri: &axum::http::Uri) -> String {
   }
 }
 
+/// The names a `forward` endpoint may answer with, lowercased.
+///
+/// A visitor's own copy of one of these is dropped on the way to a backend:
+/// the operator named them so the backend could trust what is in them, and two
+/// headers of one name is not a contradiction a backend is obliged to notice.
+pub(super) fn carried_identity_names(state: &AppState) -> Vec<String> {
+  state
+    .config()
+    .visitor_auth
+    .forward_methods()
+    .flat_map(|cfg| cfg.response_headers.iter())
+    .map(|n| n.to_ascii_lowercase())
+    .collect()
+}
+
+/// Does this inbound header belong to Aperio rather than to the backend?
+///
+/// The three that are never the visitor's to send onward, in one place because
+/// there are two proxy paths and a rule written twice is a rule that will hold
+/// on one of them: the `x-aperio-` namespace the server speaks in, a credential
+/// that opened Aperio's own gate, and a name a `forward` endpoint delivers an
+/// identity under. The `x-aperio-` strip is unconditional on purpose, a header
+/// that is only removed while a feature is switched on is a header that can be
+/// forged by switching it off.
+pub(super) fn header_is_aperios(
+  name: &str,
+  carried_names: &[String],
+  consumed_authorization: bool,
+) -> bool {
+  if name.len() > 9 && name[..9].eq_ignore_ascii_case("x-aperio-") {
+    return true;
+  }
+  if consumed_authorization && name.eq_ignore_ascii_case("authorization") {
+    return true;
+  }
+  carried_names.iter().any(|n| name.eq_ignore_ascii_case(n))
+}
+
+/// A `Cookie` header value with Aperio's own cookies removed, and everything
+/// the visitor set left alone. Empty when nothing survives, which is the
+/// caller's signal to send no cookie header at all.
+pub(super) fn cookies_without_aperios(value: &str) -> String {
+  value
+    .split(';')
+    .filter(|part| {
+      let trimmed = part.trim();
+      !trimmed.starts_with("aperio_session=")
+        && !trimmed.starts_with("__Host-aperio_session=")
+        && !trimmed.starts_with("aperio_share=")
+        && !trimmed.starts_with("aperio_affinity=")
+    })
+    .map(str::trim)
+    .collect::<Vec<&str>>()
+    .join("; ")
+}
+
 /// Is this request a browser navigation, rather than a call from something
 /// that speaks in headers?
 ///
@@ -1728,26 +1784,14 @@ async fn proxy_http_request(
   // forwarded when `trust_inbound` is off.
   let request_id_header = state.config().request_id_header.clone();
   let manage_request_id = state.config().request_id_enabled;
-  // The names a `forward` endpoint answered with, which are appended to the
-  // dispatch below. A visitor's own copy of one of them is dropped here, for
-  // the same reason the `x-aperio-` namespace is: the operator named these
-  // headers so the backend could trust what is in them, and two headers of one
-  // name is not a contradiction a backend is obliged to notice. Most read the
-  // first, which would be the visitor's. Stripping is unconditional and does
-  // not ask whether the endpoint actually sent a value, since "the endpoint
-  // said nothing about x-auth-user" must not be the case where the visitor's
-  // own x-auth-user survives.
-  let carried_names: Vec<String> = state
-    .config()
-    .visitor_auth
-    .forward_methods()
-    .flat_map(|cfg| cfg.response_headers.iter())
-    .map(|n| n.to_ascii_lowercase())
-    .collect();
+  let carried_names = carried_identity_names(&state);
+  let consumed_authorization = visitor.as_ref().is_some_and(|v| v.consumed_authorization);
   let mut serialized_headers: Vec<(String, String)> = Vec::new();
   for (k, v) in headers.iter() {
     if let Ok(val_str) = v.to_str() {
-      if carried_names.iter().any(|n| k.as_str() == n) {
+      // Aperio's own: the namespace it speaks in, the credential that opened
+      // its gate, the name an endpoint delivers an identity under.
+      if header_is_aperios(k.as_str(), &carried_names, consumed_authorization) {
         continue;
       }
       if inject_trace {
@@ -1759,35 +1803,8 @@ async fn proxy_http_request(
       if manage_request_id && k.as_str().eq_ignore_ascii_case(&request_id_header) {
         continue;
       }
-      // The `x-aperio-` namespace belongs to the server, so a visitor's copy
-      // never reaches a backend. This is unconditional, and has to be: a
-      // backend that trusts `x-aperio-org` must be able to trust it whether
-      // or not the operator turned the announcement on, and a header that is
-      // only stripped while a feature is enabled is a header that can be
-      // forged by turning the feature off.
-      if k.as_str().len() > 9 && k.as_str()[..9].eq_ignore_ascii_case("x-aperio-") {
-        continue;
-      }
-      // The credential that opened Aperio's own gate is Aperio's, not a
-      // message for the backend. Same rule as the internal cookies below.
-      if k.as_str() == "authorization" && visitor.as_ref().is_some_and(|v| v.consumed_authorization)
-      {
-        continue;
-      }
       if k.as_str() == "cookie" {
-        let filtered: String = val_str
-          .split(';')
-          .filter(|part| {
-            let trimmed = part.trim();
-            // Internal aperio cookies never reach backends.
-            !trimmed.starts_with("aperio_session=")
-              && !trimmed.starts_with("__Host-aperio_session=")
-              && !trimmed.starts_with("aperio_share=")
-              && !trimmed.starts_with("aperio_affinity=")
-          })
-          .map(|part| part.trim())
-          .collect::<Vec<&str>>()
-          .join("; ");
+        let filtered = cookies_without_aperios(val_str);
         if !filtered.is_empty() {
           serialized_headers.push((k.to_string(), filtered));
         }
