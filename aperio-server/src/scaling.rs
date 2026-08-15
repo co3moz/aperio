@@ -33,7 +33,6 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use crate::outbound::is_internal;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -287,48 +286,23 @@ pub(crate) async fn measure(state: &AppState, hostname: &str, path: Option<&str>
   out
 }
 
-/// Rejects a destination the server must not be talked into calling. The
-/// declaration comes from a *client*, i.e. a lower-trust credential than an
-/// operator, so this is the SSRF boundary: an attacker with a tunnel token
-/// must not be able to aim the server at a metadata service or an internal
-/// admin port.
+/// Rejects a destination the server must not be talked into calling.
+///
+/// The rule itself now lives in `outbound`, because a client-declared
+/// `jwt.jwks_url` needs the identical one and two copies of an SSRF boundary
+/// is one too many. The flags stay here: they are this feature's.
 async fn destination_allowed(
   url: &url::Url,
   allow_insecure: bool,
   allow_private: bool,
 ) -> Result<(), String> {
-  match url.scheme() {
-    "https" => {}
-    "http" if allow_insecure => {}
-    scheme => {
-      return Err(format!(
-        "scheme {scheme} is not allowed (https only unless APERIO_SCALING_ALLOW_HTTP=1)"
-      ));
-    }
-  }
-  let Some(host) = url.host_str() else {
-    return Err("no host in the URL".to_string());
-  };
-  let port = url.port_or_known_default().unwrap_or(443);
-  // Resolve and check every address the name maps to: a hostname that resolves
-  // to 127.0.0.1 or 169.254.169.254 is the classic bypass.
-  let addrs = tokio::net::lookup_host((host, port))
-    .await
-    .map_err(|e| format!("cannot resolve {host}: {e}"))?;
-  let mut any = false;
-  for addr in addrs {
-    any = true;
-    if !allow_private && is_internal(addr.ip()) {
-      return Err(format!(
-        "{host} resolves to the internal address {} (refused)",
-        addr.ip()
-      ));
-    }
-  }
-  if !any {
-    return Err(format!("{host} resolves to no address"));
-  }
-  Ok(())
+  crate::outbound::client_declared_destination_allowed(
+    url,
+    allow_insecure,
+    allow_private,
+    "APERIO_SCALING",
+  )
+  .await
 }
 
 /// Performs one call to the record's endpoint. Returns Ok for a 2xx.

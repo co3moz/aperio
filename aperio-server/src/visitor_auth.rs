@@ -73,6 +73,14 @@ impl Policy {
   /// because a door nobody can open is a misconfiguration an operator will
   /// find, and a door that opened itself is one they will not.
   pub(crate) fn compile(setting: &AuthSetting) -> Policy {
+    Policy::compile_from(setting, false)
+  }
+
+  /// The same, marking every `jwt` method with where the declaration came
+  /// from. A client's `jwks_url` is fetched by this server from this server's
+  /// network, so it is fenced as a client-declared destination; the
+  /// operator's own is not.
+  pub(crate) fn compile_from(setting: &AuthSetting, declared_by_client: bool) -> Policy {
     let methods = setting
       .methods()
       .iter()
@@ -106,6 +114,7 @@ impl Policy {
               .unwrap_or_default(),
             claims: spec.claims.clone().unwrap_or_default(),
             cookie: spec.cookie.clone(),
+            declared_by_client,
           }))),
           "bearer" => Some(Method::Bearer {
             secrets: spec

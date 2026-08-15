@@ -2,6 +2,8 @@
 //! breaker, saturation windowing, capacity measurement, and the SSRF fence.
 
 use super::*;
+
+use crate::outbound::is_internal;
 use crate::store::scaling::{
   DEFAULT_COLD_START_SECS, DEFAULT_COOLDOWN_SECS, DEFAULT_TARGET_UTILIZATION, DEFAULT_WINDOW_SECS,
 };

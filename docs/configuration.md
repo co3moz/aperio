@@ -989,6 +989,8 @@ Let the server ask an endpoint you control for capacity when a bind needs it: a 
 | `APERIO_SCALING` | `1` = honor the `scaling:` block clients announce. Off = the declaration is ignored entirely. | `0` |
 | `APERIO_SCALING_ALLOW_HTTP` | `1` = permit a plain-http autoscaling endpoint. The URL comes from a client, so https is the floor by default. | `0` |
 | `APERIO_SCALING_ALLOW_PRIVATE` | `1` = permit an autoscaling endpoint that resolves to a private, loopback or link-local address. The URL comes from a client, so it is treated as untrusted input: every address the name resolves to is checked, since a hostname pointing at `127.0.0.1` or `169.254.169.254` is the classic SSRF bypass. Turn it on only when the scaler genuinely lives on the same private network. | `0` |
+| `APERIO_JWKS_ALLOW_HTTP` | `1` = permit a plain-http `jwks_url` on a `jwt` visitor gate **declared by a client**. A client-declared key-set URL is fetched by the server, from the server's network, before any signature is checked, so it is fenced the way an autoscaling endpoint is: https only by default. A `jwt` gate in the *server's own* configuration is not subject to this, since an operator naming their own issuer is describing their own network. | `0` |
+| `APERIO_JWKS_ALLOW_PRIVATE` | `1` = permit a client-declared `jwks_url` that resolves to a private, loopback or link-local address. Off by default for the same reason as the row above: a tunnel-token holder must not be able to aim the server at a metadata service or an internal admin port. Again, the server's own `jwt` configuration is unaffected. | `0` |
 | `APERIO_SCALING_RECORD_TTL` | Seconds after which an autoscaling record nothing has re-announced is dropped. | `2592000` (30 days) |
 
 ### Edge proxy integration

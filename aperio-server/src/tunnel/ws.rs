@@ -1497,7 +1497,15 @@ impl ConnCtx {
             );
           }
           (!usable.is_empty())
-            .then(|| crate::visitor_auth::Policy::compile(&aperio_config::AuthSetting::Any(usable)))
+            .then(|| {
+              // `true`: these specs arrived over the tunnel, so a `jwks_url`
+              // among them is a destination a client chose for this server to
+              // fetch, and is fenced as one.
+              crate::visitor_auth::Policy::compile_from(
+                &aperio_config::AuthSetting::Any(usable),
+                true,
+              )
+            })
             .filter(|p| p.gates() || p.admits_everyone())
         });
         if handle.visitor_auth_policy != declared_policy {

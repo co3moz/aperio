@@ -376,6 +376,61 @@ impl OutboundPolicy {
   }
 }
 
+/// Rejects a destination the server must not be talked into calling, when the
+/// URL was named by a *client* rather than by the operator.
+///
+/// **The SSRF boundary, in one place.** A tunnel-token holder is a lower-trust
+/// credential than the operator running the server: an operator naming an
+/// internal address is describing their own network, a client naming one is
+/// aiming this server at it. `scaling.url` has been fenced this way since it
+/// existed; a client-declared `jwt.jwks_url` was not, and reached the same
+/// primitive (an arbitrary host and scheme, fetched from the server's
+/// network) with nothing but the operator's optional outbound policy in the
+/// way, which is off by default.
+///
+/// Deliberately independent of `OutboundPolicy`: that one is the operator's
+/// own preference about their own callbacks and defaults to permissive. This
+/// is not a preference, so relaxing it takes a named flag per feature.
+pub(crate) async fn client_declared_destination_allowed(
+  url: &url::Url,
+  allow_insecure: bool,
+  allow_private: bool,
+  relax_hint: &str,
+) -> Result<(), String> {
+  match url.scheme() {
+    "https" => {}
+    "http" if allow_insecure => {}
+    scheme => {
+      return Err(format!(
+        "scheme {scheme} is not allowed (https only unless {relax_hint}_ALLOW_HTTP=1)"
+      ));
+    }
+  }
+  let Some(host) = url.host_str() else {
+    return Err("no host in the URL".to_string());
+  };
+  let port = url.port_or_known_default().unwrap_or(443);
+  // Resolve and check every address the name maps to: a hostname that resolves
+  // to 127.0.0.1 or 169.254.169.254 is the classic bypass.
+  let addrs = tokio::net::lookup_host((host, port))
+    .await
+    .map_err(|e| format!("cannot resolve {host}: {e}"))?;
+  let mut any = false;
+  for addr in addrs {
+    any = true;
+    if !allow_private && is_internal(addr.ip()) {
+      return Err(format!(
+        "{host} resolves to the internal address {} (refused)",
+        addr.ip()
+      ));
+    }
+  }
+  if !any {
+    return Err(format!("{host} resolves to no address"));
+  }
+  Ok(())
+}
+
 /// True for addresses that live inside the deployment rather than on the
 /// public internet: loopback, RFC 1918, link-local (including the cloud
 /// metadata services), CGNAT, unique-local, unspecified, and IPv4-mapped

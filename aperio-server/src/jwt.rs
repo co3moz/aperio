@@ -62,6 +62,15 @@ pub(crate) struct JwtConfig {
   pub(crate) claims: BTreeMap<String, String>,
   /// Cookie the token is read from, when it does not arrive as a bearer.
   pub(crate) cookie: Option<String>,
+  /// True when this method came from a client over the tunnel rather than
+  /// from the server's own configuration.
+  ///
+  /// It decides how `jwks_url` is fenced, and it has to, because the two
+  /// sources are not the same trust. An operator naming an internal issuer is
+  /// describing their own network; a tunnel-token holder naming one is aiming
+  /// this server at it. `forward` was kept out of the client-declarable set
+  /// for exactly this reason and `jwt` was not, which is the hole this closes.
+  pub(crate) declared_by_client: bool,
 }
 
 /// The verified claims, reduced to what the gate does anything with.
@@ -91,12 +100,12 @@ pub(crate) async fn verify(
     ),
     (None, Some(url)) => {
       let kid = header.kid.as_deref();
-      let jwk = match find_key(state, url, kid, false).await {
+      let jwk = match find_key(state, url, kid, false, cfg.declared_by_client).await {
         Some(jwk) => Some(jwk),
         // A `kid` the cache does not know is what a rotation looks like from
         // here, so it is worth one fetch rather than a refusal that clears up
         // on its own an hour later.
-        None => find_key(state, url, kid, true).await,
+        None => find_key(state, url, kid, true, cfg.declared_by_client).await,
       }?;
       let algorithm = jwk
         .common
@@ -178,6 +187,7 @@ async fn find_key(
   url: &str,
   kid: Option<&str>,
   refetch: bool,
+  declared_by_client: bool,
 ) -> Option<jsonwebtoken::jwk::Jwk> {
   let cached = {
     let cache = state.jwks_cache.lock().await;
@@ -191,7 +201,7 @@ async fn find_key(
       // issuer through us.
       return pick(&keys, kid);
     }
-    _ => fetch(state, url).await?,
+    _ => fetch(state, url, declared_by_client).await?,
   };
   pick(&keys, kid)
 }
@@ -217,10 +227,44 @@ fn pick(keys: &JwkSet, kid: Option<&str>) -> Option<jsonwebtoken::jwk::Jwk> {
 /// The destination goes through the same outbound policy as webhooks and
 /// scaling hooks: this is a URL from a configuration file that makes the
 /// server issue a request, which is the shape the policy exists to fence.
-async fn fetch(state: &AppState, url: &str) -> Option<Arc<JwkSet>> {
+async fn fetch(state: &AppState, url: &str, declared_by_client: bool) -> Option<Arc<JwkSet>> {
   if let Err(why) = state.config().outbound_policy.check(url).await {
     tracing::warn!("Refusing to fetch the key set at {url}: {why}");
     return None;
+  }
+  // A URL a *client* named is fenced whatever the operator's own outbound
+  // policy says, because that policy is the operator's preference about their
+  // own callbacks and is permissive by default. This one is not a preference:
+  // the fetch happens before any signature is checked, so anyone holding a
+  // tunnel token could otherwise aim the server at a metadata service or an
+  // internal admin port and read the answer off the timing. The same fence
+  // `scaling.url` has always had, for the same reason.
+  if declared_by_client {
+    match url::Url::parse(url) {
+      Ok(parsed) => {
+        let allow_insecure = std::env::var("APERIO_JWKS_ALLOW_HTTP")
+          .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+          .unwrap_or(false);
+        let allow_private = std::env::var("APERIO_JWKS_ALLOW_PRIVATE")
+          .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+          .unwrap_or(false);
+        if let Err(why) = crate::outbound::client_declared_destination_allowed(
+          &parsed,
+          allow_insecure,
+          allow_private,
+          "APERIO_JWKS",
+        )
+        .await
+        {
+          tracing::warn!("Refusing to fetch the client-declared key set at {url}: {why}");
+          return None;
+        }
+      }
+      Err(e) => {
+        tracing::warn!("Refusing to fetch the client-declared key set at {url}: {e}");
+        return None;
+      }
+    }
   }
   // Built here rather than shared, matching the OIDC discovery fetch: a
   // default client would drop the timeout, and an unbounded fetch on the

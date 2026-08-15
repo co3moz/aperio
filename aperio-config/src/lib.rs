@@ -2287,6 +2287,31 @@ pub struct RetentionGroup {
 }
 
 /// Autoscaling: the server signalling desired capacity to an endpoint you control.
+/// How far a **client-declared** `jwt` gate's key-set URL may reach.
+///
+/// A client may declare its own visitor gate, and a `jwt` method names
+/// `jwks_url`, which this server fetches from this server's network before
+/// any signature is checked. That is the same shape as a client-declared
+/// autoscaling endpoint, so it gets the same fence and the same two escapes.
+/// A `jwt` gate in the server's *own* configuration is not subject to it: an
+/// operator naming an issuer on their own network is describing their
+/// deployment, not aiming the server at something.
+///
+/// Written as a `jwks:` block; the flat `jwks_*` keys mean the same thing.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct JwksGroup {
+  /// Allow a plain-http `jwks_url` on a client-declared gate.
+  /// Default: `false`.
+  #[schemars(extend("examples" = [false]))]
+  pub allow_http: Option<bool>,
+  /// Allow a client-declared `jwks_url` that resolves to a private, loopback
+  /// or link-local address, for an issuer that genuinely lives on the
+  /// internal network. Default: `false`.
+  #[schemars(extend("examples" = [false]))]
+  pub allow_private: Option<bool>,
+}
+
 ///
 /// Written as a `scaling:` block; the flat `scaling_*` keys mean the same
 /// thing and still work, with the block winning per field.
@@ -3025,6 +3050,10 @@ pub const SERVER_GROUPS: &[ServerGroup] = &[
     self_key: None,
   },
   ServerGroup {
+    key: "jwks",
+    self_key: None,
+  },
+  ServerGroup {
     key: "scaling",
     self_key: Some("enabled"),
   },
@@ -3106,6 +3135,10 @@ pub struct ServerFileConfig {
   #[serde(default)]
   #[schemars(extend("examples" = [{"stats": 365, "audit": 90, "captures": 7, "access_log": 30}]))]
   pub retention: Option<RetentionGroup>,
+  /// How far a client-declared `jwt` gate's key-set URL may reach
+  #[serde(default)]
+  #[schemars(extend("examples" = [{"allow_http": false, "allow_private": false}]))]
+  pub jwks: Option<JwksGroup>,
   /// Autoscaling: the server signalling desired capacity to an endpoint you control
   #[serde(default)]
   #[schemars(extend("examples" = [true, {"enabled": true, "allow_http": false, "record_ttl": 2592000}]))]
@@ -3414,6 +3447,12 @@ pub struct ServerFileConfig {
   /// Flat spelling of `cache.negative_ttl` (env: APERIO_CACHE_NEGATIVE_TTL).
   #[schemars(extend("examples" = [10]))]
   pub cache_negative_ttl: Option<u64>,
+  /// Flat spelling of `jwks.allow_http` (env: APERIO_JWKS_ALLOW_HTTP).
+  #[schemars(extend("examples" = [false]))]
+  pub jwks_allow_http: Option<bool>,
+  /// Flat spelling of `jwks.allow_private` (env: APERIO_JWKS_ALLOW_PRIVATE).
+  #[schemars(extend("examples" = [false]))]
+  pub jwks_allow_private: Option<bool>,
   /// Flat spelling of `scaling.allow_private` (env: APERIO_SCALING_ALLOW_PRIVATE).
   #[schemars(extend("examples" = [false]))]
   pub scaling_allow_private: Option<bool>,

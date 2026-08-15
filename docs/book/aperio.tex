@@ -2722,6 +2722,17 @@ policy, which covers webhook deliveries as well
 (Section~\ref{sec:outbound-policy}). Both apply: a destination has to pass
 the scaling fence \emph{and} the policy.
 
+\textbf{The same fence covers a key-set URL a client declares.} A
+\code{jwt} visitor gate may name \code{jwks\_url}, and a client may
+declare that gate, so the server fetches an address the client chose,
+from the server's network, before any signature has been checked. That
+is the scaling shape exactly, so it gets the scaling treatment:
+\code{APERIO\_JWKS\_ALLOW\_HTTP} and
+\code{APERIO\_JWKS\_ALLOW\_PRIVATE} relax it, and both default off. A
+\code{jwt} gate written in the \emph{server's} own configuration is not
+subject to it, because an operator naming an issuer on their own network
+is describing their deployment rather than aiming the server at it.
+
 \chapter{Behind a dynamic edge proxy}
 \label{ch:edge}
 

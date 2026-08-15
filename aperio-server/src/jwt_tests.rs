@@ -39,6 +39,7 @@ fn hmac_config() -> JwtConfig {
     audience: Vec::new(),
     claims: BTreeMap::new(),
     cookie: None,
+    declared_by_client: false,
   }
 }
 
@@ -182,6 +183,78 @@ async fn a_key_set_is_never_fetched_from_a_destination_the_outbound_policy_refus
   assert!(
     state.jwks_cache.lock().await.is_empty(),
     "nothing was fetched, so nothing is cached"
+  );
+}
+
+/// A listener that records whether anything ever connected to it.
+///
+/// The discriminator this pair of tests needs. `verify` returns `None` either
+/// way, whether the fetch was refused or attempted and failed, so asserting on
+/// its result proves nothing about the fence; what separates the two is
+/// whether a connection was made at all.
+async fn watched_listener() -> (String, std::sync::Arc<std::sync::atomic::AtomicBool>) {
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let addr = listener.local_addr().unwrap();
+  let touched = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+  let flag = touched.clone();
+  tokio::spawn(async move {
+    if listener.accept().await.is_ok() {
+      flag.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+  });
+  (format!("http://{addr}/keys.json"), touched)
+}
+
+#[tokio::test]
+async fn a_client_declared_key_set_is_fenced_whatever_the_operator_configured() {
+  // `jwt` is client-declarable, so `jwks_url` is a destination a tunnel-token
+  // holder chooses for this server to fetch, from this server's network,
+  // before any signature is checked. The operator's own outbound policy is
+  // their preference about their own callbacks and is permissive by default,
+  // so it cannot be what stands in the way here. `forward` was kept out of
+  // the client-declarable set for this reason; `jwt` was not.
+  let state = crate::test_support::test_state_with(crate::test_support::test_config());
+  assert!(
+    !state.config().outbound_policy.restricted(),
+    "the default posture, which is the one that matters"
+  );
+
+  let (url, touched) = watched_listener().await;
+  let declared = JwtConfig {
+    jwks_url: Some(url.clone()),
+    hmac_secret: None,
+    declared_by_client: true,
+    ..hmac_config()
+  };
+  let t = token(serde_json::json!({"sub": "u", "exp": at(600)}));
+  assert!(verify(&state, &declared, &t).await.is_none());
+  tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+  assert!(
+    !touched.load(std::sync::atomic::Ordering::SeqCst),
+    "{url} is loopback and was named by a client, so it must never be contacted"
+  );
+  assert!(state.jwks_cache.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn the_operators_own_internal_key_set_is_not_fenced_by_that_rule() {
+  // The other half, and the reason provenance is carried at all: an operator
+  // naming an issuer on their own network is describing their deployment, not
+  // aiming the server at something. The identical URL is contacted.
+  let state = crate::test_support::test_state_with(crate::test_support::test_config());
+  let (url, touched) = watched_listener().await;
+  let operators = JwtConfig {
+    jwks_url: Some(url.clone()),
+    hmac_secret: None,
+    declared_by_client: false,
+    ..hmac_config()
+  };
+  let t = token(serde_json::json!({"sub": "u", "exp": at(600)}));
+  let _ = verify(&state, &operators, &t).await;
+  tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+  assert!(
+    touched.load(std::sync::atomic::Ordering::SeqCst),
+    "{url} came from the operator's own configuration and must still be reachable"
   );
 }
 
