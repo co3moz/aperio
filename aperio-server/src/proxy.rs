@@ -1728,9 +1728,28 @@ async fn proxy_http_request(
   // forwarded when `trust_inbound` is off.
   let request_id_header = state.config().request_id_header.clone();
   let manage_request_id = state.config().request_id_enabled;
+  // The names a `forward` endpoint answered with, which are appended to the
+  // dispatch below. A visitor's own copy of one of them is dropped here, for
+  // the same reason the `x-aperio-` namespace is: the operator named these
+  // headers so the backend could trust what is in them, and two headers of one
+  // name is not a contradiction a backend is obliged to notice. Most read the
+  // first, which would be the visitor's. Stripping is unconditional and does
+  // not ask whether the endpoint actually sent a value, since "the endpoint
+  // said nothing about x-auth-user" must not be the case where the visitor's
+  // own x-auth-user survives.
+  let carried_names: Vec<String> = state
+    .config()
+    .visitor_auth
+    .forward_methods()
+    .flat_map(|cfg| cfg.response_headers.iter())
+    .map(|n| n.to_ascii_lowercase())
+    .collect();
   let mut serialized_headers: Vec<(String, String)> = Vec::new();
   for (k, v) in headers.iter() {
     if let Ok(val_str) = v.to_str() {
+      if carried_names.iter().any(|n| k.as_str() == n) {
+        continue;
+      }
       if inject_trace {
         let k_lower = k.as_str().to_ascii_lowercase();
         if k_lower == "traceparent" || k_lower == "tracestate" {

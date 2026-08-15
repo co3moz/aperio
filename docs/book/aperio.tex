@@ -1872,7 +1872,11 @@ request makes every header it happens to read part of a contract nobody
 wrote down. \textbf{What crosses back} is only the response headers you
 name, empty by default: that list is how the pattern delivers an identity
 onto the request reaching your backend, and an open one is how it becomes
-a header injection.
+a header injection. A visitor's own copy of a name on that list is
+dropped, always, whether or not the endpoint answered with one: you named
+those headers so the backend could trust them, and an inbound
+\code{X-Auth-User: admin} would otherwise arrive beside the endpoint's
+answer, where most frameworks read the first of the two.
 
 \textbf{A timeout refuses.} A gate that opens when its check is
 unreachable is not a gate, so the endpoint's availability becomes the
@@ -1888,9 +1892,9 @@ answer for the visitor, not a request for Aperio to make.
 Only admissions are remembered, never refusals: somebody just given
 access must not keep being turned away for the rest of the window. The
 key is a hash of everything the subrequest carried, the endpoint, the
-hostname, the method, the path and the credential headers, so no secret
-is held in it and a \emph{yes} for one path is never a \emph{yes} for
-another. The endpoint is told the method and the path and may answer on
+hostname, the method, the path, the visitor's address and the credential
+headers, so no secret is held in it and a \emph{yes} for one path, or for
+one address, is never a \emph{yes} for another. The endpoint is told the method and the path and may answer on
 them, which is the ordinary way this pattern is used, so a cache keyed on
 the credential alone would quietly turn a per-request authorization into
 a per-session one. The URL goes through the outbound policy like every other

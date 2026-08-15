@@ -847,6 +847,35 @@ fn text_response(status: u16) -> TunnelResponse {
   }
 }
 
+/// Answers one forwarded request with a plain 200 and hands back the headers
+/// it carried.
+///
+/// The inspector capture (`captured_requests`) is taken before the per-attempt
+/// headers are added, so a test about what a backend receives has to read the
+/// frame itself.
+fn spawn_recording_responder(
+  state: Arc<AppState>,
+  mut rx: mpsc::Receiver<Message>,
+) -> Arc<std::sync::Mutex<Vec<(String, String)>>> {
+  let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let out = seen.clone();
+  tokio::spawn(async move {
+    let Some(Message::Text(text)) = rx.recv().await else {
+      return;
+    };
+    let (id, headers) = match serde_json::from_str::<TunnelMessage>(&text) {
+      Ok(TunnelMessage::Request { id, headers, .. }) => (id, headers),
+      Ok(TunnelMessage::RequestStart { id, headers, .. }) => (id, headers),
+      _ => return,
+    };
+    *seen.lock().unwrap() = headers;
+    if let Some(req) = state.pending_requests.lock().await.remove(&id) {
+      let _ = req.tx.send(text_response(200));
+    }
+  });
+  out
+}
+
 /// Answers each forwarded request with the next queued response; a `None` slot
 /// simulates a vanished client (the pending sender is dropped without a send).
 fn spawn_custom(
@@ -1465,6 +1494,65 @@ async fn handler_visitor_gate_denies_with_302() {
   // No session → the visitor gate denies inside proxy_http_request.
   let resp = run(state, get("/private")).await;
   assert_eq!(resp.status(), StatusCode::FOUND);
+}
+
+#[tokio::test]
+async fn a_visitors_own_copy_of_a_carried_identity_header_never_reaches_the_backend() {
+  // The `response_headers` list is how a `forward` endpoint delivers an
+  // identity, and the operator named those headers precisely so the backend
+  // could trust what is in them. A visitor sending one of those names
+  // themselves must not arrive alongside the endpoint's answer: two headers of
+  // one name is not a contradiction a backend is obliged to notice, and most
+  // read the first, which would be the visitor's.
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = listener.local_addr().unwrap().port();
+  tokio::spawn(async move {
+    while let Ok((mut sock, _)) = listener.accept().await {
+      tokio::spawn(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut buf = vec![0u8; 4096];
+        let _ = sock.read(&mut buf).await;
+        let _ = sock
+          .write_all(
+            b"HTTP/1.1 200 X\r\nx-auth-user: alice\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+          )
+          .await;
+      });
+    }
+  });
+
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::compile(
+    &serde_yaml::from_str(&format!(
+      "{{method: forward, url: \"http://127.0.0.1:{port}/authcheck\", response_headers: [x-auth-user]}}"
+    ))
+    .unwrap(),
+  );
+  let state = connected(cfg);
+  mark_connected(&state).await;
+  let rx = insert_live_client(&state, "c1").await;
+  // What actually crossed the tunnel, which is where the carried headers are
+  // appended: the inspector capture is taken before that.
+  let dispatched = spawn_recording_responder(state.clone(), rx);
+
+  let mut req = get("/private");
+  req
+    .headers_mut()
+    .insert("x-auth-user", HeaderValue::from_static("admin"));
+  let resp = run(state.clone(), req).await;
+  assert_eq!(resp.status(), StatusCode::OK);
+
+  let sent = dispatched.lock().unwrap();
+  let named: Vec<&str> = sent
+    .iter()
+    .filter(|(k, _)| k.eq_ignore_ascii_case("x-auth-user"))
+    .map(|(_, v)| v.as_str())
+    .collect();
+  assert_eq!(
+    named,
+    vec!["alice"],
+    "the backend is told who the endpoint said, once, and never who the visitor claimed"
+  );
 }
 
 #[tokio::test]

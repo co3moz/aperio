@@ -489,11 +489,13 @@ What nginx spells `auth_request` and Traefik spells ForwardAuth. Five decisions,
 
 **What crosses back.** Only the response headers you name, and the list is empty by default. It is how the pattern delivers an identity onto the request that reaches your backend, and an open list is how it becomes a header injection.
 
+A visitor's own copy of a name on that list is **dropped**, always, whether or not the endpoint answered with one. You named those headers so your backend could trust what is in them, and a request arriving with `X-Auth-User: admin` already on it would otherwise reach the backend alongside the endpoint's answer, where most frameworks read the first of the two. This is the same rule the `x-aperio-` namespace has, and for the same reason.
+
 **A timeout refuses.** An auth gate that opens when its check is unreachable is not a gate. This means the endpoint's availability becomes the route's, which is the trade you are making, and it is stated rather than discovered.
 
 **A refusal is the endpoint's own answer**, relayed with its status, `Location`, `WWW-Authenticate`, `Content-Type` and `Set-Cookie`, so it can send a browser to a login of its own. Redirects from the endpoint are deliberately not followed: a `302` is an answer for the visitor, not a request for Aperio to make.
 
-**`cache:` remembers a verdict** for an identical *request*, so a busy route does not pay a round trip per page load. Only admissions are remembered, never refusals: somebody who has just been given access must not keep being turned away for the rest of the window. The key is a hash of everything the subrequest carried, the endpoint, the hostname, the method, the path and the credential headers, so no secret is held in it and a `yes` for one path is never a `yes` for another. Your endpoint is told the method and the path and may answer on them, which is the ordinary way this pattern is used, so a cache that keyed on the credential alone would quietly turn a per-request authorization into a per-session one.
+**`cache:` remembers a verdict** for an identical *request*, so a busy route does not pay a round trip per page load. Only admissions are remembered, never refusals: somebody who has just been given access must not keep being turned away for the rest of the window. The key is a hash of everything the subrequest carried, the endpoint, the hostname, the method, the path, the visitor's address and the credential headers, so no secret is held in it and a `yes` for one path, or for one address, is never a `yes` for another. Your endpoint is told the method and the path and may answer on them, which is the ordinary way this pattern is used, so a cache that keyed on the credential alone would quietly turn a per-request authorization into a per-session one.
 
 The URL goes through the server's [outbound policy](threat-model.md), like every other destination the server is told to call.
 
