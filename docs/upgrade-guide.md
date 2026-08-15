@@ -40,8 +40,11 @@ log a warning when they differ. The protocol is designed to tolerate skew:
   the server announces on the handshake which methods it accepts from a
   client, and a client whose gate needs one that is missing **does not serve
   that service**, logging which side is too old. Only that service stops; the
-  client's others keep running. `none` and `basic` have always travelled and
-  are assumed of any server.
+  client's others keep running. What is assumed of a server that announces
+  nothing is exactly what the old scalar field can carry: `method: none`, or a
+  `basic` naming one `user:password`. A gate of any other shape, including a
+  `basic` naming two users, is held back there too, since the field that would
+  carry it is the one such a server ignores.
 - **A protocol-version bump signals a breaking frame change.** When the major
   tunnel behavior changes (the v1→v2 streamed-body frames, the v2→v3 per-stream
   flow control), both sides log the mismatch. Traffic still flows for the shared

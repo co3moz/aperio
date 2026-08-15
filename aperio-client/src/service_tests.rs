@@ -1503,6 +1503,41 @@ fn what_the_scalar_carries_still_reaches_a_server_that_never_heard_of_the_gramma
 }
 
 #[test]
+fn an_old_server_is_refused_a_policy_whose_shape_the_scalar_cannot_hold() {
+  // The case the method-name check misses, and the one that looks safest:
+  // every method named is one an old server understands, so nothing is
+  // exotic, but the *shape* has nowhere to go. The scalar holds one
+  // credential, and a policy holding two can only travel in the field an old
+  // server ignores, which would leave it reading no gate at all and serving
+  // the route open.
+  for yaml in [
+    "{method: basic, users: [\"admin:s3cret\", \"ops:hunter2\"]}",
+    "[{method: basic, users: \"a:b\"}, {method: basic, users: \"c:d\"}]",
+    "[{method: none}, {method: basic, users: \"a:b\"}]",
+  ] {
+    match negotiate_visitor_gate(None, Some(&policy_of(yaml))) {
+      GateNegotiation::TooOldForPolicy { wanted } => {
+        assert!(
+          wanted.iter().all(|m| m == "basic" || m == "none"),
+          "{yaml}: the methods are ordinary ones, which is the point: {wanted:?}"
+        );
+      }
+      other => panic!("{yaml} cannot be said to a server that announced nothing: {other:?}"),
+    }
+  }
+  // The same policy reaches a server that says it understands the grammar.
+  assert!(matches!(
+    negotiate_visitor_gate(
+      Some("none,basic,bearer,jwt"),
+      Some(&policy_of(
+        "{method: basic, users: [\"admin:s3cret\", \"ops:hunter2\"]}"
+      )),
+    ),
+    GateNegotiation::Methods(_)
+  ));
+}
+
+#[test]
 fn a_server_that_accepts_the_method_is_told_the_whole_policy() {
   let rich = policy_of("{method: bearer, secret: \"0123456789abcdef-secret\"}");
   match negotiate_visitor_gate(Some("none,basic,bearer,jwt"), Some(&rich)) {

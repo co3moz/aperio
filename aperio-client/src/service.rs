@@ -897,6 +897,16 @@ pub(crate) enum GateNegotiation {
     /// The methods it does, so the message names the way out.
     accepted: Vec<String>,
   },
+  /// This server announced nothing, so it predates the field a policy travels
+  /// in, and this policy cannot be said in the scalar it does read. Named
+  /// apart from [`Self::Unsupported`] because the method is not the problem:
+  /// an old server understands `basic` perfectly, it just has nowhere to put
+  /// two of them, and a message saying it "does not accept basic" would send
+  /// its reader looking for the wrong thing.
+  TooOldForPolicy {
+    /// The methods written, for the message.
+    wanted: Vec<String>,
+  },
 }
 
 /// Decides what to announce, given what the server said it accepts.
@@ -949,10 +959,19 @@ pub(crate) fn negotiate_visitor_gate(
       .iter()
       .all(|m| m.method.trim().eq_ignore_ascii_case("none"));
   if carried_by_scalar {
-    GateNegotiation::Scalar
-  } else {
-    GateNegotiation::Methods(specs)
+    return GateNegotiation::Scalar;
   }
+  // Past here the policy can only travel in the field an old server does not
+  // read, so an absent announcement refuses, even though every method named is
+  // in the fallback list. Checking the names alone is not enough: `basic` is
+  // one an old server understands, but two credentials under it have nowhere
+  // to go, the scalar holds one. Sending the rich field anyway is precisely
+  // the silent open route this negotiation exists to prevent, and it is the
+  // shape that looks safest, since nothing in the policy is exotic.
+  if announced.is_none() {
+    return GateNegotiation::TooOldForPolicy { wanted };
+  }
+  GateNegotiation::Methods(specs)
 }
 
 pub(crate) async fn run_service(
@@ -1351,6 +1370,18 @@ pub(crate) async fn run_service(
                   label,
                   wanted.join(", "),
                   accepted.join(", ")
+                );
+                continue;
+              }
+              GateNegotiation::TooOldForPolicy { ref wanted } => {
+                // Same refusal, different reason: the server is old enough
+                // that it never says what it accepts, and a gate of this shape
+                // can only be sent in a field it does not read. It would
+                // ignore that field, see no gate, and serve the route open.
+                error!(
+                  "[{}] This server is too old to be told an `auth:` of this shape (`{}`): it can only be given a single `user:password`. Not serving this service: upgrade the server, or write the gate as one credential. Retrying.",
+                  label,
+                  wanted.join(", ")
                 );
                 continue;
               }
