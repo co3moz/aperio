@@ -23,12 +23,64 @@ struct DiscoveryDoc {
   userinfo_endpoint: Option<String>,
 }
 
+/// Largest discovery document read back. Generous for a document of a dozen
+/// URLs, and a limit rather than a guess about the issuer's good behaviour.
+const MAX_DISCOVERY_BYTES: usize = 256 * 1024;
+
+/// Fetches JSON from an issuer, through the fence every other outbound call
+/// the server makes goes through.
+///
+/// The issuer URL comes from a configuration file (or from an organization's
+/// stored settings) and makes the *server* issue a request, which is the exact
+/// shape [`crate::outbound::OutboundPolicy`] exists to refuse. Redirects are
+/// not followed for the reason the check exists: a URL that passes the fence
+/// must not be able to hand the server a `Location` pointing behind it. The
+/// body is bounded while it is read, so an issuer, or anything answering as
+/// one, does not decide how much memory this costs.
+pub(crate) async fn fetch_json<T: serde::de::DeserializeOwned>(
+  policy: &crate::outbound::OutboundPolicy,
+  url: &str,
+) -> Result<T, FetchFailure> {
+  policy
+    .check(url)
+    .await
+    .map_err(|why| FetchFailure::Call(format!("refused by the outbound policy: {why}")))?;
+  let http = reqwest::Client::builder()
+    .timeout(std::time::Duration::from_secs(15))
+    .redirect(reqwest::redirect::Policy::none())
+    .build()
+    .map_err(|e| FetchFailure::Call(e.to_string()))?;
+  let res = http
+    .get(url)
+    .send()
+    .await
+    .and_then(|r| r.error_for_status())
+    .map_err(|e| FetchFailure::Call(e.to_string()))?;
+  let body = crate::outbound::read_bounded(res, MAX_DISCOVERY_BYTES)
+    .await
+    .ok_or_else(|| {
+      FetchFailure::Call(format!(
+        "unreadable, or larger than {MAX_DISCOVERY_BYTES} bytes"
+      ))
+    })?;
+  serde_json::from_str(&body).map_err(|e| FetchFailure::Parse(e.to_string()))
+}
+
+/// Which half of a fetch went wrong, kept apart because the two send an
+/// operator to different places: one is the network, the fence or the
+/// issuer's availability, the other is the document it served.
+pub(crate) enum FetchFailure {
+  Call(String),
+  Parse(String),
+}
+
 /// Builds an OIDC runtime by fetching the issuer's discovery document.
 /// Returns an error string on any misconfiguration instead of exiting, so it
 /// is safe to call for a per-organization override (a bad tenant config must
 /// not take the whole server down). `load_from_env` maps the error to a fatal
 /// startup exit; the per-org path surfaces it as a login failure.
 pub async fn build_runtime(
+  policy: &crate::outbound::OutboundPolicy,
   issuer: &str,
   client_id: &str,
   client_secret: &str,
@@ -50,16 +102,12 @@ pub async fn build_runtime(
   }
   let discovery_url = format!("{issuer}/.well-known/openid-configuration");
   info!("Fetching OIDC discovery document from {}", discovery_url);
-  let doc: DiscoveryDoc = reqwest::Client::new()
-    .get(&discovery_url)
-    .timeout(std::time::Duration::from_secs(15))
-    .send()
+  let doc: DiscoveryDoc = fetch_json(policy, &discovery_url)
     .await
-    .and_then(|r| r.error_for_status())
-    .map_err(|e| format!("failed to fetch OIDC discovery document: {e}"))?
-    .json()
-    .await
-    .map_err(|e| format!("failed to parse OIDC discovery document: {e}"))?;
+    .map_err(|e| match e {
+      FetchFailure::Call(why) => format!("failed to fetch OIDC discovery document: {why}"),
+      FetchFailure::Parse(why) => format!("failed to parse OIDC discovery document: {why}"),
+    })?;
   let userinfo_endpoint = doc
     .userinfo_endpoint
     .ok_or_else(|| "OIDC issuer does not advertise a userinfo_endpoint".to_string())?;
@@ -83,7 +131,7 @@ pub async fn build_runtime(
 /// Loads OIDC configuration from `APERIO_OIDC_*` environment variables. Returns
 /// `None` when the feature is not configured; exits the process on
 /// misconfiguration so a broken SSO setup never silently exposes the app.
-pub async fn load_from_env() -> Option<OidcRuntime> {
+pub async fn load_from_env(policy: &crate::outbound::OutboundPolicy) -> Option<OidcRuntime> {
   let issuer = std::env::var("APERIO_OIDC_ISSUER").ok()?;
   if issuer.trim().is_empty() {
     return None;
@@ -110,6 +158,7 @@ pub async fn load_from_env() -> Option<OidcRuntime> {
     );
   }
   match build_runtime(
+    policy,
     &issuer,
     &std::env::var("APERIO_OIDC_CLIENT_ID").unwrap_or_default(),
     &std::env::var("APERIO_OIDC_CLIENT_SECRET").unwrap_or_default(),

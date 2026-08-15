@@ -116,9 +116,18 @@ deployments point webhooks at a service on the same network. Controls:
   that was configured, so following a `Location` would mean the destination it
   vetted is not the destination that receives the request: an allowed receiver
   could answer `302` and aim the server wherever the fence exists to refuse.
-  This covers webhook deliveries, autoscaling hooks, and the key-set fetch a
-  `jwt` visitor-auth method makes. A redirect is reported as the status it is,
-  which is also what tells an operator their receiver has moved.
+  This covers webhook deliveries, autoscaling hooks, the key-set fetch a
+  `jwt` visitor-auth method makes, the endpoint a `forward` method asks, and
+  the OIDC calls: discovery, token exchange and userinfo. A redirect is
+  reported as the status it is, which is also what tells an operator their
+  receiver has moved.
+- **The OIDC issuer is a callback destination too**, and is fenced like the
+  rest: the discovery URL comes from configuration (or from an organization's
+  stored settings), and the token and userinfo endpoints come out of the
+  document that URL serves, which means they are chosen by something outside
+  the deployment. They are checked against the policy at each login rather than
+  once at startup, so a fence tightened later covers a runtime already built.
+  Every answer is size-bounded while it is read.
 
 Both default to off, so this boundary is only as tight as the operator makes
 it. Tighten it wherever webhook creators are not fully trusted, which in

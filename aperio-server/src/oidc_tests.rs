@@ -12,6 +12,14 @@ use axum::routing::get;
 use std::sync::Mutex;
 use tokio::net::TcpListener;
 
+/// The default outbound policy: no restriction, which is what a deployment
+/// that has not configured one has. The mock IdP below is on loopback, so a
+/// restricting policy is a case of its own rather than the background for
+/// every other test.
+fn open_policy() -> crate::outbound::OutboundPolicy {
+  crate::outbound::OutboundPolicy::default()
+}
+
 /// Spawns a mock IdP that answers the discovery endpoint with a fixed
 /// `status`/`body`, returning the base issuer URL (`http://127.0.0.1:<port>`).
 /// The background task is torn down when the test's tokio runtime shuts down.
@@ -112,6 +120,7 @@ fn email_allowed_domain_prefix_trickery() {
 #[tokio::test]
 async fn build_runtime_rejects_empty_issuer() {
   let err = build_runtime(
+    &open_policy(),
     "   /",
     "id",
     "secret",
@@ -128,6 +137,7 @@ async fn build_runtime_rejects_empty_issuer() {
 #[tokio::test]
 async fn build_runtime_rejects_missing_client_credentials() {
   let err = build_runtime(
+    &open_policy(),
     "https://issuer.example",
     "   ",
     "secret",
@@ -141,6 +151,7 @@ async fn build_runtime_rejects_missing_client_credentials() {
   assert!(err.contains("client id / client secret"), "{err}");
 
   let err2 = build_runtime(
+    &open_policy(),
     "https://issuer.example",
     "id",
     "",
@@ -157,6 +168,7 @@ async fn build_runtime_rejects_missing_client_credentials() {
 #[tokio::test]
 async fn build_runtime_rejects_empty_allowed_emails() {
   let err = build_runtime(
+    &open_policy(),
     "https://issuer.example",
     "id",
     "secret",
@@ -178,6 +190,7 @@ async fn build_runtime_success_trims_issuer_and_maps_endpoints() {
 
   // Pass the issuer with a trailing slash to exercise the trim.
   let rt = build_runtime(
+    &open_policy(),
     &format!("{base}/"),
     "my-id",
     "my-secret",
@@ -209,6 +222,7 @@ async fn build_runtime_success_trims_issuer_and_maps_endpoints() {
 async fn build_runtime_errors_on_non_200_discovery() {
   let base = spawn_idp(StatusCode::INTERNAL_SERVER_ERROR, "boom".into()).await;
   let err = build_runtime(
+    &open_policy(),
     &base,
     "id",
     "secret",
@@ -231,6 +245,7 @@ async fn build_runtime_errors_on_connection_refused() {
   };
   let base = format!("http://{addr}");
   let err = build_runtime(
+    &open_policy(),
     &base,
     "id",
     "secret",
@@ -248,6 +263,7 @@ async fn build_runtime_errors_on_connection_refused() {
 async fn build_runtime_errors_on_malformed_json() {
   let base = spawn_idp(StatusCode::OK, "not json at all".into()).await;
   let err = build_runtime(
+    &open_policy(),
     &base,
     "id",
     "secret",
@@ -268,6 +284,7 @@ async fn build_runtime_errors_when_userinfo_missing() {
   })
   .await;
   let err = build_runtime(
+    &open_policy(),
     &base,
     "id",
     "secret",
@@ -314,11 +331,11 @@ async fn load_from_env_covers_none_and_success() {
 
   // 1) Issuer unset -> None.
   clear_env();
-  assert!(load_from_env().await.is_none());
+  assert!(load_from_env(&open_policy()).await.is_none());
 
   // 2) Issuer present but whitespace-only -> None.
   unsafe { std::env::set_var("APERIO_OIDC_ISSUER", "   ") };
-  assert!(load_from_env().await.is_none());
+  assert!(load_from_env(&open_policy()).await.is_none());
 
   // 3) Fully configured -> Some, using a live mock IdP. Leave SCOPES unset to
   //    exercise the default-scopes branch, and set a redirect override.
@@ -334,7 +351,9 @@ async fn load_from_env_covers_none_and_success() {
     std::env::set_var("APERIO_OIDC_REDIRECT_URL", "https://app.example/cb");
   }
 
-  let rt = load_from_env().await.expect("should load runtime");
+  let rt = load_from_env(&open_policy())
+    .await
+    .expect("should load runtime");
   assert_eq!(rt.token_endpoint, format!("{base}/token"));
   assert_eq!(rt.userinfo_endpoint, format!("{base}/userinfo"));
   // Default scopes applied when APERIO_OIDC_SCOPES is unset.
@@ -350,4 +369,31 @@ async fn load_from_env_covers_none_and_success() {
   );
 
   clear_env();
+}
+
+#[tokio::test]
+async fn the_issuer_goes_through_the_outbound_policy() {
+  // A URL from a configuration file that makes the server issue a request is
+  // the shape the policy exists to fence, and the OIDC issuer is one: this
+  // fetch was the last place in the server still making it unfenced, so a
+  // discovery URL could aim the server at the metadata service and the parsed
+  // answer decided where logins were sent next.
+  let base = spawn_idp_self(good_doc).await;
+  let blocking = crate::outbound::OutboundPolicy {
+    allowlist: Vec::new(),
+    block_private: true,
+  };
+  let err = build_runtime(
+    &blocking,
+    &base,
+    "id",
+    "secret",
+    vec!["*".into()],
+    "openid".into(),
+    None,
+  )
+  .await
+  .err()
+  .expect("a loopback issuer is refused when private destinations are blocked");
+  assert!(err.contains("outbound policy"), "{err}");
 }

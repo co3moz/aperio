@@ -1397,8 +1397,10 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     );
   }
 
-  // OIDC SSO configuration (optional).
-  let oidc_runtime = oidc::load_from_env().await;
+  // OIDC SSO configuration (optional). The issuer is a configured URL the
+  // server fetches from, so it goes through the outbound fence like every
+  // other one, which is also why this runs after the config is resolved.
+  let oidc_runtime = oidc::load_from_env(&config.outbound_policy).await;
 
   // Copied out before config moves into the state (values needed by the
   // live structures below).

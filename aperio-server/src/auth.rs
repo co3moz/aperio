@@ -51,6 +51,12 @@ pub(crate) struct LockoutTracker {
 /// Upper bound on an escalated lockout window.
 const LOCKOUT_MAX: Duration = Duration::from_secs(3600);
 
+/// Largest answer read back from an OIDC token or userinfo endpoint.
+///
+/// Both are a handful of fields, so this is generous rather than tight; what
+/// it rules out is the endpoint deciding how much memory a login costs.
+const OIDC_MAX_ANSWER_BYTES: usize = 256 * 1024;
+
 impl LockoutTracker {
   pub(crate) fn new(threshold: u32, base: Duration) -> Self {
     Self {
@@ -1172,6 +1178,7 @@ pub(crate) async fn resolve_org_oidc(
   }
   let cfg = state.org_store.lock().await.find(org_id)?.oidc.clone()?;
   match crate::oidc::build_runtime(
+    &state.config().outbound_policy,
     &cfg.issuer,
     &cfg.client_id,
     &cfg.client_secret,
@@ -1342,9 +1349,24 @@ pub(crate) async fn oidc_callback_handler(
   // match the one the authorization request carried, and this request's `Host`
   // is not something to settle that with.
 
+  // Both endpoints come out of the issuer's own discovery document, which is
+  // to say they are chosen by something outside this deployment, so they go
+  // through the outbound fence before the server calls them. Checked here
+  // rather than once at build time because a runtime is cached and reused,
+  // and a fence tightened afterwards should cover it.
+  for endpoint in [&rt.token_endpoint, &rt.userinfo_endpoint] {
+    if let Err(why) = state.config().outbound_policy.check(endpoint).await {
+      error!("Refusing to call the OIDC endpoint {endpoint}: {why}");
+      return (StatusCode::BAD_GATEWAY, "OIDC endpoint refused").into_response();
+    }
+  }
   // Exchange the authorization code for an access token.
   let http = match reqwest::Client::builder()
     .timeout(Duration::from_secs(15))
+    // Not followed, for the reason the check above exists: an endpoint that
+    // passes the fence must not be able to answer with a `Location` pointing
+    // behind it, and this is the request that carries the client secret.
+    .redirect(reqwest::redirect::Policy::none())
     .build()
   {
     Ok(c) => c,
@@ -1371,13 +1393,21 @@ pub(crate) async fn oidc_callback_handler(
     access_token: String,
   }
   let access_token = match token_res {
-    Ok(res) if res.status().is_success() => match res.json::<TokenResponse>().await {
-      Ok(t) => t.access_token,
-      Err(e) => {
-        error!("OIDC token response parse error: {}", e);
-        return (StatusCode::BAD_GATEWAY, "OIDC token exchange failed").into_response();
+    // Bounded while it is read, like every other answer the server takes from
+    // somewhere it does not run: an endpoint that decides how much memory a
+    // login costs is an endpoint that can end the process.
+    Ok(res) if res.status().is_success() => {
+      match crate::outbound::read_bounded(res, OIDC_MAX_ANSWER_BYTES)
+        .await
+        .and_then(|body| serde_json::from_str::<TokenResponse>(&body).ok())
+      {
+        Some(t) => t.access_token,
+        None => {
+          error!("OIDC token response was unreadable, oversized, or not a token response");
+          return (StatusCode::BAD_GATEWAY, "OIDC token exchange failed").into_response();
+        }
       }
-    },
+    }
     Ok(res) => {
       warn!("OIDC token endpoint returned {}", res.status());
       return (StatusCode::UNAUTHORIZED, "OIDC token exchange rejected").into_response();
@@ -1401,13 +1431,18 @@ pub(crate) async fn oidc_callback_handler(
     .send()
     .await;
   let (email, email_verified) = match userinfo {
-    Ok(res) if res.status().is_success() => match res.json::<UserInfo>().await {
-      Ok(u) => (u.email.unwrap_or_default(), u.email_verified),
-      Err(e) => {
-        error!("OIDC userinfo parse error: {}", e);
-        return (StatusCode::BAD_GATEWAY, "OIDC userinfo failed").into_response();
+    Ok(res) if res.status().is_success() => {
+      match crate::outbound::read_bounded(res, OIDC_MAX_ANSWER_BYTES)
+        .await
+        .and_then(|body| serde_json::from_str::<UserInfo>(&body).ok())
+      {
+        Some(u) => (u.email.unwrap_or_default(), u.email_verified),
+        None => {
+          error!("OIDC userinfo was unreadable, oversized, or not a userinfo document");
+          return (StatusCode::BAD_GATEWAY, "OIDC userinfo failed").into_response();
+        }
       }
-    },
+    }
     _ => {
       return (StatusCode::BAD_GATEWAY, "OIDC userinfo failed").into_response();
     }
