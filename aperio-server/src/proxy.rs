@@ -587,21 +587,30 @@ async fn apply_request_methods(
 /// `method` is here only to tell a browser navigation from a call by
 /// something that speaks in headers, which decides the shape of a refusal and
 /// what happens to a secret presented in the URL.
+///
+/// `caller_ip` is the address the rest of the server already decided this
+/// request came from, and it is passed in rather than read here **because a
+/// gate may not do its own version of that decision**. `X-Forwarded-For` is a
+/// header any visitor can write, so it is worth something only after
+/// `trust_proxy` and `trusted_proxies` have been applied to it, which is what
+/// `extract_client_ip` does for rate limiting, the access log and every other
+/// consumer. A gate that read the raw header would be the one place in the
+/// server where a visitor picks their own address, and it would hand that
+/// choice to an endpoint deciding whether to let them in.
 pub(crate) async fn check_visitor_gate(
   state: &Arc<AppState>,
   method: &axum::http::Method,
   headers: &HeaderMap,
   uri: &axum::http::Uri,
   host: Option<&str>,
+  caller_ip: std::net::IpAddr,
 ) -> VisitorGate {
   let path = uri.path();
-  // Resolved once, and only where a `forward` method will send it on: the
-  // header is what tells the endpoint who is asking.
-  let visitor_ip: Option<String> = headers
-    .get("x-forwarded-for")
-    .and_then(|v| v.to_str().ok())
-    .and_then(|v| v.split(',').next())
-    .map(|v| v.trim().to_string());
+  // Used only where a `forward` method will send it on: the header is what
+  // tells the endpoint who is asking. Always present, because the socket's own
+  // peer is the fallback, so an endpoint that decides on the address is never
+  // asked about a visitor who appears to have none.
+  let visitor_ip = caller_ip.to_string();
   let navigation = is_navigation(method, headers);
 
   // 0. Traversal paths never weaken the gate. `/a/../b` matches an `/a` path
@@ -727,16 +736,7 @@ pub(crate) async fn check_visitor_gate(
   // its chance below.
   let mut delegated_refusal = None;
   for cfg in policy.forward_methods() {
-    match crate::forward_auth::ask(
-      state,
-      cfg,
-      method,
-      headers,
-      uri,
-      host,
-      visitor_ip.as_deref(),
-    )
-    .await
+    match crate::forward_auth::ask(state, cfg, method, headers, uri, host, Some(&visitor_ip)).await
     {
       crate::forward_auth::Verdict::Allow(carried) => {
         return VisitorGate::Allow(Some(VisitorIdentity {
@@ -1107,6 +1107,7 @@ async fn proxy_http_request(
     &headers,
     &uri,
     extract_request_host(&headers).as_deref(),
+    caller_ip,
   )
   .await
   {

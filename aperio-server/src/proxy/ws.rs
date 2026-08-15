@@ -96,6 +96,7 @@ pub(crate) async fn handle_ws_proxy(
     &headers,
     &uri,
     extract_request_host(&headers).as_deref(),
+    caller_ip,
   )
   .await
   {

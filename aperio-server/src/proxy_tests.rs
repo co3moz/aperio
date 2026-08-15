@@ -354,6 +354,29 @@ fn cache_hit_if_range_mismatch_serves_full() {
 
 // --- check_visitor_gate ------------------------------------------------------
 
+/// The address a test's visitor arrives from, where the test is about
+/// something else.
+const VISITOR_IP: std::net::IpAddr = std::net::IpAddr::V4(std::net::Ipv4Addr::new(203, 0, 113, 7));
+
+/// [`crate::proxy::check_visitor_gate`] with an address supplied.
+///
+/// The gate takes the caller's address because a `forward` method tells the
+/// endpoint who is asking, and it takes it as an argument rather than reading
+/// `X-Forwarded-For` itself, since that header is worth something only after
+/// the trusted-proxy rules have been applied to it. Nearly every test here is
+/// about something other than where the request came from, so they go through
+/// this; a test that *is* about the address calls the real one and passes its
+/// own.
+async fn check_visitor_gate(
+  state: &Arc<AppState>,
+  method: &axum::http::Method,
+  headers: &HeaderMap,
+  uri: &axum::http::Uri,
+  host: Option<&str>,
+) -> VisitorGate {
+  crate::proxy::check_visitor_gate(state, method, headers, uri, host, VISITOR_IP).await
+}
+
 #[tokio::test]
 async fn visitor_gate_allows_without_auth() {
   let state = Arc::new(test_state_with(test_config()));
@@ -1950,6 +1973,71 @@ async fn the_credential_that_opened_the_gate_does_not_travel_to_the_backend() {
     VisitorGate::Allow(Some(id)) => assert!(!id.consumed_authorization),
     _ => panic!("expected an admitted query caller"),
   }
+}
+
+#[tokio::test]
+async fn a_forward_endpoint_is_told_the_address_the_server_decided_on() {
+  // `X-Forwarded-For` is a header any visitor can write, and the gate is the
+  // last place that should take one at face value: the address it sends is
+  // what an endpoint allowlisting source addresses decides on. So the gate is
+  // handed the address the trusted-proxy rules already produced, and a visitor
+  // writing their own header changes nothing. A visitor behind no proxy at all
+  // still has one, the socket's own peer, rather than reaching the endpoint as
+  // an unnamed caller its rules can never match.
+  let seen = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = listener.local_addr().unwrap().port();
+  let seen_task = seen.clone();
+  tokio::spawn(async move {
+    while let Ok((mut sock, _)) = listener.accept().await {
+      let seen = seen_task.clone();
+      tokio::spawn(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut buf = vec![0u8; 4096];
+        let n = sock.read(&mut buf).await.unwrap_or(0);
+        seen
+          .lock()
+          .unwrap()
+          .push(String::from_utf8_lossy(&buf[..n]).to_ascii_lowercase());
+        let _ = sock
+          .write_all(b"HTTP/1.1 403 X\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+          .await;
+      });
+    }
+  });
+
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::compile(
+    &serde_yaml::from_str(&format!(
+      "{{method: forward, url: \"http://127.0.0.1:{port}/authcheck\"}}"
+    ))
+    .unwrap(),
+  );
+  let state = Arc::new(test_state_with(cfg));
+
+  let mut spoofed = HeaderMap::new();
+  spoofed.insert("x-forwarded-for", HeaderValue::from_static("10.0.0.5"));
+  let gate = crate::proxy::check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &spoofed,
+    &"/private".parse().unwrap(),
+    None,
+    std::net::IpAddr::V4(std::net::Ipv4Addr::new(198, 51, 100, 9)),
+  )
+  .await;
+  assert!(matches!(gate, VisitorGate::Deny(_)), "the endpoint refused");
+
+  let asked = seen.lock().unwrap();
+  let raw = asked.first().expect("the endpoint was asked");
+  assert!(
+    raw.contains("x-forwarded-for: 198.51.100.9"),
+    "the endpoint is told the address the server decided on: {raw}"
+  );
+  assert!(
+    !raw.contains("10.0.0.5"),
+    "and never the one the visitor wrote for themselves: {raw}"
+  );
 }
 
 #[tokio::test]
