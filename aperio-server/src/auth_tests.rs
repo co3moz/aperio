@@ -845,12 +845,56 @@ async fn validate_session_for_host_matches_scope() {
     None,
   )
   .await;
-  // Global session works for any host.
+  // An unfenced (master) global session works for any host.
   assert!(validate_session_for_host(&state, &cookie_headers(&global), Some("anything")).await);
   // Scoped session only for its exact host.
   assert!(validate_session_for_host(&state, &cookie_headers(&scoped), Some("host.test")).await);
   assert!(!validate_session_for_host(&state, &cookie_headers(&scoped), Some("other")).await);
   assert!(!validate_session_for_host(&state, &HeaderMap::new(), Some("host.test")).await);
+}
+
+#[tokio::test]
+async fn a_clients_own_gate_is_fenced_by_organization_too() {
+  // The gate a client declares for itself is checked before the server's own,
+  // and it asked only "is this a global session", which the fix for the
+  // server's gate had already established is the wrong question here: a
+  // session fixed to one organization reaches every hostname on the server.
+  // So a Viewer of org A could open org B's site whenever B's gate was B's
+  // own, which is the ordinary way a client gates itself.
+  let state = test_state();
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("orga", vec!["a.example.com".to_string()], None)
+    .expect("an organization");
+  let now = crate::store::sessions::now_secs();
+  let fenced = seed_custom(
+    &state,
+    now + 100,
+    None,
+    None,
+    Role::Viewer,
+    None,
+    Some(org.id.clone()),
+  )
+  .await;
+  let headers = cookie_headers(&fenced);
+
+  // Real and global, or the refusal below would pass for the wrong reason.
+  assert!(validate_session(&state, &headers).await);
+  assert!(
+    validate_session_for_host(&state, &headers, Some("a.example.com")).await,
+    "its own organization's hostname is still reachable"
+  );
+  assert!(
+    !validate_session_for_host(&state, &headers, Some("b.example.com")).await,
+    "another organization's hostname is not"
+  );
+  assert!(
+    !validate_session_for_host(&state, &headers, None).await,
+    "nor is a request that names no hostname to fence against"
+  );
 }
 
 #[tokio::test]

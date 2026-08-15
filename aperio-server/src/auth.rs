@@ -1083,15 +1083,26 @@ pub(crate) async fn session_username_any_scope(
   info.username.clone()
 }
 
-/// Validates the `aperio_session` cookie for a proxied request to `host`.
-/// Accepts a global session, or a session scoped to exactly this host.
+/// Validates the `aperio_session` cookie for a proxied request to `host`,
+/// where the gate in front of it is a **client's own**.
+///
+/// A session scoped to exactly this hostname is what the per-service login
+/// creates, and it is already as narrow as any fence could make it: it was
+/// issued by the gate on this very name and reaches nothing else.
+///
+/// A *global* session is the other kind, and it reaches every hostname on the
+/// server, which is the same reach [`validate_session_for_visitor`] exists to
+/// fence. So it is asked the same question here. This function used to answer
+/// `true` for one unconditionally, which left the cross-tenant hole open on
+/// exactly the routes a client gates for itself: the fix that closed it for
+/// the server's own gate did not reach the two branches that come first.
 pub(crate) async fn validate_session_for_host(
   state: &AppState,
   headers: &HeaderMap,
   host: Option<&str>,
 ) -> bool {
   match session_scope(state, headers).await {
-    Some(None) => true,
+    Some(None) => validate_session_for_visitor(state, headers, host).await,
     Some(Some(scope)) => host.is_some_and(|h| h == scope),
     None => false,
   }
