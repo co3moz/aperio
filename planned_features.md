@@ -221,6 +221,43 @@ readable without scrolling past what is already done.
     the proxy environment, so turning this on cannot start routing local
     traffic through the company proxy by accident.
 
+- [ ] **#118 An egress proxy the server is told about, so the outbound policy
+  and a proxy can both be in force.** Today they cannot, and the server
+  refuses to start when it finds both, because the policy decides by resolving
+  the destination locally while a proxy resolves it on its own network and
+  connects for us. That refusal is honest but it is a refusal: an operator
+  whose server can only reach the internet through a proxy has to give up
+  `APERIO_OUTBOUND_BLOCK_PRIVATE` to get out at all, which is the wrong way
+  round for the deployment that most needs the fence.
+
+  The fix is the same shape as `#117` on the client, and the reason it is a
+  separate entry is that the server has the policy to reconcile and the client
+  does not.
+
+  - **The proxy becomes configuration, not ambient environment.** An explicit
+    `egress_proxy:` (with `APERIO_EGRESS_PROXY`) that the server reads, and the
+    ambient `HTTP_PROXY` family stops being consulted by the outbound clients.
+    Reading the environment is what made this quiet: nothing in the deployment
+    ever said "these callbacks go through a proxy", it was simply inherited.
+  - **What the policy means under a proxy has to be decided, not assumed.**
+    Resolving locally and checking addresses is no longer the mechanism, so
+    the choices are to check the *name* against the allowlist and drop the
+    resolution-based half (honest, weaker, and it must say which entries it
+    can no longer honor), or to keep resolving locally as an approximation and
+    document it as advisory. The first is preferable: a check that is exact
+    about a smaller claim beats one that is vague about a larger one.
+    Whichever is chosen, `block_private` cannot be enforced through a proxy at
+    all and the startup log should say so in one line.
+  - **A `no_proxy`-style exception list is part of this, not a follow-up.** The
+    common server shape is a `forward` auth endpoint or an OIDC issuer inside
+    the network and webhooks outside it, so a single switch is not enough.
+    Note that reqwest was measured *not* to honor `NO_PROXY=*` as
+    bypass-everything, so this list has to be ours and applied by us rather
+    than delegated to the client library's own parsing.
+  - When it lands, the startup refusal added with the #117 work goes away and
+    its `CONFIG_CHANGES` entry gets a successor saying the combination is
+    supported again.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
