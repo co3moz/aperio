@@ -191,8 +191,15 @@ fn refusal() -> Response {
 async fn relay(res: reqwest::Response) -> Response {
   let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::FORBIDDEN);
   let mut builder = Response::builder().status(status);
+  // Every value, not the first one. `Set-Cookie` is the header that is
+  // routinely sent more than once and the one that may not be folded into a
+  // comma-joined line, and a refusal that sets two of them is the ordinary
+  // shape of a login handoff: clear the stale session, set the nonce the login
+  // is about to check. Keeping only the first sends the visitor into that
+  // login missing half of what it needs, so it fails or loops. The same is
+  // true of `WWW-Authenticate`, which carries one line per challenge offered.
   for name in ["location", "content-type", "www-authenticate", "set-cookie"] {
-    if let Some(value) = res.headers().get(name) {
+    for value in res.headers().get_all(name) {
       builder = builder.header(name, value);
     }
   }

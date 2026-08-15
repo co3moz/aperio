@@ -233,6 +233,49 @@ async fn a_refusal_is_the_endpoints_own_answer() {
 }
 
 #[tokio::test]
+async fn a_refusal_keeps_every_cookie_it_set() {
+  // A login handoff is routinely two `Set-Cookie` lines, clearing the stale
+  // session and setting the nonce the login is about to check, and the header
+  // may not be folded into one. Relaying only the first sends the visitor into
+  // that login missing half of what it needs.
+  let ep = endpoint(
+    302,
+    vec![
+      ("location", "https://sso.example.com/start"),
+      ("set-cookie", "session=; Max-Age=0"),
+      ("set-cookie", "login_nonce=abc; HttpOnly"),
+    ],
+  )
+  .await;
+  let state = test_state();
+  match ask(
+    &state,
+    &config(&ep.url),
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &"/".parse().unwrap(),
+    None,
+    None,
+  )
+  .await
+  {
+    Verdict::Deny(resp) => {
+      let cookies: Vec<&str> = resp
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .map(|v| v.to_str().unwrap())
+        .collect();
+      assert_eq!(
+        cookies,
+        vec!["session=; Max-Age=0", "login_nonce=abc; HttpOnly"]
+      );
+    }
+    Verdict::Allow(_) => panic!("expected deny"),
+  }
+}
+
+#[tokio::test]
 async fn an_endpoint_that_cannot_be_reached_refuses_the_request() {
   // An auth gate that opens when its check is unreachable is not a gate. The
   // endpoint's availability becomes the route's, and that is the trade.

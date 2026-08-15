@@ -30,6 +30,10 @@ project follows semantic versioning per release tag.
 
   **This changes what an existing token may do.** A token that today subscribes to `$aperio/...` on the strength of a `#` or `*` grant stops receiving those events after the upgrade and logs the refusal by name on every reconnect; give it the namespace explicitly (`topics: ["#", "$aperio/client/#"]`) to restore it. The master token is unaffected, it is unrestricted everywhere, and so is any token that already named the namespace. Nothing else about the grant changes, and no configuration file is involved: `topics` lives on the token, in the store and the API, not in `aperio-server.yaml`.
 
+### Fixed
+
+- **A `forward` refusal that set more than one cookie lost all but the first.** The refusal an endpoint gives is forwarded to the visitor verbatim, which is the point of the method, but only the first value of each header was copied. `Set-Cookie` is precisely the header that is sent more than once and may not be folded into a comma-joined line, and a login handoff is routinely two of them: clear the stale session, set the nonce the login is about to check. The visitor arrived at the endpoint's own login missing half of what it had just been sent, so the login failed or looped, on every gated request. Every value of each relayed header now crosses, which also covers `WWW-Authenticate` offering more than one challenge.
+
 ### Added
 
 - **A Helm chart for the server, and a documented sidecar for the client.** The largest population of self-hosted deployments is on Kubernetes and there was no supported way in. `charts/aperio-server` is a StatefulSet with a PersistentVolume for the SQLite store, a Service, an optional Ingress, a Secret for the master token, and the `healthz`/`readyz` probes wired to what they were built for.
