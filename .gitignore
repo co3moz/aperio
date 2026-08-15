@@ -50,3 +50,5 @@ tests/conformance/.data/
 
 # Staged binaries for the native-package build (packaging/nfpm-*.yaml)
 /dist/
+tests/conformance/.data-h2/
+tests/conformance/.h2spec/

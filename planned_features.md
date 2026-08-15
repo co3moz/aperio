@@ -81,10 +81,6 @@ readable without scrolling past what is already done.
   rather than inventing a second one, which is the trap every chart falls
   into.
 
-- [ ] **#97 HTTP/2 conformance for the `h2://` path, with h2spec.** The same
-  argument, one layer down and smaller in scope, since the HTTP/2 surface is a
-  backend transport rather than something a visitor speaks to us.
-
 - [ ] **#98 A scheduled soak run that reports the memory curve.** `tests/soak.js`
   exists and is run by hand, which means it is run when someone suspects
   something, which is after the fact. Weekly, against a stack the workflow
@@ -523,6 +519,37 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#97 HTTP/2 conformance for the `h2://` path, with h2spec.** The same
+  argument as `#96`, one layer down and smaller in scope, since the HTTP/2
+  surface is a backend transport rather than something a visitor speaks to us.
+  shipped: `tests/conformance/h2spec.mjs` and a second job in
+  `conformance.yml`. No Docker this time, h2spec is one Go binary the harness
+  downloads for itself.
+  - **The entry's premise was half wrong, and the better half is what got
+    tested.** `axum::serve` accepts h2c with prior knowledge, so a visitor
+    *can* speak HTTP/2 to the server directly, which is a visitor-facing
+    surface and exactly what h2spec is built to examine. Confirmed with
+    `curl --http2-prior-knowledge` before anything was written. The
+    client-side `h2://` role is still not covered and cannot be by this tool:
+    h2spec tests servers, and testing a client needs a deliberately
+    non-conformant server, which is a different entry.
+  - **The gate is the delta between two runs**, the server answering for
+    itself and the same server proxying, because nearly every case exercises
+    hyper's frame handling rather than ours: an absolute score describes the
+    stack. Same reasoning as `#96`'s choice of a backend that passes the suite
+    on its own.
+  - **A delta is re-confirmed before it fails the build.** Measuring first
+    showed the GOAWAY cases to be timing-sensitive: over four runs "Sends a
+    GOAWAY frame" failed three times and "GOAWAY with unknown error code"
+    once, on otherwise identical paths. Two of three trial runs of the
+    finished harness saw a case differ and neither survived the confirmation,
+    so without that step this gate would have failed the build most of the
+    time it ran.
+  - Measured on this stack: 146 cases, two failing on both paths and
+    therefore not gating (`http2/3.5 Sends invalid connection preface`,
+    `generic/3.8 Sends a GOAWAY frame`), and nothing regressing through the
+    tunnel.
 
 - [x] **#54 Encrypted backups.** (triage 35) Scheduled snapshots of the SQLite
   store were written in the clear, and that store holds hashed credentials,

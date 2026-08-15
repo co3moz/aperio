@@ -9,7 +9,8 @@ are the other kind of evidence. They are also the only kind a prospective
 user can weigh without reading our code, which for a proxy is the whole
 question.
 
-Not part of `npm --prefix tests/e2e test`: they need Docker and take minutes.
+Not part of `npm --prefix tests/e2e test`: they take minutes, and the Autobahn
+run needs Docker.
 
 ## Autobahn (WebSocket)
 
@@ -68,3 +69,48 @@ The HTML report lands in `reports/` and is published as a CI artifact.
 [`conformance.yml`](../../.github/workflows/conformance.yml) runs this
 weekly and on demand, not per push: it is minutes long and the thing it
 checks changes rarely. A failure is a bug in the relay, not a flaky test.
+
+## h2spec (HTTP/2)
+
+```bash
+node tests/conformance/h2spec.mjs          # both runs and the comparison
+node tests/conformance/h2spec.mjs --keep   # keep the processes and data dir
+```
+
+[h2spec](https://github.com/summerwind/h2spec) is the conformance suite for
+RFC 9113, 146 cases over frames, flow control, header compression and stream
+states. It is a conformance *client*, so it tests servers, and there is a
+server here to test: `axum::serve` accepts **h2c with prior knowledge**, so a
+visitor can speak HTTP/2 to Aperio directly. The binary is a single Go
+executable, downloaded into `.h2spec/` on first run.
+
+It runs twice against one server:
+
+```
+[ h2spec ] --h2c--> [ aperio-server ]                          (baseline)
+[ h2spec ] --h2c--> [ aperio-server ] ==tunnel==> [ backend ]  (proxied)
+```
+
+**The gate is the difference between them**, and that is the point rather
+than a detail. Nearly every case exercises frame and connection handling that
+belongs to hyper, so an absolute score describes the stack and not this
+project. A case that passes when the server answers for itself and fails when
+the same server is proxying describes the relay, and only the relay. It is
+the same reasoning that made the Autobahn run use a backend that passes the
+suite on its own.
+
+A difference is **re-run on both sides before it fails the build**, because
+the GOAWAY cases turned out to be timing-sensitive here: across four
+measured runs, "Sends a GOAWAY frame" failed three times and "GOAWAY with
+unknown error code" once, on paths that were otherwise identical. Two of
+three trial runs of this harness saw a case differ and none of them survived
+the confirmation. A gate that flakes is worse than no gate.
+
+At the time of writing the stack fails two cases on both paths, so neither
+gates: `http2/3.5 Sends invalid connection preface` and `generic/3.8 Sends a
+GOAWAY frame`. `reports/h2spec-summary.json` records the run.
+
+**What this does not cover:** the `h2://` *backend* transport, where Aperio is
+the HTTP/2 client. h2spec tests servers; testing a client needs a
+deliberately non-conformant server, which is a different tool and a different
+entry.
