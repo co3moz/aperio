@@ -182,6 +182,45 @@ readable without scrolling past what is already done.
     old, and what to upgrade. The failure to avoid is a connection that comes
     up and misbehaves three layers deeper.
 
+- [ ] **#117 Dial the tunnel through an egress proxy.** Plenty of companies
+  allow no direct outbound connection at all: everything leaves through an
+  HTTP proxy, and a client that cannot be pointed at one simply does not work
+  there. Today `dial.rs` resolves the server's addresses and opens the socket
+  itself, and tokio-tungstenite has no proxy layer, so there is nowhere to put
+  one without this.
+
+  The seam already exists and is narrow. `connect_ws` is the only place a
+  tunnel socket is created, so the change is to connect to the proxy instead,
+  send `CONNECT host:443`, and hand the resulting stream to the same TLS and
+  WebSocket handshake unchanged. TLS stays end to end through the tunnel the
+  proxy opens, so the proxy sees the hostname and nothing else, which is also
+  what makes this safe to offer.
+
+  - **Do not call it `proxy`.** In the client that word already means the
+    *reverse* proxy to the local backend, the whole `crate::proxy::` tree.
+    A second meaning in the same crate is how the wrong one gets edited.
+    `egress` for the module, `egress_proxy:` for the key.
+  - **Scope is HTTP `CONNECT`.** It covers the overwhelming majority of
+    corporate setups. SOCKS5 can follow if anyone asks; TLS interception, a
+    proxy presenting its own certificate, is deliberately not in scope, since
+    trusting an extra root is the operator's decision and not a setting.
+  - **Config reaches every surface in the same commit** per the rules above:
+    the yaml field, `APERIO_EGRESS_PROXY`, `docs/configuration.md`, and the
+    book's reference table. `ip_family` is the precedent to copy, including
+    that it is process-wide and read once at startup.
+  - **Credentials are a secret.** `Proxy-Authorization: Basic` covers most
+    deployments, the value must be injectable from the environment, and it is
+    masked in `--print-config` the way the token already is.
+  - **Two things that are easy to get wrong.** With a proxy configured,
+    `ip_family` and the address fallback apply to the *proxy's* addresses, not
+    the server's, because the server's name is resolved by the proxy; say so
+    in the docs rather than leaving an operator to infer it. And a proxy that
+    refuses `CONNECT` must fail with a message naming the proxy and the status
+    it returned, not a generic dial failure three layers away from the cause.
+  - The backend half of this is already done: requests to the backend ignore
+    the proxy environment, so turning this on cannot start routing local
+    traffic through the company proxy by accident.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
