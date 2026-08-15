@@ -39,11 +39,21 @@ use tokio::sync::{Mutex, mpsc, watch};
 /// for it in the first place.
 ///
 /// Poisoning is recovered rather than propagated: one panicking test should
-/// fail alone, not turn every later test into a second failure. The state it
-/// guards is re-established by the next acquirer anyway.
+/// fail alone, not turn every later test into a second failure.
+///
+/// **Acquiring also forgets the loaded config document**, and that is not
+/// tidiness. The environment is re-established by each test's own guard, but
+/// the document is not: `config_file::load()` returns early when there is no
+/// file to read, which is right for a server that was started without one and
+/// means a test which loaded a config leaves it behind for whoever runs next.
+/// That produced a failure roughly one run in fifteen, in whichever test
+/// happened to follow the one that loads `version: not-a-version`, with the
+/// assertion failing for a reason that was nowhere in its own code.
 pub(crate) fn config_lock() -> std::sync::MutexGuard<'static, ()> {
   static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-  LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+  let guard = LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+  crate::config_file::forget();
+  guard
 }
 
 pub(crate) const TEST_THRESHOLD: Duration = Duration::from_secs(3600);

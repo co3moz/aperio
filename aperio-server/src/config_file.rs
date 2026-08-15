@@ -178,6 +178,20 @@ pub(crate) fn load() {
 
 /// Returns a structured (mapping-valued) section of `aperio-server.yaml`,
 /// e.g. `headers`. `None` when the file is absent or has no such key.
+/// Forgets the loaded document.
+///
+/// Test-only, and it exists because of a deliberate production behaviour:
+/// `load()` returns early when there is no file to read, so a server started
+/// without a config file keeps whatever it had rather than being silently
+/// emptied. In a test binary that means the last document a test loaded is
+/// still there for the next one, and the next one has no way to notice. The
+/// shared test lock calls this on acquisition, so every test starts from an
+/// empty document whatever ran before it.
+#[cfg(test)]
+pub(crate) fn forget() {
+  *DOCUMENT.write().expect("config document lock poisoned") = None;
+}
+
 pub(crate) fn structured(key: &str) -> Option<serde_yaml::Value> {
   DOCUMENT
     .read()
