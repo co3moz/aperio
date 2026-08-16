@@ -71,25 +71,6 @@ readable without scrolling past what is already done.
   is the open door for the operator with forty services, who is the only one
   who pays for the current design.
 
-- [ ] **#116 The embedded profile as a negotiated capability, and the
-  reference C client.** Split from `#101`, which wrote the minimum down;
-  this is the half that makes it a promise the server keeps rather than a
-  shape a device aims at.
-  - The device announces the profile in its handshake and the server
-    undertakes to stay inside it for that connection: no compression offered,
-    chunk sizes under a declared ceiling, `max_concurrent: 1`, no relay
-    message types. Additive on the wire and a server-side gate, so every
-    existing peer keeps working, which is what makes it worth doing at all.
-  - The classification the gate would consult already exists and is
-    compiler-enforced (`protocol_profile.rs`), so this is the enforcement
-    rather than the design.
-  - Plus a reference client in C against ESP-IDF's `esp_websocket_client` and
-    mbedtls and, more importantly than the code, **a conformance answer for
-    it**: a device client that silently mishandles one message type is an
-    outage nobody can debug from the device end. Worth building the way `#96`
-    and `#97` were, as a suite run against the thing rather than tests written
-    beside it.
-
 - [ ] **#102 (note, not a feature) Why the embedded client keeps the
   WebSocket.** Recorded so the question is not re-opened from memory. The
   appeal of an HTTP long-poll transport is that it sounds smaller than a
@@ -186,6 +167,33 @@ readable without scrolling past what is already done.
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
 nothing reuses them.
+
+- **#116 The embedded profile as a negotiated capability, and the reference C
+  client.** Withdrawn 2026-08-16, nothing was built. Split from `#101`, which
+  wrote the profile down; this was the half that would have made the server
+  keep it as a promise.
+
+  **The gate half was buildable and is not the reason it was dropped.** It is
+  additive on the wire (a device announces the profile in its handshake, the
+  server undertakes to stay inside it for that connection), every existing
+  peer keeps working, and the classification it would consult already exists
+  and is compiler-enforced in `protocol_profile.rs`. What it lacked was
+  anybody asking: no device client exists yet to announce anything, so the
+  gate would have been enforcement with nothing on the other side of it.
+
+  **The C client half is why it stays withdrawn rather than waiting.** A
+  reference client against ESP-IDF's `esp_websocket_client` and mbedtls is
+  only worth having with the conformance answer beside it, the way `#96` and
+  `#97` were built, and that suite has to run against real hardware or a real
+  emulator. Written without one it would be sample code that compiles and a
+  claim nobody checked, which is worse than no reference client, because the
+  device author would trust it.
+
+  What survives is what `#101` already shipped: the profile is written down,
+  `protocol_profile.rs` keeps the classification honest at compile time, and
+  `docs/embedded-profile.md` is the target a device aims at. If a device
+  client ever appears, the gate is a small piece of additive work and can be
+  opened under a new id.
 
 - **#103 A WebAssembly plugin host (wasmtime) on the server, for operator code
   on the request path.** Withdrawn 2026-08-13, from a design discussion,
