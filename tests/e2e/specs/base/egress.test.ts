@@ -334,6 +334,15 @@ export class AuthenticatedEgressProxySpec extends Test({
   }
 
   async theCredentialNeverReachesTheLog() {
+    // Wait for the line before reading, the way the refusal spec below does.
+    // The tunnel being up does not mean the child's stdout has been drained
+    // into the buffer yet, and under a loaded suite it often has not.
+    //
+    // The wait is not only about the first assertion failing. It is what
+    // makes the second one mean anything: `doesNotMatch` on an empty log
+    // passes for the wrong reason, so without it the credential check would
+    // sometimes report success having read nothing at all.
+    await this.client._waitForLog('through the proxy')
     assert.match(this.client._log(), /through the proxy 127\.0\.0\.1:\d+/, this.client._log())
     assert.doesNotMatch(this.client._log(), /s3cret/, 'the credential reached the log')
   }
