@@ -578,7 +578,7 @@ fn spawn_connection(
   }
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let handle = tokio::spawn(run_service(
-    spec,
+    vec![spec],
     shared.clone(),
     cancel_rx,
     health.clone(),

@@ -402,7 +402,7 @@ async fn test_run_service_message_loop() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    spec.clone(),
+    vec![spec.clone()],
     shared,
     cancel_rx,
     BackendHealth::for_spec(&spec),
@@ -691,7 +691,7 @@ async fn test_run_service_cancel_while_connected() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    spec.clone(),
+    vec![spec.clone()],
     shared,
     cancel_rx,
     BackendHealth::for_spec(&spec),
@@ -729,7 +729,7 @@ async fn test_run_service_invalid_token_header() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    spec.clone(),
+    vec![spec.clone()],
     shared,
     cancel_rx,
     BackendHealth::for_spec(&spec),
@@ -756,7 +756,7 @@ async fn test_run_service_server_shutdown_fast_reconnect() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    spec.clone(),
+    vec![spec.clone()],
     shared,
     cancel_rx,
     BackendHealth::for_spec(&spec),
@@ -801,7 +801,7 @@ async fn test_run_service_connection_refused_failover() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    spec.clone(),
+    vec![spec.clone()],
     shared,
     cancel_rx,
     BackendHealth::for_spec(&spec),
@@ -839,7 +839,7 @@ async fn test_run_service_http_401_rejection() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    spec.clone(),
+    vec![spec.clone()],
     shared,
     cancel_rx,
     BackendHealth::for_spec(&spec),
@@ -879,7 +879,7 @@ async fn test_run_service_http_500_rejection() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    spec.clone(),
+    vec![spec.clone()],
     shared,
     cancel_rx,
     BackendHealth::for_spec(&spec),
@@ -931,7 +931,7 @@ async fn test_run_service_health_probe_flap() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    spec.clone(),
+    vec![spec.clone()],
     shared,
     cancel_rx,
     BackendHealth::for_spec(&spec),
@@ -960,7 +960,7 @@ async fn test_run_service_health_probe_healthy() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    spec.clone(),
+    vec![spec.clone()],
     shared,
     cancel_rx,
     BackendHealth::for_spec(&spec),
@@ -1029,7 +1029,7 @@ async fn test_run_service_health_probe_absolute_url_unhealthy() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    spec.clone(),
+    vec![spec.clone()],
     shared,
     cancel_rx,
     BackendHealth::for_spec(&spec),
@@ -1064,7 +1064,7 @@ async fn test_run_service_wait_for_backend() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    spec.clone(),
+    vec![spec.clone()],
     shared,
     cancel_rx,
     BackendHealth::for_spec(&spec),
@@ -1091,7 +1091,7 @@ async fn test_run_service_wait_for_backend_implied_by_health() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    spec.clone(),
+    vec![spec.clone()],
     shared,
     cancel_rx,
     BackendHealth::for_spec(&spec),

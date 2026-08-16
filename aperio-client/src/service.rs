@@ -983,8 +983,30 @@ pub(crate) fn negotiate_visitor_gate(
   GateNegotiation::Methods(specs)
 }
 
+/// The service a server-named dispatch is for.
+///
+/// The server matched a route to a service and put its name in the frame, so
+/// this is a lookup rather than a decision. A name this client does not carry
+/// falls back to the first service, which is the only answer that keeps a
+/// connection serving: the alternative is dropping a request the server has
+/// already committed to, and the pairing that could produce it (a server
+/// naming a service the client withdrew in the same instant) resolves itself
+/// on the next heartbeat.
+///
+/// `None` is every client before v8 and every connection carrying one, where
+/// there is nothing to choose.
+fn service_for<'a>(specs: &'a [ServiceSpec], named: &Option<String>) -> &'a ServiceSpec {
+  match named {
+    Some(name) => specs
+      .iter()
+      .find(|s| s.name.as_deref() == Some(name.as_str()))
+      .unwrap_or(&specs[0]),
+    None => &specs[0],
+  }
+}
+
 pub(crate) async fn run_service(
-  spec: ServiceSpec,
+  specs: Vec<ServiceSpec>,
   shared: Shared,
   mut cancel: watch::Receiver<bool>,
   health: BackendHealth,
@@ -992,6 +1014,12 @@ pub(crate) async fn run_service(
   connection_index: u32,
   ceiling: ConnectionCeiling,
 ) {
+  // The connection's own view. Everything about the socket, the dial, the
+  // client id and the heartbeat is the first service's, because a connection
+  // carrying several is still one connection and one of its services has to
+  // stand for it. What a *request* is about is resolved per request, from the
+  // service the server names in the frame.
+  let spec = specs[0].clone();
   let label = spec.label();
 
   // Lifecycle gates, before anything is dialed. Only the first connection of a
@@ -1937,6 +1965,8 @@ pub(crate) async fn run_service(
                                               headers,
                                               body,
                                           } => {
+                                              // The service the server named. With one, this is that one.
+                                              let spec = service_for(&specs, &_service);
                                               let ctx = forward_ctx.clone();
                                               let limiter = local_limiter.clone();
                                               let inflight = shared.inflight_requests.clone();
@@ -1996,6 +2026,8 @@ pub(crate) async fn run_service(
                                               uri,
                                               headers,
                                           } => {
+                                              // The service the server named. With one, this is that one.
+                                              let spec = service_for(&specs, &_service);
                                               shared.mark_request_activity();
                                               // Streamed request body (protocol v2): the backend
                                               // request starts immediately and is fed chunk-by-chunk
@@ -2076,6 +2108,8 @@ pub(crate) async fn run_service(
                                               uri,
                                               headers,
                                           } => {
+                                              // The service the server named. With one, this is that one.
+                                              let spec = service_for(&specs, &_service);
                                               shared.mark_request_activity();
                                               let tx_resp = tx_write.clone();
                                               let target_url = spec.target.clone();
@@ -2148,6 +2182,8 @@ pub(crate) async fn run_service(
                                               }
                                           }
                                           TunnelMessage::TcpOpen { stream_id, target, visitor, service: _service } => {
+                                              // The service the server named. With one, this is that one.
+                                              let spec = service_for(&specs, &_service);
                                               shared.mark_request_activity();
                                               // SSRF guard: only addresses this client itself
                                               // declared are ever dialed, a named target must be
@@ -2204,6 +2240,8 @@ pub(crate) async fn run_service(
                                               }
                                           }
                                           TunnelMessage::UdpOpen { stream_id, target, service: _service } => {
+                                              // The service the server named. With one, this is that one.
+                                              let spec = service_for(&specs, &_service);
                                               shared.mark_request_activity();
                                               // SSRF guard: only declared protocol: udp targets
                                               // are ever dialed, mirroring TcpOpen.
