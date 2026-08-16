@@ -185,13 +185,39 @@ readable without scrolling past what is already done.
   passed, but for the length refusal rather than for the thing it named, and
   a test that passes for the wrong reason is worse than none.
 
-  **What is left of the split.** `clients` is still one map keyed by
-  connection id, and the list is always length one because the Ping refuses
-  longer, so the index it now computes is always zero. What lifts the
-  refusal, and makes all of the above observable, is the reconcile the Ping
-  does not yet do: appending a service the connection has gained and retiring
-  one it no longer declares. After that the dashboard's client table, the
-  per-service statistics, and the elastic pool's growth signal. After that, the pieces the entry
+  **What is left, and why it should land as one milestone rather than more
+  slices.** Everything above is preparation, and it went in as slices because
+  each one could be verified on its own. That has now run out. Three
+  candidates for the next slice were measured and all three fail the same
+  test: nothing about them is observable until the server actually serves two
+  services, and a change nobody can watch is a change nobody can check.
+
+  - **Reconcile in the Ping** (append a service the connection gained, retire
+    one it no longer declares) is the thing that would lift the length
+    refusal. On its own, with the refusal still standing, it runs on a list
+    that is never longer than one and does nothing.
+  - **Applying each declaration to its own service.** This is the real
+    blocker and it was measured rather than guessed: the Ping's handle block
+    is 495 lines carrying 36 service writes interleaved with 11 connection
+    writes, thirteen permission checks, the warn-once logging and the
+    autoscaling capture, and it closes over `state`, `perms`, `cid`,
+    `client_id`, `scaling_ctx` and `server_max_connections`. Turning it into
+    a per-declaration function is a single surgery with no verifiable
+    halfway point.
+  - **The dashboard's client table** cannot simply grow a row per service.
+    Its rows are keyed by connection id and that id is the address of
+    `/api/clients/{id}/override`, `/enabled` and `/config`. Two services on
+    one connection means a per-service identity in the API and a frontend
+    that uses it, which is a user-facing contract change, not preparation.
+
+  So the milestone is: reconcile, the per-declaration application, lifting
+  the refusal, and a per-service address in the dashboard API, together, with
+  the two-service Ping as the test that makes all of it observable at once.
+  The pieces already landed are what make it a single sitting rather than an
+  archaeology project: routing already decides on a service, the predicates
+  already belong to one, identity across heartbeats is already decided and
+  tested, and the remaining single-service assumptions are counted rather
+  than hidden (`grep sole`, 179 reads and 256 writes). After that, the pieces the entry
   already names: load balancing on the pair, the elastic pool's per-service
   growth signal, a pacer per service so a large response cannot queue ahead
   of a small API on the shared writer, and the dashboard's client table.
