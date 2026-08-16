@@ -213,14 +213,30 @@ readable without scrolling past what is already done.
     one connection means a per-service identity in the API and a frontend
     that uses it, which is a user-facing contract change, not preparation.
 
-  So the milestone is: reconcile, the per-declaration application, lifting
-  the refusal, and a per-service address in the dashboard API, together, with
-  the two-service Ping as the test that makes all of it observable at once.
-  The pieces already landed are what make it a single sitting rather than an
-  archaeology project: routing already decides on a service, the predicates
-  already belong to one, identity across heartbeats is already decided and
-  tested, and the remaining single-service assumptions are counted rather
-  than hidden (`grep sole`, 179 reads and 256 writes). After that, the pieces the entry
+  **Three of the four landed (2026-08-16), and the server serves several.**
+  The per-declaration application turned out not to need the function
+  extraction it looked like it needed: the 495-line body already described a
+  single service, and what stopped it describing more was that its values
+  were destructured once, above it, from a tuple of twenty-nine locals. The
+  tuple became a `Vec<ServiceDecl>` and the destructure moved inside a loop
+  over it, leaving the body untouched. Reconcile followed, the length refusal
+  went, and a Ping declaring two services is now served as two, each routable
+  by its own binds, with a withdrawn one leaving routing on the next
+  heartbeat.
+
+  **The fourth is still open: the dashboard's client table.** It shows one
+  row per connection, so a connection carrying two services shows the first.
+  Its rows are addressed by connection id and that id is what
+  `/api/clients/{id}/override`, `/enabled` and `/config` take, so this is a
+  change to the API contract and the frontend that reads it, not to the
+  table. Per-service statistics and the elastic pool's growth signal follow
+  from the same address.
+
+  Nothing in the field is affected yet: no released client sends a list, so
+  the capability is reachable only by a client built for it. The client half
+  (`multiplex: true`) is the other side of that, and it has to negotiate the
+  capability on the handshake rather than discover it by being disconnected,
+  which is written above and still true. After that, the pieces the entry
   already names: load balancing on the pair, the elastic pool's per-service
   growth signal, a pacer per service so a large response cannot queue ahead
   of a small API on the shared writer, and the dashboard's client table.

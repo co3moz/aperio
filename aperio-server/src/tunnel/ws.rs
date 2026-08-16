@@ -1213,13 +1213,21 @@ impl ConnCtx {
     // would be a connection that establishes and then serves less than it was
     // told to, which is the failure mode the whole protocol-gate work exists
     // to prevent.
+    // A list of several is served now. What used to be refused here, and the
+    // reason the refusal stood so long, was that routing, ejection and the
+    // per-service state all keyed on the connection; each of those was moved
+    // onto the service before this line was allowed to change.
+    //
+    // An empty list is still nothing to serve. A client saying so means it
+    // has withdrawn everything, which is a disconnect written the long way,
+    // and treating it as "no list" would silently keep serving what it just
+    // retired.
     let declared_services = match services {
-      Some(list) if list.len() > 1 => {
+      Some(list) if list.is_empty() => {
         warn!(
-          "Client {} declared {} services on one connection, which this server cannot serve yet \
-           (planned_features #46). Refusing the connection rather than serving one of them.",
-          cid,
-          list.len()
+          "Client {} declared an empty service list; refusing rather than going on serving \
+           what it just said it no longer offers",
+          cid
         );
         return false;
       }
@@ -1341,22 +1349,35 @@ impl ConnCtx {
             // statistics, and every answer to that is a guess. Reconnecting
             // is unambiguous and is what the client already does on a config
             // change.
+            // Reconcile: the connection ends up carrying exactly what the
+            // Ping declared, in the order it declared it. A service that
+            // matched keeps everything the wire does not carry, which is the
+            // point of matching by name; one this connection has just gained
+            // starts fresh; one no longer declared is dropped by not being
+            // moved into the new list.
+            //
+            // Rebuilt rather than patched in place because removing an entry
+            // shifts every index after it, and the indexes are what the rest
+            // of this function writes through.
             Ok(matched) => {
-              let mut out = Vec::with_capacity(matched.len());
-              for m in matched {
-                match m {
-                  Some(i) => out.push(i),
-                  None => {
-                    warn!(
-                      "Client {} declared a service this connection does not carry; refusing \
-                       rather than silently repurposing the one it does",
-                      cid
-                    );
-                    return false;
-                  }
-                }
+              let mut old: Vec<Option<crate::state::ServiceState>> =
+                handle.services.drain(..).map(Some).collect();
+              let mut fresh = Vec::with_capacity(matched.len());
+              for m in &matched {
+                let carried = m
+                  .and_then(|i| old.get_mut(i).and_then(Option::take))
+                  .unwrap_or_else(crate::state::ServiceState::newly_declared);
+                fresh.push(carried);
               }
-              out
+              let retired = old.iter().filter(|s| s.is_some()).count();
+              if retired > 0 {
+                info!(
+                  "Client {} stopped declaring {} service(s); they leave routing",
+                  cid, retired
+                );
+              }
+              handle.services = fresh;
+              (0..matched.len()).collect()
             }
           }
         };

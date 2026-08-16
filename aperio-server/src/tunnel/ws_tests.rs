@@ -1808,50 +1808,6 @@ async fn a_v8_ping_declaring_one_service_is_the_shape_that_already_worked() {
 }
 
 #[tokio::test]
-async fn a_v8_ping_declaring_several_services_is_refused_rather_than_half_served() {
-  // This server routes to one service per connection. Accepting a
-  // declaration of three and serving one is the connection that establishes
-  // and then does less than it was told to, which is precisely what the
-  // connect-time work exists to stop.
-  let state = Arc::new(test_state());
-  let url = start_server(state.clone()).await;
-  let mut ws = connect(&url, "test").await;
-
-  let mut ping = base_ping();
-  if let TunnelMessage::Ping {
-    ref mut services, ..
-  } = ping
-  {
-    *services = Some(vec![
-      crate::protocol::ServiceDecl {
-        hostname_bind: Some("one.e2e.local".into()),
-        ..Default::default()
-      },
-      crate::protocol::ServiceDecl {
-        hostname_bind: Some("two.e2e.local".into()),
-        ..Default::default()
-      },
-    ]);
-  }
-  send(&mut ws, &ping).await;
-
-  // The read loop ends, so the socket closes without the connection ever
-  // joining the routing pool.
-  let closed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-    loop {
-      match ws.next().await {
-        None => break true,
-        Some(Err(_)) => break true,
-        Some(Ok(_)) => continue,
-      }
-    }
-  })
-  .await
-  .unwrap_or(false);
-  assert!(closed, "the connection is dropped rather than served");
-}
-
-#[tokio::test]
 async fn a_ping_carrying_client_health_stores_it_on_the_handle() {
   let state = Arc::new(test_state());
   let url = start_server(state.clone()).await;
@@ -2131,5 +2087,167 @@ async fn a_named_service_keeps_its_state_across_heartbeats() {
       .load(std::sync::atomic::Ordering::SeqCst),
     7,
     "the second heartbeat updated the same service"
+  );
+}
+
+#[tokio::test]
+async fn a_ping_declaring_two_services_is_served_as_two() {
+  // The milestone this entry existed for, and the first test in the tree
+  // where a connection carries more than one service because a *client* said
+  // so rather than because a fixture reached in and put it there.
+  //
+  // Each entry has to land on its own service with its own binds. The failure
+  // this rules out is the quiet one: both declarations applied to the same
+  // service, leaving one of them serving the other's backend.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    *services = Some(vec![
+      crate::protocol::ServiceDecl {
+        service: Some("api".into()),
+        path_bind: Some("/api".into()),
+        // Declared healthy, as a real client does: the entry is authoritative,
+        // so an omitted flag is a service announcing itself down.
+        backend_healthy: true,
+        response_timeout: Some(11),
+        ..Default::default()
+      },
+      crate::protocol::ServiceDecl {
+        service: Some("web".into()),
+        path_bind: Some("/web".into()),
+        // Declared healthy, as a real client does: the entry is authoritative,
+        // so an omitted flag is a service announcing itself down.
+        backend_healthy: true,
+        response_timeout: Some(22),
+        ..Default::default()
+      },
+    ]);
+  }
+  send(&mut ws, &ping).await;
+  let id = wait_client_id(&state).await;
+  let _ = read_until_pong(&mut ws).await;
+
+  let clients = state.clients.read().await;
+  let handle = clients.get(&id).expect("served, not refused");
+  assert_eq!(handle.services.len(), 2, "one connection, two services");
+
+  let api = handle
+    .services
+    .iter()
+    .find(|s| s.service_name.as_deref() == Some("api"))
+    .expect("the api service");
+  let web = handle
+    .services
+    .iter()
+    .find(|s| s.service_name.as_deref() == Some("web"))
+    .expect("the web service");
+  assert_eq!(api.declared_path.as_deref(), Some("/api"));
+  assert_eq!(web.declared_path.as_deref(), Some("/web"));
+  assert_eq!(
+    api.response_timeout,
+    Some(11),
+    "each keeps its own settings"
+  );
+  assert_eq!(web.response_timeout, Some(22));
+
+  // And routing can tell them apart, which is what makes them two services
+  // rather than two rows.
+  let (pool, _) = crate::routing::select_client_pool(
+    &clients,
+    "/web/x",
+    None,
+    false,
+    std::time::Duration::from_secs(3600),
+  )
+  .expect("routed");
+  assert_eq!(pool.len(), 1);
+  assert_eq!(
+    handle.services[pool[0].index].service_name.as_deref(),
+    Some("web"),
+    "a request under /web goes to the web service"
+  );
+}
+
+#[tokio::test]
+async fn a_service_the_client_stops_declaring_leaves_routing() {
+  // The other half of reconcile. A service that is no longer declared has to
+  // go, or a client that removes one from its config keeps serving it until
+  // it reconnects, which is the kind of thing an operator finds out about
+  // from traffic they thought they had turned off.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+
+  let two = |list: Vec<crate::protocol::ServiceDecl>| {
+    let mut ping = base_ping();
+    if let TunnelMessage::Ping {
+      ref mut services, ..
+    } = ping
+    {
+      *services = Some(list);
+    }
+    ping
+  };
+
+  send(
+    &mut ws,
+    &two(vec![
+      crate::protocol::ServiceDecl {
+        service: Some("api".into()),
+        path_bind: Some("/api".into()),
+        // Declared healthy, as a real client does: the entry is authoritative,
+        // so an omitted flag is a service announcing itself down.
+        backend_healthy: true,
+        ..Default::default()
+      },
+      crate::protocol::ServiceDecl {
+        service: Some("web".into()),
+        path_bind: Some("/web".into()),
+        // Declared healthy, as a real client does: the entry is authoritative,
+        // so an omitted flag is a service announcing itself down.
+        backend_healthy: true,
+        ..Default::default()
+      },
+    ]),
+  )
+  .await;
+  let id = wait_client_id(&state).await;
+  let _ = read_until_pong(&mut ws).await;
+  assert_eq!(state.clients.read().await[&id].services.len(), 2);
+
+  send(
+    &mut ws,
+    &two(vec![crate::protocol::ServiceDecl {
+      service: Some("api".into()),
+      path_bind: Some("/api".into()),
+      // Declared healthy, as a real client does: the entry is authoritative,
+      // so an omitted flag is a service announcing itself down.
+      backend_healthy: true,
+      ..Default::default()
+    }]),
+  )
+  .await;
+  let _ = read_until_pong(&mut ws).await;
+
+  let clients = state.clients.read().await;
+  let handle = clients.get(&id).expect("still served");
+  assert_eq!(handle.services.len(), 1, "the withdrawn service is gone");
+  assert_eq!(handle.services[0].service_name.as_deref(), Some("api"));
+  assert!(
+    crate::routing::select_client_pool(
+      &clients,
+      "/web/x",
+      None,
+      false,
+      std::time::Duration::from_secs(3600),
+    )
+    .is_none(),
+    "and nothing routes to it any more"
   );
 }
