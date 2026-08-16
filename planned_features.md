@@ -71,7 +71,11 @@ readable without scrolling past what is already done.
   carries what the singular per-service fields carry one at a time; when the
   list is present it is authoritative and those fields are ignored, and when
   it is absent nothing changes, so the addition is compatible in both
-  directions. The server normalizes a Ping to a service list in one place,
+  directions. The entry is honoured, not merely accepted: where a list is
+  present the singular fields are not read at all, in one binding rather
+  than a field-by-field merge, because a merge is where a field gets
+  forgotten and forgetting one is silent. The server normalizes a Ping to a
+  service list in one place,
   which is the line that stops being a `[0]` when the split below is made,
   and **accepts a list of exactly one**, refusing a longer one at the Ping
   rather than serving part of it. The client still sends no list. A test now

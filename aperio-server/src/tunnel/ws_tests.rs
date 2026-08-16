@@ -1994,3 +1994,88 @@ async fn a_token_that_may_not_gate_is_told_it_may_declare_nothing() {
     "a token that may not is told nothing may be declared, and holds the service back"
   );
 }
+
+#[tokio::test]
+async fn a_v8_entry_outranks_the_singular_field_it_disagrees_with() {
+  // "Authoritative when present" is the whole reason the list is safe to add:
+  // it is what stops a v8 client and a v8 server from half-agreeing, one
+  // reading the entry and the other the field beside it. A protocol that only
+  // says so in its documentation says nothing, and this is the shape where
+  // nobody would notice: both spellings are well-formed, both parse, and the
+  // wrong winner is simply a service running with a setting its operator did
+  // not write.
+  //
+  // The two values are deliberately both valid and both plausible, so the
+  // assertion cannot pass by one of them being rejected.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services,
+    ref mut max_concurrent,
+    ref mut response_timeout,
+    ..
+  } = ping
+  {
+    *max_concurrent = Some(5);
+    *response_timeout = Some(11);
+    *services = Some(vec![crate::protocol::ServiceDecl {
+      max_concurrent: Some(9),
+      response_timeout: Some(22),
+      ..Default::default()
+    }]);
+  }
+  send(&mut ws, &ping).await;
+
+  let id = wait_client_id(&state).await;
+  let _ = read_until_pong(&mut ws).await;
+
+  let clients = state.clients.read().await;
+  let handle = clients.get(&id).expect("the connection is served");
+  assert_eq!(
+    handle.max_concurrent,
+    Some(9),
+    "the entry's concurrency wins over the singular field"
+  );
+  assert_eq!(
+    handle.response_timeout,
+    Some(22),
+    "the entry's response timeout wins over the singular field"
+  );
+}
+
+#[tokio::test]
+async fn without_a_list_the_singular_fields_still_decide() {
+  // The other half, and the one that matters for every client in the field:
+  // absent a list, nothing about the old spelling changed. Without this the
+  // test above could be satisfied by an implementation that reads the entry
+  // and ignores the fields unconditionally, which would break every client
+  // that predates v8.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services,
+    ref mut max_concurrent,
+    ref mut response_timeout,
+    ..
+  } = ping
+  {
+    *services = None;
+    *max_concurrent = Some(5);
+    *response_timeout = Some(11);
+  }
+  send(&mut ws, &ping).await;
+
+  let id = wait_client_id(&state).await;
+  let _ = read_until_pong(&mut ws).await;
+
+  let clients = state.clients.read().await;
+  let handle = clients.get(&id).expect("the connection is served");
+  assert_eq!(handle.max_concurrent, Some(5));
+  assert_eq!(handle.response_timeout, Some(11));
+}

@@ -1226,10 +1226,112 @@ impl ConnCtx {
       Some(list) => list,
       None => Vec::new(),
     };
-    // Present but empty is a client saying "I serve nothing here", which is
-    // not a shape anything produces yet; the singular fields still describe
-    // the service in every case that reaches this build.
-    let _ = &declared_services;
+    // The list is authoritative when it is there, which is the promise the
+    // protocol makes and the reason the two spellings can never half-agree:
+    // a client that describes its work as a list has said everything about
+    // that service inside the entry, so reading a singular field alongside
+    // it would let a value the client did not write win over one it did.
+    // Absent, every singular field stands exactly as before.
+    //
+    // Written as one binding rather than a field-by-field merge on purpose.
+    // A merge is where a field gets forgotten, and forgetting one here is
+    // silent: the entry's value is dropped and the singular default takes
+    // its place, so the service comes up with a setting the client did not
+    // ask for and no error anywhere.
+    let (
+      service,
+      service_custom_name,
+      path_bind,
+      hostname_bind,
+      hostname_binds,
+      max_concurrent,
+      tcp,
+      backend_healthy,
+      backend_probed,
+      priority,
+      bandwidth_bps,
+      public,
+      visitor_auth,
+      visitor_auth_methods,
+      allowed_ips,
+      tunnels,
+      cache,
+      resilience,
+      no_capture,
+      max_request_body,
+      response_timeout,
+      webhook_inbox,
+      denied,
+      scaling,
+      connections,
+      connections_min,
+      connections_max,
+      config_notes,
+      metrics_labels,
+    ) = match declared_services.into_iter().next() {
+      Some(d) => (
+        d.service,
+        d.service_custom_name,
+        d.path_bind,
+        d.hostname_bind,
+        d.hostname_binds,
+        d.max_concurrent,
+        d.tcp,
+        d.backend_healthy,
+        d.backend_probed,
+        d.priority,
+        d.bandwidth_bps,
+        d.public,
+        d.visitor_auth,
+        d.visitor_auth_methods,
+        d.allowed_ips,
+        d.tunnels,
+        d.cache,
+        d.resilience,
+        d.no_capture,
+        d.max_request_body,
+        d.response_timeout,
+        d.webhook_inbox,
+        d.denied,
+        d.scaling,
+        d.connections,
+        d.connections_min,
+        d.connections_max,
+        d.config_notes,
+        d.metrics_labels,
+      ),
+      None => (
+        service,
+        service_custom_name,
+        path_bind,
+        hostname_bind,
+        hostname_binds,
+        max_concurrent,
+        tcp,
+        backend_healthy,
+        backend_probed,
+        priority,
+        bandwidth_bps,
+        public,
+        visitor_auth,
+        visitor_auth_methods,
+        allowed_ips,
+        tunnels,
+        cache,
+        resilience,
+        no_capture,
+        max_request_body,
+        response_timeout,
+        webhook_inbox,
+        denied,
+        scaling,
+        connections,
+        connections_min,
+        connections_max,
+        config_notes,
+        metrics_labels,
+      ),
+    };
     // Update client's reported binds and heartbeat time. Only the
     // server-assigned connection ID is trusted for state updates;
     // the client-declared `cid` is ignored to prevent a client from
