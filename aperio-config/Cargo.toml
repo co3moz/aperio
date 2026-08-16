@@ -1,6 +1,6 @@
 [package]
 name = "aperio-config"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2024"
 license = "MIT"
 # The minimum toolchain, so `cargo` says which version is missing instead of
