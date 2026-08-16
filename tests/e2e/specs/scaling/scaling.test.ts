@@ -164,6 +164,7 @@ export class StrictArmingClient extends AperioClientBase({
 }
 
 interface ClientView {
+  id: string
   hostname_binds?: string[] | null
 }
 
@@ -178,11 +179,27 @@ export class ColdStartSpec extends Test({
 }) {
   static recordId = ''
 
-  /** Gone means absent from the *live* client list. Never probed with a real
-   *  request: that request would trigger the cold start under test. */
-  async _gone(host: string): Promise<boolean> {
+  /** Ids currently serving `host`. Never probed with a real request: that
+   *  request would trigger the cold start under test. */
+  async _serving(host: string): Promise<string[]> {
     const stats = await this.server._api<{ active_clients: ClientView[] }>('/aperio/api/stats')
-    return !stats.active_clients.some((c) => (c.hostname_binds ?? []).includes(host))
+    return stats.active_clients
+      .filter((c) => (c.hostname_binds ?? []).includes(host))
+      .map((c) => c.id)
+  }
+
+  /** Gone means *this* client left, not that the hostname is unserved.
+   *
+   *  Those were the same thing only while a request for a sleeping service
+   *  failed to wake it whenever another service was online. Now that it wakes
+   *  it, a concurrent spec touching this hostname starts a replacement, and
+   *  waiting for the hostname to fall empty waits for something that is no
+   *  longer meant to happen. What the test is actually about is the record
+   *  outliving the client that armed it, so the client that armed it is what
+   *  has to be watched. */
+  async _goneById(id: string): Promise<boolean> {
+    const stats = await this.server._api<{ active_clients: ClientView[] }>('/aperio/api/stats')
+    return !stats.active_clients.some((c) => c.id === id)
   }
 
   async anArmedRecordOutlivesTheClientThatArmedIt() {
@@ -207,8 +224,10 @@ export class ColdStartSpec extends Test({
 
     await this.arming._start()
     await this.arming._waitRoutable('scale.e2e.local', '/hello')
+    const [armedId] = await this._serving('scale.e2e.local')
+    assert.ok(armedId, 'the arming client is listed before it is killed')
     await this.arming._kill()
-    await waitFor(() => this._gone('scale.e2e.local'), {
+    await waitFor(() => this._goneById(armedId), {
       label: 'the armed client to leave routing',
     })
   }
