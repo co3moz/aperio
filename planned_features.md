@@ -71,23 +71,6 @@ readable without scrolling past what is already done.
   is the open door for the operator with forty services, who is the only one
   who pays for the current design.
 
-- [ ] **#102 (note, not a feature) Why the embedded client keeps the
-  WebSocket.** Recorded so the question is not re-opened from memory. The
-  appeal of an HTTP long-poll transport is that it sounds smaller than a
-  WebSocket, and on an ESP32 it is not: both need one TCP socket and one TLS
-  session, and WS framing is a few kilobytes of code on top, which every
-  ESP-IDF build already has available as a component. What polling adds is
-  worse: a request is delivered on one connection and its response has to go
-  back on another, or on the next poll, so a device with four usable sockets
-  spends two per in-flight request; every request costs a poll round trip in
-  latency; and the TLS handshake, which is the single most expensive thing an
-  ESP32 does here, gets repeated unless the connection is held open, at which
-  point it is a persistent connection with worse framing. It would also be a
-  second transport for the server to carry forever. The saving is real only
-  if the device cannot hold a connection at all, which is a *power* problem
-  (a battery sensor waking once an hour), and the answer to that one is not a
-  transport, it is for the device to be behind something that can.
-
 - [ ] **#108 Closed by default: a route is reachable because something says
   so.** (stage two, the flip; stage one shipped, see below) Today, a server with no `server_auth` and no OIDC serves every route
   to anyone, and `public: true` is an exemption from a gate that may not
@@ -147,6 +130,22 @@ readable without scrolling past what is already done.
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
 nothing reuses them.
+
+- **#102 (note, not a feature) Why the embedded client keeps the WebSocket.**
+  Withdrawn 2026-08-16 as a *backlog entry*, not as a decision: the reasoning
+  it recorded now lives in `docs/embedded-profile.md` under "Why the WebSocket
+  stays", which is where somebody asking the question will actually look.
+
+  It was never a thing to build. It was written to stop the long-poll idea
+  being re-opened from memory, and a note doing that job from the open backlog
+  is a note advertising work that does not exist. The argument is unchanged
+  and is repeated in full at its new home: both transports need one TCP socket
+  and one TLS session, framing is a few kilobytes on top, and polling costs a
+  second socket per in-flight request, a round trip of latency, and a repeated
+  TLS handshake unless the connection is held open, at which point it is a
+  persistent connection with worse framing. The saving is real only for a
+  device that cannot hold a connection at all, which is a power problem whose
+  answer is not a transport.
 
 - **#116 The embedded profile as a negotiated capability, and the reference C
   client.** Withdrawn 2026-08-16, nothing was built. Split from `#101`, which
