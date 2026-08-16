@@ -20,16 +20,27 @@ use crate::routing::{extract_client_ip, normalize_hostname_bind, normalize_path_
 use crate::state::{AppState, ClientDetail, EnhancedServerStats, RequestLog};
 use crate::store::stats::{self};
 
+/// Which service of a connection an endpoint is about.
+///
+/// A query parameter rather than a second path segment, and defaulted, so
+/// every existing caller keeps working: a connection carrying one service is
+/// every client before protocol v8, and for those `?service=0` and no
+/// parameter at all are the same request.
+#[derive(serde::Deserialize, Default)]
+pub(crate) struct ServiceQuery {
+  #[serde(default)]
+  pub(crate) service: usize,
+}
+
 /// Hostnames this client asked for itself, in declaration order and without
 /// duplicates. `declared_hostname` is the first entry of the client's own list,
 /// but a client that predates multi-hostname binds only sends that one.
-fn declared_hostnames_of(handle: &crate::state::ClientHandle) -> Vec<String> {
+fn declared_hostnames_of(service: &crate::state::ServiceState) -> Vec<String> {
   let mut out: Vec<String> = Vec::new();
-  for h in handle
-    .sole()
+  for h in service
     .declared_hostname
     .iter()
-    .chain(handle.sole().declared_hostnames.iter())
+    .chain(service.declared_hostnames.iter())
   {
     if !out.contains(h) {
       out.push(h.clone());
@@ -54,70 +65,85 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
     }
   }
 
+  // One row per service, not per connection. A connection carrying two
+  // services is two things an operator manages: each has its own binds, its
+  // own gate, its own health. Showing the first and hiding the second would
+  // be worse than showing neither, because nothing on the page would say a
+  // second existed.
+  //
+  // Rows still carry the connection id, because that is what the socket is
+  // and what several columns describe. What makes a row addressable is the
+  // pair, which is why `service_index` sits beside it.
   let active_clients = clients
     .iter()
-    .map(|(id, handle)| ClientDetail {
+    .flat_map(|(id, handle)| {
+      handle
+        .services
+        .iter()
+        .enumerate()
+        .map(move |(service_index, service)| (id, handle, service_index, service))
+    })
+    .map(|(id, handle, service_index, service)| ClientDetail {
       id: id.clone(),
+      service_index,
       ip: handle.client_ip.clone(),
       connected_for_seconds: handle.connected_at.elapsed().as_secs(),
-      request_count: handle.sole().request_count.load(Ordering::SeqCst),
-      path_bind: handle
-        .sole()
+      request_count: service.request_count.load(Ordering::SeqCst),
+      path_bind: service
         .declared_path
         .clone()
-        .or_else(|| handle.sole().assigned_path.clone()),
+        .or_else(|| service.assigned_path.clone()),
       // Declared names first: the dashboard shows the head of this list as
       // the client's hostname and folds the rest away, and a name the
       // operator chose is the one worth showing.
       hostname_binds: {
-        let mut set = declared_hostnames_of(handle);
-        for h in &handle.sole().assigned_hostnames {
+        let mut set = declared_hostnames_of(service);
+        for h in &service.assigned_hostnames {
           if !set.contains(h) {
             set.push(h.clone());
           }
         }
         set
       },
-      declared_hostnames: declared_hostnames_of(handle),
-      random_hostname: handle.sole().random_hostname.clone(),
+      declared_hostnames: declared_hostnames_of(service),
+      random_hostname: service.random_hostname.clone(),
       token_name: handle.perms.token_name.clone(),
       org_id: handle.perms.org_id.clone(),
-      override_path_bind: handle.sole().override_path_bind.clone(),
-      override_hostname_binds: handle.sole().override_hostname_binds.clone(),
+      override_path_bind: service.override_path_bind.clone(),
+      override_hostname_binds: service.override_hostname_binds.clone(),
       last_ping_seconds_ago: handle.last_ping_at.map(|t| t.elapsed().as_secs()),
-      max_concurrent: handle.sole().max_concurrent,
+      max_concurrent: service.max_concurrent,
       version: handle.client_version.clone(),
-      service: handle.sole().service_name.clone(),
-      service_custom_name: handle.sole().service_custom_name.clone(),
-      public: handle.sole().public,
-      visitor_auth: handle.sole().visitor_auth.is_some(),
-      allowed_ips: handle.sole().allowed_ips.clone(),
+      service: service.service_name.clone(),
+      service_custom_name: service.service_custom_name.clone(),
+      public: service.public,
+      visitor_auth: service.visitor_auth.is_some(),
+      allowed_ips: service.allowed_ips.clone(),
       protocol: handle.client_protocol,
       protocol_mismatch: handle
         .client_protocol
         .is_some_and(|p| p != PROTOCOL_VERSION),
-      backend_healthy: handle.sole().backend_healthy,
-      backend_probed: handle.sole().backend_probed,
+      backend_healthy: service.backend_healthy,
+      backend_probed: service.backend_probed,
       cpu_percent: handle.cpu_percent,
       rss_bytes: handle.rss_bytes,
       rtt_ms: handle.rtt_ms,
       jitter_ms: handle.jitter_ms,
       reconnects: handle.reconnects,
-      priority: handle.sole().priority,
-      bandwidth_bps: match handle.sole().bandwidth_bps.load(Ordering::Relaxed) {
+      priority: service.priority,
+      bandwidth_bps: match service.bandwidth_bps.load(Ordering::Relaxed) {
         0 => None,
         n => Some(n),
       },
       healthy: handle.is_healthy(state.config().client_down_threshold),
       draining: handle.draining,
-      ejected: handle
-        .sole()
+      ejected: service
         .ejected_until
         .is_some_and(|until| std::time::Instant::now() < until),
-      enabled: handle.sole().admin_enabled,
-      cache_ignored: handle.sole().cache && !state.config().cache_enabled,
-      capture: handle.sole().capture,
-      capture_disabled_by_server: handle.sole().capture && !state.config().inspector,
+      enabled: service.admin_enabled,
+      cache_ignored: service.cache && !state.config().cache_enabled,
+      capture: service.capture,
+      capture_disabled_by_server: service.capture && !state.config().inspector,
       instance_id: handle.reported_instance_id.clone(),
       instance_id_shared: handle
         .reported_instance_id
@@ -613,6 +639,7 @@ pub(crate) struct ClientOverrideRequest {
 pub(crate) async fn client_override_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(client_id): axum::extract::Path<String>,
+  axum::extract::Query(which): axum::extract::Query<ServiceQuery>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
   Json(payload): Json<ClientOverrideRequest>,
@@ -682,8 +709,11 @@ pub(crate) async fn client_override_handler(
     let mut clients = state.clients.write().await;
     match clients.get_mut(&client_id) {
       Some(handle) if handle.perms.org_id == org => {
-        handle.sole_mut().override_hostname_binds = new_hostnames.clone();
-        handle.sole_mut().override_path_bind = new_path.clone();
+        let Some(service) = handle.services.get_mut(which.service) else {
+          return (StatusCode::NOT_FOUND, "No such service on this client").into_response();
+        };
+        service.override_hostname_binds = new_hostnames.clone();
+        service.override_path_bind = new_path.clone();
         true
       }
       _ => false,
@@ -770,12 +800,12 @@ fn push_line(out: &mut String, notes: &[ConfigNoteView], key: &str, value: &str)
 fn client_config_view(
   id: &str,
   handle: &crate::state::ClientHandle,
+  service: &crate::state::ServiceState,
   cache_enabled: bool,
 ) -> ClientConfigView {
   // What the client resolved differently before announcing it: only it knows
   // both sides, so it reports these in its Ping.
-  let mut notes: Vec<ConfigNoteView> = handle
-    .sole()
+  let mut notes: Vec<ConfigNoteView> = service
     .config_notes
     .iter()
     .map(|n| ConfigNoteView {
@@ -799,7 +829,7 @@ fn client_config_view(
       source: "server".to_string(),
     })
   };
-  if handle.sole().cache && !cache_enabled {
+  if service.cache && !cache_enabled {
     server_note(
       "cache",
       "true",
@@ -807,7 +837,7 @@ fn client_config_view(
       "the server's response cache is disabled (APERIO_CACHE off), so the opt-in does nothing",
     );
   }
-  if handle.sole().public_denied_warned {
+  if service.public_denied_warned {
     server_note(
       "public",
       "true",
@@ -815,7 +845,7 @@ fn client_config_view(
       "this client's token does not permit publishing public services, so the visitor auth gate stays on",
     );
   }
-  if handle.sole().visitor_auth_denied_warned {
+  if service.visitor_auth_denied_warned {
     server_note(
       "auth",
       "set",
@@ -823,10 +853,10 @@ fn client_config_view(
       "the token does not permit controlling the visitor gate, the value was not user:password, or the server sets APERIO_IGNORE_CLIENT_AUTH",
     );
   }
-  let declared_hostnames = declared_hostnames_of(handle);
-  if !handle.sole().override_hostname_binds.is_empty() {
+  let declared_hostnames = declared_hostnames_of(service);
+  if !service.override_hostname_binds.is_empty() {
     let mut before = declared_hostnames.clone();
-    for h in &handle.sole().assigned_hostnames {
+    for h in &service.assigned_hostnames {
       if !before.contains(h) {
         before.push(h.clone());
       }
@@ -834,18 +864,17 @@ fn client_config_view(
     server_note(
       "hostname",
       &before.join(", "),
-      &handle.sole().override_hostname_binds.join(", "),
+      &service.override_hostname_binds.join(", "),
       "a dashboard overrule is in effect; it is in-memory only and reverts when the client reconnects",
     );
   }
-  if let Some(path) = &handle.sole().override_path_bind {
+  if let Some(path) = &service.override_path_bind {
     server_note(
       "path",
-      handle
-        .sole()
+      service
         .declared_path
         .as_deref()
-        .or(handle.sole().assigned_path.as_deref())
+        .or(service.assigned_path.as_deref())
         .unwrap_or(""),
       path,
       "a dashboard overrule is in effect; it is in-memory only and reverts when the client reconnects",
@@ -858,7 +887,7 @@ fn client_config_view(
      # announces (target, timeouts, header rules, health probes) are not shown.\n",
     id
   ));
-  if let Some(name) = &handle.sole().service_name {
+  if let Some(name) = &service.service_name {
     push_line(&mut y, &notes, "name", &yaml_str(name));
   }
   if let Some(iid) = &handle.reported_instance_id {
@@ -868,10 +897,9 @@ fn client_config_view(
   // is running right now beside it. Printing only the current size read as a
   // fixed `connections: 3` next to four live connections, because the number
   // was a snapshot of a pool that had since grown.
-  match (handle.sole().connections_min, handle.sole().connections_max) {
+  match (service.connections_min, service.connections_max) {
     (Some(min), Some(max)) => {
-      let open = handle
-        .sole()
+      let open = service
         .connections
         .map(|n| format!("  # {n} open right now"))
         .unwrap_or_default();
@@ -883,7 +911,7 @@ fn client_config_view(
       );
     }
     _ => {
-      if let Some(n) = handle.sole().connections {
+      if let Some(n) = service.connections {
         push_line(&mut y, &notes, "connections", &n.to_string());
       }
     }
@@ -898,11 +926,11 @@ fn client_config_view(
     push_line(&mut y, &notes, "hostname", "");
     // `hostname:` above ends with the note comment, so the list follows it.
     for host in &effective_hosts {
-      let origin = if !handle.sole().override_hostname_binds.is_empty() {
+      let origin = if !service.override_hostname_binds.is_empty() {
         "dashboard overrule"
       } else if declared_hostnames.contains(host) {
         "requested by the client"
-      } else if handle.sole().random_hostname.as_deref() == Some(host.as_str()) {
+      } else if service.random_hostname.as_deref() == Some(host.as_str()) {
         "random subdomain, assigned by the server"
       } else {
         "granted by the token"
@@ -913,10 +941,10 @@ fn client_config_view(
   if let Some(path) = handle.effective_path_bind() {
     push_line(&mut y, &notes, "path", &yaml_str(path));
   }
-  if let Some(n) = handle.sole().max_concurrent {
+  if let Some(n) = service.max_concurrent {
     push_line(&mut y, &notes, "max_concurrent", &n.to_string());
   }
-  match handle.sole().bandwidth_bps.load(Ordering::Relaxed) {
+  match service.bandwidth_bps.load(Ordering::Relaxed) {
     0 => {}
     bps => push_line(
       &mut y,
@@ -925,30 +953,24 @@ fn client_config_view(
       &yaml_str(&format_bandwidth(bps)),
     ),
   }
-  if handle.sole().priority > 0 {
-    push_line(
-      &mut y,
-      &notes,
-      "priority",
-      &handle.sole().priority.to_string(),
-    );
+  if service.priority > 0 {
+    push_line(&mut y, &notes, "priority", &service.priority.to_string());
   }
-  if handle.sole().public {
+  if service.public {
     push_line(&mut y, &notes, "public", "true");
   }
-  if handle.sole().visitor_auth.is_some() {
+  if service.visitor_auth.is_some() {
     // The credentials themselves never leave the server.
     y.push_str("auth: \"<set by the client>\"\n");
   }
-  if !handle.sole().allowed_ips.is_empty() {
+  if !service.allowed_ips.is_empty() {
     push_line(
       &mut y,
       &notes,
       "allowed_ips",
       &format!(
         "[{}]",
-        handle
-          .sole()
+        service
           .allowed_ips
           .iter()
           .map(|ip| yaml_str(ip))
@@ -957,30 +979,30 @@ fn client_config_view(
       ),
     );
   }
-  if let Some(denied) = &handle.sole().denied {
+  if let Some(denied) = &service.denied {
     push_line(&mut y, &notes, "denied", &yaml_str(denied));
   }
-  if handle.sole().cache {
+  if service.cache {
     push_line(&mut y, &notes, "cache", "true");
   }
-  if handle.sole().resilience {
+  if service.resilience {
     push_line(&mut y, &notes, "resilience", "true");
   }
-  if handle.sole().webhook_inbox {
+  if service.webhook_inbox {
     push_line(&mut y, &notes, "webhook_inbox", "true");
   }
-  if let Some(n) = handle.sole().max_request_body {
+  if let Some(n) = service.max_request_body {
     push_line(&mut y, &notes, "max_request_body", &n.to_string());
   }
-  if let Some(n) = handle.sole().response_timeout {
+  if let Some(n) = service.response_timeout {
     push_line(&mut y, &notes, "response_timeout", &n.to_string());
   }
-  if handle.sole().tcp_enabled {
+  if service.tcp_enabled {
     y.push_str("tcp_target: \"<set by the client>\"\n");
   }
-  if !handle.sole().tunnels.is_empty() {
+  if !service.tunnels.is_empty() {
     y.push_str("tunnels:\n");
-    for t in &handle.sole().tunnels {
+    for t in &service.tunnels {
       y.push_str(&format!(
         "  - target: {}\n    protocol: {}\n",
         yaml_str(&t.target),
@@ -1004,6 +1026,7 @@ fn client_config_view(
 pub(crate) async fn client_config_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(client_id): axum::extract::Path<String>,
+  axum::extract::Query(which): axum::extract::Query<ServiceQuery>,
   headers: HeaderMap,
 ) -> Response {
   // Org isolation, as everywhere else: a cross-org client is a 404, so its
@@ -1013,7 +1036,19 @@ pub(crate) async fn client_config_handler(
   let clients = state.clients.read().await;
   match clients.get(&client_id) {
     Some(handle) if handle.perms.org_id == org => {
-      Json(client_config_view(&client_id, handle, cache_enabled)).into_response()
+      // An index past the end is a service this connection does not carry,
+      // which is a 404 for the same reason an unknown id is: the answer to
+      // "show me that" is that there is no that.
+      match handle.services.get(which.service) {
+        Some(service) => Json(client_config_view(
+          &client_id,
+          handle,
+          service,
+          cache_enabled,
+        ))
+        .into_response(),
+        None => (StatusCode::NOT_FOUND, "No such service on this client").into_response(),
+      }
     }
     _ => (StatusCode::NOT_FOUND, "Client not found").into_response(),
   }
@@ -1035,6 +1070,7 @@ pub(crate) struct ClientEnabledRequest {
 pub(crate) async fn client_enabled_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Path(client_id): axum::extract::Path<String>,
+  axum::extract::Query(which): axum::extract::Query<ServiceQuery>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
   Json(payload): Json<ClientEnabledRequest>,
@@ -1053,7 +1089,10 @@ pub(crate) async fn client_enabled_handler(
     let mut clients = state.clients.write().await;
     match clients.get_mut(&client_id) {
       Some(handle) if handle.perms.org_id == org => {
-        handle.sole_mut().admin_enabled = payload.enabled;
+        let Some(service) = handle.services.get_mut(which.service) else {
+          return (StatusCode::NOT_FOUND, "No such service on this client").into_response();
+        };
+        service.admin_enabled = payload.enabled;
         true
       }
       _ => false,

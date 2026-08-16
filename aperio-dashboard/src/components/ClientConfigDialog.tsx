@@ -35,11 +35,15 @@ function parseYaml(yaml: string): YamlLine[] {
  *  resolved to something other than the configured value called out. */
 export function ClientConfigDialog({
   clientId,
+  serviceIndex,
   label,
   open,
   onOpenChange,
 }: {
   clientId: string
+  /** Which of the connection's services to show. A connection can carry
+   *  several, so the id alone does not say which configuration is meant. */
+  serviceIndex: number
   /** Human-facing name of the connection, for the dialog title. */
   label: string
   open: boolean
@@ -55,7 +59,7 @@ export function ClientConfigDialog({
     setView(null)
     setError(null)
     api
-      .clientConfig(clientId)
+      .clientConfig(clientId, serviceIndex)
       .then((v) => {
         if (!cancelled) setView(v)
       })
@@ -65,7 +69,7 @@ export function ClientConfigDialog({
     return () => {
       cancelled = true
     }
-  }, [open, clientId])
+  }, [open, clientId, serviceIndex])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

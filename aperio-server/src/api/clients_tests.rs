@@ -341,7 +341,13 @@ async fn an_elastic_pool_is_rendered_as_its_range_and_its_current_size() {
   })
   .await;
   let headers = admin_headers(&state).await;
-  let resp = client_config_handler(State(state.clone()), Path("pool".to_string()), headers).await;
+  let resp = client_config_handler(
+    State(state.clone()),
+    Path("pool".to_string()),
+    axum::extract::Query(Default::default()),
+    headers,
+  )
+  .await;
   let body: serde_json::Value = json_body(resp).await;
   let yaml = body["yaml"].as_str().unwrap();
   assert!(
@@ -356,7 +362,13 @@ async fn an_elastic_pool_is_rendered_as_its_range_and_its_current_size() {
   })
   .await;
   let headers = admin_headers(&state).await;
-  let resp = client_config_handler(State(state.clone()), Path("fixed".to_string()), headers).await;
+  let resp = client_config_handler(
+    State(state.clone()),
+    Path("fixed".to_string()),
+    axum::extract::Query(Default::default()),
+    headers,
+  )
+  .await;
   let body: serde_json::Value = json_body(resp).await;
   let yaml = body["yaml"].as_str().unwrap();
   assert!(yaml.contains("connections: 3"), "got:\n{yaml}");
@@ -392,7 +404,13 @@ async fn client_config_renders_yaml_with_declared_vs_effective_notes() {
   .await;
 
   let headers = admin_headers(&state).await;
-  let resp = client_config_handler(State(state.clone()), Path("c1".to_string()), headers).await;
+  let resp = client_config_handler(
+    State(state.clone()),
+    Path("c1".to_string()),
+    axum::extract::Query(Default::default()),
+    headers,
+  )
+  .await;
   assert_eq!(resp.status(), StatusCode::OK);
   let body: serde_json::Value = json_body(resp).await;
   let yaml = body["yaml"].as_str().unwrap();
@@ -440,7 +458,13 @@ async fn client_config_renders_an_empty_hostname_list() {
   .await;
 
   let headers = admin_headers(&state).await;
-  let resp = client_config_handler(State(state.clone()), Path("c1".to_string()), headers).await;
+  let resp = client_config_handler(
+    State(state.clone()),
+    Path("c1".to_string()),
+    axum::extract::Query(Default::default()),
+    headers,
+  )
+  .await;
   assert_eq!(resp.status(), StatusCode::OK);
   let body: serde_json::Value = json_body(resp).await;
   let yaml = body["yaml"].as_str().unwrap();
@@ -469,6 +493,7 @@ async fn client_config_reports_an_active_overrule_and_hides_other_orgs() {
   let resp = client_config_handler(
     State(state.clone()),
     Path("c1".to_string()),
+    axum::extract::Query(Default::default()),
     headers.clone(),
   )
   .await;
@@ -494,7 +519,13 @@ async fn client_config_reports_an_active_overrule_and_hides_other_orgs() {
   assert_eq!(note["effective"], "moved.example.com");
 
   // A client of another organization is a 404, like everywhere else.
-  let resp = client_config_handler(State(state.clone()), Path("other".to_string()), headers).await;
+  let resp = client_config_handler(
+    State(state.clone()),
+    Path("other".to_string()),
+    axum::extract::Query(Default::default()),
+    headers,
+  )
+  .await;
   assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
@@ -526,6 +557,7 @@ async fn override_unknown_client_is_404() {
   let resp = client_override_handler(
     State(state.clone()),
     Path("nope".to_string()),
+    axum::extract::Query(Default::default()),
     ConnectInfo(test_peer()),
     headers,
     override_req(Some("h.example.com"), None),
@@ -544,6 +576,7 @@ async fn override_set_then_clear() {
   let resp = client_override_handler(
     State(state.clone()),
     Path("c1".to_string()),
+    axum::extract::Query(Default::default()),
     ConnectInfo(test_peer()),
     headers.clone(),
     override_req(Some("New.Example.com"), Some("api/v2")),
@@ -564,6 +597,7 @@ async fn override_set_then_clear() {
   let resp = client_override_handler(
     State(state.clone()),
     Path("c1".to_string()),
+    axum::extract::Query(Default::default()),
     ConnectInfo(test_peer()),
     headers,
     override_req(Some(""), None),
@@ -590,6 +624,7 @@ async fn override_accepts_a_list_of_hostnames() {
   let resp = client_override_handler(
     State(state.clone()),
     Path("c1".to_string()),
+    axum::extract::Query(Default::default()),
     ConnectInfo(test_peer()),
     headers.clone(),
     override_list_req(&[
@@ -615,6 +650,7 @@ async fn override_accepts_a_list_of_hostnames() {
   let resp = client_override_handler(
     State(state.clone()),
     Path("c1".to_string()),
+    axum::extract::Query(Default::default()),
     ConnectInfo(test_peer()),
     headers.clone(),
     override_list_req(&["ok.example.com", "bad host"]),
@@ -633,6 +669,7 @@ async fn override_accepts_a_list_of_hostnames() {
   let resp = client_override_handler(
     State(state.clone()),
     Path("c1".to_string()),
+    axum::extract::Query(Default::default()),
     ConnectInfo(test_peer()),
     headers,
     override_list_req(&[]),
@@ -656,6 +693,7 @@ async fn override_rejects_invalid_values() {
   let resp = client_override_handler(
     State(state.clone()),
     Path("c1".to_string()),
+    axum::extract::Query(Default::default()),
     ConnectInfo(test_peer()),
     headers.clone(),
     override_req(Some("bad_host!"), None),
@@ -666,6 +704,7 @@ async fn override_rejects_invalid_values() {
   let resp = client_override_handler(
     State(state.clone()),
     Path("c1".to_string()),
+    axum::extract::Query(Default::default()),
     ConnectInfo(test_peer()),
     headers,
     override_req(None, Some("/foo/../bar")),
@@ -686,6 +725,7 @@ async fn override_cross_org_client_is_404() {
   let resp = client_override_handler(
     State(state.clone()),
     Path("c1".to_string()),
+    axum::extract::Query(Default::default()),
     ConnectInfo(test_peer()),
     headers,
     override_req(Some("h.example.com"), None),
@@ -722,6 +762,7 @@ async fn enabled_toggle_and_unknown() {
   let resp = client_enabled_handler(
     State(state.clone()),
     Path("c1".to_string()),
+    axum::extract::Query(Default::default()),
     ConnectInfo(test_peer()),
     headers.clone(),
     Json(ClientEnabledRequest { enabled: false }),
@@ -743,6 +784,7 @@ async fn enabled_toggle_and_unknown() {
   let resp = client_enabled_handler(
     State(state.clone()),
     Path("c1".to_string()),
+    axum::extract::Query(Default::default()),
     ConnectInfo(test_peer()),
     headers.clone(),
     Json(ClientEnabledRequest { enabled: true }),
@@ -764,6 +806,7 @@ async fn enabled_toggle_and_unknown() {
   let resp = client_enabled_handler(
     State(state.clone()),
     Path("ghost".to_string()),
+    axum::extract::Query(Default::default()),
     ConnectInfo(test_peer()),
     headers,
     Json(ClientEnabledRequest { enabled: true }),
@@ -784,6 +827,7 @@ async fn enabled_cross_org_client_is_404() {
   let resp = client_enabled_handler(
     State(state.clone()),
     Path("c1".to_string()),
+    axum::extract::Query(Default::default()),
     ConnectInfo(test_peer()),
     headers,
     Json(ClientEnabledRequest { enabled: false }),
@@ -935,6 +979,7 @@ async fn override_refuses_a_hostname_outside_the_org_allowlist() {
   let resp = client_override_handler(
     State(state.clone()),
     Path("c1".to_string()),
+    axum::extract::Query(Default::default()),
     ConnectInfo(test_peer()),
     headers.clone(),
     override_req(Some("evil.example.com"), None),
@@ -952,6 +997,7 @@ async fn override_refuses_a_hostname_outside_the_org_allowlist() {
   let resp = client_override_handler(
     State(state.clone()),
     Path("c1".to_string()),
+    axum::extract::Query(Default::default()),
     ConnectInfo(test_peer()),
     headers,
     override_req(Some("app.acme.com"), None),
@@ -1052,7 +1098,13 @@ async fn client_config_renders_every_optional_knob_and_server_overrule() {
   .await;
 
   let headers = admin_headers(&state).await;
-  let resp = client_config_handler(State(state.clone()), Path("c1".to_string()), headers).await;
+  let resp = client_config_handler(
+    State(state.clone()),
+    Path("c1".to_string()),
+    axum::extract::Query(Default::default()),
+    headers,
+  )
+  .await;
   assert_eq!(resp.status(), StatusCode::OK);
   let body: serde_json::Value = json_body(resp).await;
   let yaml = body["yaml"].as_str().unwrap();
@@ -1109,6 +1161,7 @@ async fn enabling_an_unknown_or_foreign_client_is_not_found() {
   let resp = client_enabled_handler(
     State(state.clone()),
     Path("missing".to_string()),
+    axum::extract::Query(Default::default()),
     axum::extract::ConnectInfo(test_peer()),
     admin_headers(&state).await,
     Json(ClientEnabledRequest { enabled: false }),
@@ -1119,6 +1172,7 @@ async fn enabling_an_unknown_or_foreign_client_is_not_found() {
   let resp = client_enabled_handler(
     State(state.clone()),
     Path("c1".to_string()),
+    axum::extract::Query(Default::default()),
     axum::extract::ConnectInfo(test_peer()),
     cookie_headers(&token),
     Json(ClientEnabledRequest { enabled: false }),
@@ -1247,4 +1301,76 @@ async fn a_limit_returns_the_newest_matches() {
   // Without a limit the order is unchanged, which the live view relies on.
   let all = query(&state, &[]).await;
   assert_eq!(all.first().unwrap().id, "a");
+}
+
+/// A connection carrying two services is two rows, each addressable.
+///
+/// The table is what an operator manages the fleet from. A connection with
+/// two services showing as one row does not merely hide the second: it hides
+/// that a second exists, so nothing on the page prompts anyone to look. And a
+/// row that cannot be addressed on its own is worse than no row, because the
+/// enable switch beside it would quietly act on its neighbour.
+#[tokio::test]
+async fn a_connection_with_two_services_is_two_addressable_rows() {
+  let state = Arc::new(test_state());
+  insert_client(&state, "c1", |h| {
+    h.sole_mut().service_name = Some("api".to_string());
+    h.sole_mut().declared_path = Some("/api".to_string());
+    let mut second = crate::state::ServiceState::newly_declared();
+    second.service_name = Some("web".to_string());
+    second.declared_path = Some("/web".to_string());
+    h.services.push(second);
+  })
+  .await;
+
+  let headers = admin_headers(&state).await;
+  let resp = stats_handler(State(state.clone()), headers).await;
+  let body = serde_json::to_value(&resp.0).unwrap();
+  let rows = body["active_clients"].as_array().unwrap();
+  assert_eq!(rows.len(), 2, "one connection, two rows");
+
+  let api = rows.iter().find(|r| r["service"] == "api").unwrap();
+  let web = rows.iter().find(|r| r["service"] == "web").unwrap();
+  assert_eq!(api["id"], "c1", "both rows carry the connection id");
+  assert_eq!(web["id"], "c1");
+  assert_eq!(
+    api["service_index"], 0,
+    "and the pair is what addresses them"
+  );
+  assert_eq!(web["service_index"], 1);
+  assert_eq!(api["path_bind"], "/api", "each row shows its own binds");
+  assert_eq!(web["path_bind"], "/web");
+}
+
+/// The enable switch acts on the service its row names.
+#[tokio::test]
+async fn disabling_one_service_leaves_the_other_enabled() {
+  let state = Arc::new(test_state());
+  insert_client(&state, "c1", |h| {
+    h.sole_mut().service_name = Some("api".to_string());
+    let mut second = crate::state::ServiceState::newly_declared();
+    second.service_name = Some("web".to_string());
+    h.services.push(second);
+  })
+  .await;
+
+  let headers = admin_headers(&state).await;
+  let resp = crate::api::clients::client_enabled_handler(
+    State(state.clone()),
+    axum::extract::Path("c1".to_string()),
+    axum::extract::Query(crate::api::clients::ServiceQuery { service: 1 }),
+    axum::extract::ConnectInfo("127.0.0.1:9000".parse().unwrap()),
+    headers,
+    axum::Json(crate::api::clients::ClientEnabledRequest { enabled: false }),
+  )
+  .await;
+  assert_eq!(resp.status(), axum::http::StatusCode::OK);
+
+  let clients = state.clients.read().await;
+  let h = clients.get("c1").unwrap();
+  assert!(h.services[0].admin_enabled, "the api service is untouched");
+  assert!(
+    !h.services[1].admin_enabled,
+    "the web service is the one switched off"
+  );
 }

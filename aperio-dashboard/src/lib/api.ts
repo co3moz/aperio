@@ -25,6 +25,12 @@ export interface PersistentStats {
 
 export interface ClientDetail {
   id: string
+  /**
+   * Which of the connection's services this row is. A connection can carry
+   * several, so `id` alone does not identify a row: the pair does, and it is
+   * what the config, override and enabled endpoints take.
+   */
+  service_index: number
   ip: string
   connected_for_seconds: number
   request_count: number
@@ -825,18 +831,23 @@ export const api = {
   requestDetail: (id: string) => request<CapturedRequest>(`/requests/${encodeURIComponent(id)}`),
   replayRequest: (id: string) =>
     request<ReplayResult>(`/requests/${encodeURIComponent(id)}/replay`, { method: 'POST' }),
-  clientConfig: (id: string) =>
-    request<ClientConfigView>(`/clients/${encodeURIComponent(id)}/config`),
+  clientConfig: (id: string, service = 0) =>
+    request<ClientConfigView>(
+      `/clients/${encodeURIComponent(id)}/config?service=${service}`,
+    ),
   /** JSON Schema of a configuration file, driving the config builder. */
   configSchema: (kind: 'client' | 'server') =>
     request<JsonSchema>(`/config/schema/${kind}`),
-  overrideClient: (id: string, hostnameBinds: string[], pathBind: string) =>
+  overrideClient: (id: string, hostnameBinds: string[], pathBind: string, service = 0) =>
     mutate(
-      `/clients/${encodeURIComponent(id)}/override`,
+      `/clients/${encodeURIComponent(id)}/override?service=${service}`,
       json('POST', { hostname_binds: hostnameBinds, path_bind: pathBind }),
     ),
-  setClientEnabled: (id: string, enabled: boolean) =>
-    mutate(`/clients/${encodeURIComponent(id)}/enabled`, json('POST', { enabled })),
+  setClientEnabled: (id: string, enabled: boolean, service = 0) =>
+    mutate(
+      `/clients/${encodeURIComponent(id)}/enabled?service=${service}`,
+      json('POST', { enabled }),
+    ),
   tokens: () => request<TokenView[]>('/tokens'),
   createToken: (payload: TokenCreatePayload) =>
     request<{ token: string }>('/tokens', json('POST', payload)),

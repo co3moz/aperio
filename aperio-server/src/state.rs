@@ -33,8 +33,13 @@ pub(crate) struct ServerStats {
 /// Details of an active tunnel client connection.
 #[derive(Serialize, Clone, utoipa::ToSchema)]
 pub(crate) struct ClientDetail {
-  /// Unique client UUID.
+  /// Unique client UUID. Shared by every service the connection carries, so
+  /// it identifies a row only together with `service_index`.
   pub(crate) id: String,
+  /// Which of the connection's services this row is. `0` for a connection
+  /// carrying one, which is every client that predates protocol v8, so a
+  /// reader that ignores the field sees exactly what it saw before.
+  pub(crate) service_index: usize,
   /// Remote socket IP address of the client connection.
   pub(crate) ip: String,
   /// Number of seconds elapsed since connection establishment.

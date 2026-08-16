@@ -224,13 +224,14 @@ readable without scrolling past what is already done.
   by its own binds, with a withdrawn one leaving routing on the next
   heartbeat.
 
-  **The fourth is still open: the dashboard's client table.** It shows one
-  row per connection, so a connection carrying two services shows the first.
-  Its rows are addressed by connection id and that id is what
-  `/api/clients/{id}/override`, `/enabled` and `/config` take, so this is a
-  change to the API contract and the frontend that reads it, not to the
-  table. Per-service statistics and the elastic pool's growth signal follow
-  from the same address.
+  **And the fourth landed: the dashboard shows and controls a service.** One
+  row per service, addressed by the connection id together with a new
+  `service_index`, which the config, override and enable endpoints take as an
+  optional `?service=`. Omitting it means the first service, so nothing that
+  exists today changes. The frontend's grouping needed no work: it already
+  keyed rows by process *and* service, on the assumption that different
+  services of one process stay separate, and two services of one connection
+  satisfy that without knowing it was written for something else.
 
   Nothing in the field is affected yet: no released client sends a list, so
   the capability is reachable only by a client built for it. The client half

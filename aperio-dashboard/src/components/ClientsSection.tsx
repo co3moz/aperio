@@ -193,7 +193,7 @@ function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () =
     // and hands routing back to what the client itself declared.
     const hostnames = rows.map((r) => r.value.trim()).filter(Boolean)
     try {
-      await api.overrideClient(client.id, hostnames, path.trim())
+      await api.overrideClient(client.id, hostnames, path.trim(), client.service_index)
       setOpen(false)
       const cleared = hostnames.length === 0 && !path.trim()
       toast.success(
@@ -282,7 +282,7 @@ function EnableToggle({
   const setEnabled = async (enabled: boolean) => {
     setBusy(true)
     try {
-      await Promise.all(connections.map((c) => api.setClientEnabled(c.id, enabled)))
+      await Promise.all(connections.map((c) => api.setClientEnabled(c.id, enabled, c.service_index)))
       const label = enabled
         ? t('Client {id} enabled', { id: client.id.slice(0, 8) })
         : t('Client {id} disabled', { id: client.id.slice(0, 8) })
@@ -449,7 +449,7 @@ export function ClientsSection({
       toast.info(enabled ? t('No clients to enable') : t('No clients to disable'))
       return
     }
-    await Promise.allSettled(targets.map((c) => api.setClientEnabled(c.id, enabled)))
+    await Promise.allSettled(targets.map((c) => api.setClientEnabled(c.id, enabled, c.service_index)))
     const label = enabled
       ? t('{count} client(s) enabled', { count: targets.length })
       : t('{count} client(s) disabled', { count: targets.length })
@@ -724,6 +724,7 @@ export function ClientsSection({
       {configOf && (
         <ClientConfigDialog
           clientId={configOf.id}
+          serviceIndex={configOf.service_index}
           label={configOf.service ?? configOf.hostname_binds[0] ?? configOf.id.slice(0, 8)}
           open
           onOpenChange={(next) => {
