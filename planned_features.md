@@ -349,6 +349,25 @@ readable without scrolling past what is already done.
   every time rather than most times. That is good news for whoever picks it
   up: it reproduces on demand under the full suite, and only there.
 
+  **Third pass: a real oddity found, and a fix that failed its own check.**
+  The reconnect-and-serve-stale path in `proxy.rs` is guarded by
+  `if !is_connected`, and that flag is **server-wide**, not per route. So the
+  request takes one of two completely different paths depending on whether
+  *some unrelated client* happens to be online: with none, it waits and then
+  serves the stale entry; with one, the whole block is skipped. That matches
+  the two durations exactly (the passing fetch spends about three seconds in
+  that wait, the failing one returns in two tenths having skipped it), and it
+  is worth fixing on its own terms, because whether a resilient route
+  survives its client should not depend on another service's client being up.
+
+  It is **not** established as the cause of the 504, though. Making the
+  skipped path fall through to the resilient cache, and making the test
+  deterministic by restarting an unrelated client first, was tried: the test
+  then passed, but it also passed with the product change reverted, so the
+  test was passing for some other reason and the fix pinned nothing. Both
+  were reverted rather than committed. A change whose negative check comes
+  back green is not a fix, it is a coincidence with good timing.
+
   Still standing, and where to start: setting `APERIO_DEFAULT_ACCESS=allow`
   on the cache fixture avoided the failure three runs out of three, against
   four failures in six with the default. That implicates the closed posture
