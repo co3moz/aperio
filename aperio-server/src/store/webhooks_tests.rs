@@ -262,15 +262,32 @@ fn test_secret_persists_across_reload() {
 // Delivery: send_once, the retry policy, and the log it feeds.
 // ---------------------------------------------------------------------------
 
-/// A local receiver answering one canned status per connection.
-async fn canned_receiver(status: u16) -> std::net::SocketAddr {
+/// What one receiver saw, kept per receiver rather than in one place.
+type Received = std::sync::Arc<std::sync::Mutex<Vec<String>>>;
+
+/// A local receiver answering one canned status per connection, and the
+/// record of what reached *it*.
+///
+/// The record used to be a single `static`, shared by every receiver every
+/// test in this file spawns. Three of them use this helper, so a test
+/// asserting its own receiver saw nothing was really asserting that no
+/// webhook test anywhere in the binary had delivered while it ran. Under the
+/// full suite that is false often enough to fail, and it fails by accusing
+/// the outbound fence of following a redirect it never followed: a security
+/// claim disproved by a scheduling accident. It went the other way too, a
+/// `clear()` between another test's delivery and its assertion would have
+/// lost the headers it was about to check.
+async fn canned_receiver(status: u16) -> (std::net::SocketAddr, Received) {
   let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
   let addr = listener.local_addr().unwrap();
+  let received: Received = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+  let sink = received.clone();
   tokio::spawn(async move {
     loop {
       let Ok((mut socket, _)) = listener.accept().await else {
         return;
       };
+      let sink = sink.clone();
       tokio::spawn(async move {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let mut buf = [0u8; 4096];
@@ -280,14 +297,12 @@ async fn canned_receiver(status: u16) -> std::net::SocketAddr {
           format!("HTTP/1.1 {status} X\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
         let _ = socket.write_all(response.as_bytes()).await;
         // Keep what arrived observable for the signature assertion.
-        RECEIVED.lock().unwrap().push(head);
+        sink.lock().unwrap().push(head);
       });
     }
   });
-  addr
+  (addr, received)
 }
-
-static RECEIVED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
 fn hook_to(addr: std::net::SocketAddr, secret: Option<&str>) -> Webhook {
   Webhook {
@@ -307,7 +322,7 @@ fn hook_to(addr: std::net::SocketAddr, secret: Option<&str>) -> Webhook {
 async fn a_delivery_succeeds_and_carries_the_signature_headers() {
   // Pin the retry schedule before any delivery initializes the OnceLock:
   // whatever it holds, this test's cases never retry (200 and 4xx).
-  let addr = canned_receiver(200).await;
+  let (addr, received) = canned_receiver(200).await;
   let log = std::sync::Arc::new(tokio::sync::Mutex::new(DeliveryLog::load(
     &crate::test_support::test_temp_root()
       .join(format!("wh-{}", uuid::Uuid::new_v4()))
@@ -328,7 +343,7 @@ async fn a_delivery_succeeds_and_carries_the_signature_headers() {
   assert!(list[0].success);
   assert_eq!(list[0].status, Some(200));
   assert_eq!(list[0].attempts, 1);
-  let received = RECEIVED.lock().unwrap().join("\n");
+  let received = received.lock().unwrap().join("\n");
   assert!(
     received.contains("x-aperio-signature: sha256="),
     "the signed delivery announces its MAC: {received}"
@@ -338,7 +353,7 @@ async fn a_delivery_succeeds_and_carries_the_signature_headers() {
 
 #[tokio::test]
 async fn a_permanent_refusal_is_not_retried() {
-  let addr = canned_receiver(404).await;
+  let (addr, _received) = canned_receiver(404).await;
   let log = std::sync::Arc::new(tokio::sync::Mutex::new(DeliveryLog::load(
     &crate::test_support::test_temp_root()
       .join(format!("wh-{}", uuid::Uuid::new_v4()))
@@ -450,8 +465,7 @@ async fn a_redirect_does_not_carry_a_delivery_past_the_outbound_policy() {
   // policy actually vetted is not the destination that gets the request, and
   // an allowed receiver can point the server at anything: the metadata
   // service, something on the loopback, whatever the fence exists to refuse.
-  RECEIVED.lock().unwrap().clear();
-  let internal = canned_receiver(200).await;
+  let (internal, internal_saw) = canned_receiver(200).await;
   let redirector = redirecting_receiver(&format!("http://{internal}/internal")).await;
 
   let status = send_once(&hook_to(redirector, None), "{}").await;
@@ -461,7 +475,7 @@ async fn a_redirect_does_not_carry_a_delivery_past_the_outbound_policy() {
   // of a host nobody vetted.
   assert_eq!(status, Ok(302), "the redirect must not be followed");
   assert!(
-    RECEIVED.lock().unwrap().is_empty(),
+    internal_saw.lock().unwrap().is_empty(),
     "the redirect target received a request"
   );
 }
