@@ -1369,13 +1369,22 @@ impl ConnCtx {
             // shifts every index after it, and the indexes are what the rest
             // of this function writes through.
             Ok(matched) => {
+              let pacer_cell = handle
+                .services
+                .first()
+                .map(|s| s.bandwidth_bps.clone())
+                .unwrap_or_default();
               let mut old: Vec<Option<crate::state::ServiceState>> =
                 handle.services.drain(..).map(Some).collect();
               let mut fresh = Vec::with_capacity(matched.len());
               for m in &matched {
                 let carried = m
                   .and_then(|i| old.get_mut(i).and_then(Option::take))
-                  .unwrap_or_else(crate::state::ServiceState::newly_declared);
+                  .unwrap_or_else(|| {
+                    // The connection's own cell, so a service added mid-flight
+                    // announces into the one the writer actually reads.
+                    crate::state::ServiceState::newly_declared(pacer_cell.clone())
+                  });
                 fresh.push(carried);
               }
               let retired = old.iter().filter(|s| s.is_some()).count();

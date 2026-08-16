@@ -1241,7 +1241,15 @@ impl ServiceState {
   /// connection's first service, which the handshake sets up; a service the
   /// client adds later declares its own and is checked against the same
   /// permissions.
-  pub(crate) fn newly_declared() -> Self {
+  /// `pacer` is the connection's own bandwidth cell, the one the writer task
+  /// reads. It is shared rather than freshly minted because the shaper is per
+  /// *socket*: a connection has one writer, so a service that announced a cap
+  /// into a cell nothing reads would be reported as throttled by the API
+  /// while the wire ran unthrottled. Sharing keeps the two honest. What it
+  /// cannot do is enforce two different caps on one socket, which is the same
+  /// per-service-on-a-shared-writer question `planned_features.md` #46 raises
+  /// for the pacer and for flow control.
+  pub(crate) fn newly_declared(pacer: Arc<AtomicU64>) -> Self {
     Self {
       request_count: Arc::new(AtomicU64::new(0)),
       declared_path: None,
@@ -1265,7 +1273,7 @@ impl ServiceState {
       backend_healthy: true,
       backend_probed: true,
       priority: 0,
-      bandwidth_bps: Arc::new(AtomicU64::new(0)),
+      bandwidth_bps: pacer,
       service_name: None,
       service_custom_name: None,
       public: false,

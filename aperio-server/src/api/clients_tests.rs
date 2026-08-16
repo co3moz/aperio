@@ -1316,7 +1316,7 @@ async fn a_connection_with_two_services_is_two_addressable_rows() {
   insert_client(&state, "c1", |h| {
     h.sole_mut().service_name = Some("api".to_string());
     h.sole_mut().declared_path = Some("/api".to_string());
-    let mut second = crate::state::ServiceState::newly_declared();
+    let mut second = crate::state::ServiceState::newly_declared(Default::default());
     second.service_name = Some("web".to_string());
     second.declared_path = Some("/web".to_string());
     h.services.push(second);
@@ -1348,7 +1348,7 @@ async fn disabling_one_service_leaves_the_other_enabled() {
   let state = Arc::new(test_state());
   insert_client(&state, "c1", |h| {
     h.sole_mut().service_name = Some("api".to_string());
-    let mut second = crate::state::ServiceState::newly_declared();
+    let mut second = crate::state::ServiceState::newly_declared(Default::default());
     second.service_name = Some("web".to_string());
     h.services.push(second);
   })

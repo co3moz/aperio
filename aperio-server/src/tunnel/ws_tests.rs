@@ -2251,3 +2251,61 @@ async fn a_service_the_client_stops_declaring_leaves_routing() {
     "and nothing routes to it any more"
   );
 }
+
+#[tokio::test]
+async fn a_service_added_later_announces_into_the_cell_the_writer_reads() {
+  // The bandwidth cap is applied by the connection's writer task, which holds
+  // one cell for the socket. A service the client adds mid-connection used to
+  // be given a fresh cell of its own, so its announcement went somewhere
+  // nothing reads: `/aperio/api/stats` reported the service as throttled
+  // while the wire ran at whatever the first service had asked for. Nothing
+  // errors in that state, which is why it is worth a test rather than a
+  // glance.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+
+  let decl = |name: &str, bw: Option<u64>| crate::protocol::ServiceDecl {
+    service: Some(name.into()),
+    backend_healthy: true,
+    bandwidth_bps: bw,
+    ..Default::default()
+  };
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    *services = Some(vec![decl("api", None)]);
+  }
+  send(&mut ws, &ping).await;
+  let id = wait_client_id(&state).await;
+  let _ = read_until_pong(&mut ws).await;
+
+  // The cell the writer was handed when the connection opened.
+  let writers_cell = {
+    let clients = state.clients.read().await;
+    clients.get(&id).expect("served").services[0]
+      .bandwidth_bps
+      .clone()
+  };
+
+  let mut ping2 = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping2
+  {
+    *services = Some(vec![decl("api", None), decl("web", Some(125_000))]);
+  }
+  send(&mut ws, &ping2).await;
+  let _ = read_until_pong(&mut ws).await;
+
+  let clients = state.clients.read().await;
+  let handle = clients.get(&id).expect("still served");
+  assert_eq!(handle.services.len(), 2, "the second service was added");
+  assert_eq!(
+    writers_cell.load(std::sync::atomic::Ordering::SeqCst),
+    125_000,
+    "the announcement reached the cell the writer actually paces from"
+  );
+}
