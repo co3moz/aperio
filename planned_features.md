@@ -255,11 +255,36 @@ readable without scrolling past what is already done.
   exactly as it does today. That is the same move that worked on the Ping,
   and it is why the selector went in first.
 
-  The rest of the client half: `multiplex: true` as a config key on all four
-  surfaces (rule 17), and the negotiation, which must be a handshake check on
-  the server's announced protocol rather than a discovery by disconnection.
-  `>= 8` is a sound gate: 0.9.0 shipped protocol 7, so no released server
-  announces 8, and the first that does is the one that serves several. After that, the pieces the entry
+  **The structural half of that landed (2026-08-16).** `run_service` takes a
+  list, the first spec stands for the connection, and each dispatch resolves
+  its service from the name the frame carries by shadowing `spec` at the top
+  of the arm, which leaves all 31 body reads untouched. The list has one
+  entry everywhere, so nothing changed yet.
+
+  **What remains is not one more slice.** Four things in the client are
+  per-connection today and every one of them is *silently* wrong if
+  multiplexed halfway, which is the same property that made the server half a
+  single milestone:
+  - **Backend health.** `BackendHealth` is per service and the probe runs on
+    one connection of its pool. Six sites, so the mechanics are small, but a
+    second service reported `backend_healthy: true` without being probed is a
+    route the server will send traffic to.
+  - **Gate negotiation.** `visitor_auth_methods` comes from a connection-level
+    `GateNegotiation`, computed for one gate. Services with different gates
+    each need their own, and the failure mode is a service running under a
+    gate that was not the one written for it.
+  - **Adaptive concurrency and the connection pool**, 19 sites between them.
+    A multiplexed connection is one connection, so per-service `connections:`
+    stops meaning what it means today; this is the #48 composition question
+    arriving in person rather than in the abstract.
+  - **`multiplex: true` itself**, on all four surfaces (rule 17), plus the
+    handshake negotiation. `>= 8` is a sound gate for that: 0.9.0 shipped
+    protocol 7, so no released server announces 8, and the first that does is
+    the one that serves several.
+
+  Written down with the counts because the pattern this entry keeps teaching
+  is that the measurement is the cheap part and the guess is the expensive
+  one. After that, the pieces the entry
   already names: load balancing on the pair, the elastic pool's per-service
   growth signal, a pacer per service so a large response cannot queue ahead
   of a small API on the shared writer, and the dashboard's client table.
