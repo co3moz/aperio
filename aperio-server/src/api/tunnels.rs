@@ -214,6 +214,12 @@ pub(crate) async fn tunnels_create_handler(
       allowed_ips,
       org_id: org,
       ttl_seconds: Some(ttl),
+      // The one capability it *does* need, and it needs it for the same
+      // reason the rest are withheld. A preview URL exists to be opened, and
+      // since the server closed by default (#108) a route is served only
+      // where something declares it reachable. A token that cannot say so
+      // produces a hostname nobody can load, which is not a preview.
+      allow_public: true,
       ..Default::default()
     })
   };

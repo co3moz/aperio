@@ -200,6 +200,35 @@ pub const CONFIG_CHANGES: &[ConfigChange] = &[
     // Guessed for the same reason as the entries below.
     version: "0.10.0",
     surface: ConfigSurface::Server,
+    // A changed *default*, which is the one shape where `Always` is right:
+    // the operators affected are precisely the ones who never wrote the key,
+    // so no set of field names can find them. `default_access` is named in
+    // `fields` anyway, because an operator who did write it is the one person
+    // this cannot surprise and the report reads better for saying so.
+    //
+    // `Breaking`, not `Security`. Nothing that was protected stops being
+    // protected; what changes is availability, and a `Security` entry would
+    // refuse the start of every server in the range for a change that took
+    // nothing away. The harm here is a route going dark, which is loud, not a
+    // protection quietly absent, which is not.
+    severity: ChangeSeverity::Breaking,
+    applies: Applies::Always,
+    fields: &["default_access", "public", "auth"],
+    summary: "a proxied route is now refused unless something declares it reachable: the default \
+              posture changed from `allow` to `deny`",
+    action: "if this server publishes a public site, which is the commonest deployment there is, \
+             every client serving one must now say so: `public: true` on the service, or \
+             `auth: {method: none}`, which is the same statement in the policy grammar. Until it \
+             does, those routes answer as an unclaimed hostname does. Nothing is needed for a \
+             route already behind an `auth:` policy, a server password or OIDC, because those \
+             were always reachable after a login. To postpone the whole thing, set \
+             `default_access: allow` (APERIO_DEFAULT_ACCESS), which restores exactly the previous \
+             behaviour and is a supported setting rather than a migration escape hatch.",
+  },
+  ConfigChange {
+    // Guessed for the same reason as the entries below.
+    version: "0.10.0",
+    surface: ConfigSurface::Server,
     // There was briefly a second entry here, recording that a policy and a
     // proxy refused to start together. It is gone rather than kept: that
     // refusal existed only between two commits of an unreleased version, so

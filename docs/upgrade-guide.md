@@ -133,6 +133,32 @@ APERIO_CLIENT_BIN=/path/to/old/aperio-client npm --prefix tests/e2e run test:com
 APERIO_SERVER_BIN=/path/to/old/aperio-server npm --prefix tests/e2e run test:compat
 ```
 
+## Upgrading to 0.10.0: routes are closed by default
+
+A proxied route is now refused unless something declares it reachable. Before
+0.10.0 a server with no `auth:` anywhere served every route to everyone, and
+`public: true` was an exemption from a gate that might not exist.
+
+**Who has to do something.** A deployment publishing a public site, which is
+the commonest one there is. Every client serving such a route must now say so:
+
+```yaml
+public: true          # or, the same statement in the policy grammar:
+auth: { method: none }
+```
+
+Until it does, those routes answer the way an unclaimed hostname does, so the
+symptom is a `504` rather than an error naming the posture. The server warns
+about exactly this, once per connection, naming the line to write.
+
+**Who does not.** A route already behind an `auth:` policy, the server's own
+password, or OIDC. Those were always reachable after a login and are untouched:
+the posture decides what an *unstated* route means, nothing else.
+
+**To postpone it**, set `default_access: allow` (`APERIO_DEFAULT_ACCESS`). That
+restores the previous behaviour exactly. It is a supported posture rather than
+a migration flag, so there is no deadline attached to it.
+
 ## Recommended upgrade procedure
 
 1. **Read the [CHANGELOG](../CHANGELOG.md).** Breaking changes are called out

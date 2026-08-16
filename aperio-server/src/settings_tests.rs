@@ -527,7 +527,9 @@ fn the_default_access_posture_is_parsed_from_the_words_an_operator_writes() {
   for (raw, want) in [
     ("allow", DefaultAccess::Allow),
     ("open", DefaultAccess::Allow),
-    ("", DefaultAccess::Allow),
+    // Unset is the posture, and since 0.10.0 the posture is closed: a route
+    // is reachable because something said so.
+    ("", DefaultAccess::Deny),
     ("deny", DefaultAccess::Deny),
     ("closed", DefaultAccess::Deny),
     (" DENY ", DefaultAccess::Deny),

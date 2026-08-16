@@ -801,18 +801,19 @@ pub(crate) fn config_reload_diff(old: &ServerConfig, new: &ServerConfig) -> Vec<
 /// reachable, yes or no".
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub(crate) enum DefaultAccess {
-  /// Serve it. What the server has always done, and still the default.
-  #[default]
+  /// Serve it. What the server did by default until 0.10.0.
   Allow,
-  /// Refuse it, indistinguishably from a route nobody serves.
+  /// Refuse it, indistinguishably from a route nobody serves. The default
+  /// since 0.10.0: a route is reachable because something said so.
+  #[default]
   Deny,
 }
 
 /// Parses an `APERIO_DEFAULT_ACCESS` value.
 pub(crate) fn parse_default_access(raw: &str) -> Option<DefaultAccess> {
   match raw.trim().to_ascii_lowercase().as_str() {
-    "" | "allow" | "open" => Some(DefaultAccess::Allow),
-    "deny" | "closed" => Some(DefaultAccess::Deny),
+    "" | "deny" | "closed" => Some(DefaultAccess::Deny),
+    "allow" | "open" => Some(DefaultAccess::Allow),
     _ => None,
   }
 }

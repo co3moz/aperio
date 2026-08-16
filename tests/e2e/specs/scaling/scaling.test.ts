@@ -192,6 +192,11 @@ export class ColdStartSpec extends Test({
         env: {
           ...process.env,
           APERIO_CONNECTIONS: '1',
+          // Spawned by hand rather than through the client base, so it says
+          // this itself: the posture is closed by default (#108) and a woken
+          // service declares what it is exactly as it would have done had it
+          // never slept.
+          APERIO_PUBLIC: '1',
           APERIO_SERVER_URL: this.server._url,
           APERIO_SERVER_TOKEN: this.server._token,
           APERIO_TARGET: this.backend._url,

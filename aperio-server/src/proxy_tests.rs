@@ -413,6 +413,7 @@ async fn visitor_gate_denies_when_auth_configured() {
       assert!(loc.starts_with("/aperio/auth?redirect="));
     }
     VisitorGate::Allow(_) => panic!("expected deny"),
+    VisitorGate::Undeclared(_) => panic!("expected a deny, not an undeclared route"),
   }
 }
 
@@ -517,6 +518,7 @@ async fn a_caller_without_a_browser_is_refused_with_a_challenge_rather_than_a_re
       );
     }
     VisitorGate::Allow(_) => panic!("expected deny"),
+    VisitorGate::Undeclared(_) => panic!("expected a deny, not an undeclared route"),
   }
 
   // The same gate, a browser navigation: still the login page, because that
@@ -527,6 +529,7 @@ async fn a_caller_without_a_browser_is_refused_with_a_challenge_rather_than_a_re
   match gate {
     VisitorGate::Deny(resp) => assert_eq!(resp.status(), StatusCode::FOUND),
     VisitorGate::Allow(_) => panic!("expected deny"),
+    VisitorGate::Undeclared(_) => panic!("expected a deny, not an undeclared route"),
   }
 }
 
@@ -588,6 +591,7 @@ async fn a_page_opened_with_a_secret_in_its_url_is_sent_to_a_clean_address() {
       assert!(cookie.starts_with("aperio_share="), "{cookie}");
     }
     VisitorGate::Allow(_) => panic!("expected the clean-address redirect"),
+    VisitorGate::Undeclared(_) => panic!("expected the clean-address redirect"),
   }
 
   // A non-navigation with the same secret is simply admitted: there is no
@@ -1898,14 +1902,16 @@ async fn closed_by_default_refuses_a_route_nothing_declares_open() {
   )
   .await;
   match gate {
-    VisitorGate::Deny(resp) => assert_eq!(
-      resp.status(),
-      StatusCode::GATEWAY_TIMEOUT,
-      "the refusal is the answer an unclaimed route already gives, so the \
-       existence of something here does not leak to a caller who was never \
-       going to be let in"
-    ),
-    VisitorGate::Allow(_) => panic!("expected the closed-by-default refusal"),
+    // `Undeclared` rather than `Deny`, and the distinction is the point: the
+    // thing that would declare this route open is a client, and under
+    // scale-to-zero it may be asleep, so the handler asks again after the
+    // cold start rather than refusing here. The answer carried is the one to
+    // give if nobody arrives, and it is the answer an unclaimed route already
+    // gives, so the existence of something here does not leak to a caller who
+    // was never going to be let in.
+    VisitorGate::Undeclared(resp) => assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT),
+    VisitorGate::Deny(_) => panic!("expected the closed-by-default answer, not a refusal"),
+    VisitorGate::Allow(_) => panic!("expected the closed-by-default answer"),
   }
 
   // The same request under the default posture, which is unchanged.
@@ -1968,6 +1974,7 @@ async fn closed_by_default_leaves_a_configured_gate_exactly_as_it_was() {
       "a gated route still sends the visitor somewhere they can act"
     ),
     VisitorGate::Allow(_) => panic!("expected deny"),
+    VisitorGate::Undeclared(_) => panic!("expected a deny, not an undeclared route"),
   }
 }
 
@@ -2158,7 +2165,54 @@ async fn an_open_route_names_nobody() {
   {
     VisitorGate::Allow(identity) => assert_eq!(identity, None),
     VisitorGate::Deny(_) => panic!("expected allow"),
+    VisitorGate::Undeclared(_) => panic!("expected allow"),
   }
+}
+
+#[tokio::test]
+async fn a_route_nothing_is_connected_to_is_undeclared_rather_than_refused() {
+  // The distinction the cold start depends on. Closed by default and nothing
+  // connected means the client that would declare this route open may simply
+  // be asleep, so the gate hands back the answer to give *if* nobody arrives
+  // and lets the handler ask again after the wake. Refusing outright here
+  // would have switched scale-to-zero off, since the request that wakes a
+  // service is exactly the one nothing has declared anything for.
+  let mut cfg = test_config();
+  cfg.default_access = crate::settings::DefaultAccess::Deny;
+  let state = Arc::new(test_state_with(cfg));
+  let uri: axum::http::Uri = "/anything".parse().unwrap();
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    Some("asleep.e2e.local"),
+  )
+  .await;
+  match gate {
+    VisitorGate::Undeclared(resp) => assert_eq!(
+      resp.status(),
+      StatusCode::GATEWAY_TIMEOUT,
+      "the held answer is the one an unclaimed route gives"
+    ),
+    VisitorGate::Deny(_) => panic!("a sleeping service must not be refused outright"),
+    VisitorGate::Allow(_) => panic!("nothing declared this route open"),
+  }
+
+  // And a client that *is* connected and declares itself open is served, so
+  // the posture is not simply deferring everything.
+  let mut c = mock_client(Some("awake.e2e.local"), None, None, None);
+  c.public = true;
+  state.clients.write().await.insert("c1".to_string(), c);
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    Some("awake.e2e.local"),
+  )
+  .await;
+  assert!(matches!(gate, VisitorGate::Allow(_)));
 }
 
 #[tokio::test]
@@ -2334,6 +2388,7 @@ async fn a_jwt_gate_admits_the_token_a_visitor_already_holds() {
       assert_eq!(resp.headers().get("WWW-Authenticate").unwrap(), "Bearer");
     }
     VisitorGate::Allow(_) => panic!("expected deny"),
+    VisitorGate::Undeclared(_) => panic!("expected a deny, not an undeclared route"),
   }
 }
 
@@ -2439,7 +2494,7 @@ async fn one_written_policy_behaves_the_same_whichever_side_wrote_it() {
           "{label}"
         );
       }
-      VisitorGate::Allow(_) => {
+      VisitorGate::Allow(_) | VisitorGate::Undeclared(_) => {
         panic!("{label}: a page load carrying the secret should be sent to a clean address")
       }
     }

@@ -349,6 +349,16 @@ pub(crate) enum VisitorGate {
   /// The visitor is not authorized; reply with this response (a login/OIDC
   /// redirect, or a share-link redirect).
   Deny(Response),
+  /// Closed by default, and nothing connected to this route declares it open.
+  ///
+  /// **Not a refusal yet.** The thing that would declare a route open is a
+  /// client, and under scale-to-zero the client is asleep: refusing here
+  /// would mean the posture had switched cold start off, since the request
+  /// that wakes a service is exactly the one nobody has declared anything
+  /// for. So this carries the answer to give *if* no client arrives, and the
+  /// caller asks again once one has. A woken client's own declaration then
+  /// decides, which is what it would have decided had it never slept.
+  Undeclared(Response),
 }
 
 /// Builds a 302 to the login flow, preserving the original path so the visitor
@@ -693,7 +703,7 @@ pub(crate) async fn check_visitor_gate(
       // announce its existence to a caller who was never going to be let in.
       if state.config().default_access == crate::settings::DefaultAccess::Deny {
         tracing::debug!(
-          "Refusing {} on {}: closed by default and nothing declares this route open",
+          "Nothing declares {} on {} open, and the posture is closed",
           path,
           host.unwrap_or("-")
         );
@@ -787,11 +797,11 @@ pub(crate) async fn check_visitor_gate(
     // was never going to be let in.
     if config.default_access == crate::settings::DefaultAccess::Deny {
       tracing::debug!(
-        "Refusing {} on {}: closed by default and nothing declares this route open",
+        "Nothing declares {} on {} open, and the posture is closed",
         path,
         host.unwrap_or("-")
       );
-      return VisitorGate::Deny(gateway_timeout_response(
+      return VisitorGate::Undeclared(gateway_timeout_response(
         state,
         host,
         "504 Gateway Timeout - No client connected in time",
@@ -1181,7 +1191,12 @@ async fn proxy_http_request(
 
   // 2. Visitor-auth gate: a client-declared per-service password (if any)
   // supersedes the server's own visitor password / OIDC; public routes skip it.
-  let visitor = match check_visitor_gate(
+  // Held rather than returned when the verdict is `Undeclared`: the thing
+  // that would declare this route open is a client, and under scale-to-zero
+  // it is asleep. The question is asked again below, once the cold start has
+  // had its chance to wake one.
+  let mut undeclared: Option<Response> = None;
+  let mut visitor = match check_visitor_gate(
     &state,
     &method,
     &headers,
@@ -1193,6 +1208,10 @@ async fn proxy_http_request(
   {
     VisitorGate::Deny(resp) => return resp,
     VisitorGate::Allow(identity) => identity,
+    VisitorGate::Undeclared(resp) => {
+      undeclared = Some(resp);
+      None
+    }
   };
 
   // Client-declared visitor IP allowlists are enforced per candidate during
@@ -1265,6 +1284,27 @@ async fn proxy_http_request(
         extract_request_host(&headers).as_deref(),
         "504 Gateway Timeout - No client connected in time",
       );
+    }
+  }
+
+  // The second asking. A client may have arrived while the cold start ran, and
+  // if it has, its own declaration decides exactly as it would have done had
+  // it never slept. If none arrived, the answer held from the first asking is
+  // the one to give, which is the same 504 an unclaimed hostname gets.
+  if let Some(resp) = undeclared {
+    match check_visitor_gate(
+      &state,
+      &method,
+      &headers,
+      &uri,
+      extract_request_host(&headers).as_deref(),
+      caller_ip,
+    )
+    .await
+    {
+      VisitorGate::Allow(identity) => visitor = identity,
+      VisitorGate::Deny(denied) => return denied,
+      VisitorGate::Undeclared(_) => return resp,
     }
   }
 

@@ -35,6 +35,11 @@ export class BearerServer extends AperioServerBase({
 export class BearerBackend extends StandardBackendBase() {}
 
 export class BearerClient extends ClientFor(() => BearerServer, () => BearerBackend) {
+  /** Gated by the *server*, so not public: the posture is closed by default
+   *  and handing this client `public` would open the gate under test. */
+  _public() {
+    return false
+  }
   /** No routability wait: every path on this host is gated, so the 401 the
    *  gate answers is what a probe would see. The first phase waits instead. */
   _hostname() {
@@ -47,7 +52,13 @@ export class BearerClient extends ClientFor(() => BearerServer, () => BearerBack
 
 export class AuthBackend extends StandardBackendBase() {}
 
-class AuthClient extends ClientFor(() => AuthServer, () => AuthBackend) {}
+class AuthClient extends ClientFor(() => AuthServer, () => AuthBackend) {
+  /** Gated by the *server*, so not public: the posture is closed by default
+   *  and handing this client `public` would open the gate under test. */
+  _public() {
+    return false
+  }
+}
 
 /** The gated service. No routability wait: the login page would answer it. */
 export class GatedClient extends AuthClient {
@@ -190,6 +201,8 @@ export class PublicServiceSpec extends Test({
     const minted = await this.server._mintToken({
       name: 'nopublic',
       hostnames: ['priv.e2e.local'],
+      // The point of this fixture: a token that was never granted it.
+      allow_public: false,
     })
     this.unpermitted._token = minted.token
     await this.unpermitted._start()
@@ -456,6 +469,11 @@ export class ClosedBackend extends StandardBackendBase() {}
 
 /** Declares nothing: under `deny` this is exactly what is refused. */
 export class UndeclaredClient extends ClientFor(() => ClosedServer, () => ClosedBackend) {
+  /** Gated by the *server*, so not public: the posture is closed by default
+   *  and handing this client `public` would open the gate under test. */
+  _public() {
+    return false
+  }
   _hostname() {
     return ''
   }
@@ -535,6 +553,11 @@ export class JwtServer extends AperioServerBase({
 export class JwtBackend extends StandardBackendBase() {}
 
 export class JwtClient extends ClientFor(() => JwtServer, () => JwtBackend) {
+  /** Gated by the *server*, so not public: the posture is closed by default
+   *  and handing this client `public` would open the gate under test. */
+  _public() {
+    return false
+  }
   _hostname() {
     return ''
   }
@@ -669,6 +692,11 @@ export class ForwardServer extends AperioServerBase({
 export class ForwardBackend extends StandardBackendBase() {}
 
 export class ForwardClient extends ClientFor(() => ForwardServer, () => ForwardBackend) {
+  /** Gated by the *server*, so not public: the posture is closed by default
+   *  and handing this client `public` would open the gate under test. */
+  _public() {
+    return false
+  }
   _hostname() {
     return ''
   }

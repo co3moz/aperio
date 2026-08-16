@@ -170,7 +170,10 @@ export class TrafficIsolationSpec extends Test({
     await this._select(org.id)
     const token = await this.server._api<{ token: string }>('/aperio/api/tokens', {
       method: 'POST',
-      body: JSON.stringify({ name: 'org-client', hostnames: [ORG_HOST] }),
+      // An org token serving a route has to be able to declare it open now
+      // that the server is closed by default, the same deliberate choice a
+      // real operator makes when minting one.
+      body: JSON.stringify({ name: 'org-client', hostnames: [ORG_HOST], allow_public: true }),
     })
     await this._select('master')
 

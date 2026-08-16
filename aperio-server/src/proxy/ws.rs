@@ -109,6 +109,10 @@ pub(crate) async fn handle_ws_proxy(
   .await
   {
     crate::proxy::VisitorGate::Deny(resp) => return resp,
+    // An upgrade has no cold start to wait for: there is no request to replay
+    // once a client wakes, and a socket cannot be held open on the chance.
+    // So "nothing declares this open" is final here.
+    crate::proxy::VisitorGate::Undeclared(resp) => return resp,
     crate::proxy::VisitorGate::Allow(identity) => identity,
   };
 

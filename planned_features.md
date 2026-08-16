@@ -71,61 +71,6 @@ readable without scrolling past what is already done.
   is the open door for the operator with forty services, who is the only one
   who pays for the current design.
 
-- [ ] **#108 Closed by default: a route is reachable because something says
-  so.** (stage two, the flip; stage one shipped, see below) Today, a server with no `server_auth` and no OIDC serves every route
-  to anyone, and `public: true` is an exemption from a gate that may not
-  exist. The visible symptom is operators writing a throwaway
-  `auth: DUMMY:DUMMY` on services they do not want public, which is the
-  configuration language admitting it cannot express "closed".
-
-  With #105 the spelling is already there: the default becomes `deny`, and
-  `method: none` is the one way to be open, with `public: true` kept as its
-  short form and still gated by the token's `allow_public` permission.
-
-  **The flip is a breaking change and this is the case rule 23 exists for.**
-  Nothing on the wire changes (`public` is already announced in the
-  handshake), but a server upgrade would take an older fleet dark: every
-  client that never said `public` stops serving. So it is staged.
-
-  **Stage one shipped:** `default_access: allow | deny`
-  (`APERIO_DEFAULT_ACCESS`), defaulting to today's behaviour, with `deny`
-  fully working, and a warning logged once per connection when a client
-  serves something nothing gates. It is spelled `default_access` rather than
-  the `auth.default` this entry first guessed at, because `auth:` is the
-  policy grammar and a `default:` key inside it would sit beside `method:`
-  meaning something entirely different. The warning is per connection rather
-  than at startup for a better reason than convenience: at startup the server
-  knows no routes at all, they arrive when clients declare their binds.
-
-  **Stage two is the flip**, in a major release, with a `CONFIG_CHANGES` entry
-  of severity **`Breaking`** and `applies: Always`: a changed *default*
-  affects precisely the operators who never wrote the key. Not `Security`,
-  since nothing that was protected stops being protected; what changes is
-  availability, and calling it `Security` would refuse the start of every
-  server in the range for a change that took nothing away.
-
-  **Measured 2026-08-14, and the number is the reason this is still open.**
-  The flip was written and run against the suites: the Rust tests pass, and
-  **129 of the 241 e2e phases go dark**. The pattern is uniform, every fixture
-  whose client declares neither a gate nor `public: true` stops being
-  routable, so its start hook times out and everything depending on it fails.
-
-  Translated: a server with `server.auth` or OIDC is **unaffected**, because
-  its routes are gated and therefore reachable after a login. The deployments
-  that go dark are the ones with no visitor auth at all, which is a tunnel
-  publishing a public site, the flagship use of this product. They stay dark
-  until every service declares `public: true`.
-
-  So the flip is not one release note, it is a migration for the commonest
-  deployment there is, and it needs the release that carries it to say so:
-  a major, an `upgrade-guide` entry, and the `CONFIG_CHANGES` entry above.
-  The measurement is written down here so nobody has to rediscover it by
-  turning the suite red.
-
-  Nothing is lost while it waits. An operator who wants the posture writes one
-  line today, and a client that connects with a service nothing gates is
-  warned once per connection either way, naming the line to write.
-
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
@@ -471,6 +416,92 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#108 Closed by default: a route is reachable because something says
+  so.** (stage two, the flip; stage one shipped, see below) Today, a server with no `server_auth` and no OIDC serves every route
+  to anyone, and `public: true` is an exemption from a gate that may not
+  exist. The visible symptom is operators writing a throwaway
+  `auth: DUMMY:DUMMY` on services they do not want public, which is the
+  configuration language admitting it cannot express "closed".
+
+  With #105 the spelling is already there: the default becomes `deny`, and
+  `method: none` is the one way to be open, with `public: true` kept as its
+  short form and still gated by the token's `allow_public` permission.
+
+  **The flip is a breaking change and this is the case rule 23 exists for.**
+  Nothing on the wire changes (`public` is already announced in the
+  handshake), but a server upgrade would take an older fleet dark: every
+  client that never said `public` stops serving. So it is staged.
+
+  **Stage one shipped:** `default_access: allow | deny`
+  (`APERIO_DEFAULT_ACCESS`), defaulting to today's behaviour, with `deny`
+  fully working, and a warning logged once per connection when a client
+  serves something nothing gates. It is spelled `default_access` rather than
+  the `auth.default` this entry first guessed at, because `auth:` is the
+  policy grammar and a `default:` key inside it would sit beside `method:`
+  meaning something entirely different. The warning is per connection rather
+  than at startup for a better reason than convenience: at startup the server
+  knows no routes at all, they arrive when clients declare their binds.
+
+  **Stage two is the flip**, in a major release, with a `CONFIG_CHANGES` entry
+  of severity **`Breaking`** and `applies: Always`: a changed *default*
+  affects precisely the operators who never wrote the key. Not `Security`,
+  since nothing that was protected stops being protected; what changes is
+  availability, and calling it `Security` would refuse the start of every
+  server in the range for a change that took nothing away.
+
+  **Measured 2026-08-14, and the number is the reason this is still open.**
+  The flip was written and run against the suites: the Rust tests pass, and
+  **129 of the 241 e2e phases go dark**. The pattern is uniform, every fixture
+  whose client declares neither a gate nor `public: true` stops being
+  routable, so its start hook times out and everything depending on it fails.
+
+  Translated: a server with `server.auth` or OIDC is **unaffected**, because
+  its routes are gated and therefore reachable after a login. The deployments
+  that go dark are the ones with no visitor auth at all, which is a tunnel
+  publishing a public site, the flagship use of this product. They stay dark
+  until every service declares `public: true`.
+
+  So the flip is not one release note, it is a migration for the commonest
+  deployment there is, and it needs the release that carries it to say so:
+  a major, an `upgrade-guide` entry, and the `CONFIG_CHANGES` entry above.
+  The measurement is written down here so nobody has to rediscover it by
+  turning the suite red.
+
+  Nothing is lost while it waits. An operator who wants the posture writes one
+  line today, and a client that connects with a service nothing gates is
+  warned once per connection either way, naming the line to write.
+
+  shipped (stage two): the default is `deny`. The measurement in this entry
+  held, 141 of 261 phases went dark on the flip against the grown suite, and
+  the pattern was the one predicted: every fixture whose client declares
+  neither a gate nor `public`. They were fixed by saying what they are rather
+  than by loosening anything, in three places instead of fifty files. The
+  shared client base declares `public`, because those fixtures *are* public
+  tunnels; the ones gated by the **server** opt out, since `public` is the
+  short form of `method: none` and would have opened the very gate under
+  test; and minted tokens carry `allow_public` by default, since a fixture
+  narrowing a topic list or a rate limit still expects to serve, with the one
+  test about a token that lacks the permission saying so explicitly.
+
+  **Scale-to-zero forced the gate to grow a third verdict, which the plan did
+  not foresee.** The request that wakes a sleeping service is exactly the one
+  nothing has declared anything for, because the client that would declare it
+  is asleep, so refusing at the gate switched cold start off entirely. Neither
+  of the two obvious answers was right: teaching the scaling record to
+  remember whether the service was public needs a store field and a migration
+  whose default is a guess, and treating an armed record as a declaration
+  punches a hole the posture exists to close. The gate instead distinguishes
+  *refused* from *nothing declares this open yet*: the second carries the
+  answer to give if no client arrives, and the handler asks again after the
+  cold start, so the woken service's own declaration decides exactly as it
+  would have done had it never slept. An upgrade has no such second chance and
+  treats it as final.
+
+  The first flip attempt did nothing, which is worth recording: the enum's
+  `#[default]` was changed while `lib.rs` still spelled `DefaultAccess::Allow`
+  for the unset case, so the posture was dead code and a two-process probe,
+  not the suite, is what caught it.
 
 - [x] **#113 Refuse an unsupported client/server pairing at connect time.** The
   other half of `#89`, split off because it is not the same kind of decision.

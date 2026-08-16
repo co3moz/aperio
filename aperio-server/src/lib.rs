@@ -814,7 +814,10 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
         std::process::exit(1);
       }
     },
-    Err(_) => settings::DefaultAccess::Allow,
+    // Unset is the posture, and since 0.10.0 the posture is closed: a route
+    // is reachable because something said so, rather than because nothing
+    // said otherwise. `allow` restores what every server did before.
+    Err(_) => settings::DefaultAccess::default(),
   };
   if default_access == settings::DefaultAccess::Deny {
     info!(

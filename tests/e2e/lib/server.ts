@@ -181,7 +181,13 @@ export function AperioServerBase(options: Parameters<typeof Test>[0] & ServerOpt
       const made = await this._json<{ token: string; id: string }>('/aperio/api/tokens', {
         method: 'POST',
         headers: { cookie, 'content-type': 'application/json' },
-        body: JSON.stringify(body),
+        // Declaring a route open needs this permission, and since the server
+        // closed by default (#108) a token without it cannot serve an ungated
+        // route at all. These fixtures mint a token to narrow something else,
+        // a topic list, a rate limit, a hostname, and still expect to serve,
+        // so the permission is the default here and the one test about a
+        // token that lacks it says so explicitly.
+        body: JSON.stringify({ allow_public: true, ...body }),
       })
       if (!made.token) throw new Error(`no token in the response to ${JSON.stringify(body)}`)
       return made

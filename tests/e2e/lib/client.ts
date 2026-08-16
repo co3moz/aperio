@@ -184,6 +184,12 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
     _autoStart(): boolean {
       return true
     }
+    /** False for a fixture whose route is meant to be gated by the *server*,
+     *  or which is testing the closed posture itself. A client declaring its
+     *  own `auth:` needs no override: that is detected. */
+    _public(): boolean {
+      return true
+    }
 
     _serverUrl(): string {
       throw new Error('a client subclass must say which server it dials')
@@ -218,16 +224,31 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
         args.push('--config', path)
       }
       const target = this._backendUrl()
+      const declared = {
+        ...(target ? { APERIO_TARGET: target } : {}),
+        ...this._env(),
+      }
+      // Most fixtures are public tunnels: they serve a backend to an anonymous
+      // visitor and assert a 200. Since the server closed by default (#108)
+      // that has to be *said*, which is the whole point of the posture, so it
+      // is said here once rather than in fifty files.
+      //
+      // Two fixtures are not public and must not be handed it. One declares
+      // its own `auth:`, where `public` would be the short form of
+      // `method: none` and would open the very gate the test is about. The
+      // other is testing the server's gate or the closed posture itself, and
+      // says so by overriding `_public()`.
+      const declaresOwnGate =
+        'APERIO_AUTH' in declared || /(^|\n)\s*auth:/.test(yaml ?? '')
+      const isPublic = this._public() && !declaresOwnGate
       this._proc = spawn(CLIENT_BIN, args, {
         env: {
           ...process.env,
           APERIO_CONNECTIONS: '1',
+          ...(isPublic ? { APERIO_PUBLIC: '1' } : {}),
           APERIO_SERVER_URL: this._serverUrl(),
           APERIO_SERVER_TOKEN: this._serverToken(),
-          ...alsoOlderSpellings({
-            ...(target ? { APERIO_TARGET: target } : {}),
-            ...this._env(),
-          }),
+          ...alsoOlderSpellings(declared),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
       })
