@@ -417,6 +417,31 @@ readable without scrolling past what is already done.
   **None of this fixed #119.** The entry stays open, and the cache flake still
   reproduces with the same 2.21 s signature after all of it.
 
+  **Sixth pass: the server's own log, captured mid-failure.** The test was
+  made to dump the server log tail into the assertion message and the suite
+  run until it failed. The tail contains **no request-failure record at all**,
+  only an unrelated INFO line. That rules out both 504s that log: the
+  reconnect-expired one and the no-candidate one. What is left is the visitor
+  gate's `Undeclared` refusal, which logs at `debug!` and so leaves nothing at
+  the suite's level, and which is a 504 by construction. That is consistent
+  with `APERIO_DEFAULT_ACCESS=allow` avoiding it, and it is the first direct
+  evidence rather than inference.
+
+  The obvious repair, serving the resilient entry before that refusal, was
+  written and run: four full-suite runs with it, four without, **all eight
+  green**. The flake reproduced once, on the diagnostic run, and then stopped,
+  so the repair is unproven and was reverted for the third time. It remains
+  defensible on its own terms, `resilience: true` otherwise does nothing in
+  exactly the state it exists for, but that is a separate argument from this
+  entry and should be made on its own.
+
+  **What the next pass needs is a deterministic reproduction, not another
+  hypothesis.** Six passes have produced five eliminations and one positive
+  identification; what has never been available is a way to make it fail on
+  demand. The gate path is now known, so that is where to build one: a Rust
+  test that drives the closed posture with a resilient entry and no candidate,
+  rather than an e2e suite that has to be lucky.
+
   Still standing, and where to start: setting `APERIO_DEFAULT_ACCESS=allow`
   on the cache fixture avoided the failure three runs out of three, against
   four failures in six with the default. That implicates the closed posture
