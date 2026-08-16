@@ -1137,6 +1137,98 @@ pub(crate) const CONNECTION_SCOPED: &[&str] = &[
   "subscriptions",
 ];
 
+/// What routing asks of a service.
+///
+/// These hung off `ClientHandle`, which was true only because a connection
+/// carried one service: every one of them reads nothing but this struct's own
+/// fields. On the connection they would have had to guess which service they
+/// meant the moment there were two.
+impl ServiceState {
+  pub(crate) fn is_ejected(&self, now: Instant) -> bool {
+    self.ejected_until.is_some_and(|t| now < t)
+  }
+
+  /// Records one dispatch failure (5xx / timeout / connection loss). Prunes
+  /// the failure window, then ejects the client for `eject_for` once
+  /// `threshold` failures land inside `window`. Returns true when this call
+  /// caused the ejection.
+  pub(crate) fn record_failure(
+    &mut self,
+    now: Instant,
+    window: Duration,
+    threshold: u32,
+    eject_for: Duration,
+  ) -> bool {
+    while self
+      .recent_failures
+      .front()
+      .is_some_and(|t| now.duration_since(*t) > window)
+    {
+      self.recent_failures.pop_front();
+    }
+    self.recent_failures.push_back(now);
+    if !self.is_ejected(now) && self.recent_failures.len() as u32 >= threshold {
+      self.ejected_until = Some(now + eject_for);
+      self.recent_failures.clear();
+      return true;
+    }
+    false
+  }
+
+  /// Path bind used for routing: dashboard override wins over the declared
+  /// value, which wins over the token-granted value.
+  pub(crate) fn effective_path_bind(&self) -> Option<&String> {
+    self
+      .override_path_bind
+      .as_ref()
+      .or(self.declared_path.as_ref())
+      .or(self.assigned_path.as_ref())
+  }
+
+  /// Hostnames used for routing. A dashboard override replaces the whole
+  /// set; otherwise the union of assigned and declared hostnames applies.
+  pub(crate) fn effective_hostnames(&self) -> Vec<&String> {
+    if !self.override_hostname_binds.is_empty() {
+      return self.override_hostname_binds.iter().collect();
+    }
+    let mut set: Vec<&String> = self.assigned_hostnames.iter().collect();
+    if let Some(d) = &self.declared_hostname
+      && !set.contains(&d)
+    {
+      set.push(d);
+    }
+    for d in &self.declared_hostnames {
+      if !set.contains(&d) {
+        set.push(d);
+      }
+    }
+    set
+  }
+
+  /// What this client calls itself, if it says anything.
+  ///
+  /// The order the clients table uses, and every other place a client is
+  /// shown to a person: the `custom_name` an operator gave the service, else
+  /// the `name` of its `services:` entry. `None` leaves only the id.
+  pub(crate) fn display_name(&self) -> Option<String> {
+    self
+      .service_custom_name
+      .clone()
+      .or_else(|| self.service_name.clone())
+  }
+
+  pub(crate) fn matches_host(&self, host: &str) -> bool {
+    self
+      .effective_hostnames()
+      .iter()
+      .any(|h| h.as_str() == host)
+  }
+
+  pub(crate) fn has_hostname_bind(&self) -> bool {
+    !self.effective_hostnames().is_empty()
+  }
+}
+
 /// Handle tracking active WebSocket sender channel and metadata.
 ///
 /// Two scopes live here, and the three lists above partition them: what the
@@ -1513,15 +1605,23 @@ impl ClientPerms {
 }
 
 impl ClientHandle {
-  /// True while this client is passively ejected from routing.
-  pub(crate) fn is_ejected(&self, now: Instant) -> bool {
-    self.sole().ejected_until.is_some_and(|t| now < t)
+  /// A client is healthy while its last heartbeat (or, before the first
+  /// Ping, its connection time) is within the down threshold.
+  ///
+  /// Connection-scoped on purpose, unlike the predicates below it: a
+  /// heartbeat is the socket's, not any one service's.
+  pub(crate) fn is_healthy(&self, down_threshold: Duration) -> bool {
+    let reference = self.last_ping_at.unwrap_or(self.connected_at);
+    reference.elapsed() < down_threshold
   }
 
-  /// Records one dispatch failure (5xx / timeout / connection loss). Prunes
-  /// the failure window, then ejects the client for `eject_for` once
-  /// `threshold` failures land inside `window`. Returns true when this call
-  /// caused the ejection.
+  /// Routing predicates, delegated to the one service. Each is a `sole` on
+  /// the #46 list: a caller that knows *which* service it means should ask
+  /// the `ServiceState` directly instead.
+  pub(crate) fn is_ejected(&self, now: Instant) -> bool {
+    self.sole().is_ejected(now)
+  }
+
   pub(crate) fn record_failure(
     &mut self,
     now: Instant,
@@ -1529,83 +1629,29 @@ impl ClientHandle {
     threshold: u32,
     eject_for: Duration,
   ) -> bool {
-    while self
-      .sole()
-      .recent_failures
-      .front()
-      .is_some_and(|t| now.duration_since(*t) > window)
-    {
-      self.sole_mut().recent_failures.pop_front();
-    }
-    self.sole_mut().recent_failures.push_back(now);
-    if !self.is_ejected(now) && self.sole().recent_failures.len() as u32 >= threshold {
-      self.sole_mut().ejected_until = Some(now + eject_for);
-      self.sole_mut().recent_failures.clear();
-      return true;
-    }
-    false
+    self
+      .sole_mut()
+      .record_failure(now, window, threshold, eject_for)
   }
 
-  /// Path bind used for routing: dashboard override wins over the declared
-  /// value, which wins over the token-granted value.
   pub(crate) fn effective_path_bind(&self) -> Option<&String> {
-    self
-      .sole()
-      .override_path_bind
-      .as_ref()
-      .or(self.sole().declared_path.as_ref())
-      .or(self.sole().assigned_path.as_ref())
+    self.sole().effective_path_bind()
   }
 
-  /// Hostnames used for routing. A dashboard override replaces the whole
-  /// set; otherwise the union of assigned and declared hostnames applies.
   pub(crate) fn effective_hostnames(&self) -> Vec<&String> {
-    if !self.sole().override_hostname_binds.is_empty() {
-      return self.sole().override_hostname_binds.iter().collect();
-    }
-    let mut set: Vec<&String> = self.sole().assigned_hostnames.iter().collect();
-    if let Some(d) = &self.sole().declared_hostname
-      && !set.contains(&d)
-    {
-      set.push(d);
-    }
-    for d in &self.sole().declared_hostnames {
-      if !set.contains(&d) {
-        set.push(d);
-      }
-    }
-    set
+    self.sole().effective_hostnames()
   }
 
-  /// What this client calls itself, if it says anything.
-  ///
-  /// The order the clients table uses, and every other place a client is
-  /// shown to a person: the `custom_name` an operator gave the service, else
-  /// the `name` of its `services:` entry. `None` leaves only the id.
   pub(crate) fn display_name(&self) -> Option<String> {
-    self
-      .sole()
-      .service_custom_name
-      .clone()
-      .or_else(|| self.sole().service_name.clone())
+    self.sole().display_name()
   }
 
   pub(crate) fn matches_host(&self, host: &str) -> bool {
-    self
-      .effective_hostnames()
-      .iter()
-      .any(|h| h.as_str() == host)
+    self.sole().matches_host(host)
   }
 
   pub(crate) fn has_hostname_bind(&self) -> bool {
-    !self.effective_hostnames().is_empty()
-  }
-
-  /// A client is healthy while its last heartbeat (or, before the first
-  /// Ping, its connection time) is within the down threshold.
-  pub(crate) fn is_healthy(&self, down_threshold: Duration) -> bool {
-    let reference = self.last_ping_at.unwrap_or(self.connected_at);
-    reference.elapsed() < down_threshold
+    self.sole().has_hostname_bind()
   }
 }
 

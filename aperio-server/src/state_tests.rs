@@ -1973,3 +1973,36 @@ fn a_handle_is_never_built_without_a_service() {
   let handle = crate::test_support::mock_client(None, None, None, None);
   assert!(!handle.services.is_empty());
 }
+
+/// A routing predicate answers for the service it is called on.
+///
+/// This is the whole point of moving them off `ClientHandle`. There they read
+/// `sole()`, so on a connection carrying two services both would have
+/// answered for the first, and routing would have sent every request for the
+/// second service to the first one's backend. The methods look identical
+/// either way and nothing else in the tree can tell the difference yet,
+/// because nothing else builds a two-service handle.
+#[test]
+fn each_service_answers_the_routing_questions_for_itself() {
+  let mut handle = crate::test_support::mock_client(Some("first.example"), Some("/a"), None, None);
+  let second = crate::test_support::mock_client(Some("second.example"), Some("/b"), None, None);
+  handle.services.extend(second.services);
+
+  assert!(handle.services[0].matches_host("first.example"));
+  assert!(!handle.services[0].matches_host("second.example"));
+  assert!(handle.services[1].matches_host("second.example"));
+  assert!(!handle.services[1].matches_host("first.example"));
+
+  assert_eq!(
+    handle.services[0].effective_path_bind().map(String::as_str),
+    Some("/a")
+  );
+  assert_eq!(
+    handle.services[1].effective_path_bind().map(String::as_str),
+    Some("/b")
+  );
+
+  // And the connection's own view is still the first, which is what every
+  // caller that has not been taught to pick a service still gets.
+  assert!(handle.matches_host("first.example"));
+}

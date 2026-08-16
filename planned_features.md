@@ -128,12 +128,27 @@ readable without scrolling past what is already done.
   bug would appear on the day a second service arrives, as writes landing
   where the reads do not look, in four hundred places at once.
 
+  **And the routing predicates moved to the thing they describe.** The seven
+  questions routing asks, `matches_host`, `has_hostname_bind`,
+  `effective_path_bind`, `effective_hostnames`, `is_ejected`,
+  `record_failure` and `display_name`, hung off `ClientHandle` and read
+  `sole()`. Every one of them reads nothing but a service's own fields, so on
+  a connection carrying two they would each have answered for the first, and
+  routing would have sent the second service's traffic to the first's
+  backend. They are `ServiceState` methods now, which makes answering for
+  another service structurally impossible rather than merely unintended.
+  `is_healthy` stayed on the connection, because a heartbeat is the socket's.
+  The old names remain as one-line delegates, and each of those is itself a
+  `sole` on the list.
+
   **What is left of the split.** `clients` is still one map keyed by
   connection id, and the list is always length one because the Ping refuses
   longer. What comes next is the part with behavior in it, and it starts
-  with the question every `sole` is standing in for: routing has to return
-  *which* service matched, not just which connection, and then the callers
-  downstream of routing take it from there. After that, the pieces the entry
+  with the question every `sole` is standing in for: `select_client_pool`
+  returns connection ids and has to return *which service of which
+  connection* instead, which is now a small change rather than a large one,
+  since the predicates it filters on already take a service. Then the
+  callers downstream of routing take it from there. After that, the pieces the entry
   already names: load balancing on the pair, the elastic pool's per-service
   growth signal, a pacer per service so a large response cannot queue ahead
   of a small API on the shared writer, and the dashboard's client table.
