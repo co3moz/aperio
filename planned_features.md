@@ -143,26 +143,6 @@ readable without scrolling past what is already done.
   line today, and a client that connects with a service nothing gates is
   warned once per connection either way, naming the line to write.
 
-- [ ] **#113 Refuse an unsupported client/server pairing at connect time.** The
-  other half of `#89`, split off because it is not the same kind of decision.
-  `#89` documents a window and proves it; this one *enforces* a window, and
-  enforcing means some pairing that works today stops connecting tomorrow.
-  Per the CLAUDE.md rule on protocol changes that is a product decision with a
-  fleet-wide upgrade behind it, so it waits for an approved break rather than
-  being switched on speculatively: there is nothing to refuse yet, and a
-  version gate with no incompatibility to enforce only invents outages.
-  - The prerequisite is that the release version travels **early enough**. It
-    already travels, in `Ping.version`, which is after the WebSocket upgrade
-    has succeeded, so a refusal there is not a refused connection, it is a
-    connection that establishes and then drops. Refusing at connect time means
-    the client announcing it on the upgrade request (alongside
-    `x-aperio-instance`), and the server answering the supported range on the
-    handshake response, which is additive both ways and how the visitor-auth
-    method set is already negotiated.
-  - When it is built, the refusal names the incompatibility: which side is too
-    old, and what to upgrade. The failure to avoid is a connection that comes
-    up and misbehaves three layers deeper.
-
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
@@ -492,6 +472,48 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#113 Refuse an unsupported client/server pairing at connect time.** The
+  other half of `#89`, split off because it is not the same kind of decision.
+  `#89` documents a window and proves it; this one *enforces* a window, and
+  enforcing means some pairing that works today stops connecting tomorrow.
+  Per the CLAUDE.md rule on protocol changes that is a product decision with a
+  fleet-wide upgrade behind it, so it waits for an approved break rather than
+  being switched on speculatively: there is nothing to refuse yet, and a
+  version gate with no incompatibility to enforce only invents outages.
+  - The prerequisite is that the release version travels **early enough**. It
+    already travels, in `Ping.version`, which is after the WebSocket upgrade
+    has succeeded, so a refusal there is not a refused connection, it is a
+    connection that establishes and then drops. Refusing at connect time means
+    the client announcing it on the upgrade request (alongside
+    `x-aperio-instance`), and the server answering the supported range on the
+    handshake response, which is additive both ways and how the visitor-auth
+    method set is already negotiated.
+  - When it is built, the refusal names the incompatibility: which side is too
+    old, and what to upgrade. The failure to avoid is a connection that comes
+    up and misbehaves three layers deeper.
+
+  shipped: the client announces its release on the upgrade request
+  (`x-aperio-release`), the server answers with its own release and the oldest
+  client it accepts (`x-aperio-min-client`), and a pairing outside the window
+  is refused with `426 Upgrade Required` and a sentence naming both versions
+  and which side to upgrade. The prerequisite the entry named was already
+  satisfiable: the version travels on the upgrade request beside
+  `x-aperio-instance`, so the refusal is a refused *connection* rather than
+  one that establishes and then drops.
+
+  Both floors live in `aperio-config::pairing` and both are set at `0.1.0`,
+  which is exactly what `docs/upgrade-guide.md` already promises, so **nothing
+  that works today is refused**. That is the entry's own condition met rather
+  than dodged: a version gate with no incompatibility to enforce only invents
+  outages, so this ships as the mechanism and the narrowing waits for the
+  break that needs it. Three refusals are deliberately not made: a peer that
+  announces nothing (silence predates the header), a version that does not
+  parse (garbled is not old), and a client newer than its server (the ordinary
+  shape of a fleet mid-upgrade). The e2e phase drives a refusal with a
+  hand-made upgrade request, because no released client is old enough to be
+  turned away by today's floor and a mechanism that never fires in the suite
+  is one nobody would notice breaking.
 
 - [x] **#118 An egress proxy the server is told about, so the outbound policy
   and a proxy can both be in force.** Today they cannot, and the server

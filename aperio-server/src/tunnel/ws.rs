@@ -163,6 +163,27 @@ pub(crate) async fn ws_handler(
     return (StatusCode::SERVICE_UNAVAILABLE, msg).into_response();
   }
 
+  // The pairing itself, before a socket exists (#113). A client too old for
+  // this server is refused here, where the cause is the answer, rather than
+  // being allowed to establish and then fail somewhere three layers deeper
+  // for a reason nothing connects back to its version. A client that
+  // announces nothing is admitted: silence predates the header and is inside
+  // the documented window, and reading it as age would take a fleet down on
+  // the upgrade that introduced this.
+  if let Some(refused) = aperio_config::pairing::check(
+    headers
+      .get(aperio_config::pairing::CLIENT_RELEASE_HEADER)
+      .and_then(|v| v.to_str().ok()),
+    aperio_config::pairing::MIN_SUPPORTED_CLIENT,
+    aperio_config::pairing::Side::Client,
+  ) {
+    let msg = refused.message();
+    warn!("Tunnel connection refused from {addr}: {msg}");
+    // 426 says what happened in the status as well as the body: this is not
+    // the token, not the quota, not the server being busy.
+    return (StatusCode::UPGRADE_REQUIRED, msg).into_response();
+  }
+
   // Validate maximum active tunnels limit (protects against file descriptor exhaustion).
   // Uses an atomic counter so that concurrent upgrade attempts cannot race past the limit.
   loop {
@@ -230,6 +251,21 @@ pub(crate) async fn ws_handler(
     });
   if let Ok(value) = axum::http::HeaderValue::from_str(&ceiling.to_string()) {
     response.headers_mut().insert(MAX_CONNECTIONS_HEADER, value);
+  }
+  // What this server is and what it accepts, so the other direction of the
+  // window can be judged by the only side able to judge it: a server cannot
+  // know it is too old for something a future client wants, but the client
+  // can, and it now has the number to compare against (#113).
+  if let Ok(value) = axum::http::HeaderValue::from_str(env!("CARGO_PKG_VERSION")) {
+    response
+      .headers_mut()
+      .insert(aperio_config::pairing::SERVER_RELEASE_HEADER, value);
+  }
+  if let Ok(value) = axum::http::HeaderValue::from_str(aperio_config::pairing::MIN_SUPPORTED_CLIENT)
+  {
+    response
+      .headers_mut()
+      .insert(aperio_config::pairing::MIN_CLIENT_HEADER, value);
   }
   // What this connection may declare, which is not the same as what this
   // build supports: controlling the visitor gate is a token permission, and a

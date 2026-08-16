@@ -1300,6 +1300,15 @@ pub(crate) async fn run_service(
             if let Ok(g) = HeaderValue::from_str(&spec.instance_group) {
               req.headers_mut().insert("x-aperio-instance", g);
             }
+            // The release this binary is, so the server can refuse a pairing
+            // it does not support at connect time rather than letting the
+            // connection come up and misbehave somewhere deeper (#113).
+            // Non-secret, and a server too old to read it simply ignores it.
+            if let Ok(v) = HeaderValue::from_str(env!("CARGO_PKG_VERSION")) {
+              req
+                .headers_mut()
+                .insert(aperio_config::pairing::CLIENT_RELEASE_HEADER, v);
+            }
             Ok(req)
           }
           Err(e) => Err(format!("Invalid token header format: {:?}", e)),
@@ -1328,6 +1337,25 @@ pub(crate) async fn run_service(
         match connect_result {
           Ok((ws_stream, response)) => {
             info!("[{}] Successfully connected to Aperio Server!", label);
+            // The half of the window only this side can judge (#113). A server
+            // cannot know it is too old for something a future client wants,
+            // so the client compares what the server announced against its own
+            // floor. Held back rather than served: a service that comes up
+            // against a server it does not support is the connection that
+            // establishes and then misbehaves, which is what the gate exists
+            // to prevent. A server that announces nothing is admitted, since
+            // silence predates the header.
+            if let Some(refused) = aperio_config::pairing::check(
+              response
+                .headers()
+                .get(aperio_config::pairing::SERVER_RELEASE_HEADER)
+                .and_then(|v| v.to_str().ok()),
+              aperio_config::pairing::MIN_SUPPORTED_SERVER,
+              aperio_config::pairing::Side::Server,
+            ) {
+              error!("[{}] Refusing to serve: {}", label, refused.message());
+              break 'outer;
+            }
             // The server announces what this token may open for one service.
             // Published for the siblings waiting on it above; refreshed on
             // every reconnect, so raising the number on the server reaches a
@@ -2399,6 +2427,19 @@ pub(crate) async fn run_service(
                   "[{}] Authentication failed (HTTP {}): the server rejected the tunnel token. Check --server-token / APERIO_SERVER_TOKEN / yaml server.token, it may be wrong, expired, or revoked.",
                   label, code
                 );
+              } else if code == 426 {
+                // The pairing gate (#113). Its whole value is the sentence in
+                // the body, which names both versions and which side to
+                // upgrade, so reporting the bare status would throw away the
+                // answer and leave a retry loop with no visible cause.
+                let detail = resp
+                  .body()
+                  .as_ref()
+                  .and_then(|b| std::str::from_utf8(b).ok())
+                  .map(str::trim)
+                  .filter(|d| !d.is_empty())
+                  .unwrap_or("this client and this server are not a supported pairing");
+                error!("[{}] Refused by the server: {}", label, detail);
               } else {
                 error!(
                   "[{}] Server rejected the connection with HTTP {}.",

@@ -74,6 +74,28 @@ The versioned config JSON Schemas (`aperio-client.<tag>.json`,
 `aperio-server.<tag>.json`) are attached to each GitHub Release, so an editor
 validates the exact keys a given version accepts.
 
+### What is enforced at connect time
+
+The window above is also checked when a client connects, not only in CI. The
+client announces its release on the upgrade request and the server answers
+with its own release and the oldest client it accepts. A pairing outside the
+window is refused **at the upgrade**, with a sentence naming both versions and
+which side to upgrade, rather than being allowed to establish and then
+misbehave somewhere the cause is no longer visible.
+
+Two things it deliberately does not do. A client that announces nothing is
+admitted: a release old enough to predate the header is inside the promise
+anyway, and reading silence as age would take a fleet down on the very upgrade
+that introduced the check. And a client *newer* than the server is not
+refused, because that is not an unsupported pairing, it is the ordinary shape
+of a fleet mid-upgrade seen from the other end.
+
+Today the floors are set exactly where this document's promise is, every
+released client from v0.1.0 onward, so nothing that works is refused. The
+mechanism exists so that when a release does break something, narrowing the
+window is one line in the same change, and the operator gets an answer instead
+of a mystery.
+
 ### What is actually checked
 
 The paragraphs above are a promise, and a promise nothing checks is a wish. CI

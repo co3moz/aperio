@@ -11,6 +11,7 @@
 pub mod authoring;
 pub mod compat;
 pub mod egress;
+pub mod pairing;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
