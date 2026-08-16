@@ -48,15 +48,21 @@ fn retry_covers(retry_on_5xx: bool, retry_statuses: &[u16], status: u16) -> bool
 /// Records one dispatch failure (buffered 5xx, response timeout, or connection
 /// loss) against the serving client for passive outlier ejection. A no-op
 /// unless `APERIO_OUTLIER_EJECTION` is enabled.
-async fn record_outlier_failure(state: &AppState, client_id: &str) {
+async fn record_outlier_failure(state: &AppState, client_id: &str, service_index: usize) {
   let cfg = state.config();
   if !cfg.outlier_ejection {
     return;
   }
   let now = Instant::now();
   let mut clients = state.clients.write().await;
-  if let Some(handle) = clients.get_mut(client_id)
-    && handle.record_failure(
+  // Charged to the service that failed, not to the connection. Ejection
+  // removes a candidate from routing, and routing chooses services, so
+  // ejecting the connection would take every service on it out over one
+  // backend's bad minute.
+  if let Some(service) = clients
+    .get_mut(client_id)
+    .and_then(|c| c.services.get_mut(service_index))
+    && service.record_failure(
       now,
       cfg.outlier_window,
       cfg.outlier_max_failures,
@@ -2237,7 +2243,7 @@ async fn proxy_http_request(
               .await;
               state.persistent_stats.lock().await.record_request(false, body_bytes.len() as u64, 0, start_time.elapsed().as_millis() as u64, selected.org_id.as_deref());
               // Passive outlier ejection: a response timeout is a failure.
-              record_outlier_failure(&state, &selected.id).await;
+              record_outlier_failure(&state, &selected.id, selected.service_index).await;
               break gateway_timeout_response(&state, request_host.as_deref(), "504 Gateway Timeout - Gateway response timeout expired");
           }
           res_opt = rx_response => res_opt.ok(),
@@ -2294,7 +2300,7 @@ async fn proxy_http_request(
         // Passive outlier ejection: a server error counts against the serving
         // client (whether or not it is retried below).
         if status_code.is_server_error() {
-          record_outlier_failure(&state, &selected.id).await;
+          record_outlier_failure(&state, &selected.id, selected.service_index).await;
         }
 
         // Transparent retry on a buffered server error (APERIO_RETRY_ON_5XX):
@@ -2658,7 +2664,7 @@ async fn proxy_http_request(
         // have reached the visitor yet, so a failover re-dispatch
         // is safe (for retryable methods).
         // Passive outlier ejection: a vanished client is a failure.
-        record_outlier_failure(&state, &selected.id).await;
+        record_outlier_failure(&state, &selected.id, selected.service_index).await;
         let can_failover = !stream_request
           && state.config().failover_mode != FailoverMode::Fail
           && method_retryable(&method_str, state.config().failover_all_methods)

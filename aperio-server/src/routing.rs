@@ -8,7 +8,7 @@ use tokio::sync::{Semaphore, mpsc};
 use tracing::warn;
 
 use crate::settings::LbStrategy;
-use crate::state::{AppState, ClientHandle, RouteGroupKey};
+use crate::state::{AppState, ClientHandle, RouteGroupKey, ServiceState};
 
 /// Normalizes a path bind by ensuring it starts with `/` and stripping any
 /// trailing slashes. Returns `None` for the empty/root bind or for values
@@ -229,40 +229,53 @@ pub(crate) fn select_client_pool(
   request_host: Option<&str>,
   require_hostname_bind: bool,
   down_threshold: Duration,
-) -> Option<(Vec<String>, RouteGroupKey)> {
-  // --- Eligibility stage: unhealthy, draining, or admin-disabled clients
-  // never receive new traffic (in-flight requests still complete) ---
-  let eligible: Vec<(&String, &ClientHandle)> = clients
+) -> Option<(Vec<ServiceRef>, RouteGroupKey)> {
+  // --- Eligibility stage ---
+  //
+  // The set routing chooses from is every *service* of every connection, not
+  // every connection. Health and draining are asked of the connection, which
+  // is what a heartbeat and a shutdown belong to; the backend probe and the
+  // dashboard's kill switch are asked of the service, which is what they
+  // describe. A connection carrying one service, which is all of them today,
+  // gives exactly the set the previous version built.
+  let eligible: Vec<(ServiceRef, &ServiceState)> = clients
     .iter()
-    .filter(|(_, c)| {
-      c.is_healthy(down_threshold)
-        && c.sole().backend_healthy
-        && !c.draining
-        && c.sole().admin_enabled
+    .filter(|(_, c)| c.is_healthy(down_threshold) && !c.draining)
+    .flat_map(|(id, c)| {
+      c.services.iter().enumerate().map(move |(index, s)| {
+        (
+          ServiceRef {
+            client: id.clone(),
+            index,
+          },
+          s,
+        )
+      })
     })
+    .filter(|(_, s)| s.backend_healthy && s.admin_enabled)
     .collect();
 
   // --- Hostname stage ---
-  let host_matched: Vec<(&String, &ClientHandle)> = match request_host {
+  let host_matched: Vec<(ServiceRef, &ServiceState)> = match request_host {
     Some(host) => eligible
       .iter()
-      .filter(|(_, c)| c.matches_host(host))
-      .cloned()
+      .filter(|(_, s)| s.matches_host(host))
+      .map(|(r, s)| (r.clone(), *s))
       .collect(),
     None => Vec::new(),
   };
 
-  let (host_pool, host_key): (Vec<(&String, &ClientHandle)>, Option<String>) =
+  let (host_pool, host_key): (Vec<(ServiceRef, &ServiceState)>, Option<String>) =
     if !host_matched.is_empty() {
       (host_matched, request_host.map(|h| h.to_string()))
     } else if require_hostname_bind {
-      // Strict mode: unbound clients are never eligible.
+      // Strict mode: unbound services are never eligible.
       return None;
     } else {
-      let unbound: Vec<(&String, &ClientHandle)> = eligible
+      let unbound: Vec<(ServiceRef, &ServiceState)> = eligible
         .iter()
-        .filter(|(_, c)| !c.has_hostname_bind())
-        .cloned()
+        .filter(|(_, s)| !s.has_hostname_bind())
+        .map(|(r, s)| (r.clone(), *s))
         .collect();
       (unbound, None)
     };
@@ -272,46 +285,47 @@ pub(crate) fn select_client_pool(
   }
 
   // --- Path stage ---
-  let path_matched: Vec<(&String, &String)> = host_pool
+  let path_matched: Vec<(&ServiceRef, &String)> = host_pool
     .iter()
-    .filter_map(|(id, c)| {
-      c.effective_path_bind()
+    .filter_map(|(r, s)| {
+      s.effective_path_bind()
         .filter(|bind| path_matches_bind(uri_path, bind))
-        .map(|bind| (*id, bind))
+        .map(|bind| (r, bind))
     })
     .collect();
 
-  let (pool, path_key): (Vec<String>, Option<String>) = if !path_matched.is_empty() {
-    // Longest matching bind wins; only clients with that exact bind pool together.
+  let (pool, path_key): (Vec<ServiceRef>, Option<String>) = if !path_matched.is_empty() {
+    // Longest matching bind wins; only services with that exact bind pool
+    // together.
     let longest = path_matched
       .iter()
       .map(|(_, b)| (*b).clone())
       .max_by_key(|b| b.len())
       .unwrap();
-    let ids = path_matched
+    let refs = path_matched
       .iter()
       .filter(|(_, b)| **b == longest)
-      .map(|(id, _)| (*id).clone())
+      .map(|(r, _)| (*r).clone())
       .collect();
-    (ids, Some(longest))
+    (refs, Some(longest))
   } else {
-    let ids: Vec<String> = host_pool
+    let refs: Vec<ServiceRef> = host_pool
       .iter()
-      .filter(|(_, c)| c.effective_path_bind().is_none())
-      .map(|(id, _)| (*id).clone())
+      .filter(|(_, s)| s.effective_path_bind().is_none())
+      .map(|(r, _)| r.clone())
       .collect();
-    (ids, None)
+    (refs, None)
   };
 
-  // Passive outlier ejection: drop clients currently ejected after repeated
+  // Passive outlier ejection: drop services currently ejected after repeated
   // dispatch failures, but only if a non-ejected candidate remains for this
   // route, so a route whose whole pool is struggling still fails open rather
-  // than returning no route at all. When the feature is disabled no client is
+  // than returning no route at all. When the feature is disabled nothing is
   // ever ejected, so this is a no-op. Independent of the `/health` probe above.
   let now = std::time::Instant::now();
-  let live: Vec<String> = pool
+  let live: Vec<ServiceRef> = pool
     .iter()
-    .filter(|id| clients.get(*id).is_none_or(|c| !c.is_ejected(now)))
+    .filter(|r| r.get(clients).is_none_or(|s| !s.is_ejected(now)))
     .cloned()
     .collect();
   let pool = if live.is_empty() { pool } else { live };
@@ -329,36 +343,73 @@ pub(crate) fn select_client_pool(
 /// announced priority, so standbys only receive traffic once every
 /// more-primary client has dropped out of the pool.
 pub(crate) fn apply_lb_strategy(
-  pool: Vec<String>,
+  pool: Vec<ServiceRef>,
   clients: &HashMap<String, ClientHandle>,
   strategy: LbStrategy,
-) -> Vec<String> {
+) -> Vec<ServiceRef> {
   match strategy {
     // Sticky affinity is resolved later in pick_proxy_client; the pool
     // itself is built exactly like round-robin.
     LbStrategy::RoundRobin | LbStrategy::Sticky => pool,
     LbStrategy::PrimaryStandby => {
+      // Priority is the service's, not the connection's: a process may well
+      // run a primary of one service beside a standby of another.
       let min_priority = pool
         .iter()
-        .filter_map(|id| clients.get(id))
-        .map(|c| c.sole().priority)
+        .filter_map(|r| r.get(clients))
+        .map(|s| s.priority)
         .min()
         .unwrap_or(0);
       pool
         .into_iter()
-        .filter(|id| {
-          clients
-            .get(id)
-            .is_some_and(|c| c.sole().priority == min_priority)
-        })
+        .filter(|r| r.get(clients).is_some_and(|s| s.priority == min_priority))
         .collect()
     }
+  }
+}
+
+/// Which service of which connection: the unit routing decides on.
+///
+/// A connection id alone was the answer for as long as a connection carried
+/// one service. It is the wrong answer the moment it carries two, and the
+/// wrongness is quiet: the second service's traffic would go to the first
+/// one's backend, which is a live backend that answers.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct ServiceRef {
+  /// Connection id, the key of `AppState::clients`.
+  pub(crate) client: String,
+  /// Index into that connection's `services`.
+  pub(crate) index: usize,
+}
+
+impl ServiceRef {
+  /// The service this points at, or `None` if the connection has gone since
+  /// the pool was built. Routing holds the read lock across a pass, so within
+  /// one pass this is always `Some`; the callers that resolve later are the
+  /// ones that have released it.
+  pub(crate) fn get<'a>(
+    &self,
+    clients: &'a HashMap<String, ClientHandle>,
+  ) -> Option<&'a ServiceState> {
+    clients.get(&self.client)?.services.get(self.index)
+  }
+
+  /// The connection carrying it, for the things that genuinely belong to the
+  /// socket: the sender, the token, the announced instance.
+  pub(crate) fn connection<'a>(
+    &self,
+    clients: &'a HashMap<String, ClientHandle>,
+  ) -> Option<&'a ClientHandle> {
+    clients.get(&self.client)
   }
 }
 
 /// A dispatch target chosen from the routed pool.
 pub(crate) struct SelectedClient {
   pub(crate) id: String,
+  /// Which of the connection's services was chosen. One today, and the field
+  /// that stops the answer from being ambiguous when it is not.
+  pub(crate) service_index: usize,
   pub(crate) tx: mpsc::Sender<Message>,
   pub(crate) request_count: Arc<AtomicU64>,
   pub(crate) inflight_limiter: Option<Arc<Semaphore>>,
@@ -399,15 +450,15 @@ pub(crate) struct SelectedClient {
 /// Returns the pool member matching an affinity value, either a client's
 /// self-reported instance ID (survives reconnects) or its connection ID.
 pub(crate) fn find_affinity_match(
-  pool: &[String],
+  pool: &[ServiceRef],
   clients: &HashMap<String, ClientHandle>,
   affinity: &str,
-) -> Option<String> {
+) -> Option<ServiceRef> {
   pool
     .iter()
-    .find(|id| {
-      clients.get(*id).is_some_and(|c| {
-        c.reported_instance_id.as_deref() == Some(affinity) || id.as_str() == affinity
+    .find(|r| {
+      r.connection(clients).is_some_and(|c| {
+        c.reported_instance_id.as_deref() == Some(affinity) || r.client == affinity
       })
     })
     .cloned()
@@ -458,9 +509,9 @@ pub(crate) async fn pick_proxy_client(
     }
   }
   if let Some(instance) = require_instance {
-    pool.retain(|id| {
-      clients
-        .get(id)
+    // An instance is a client *process*, so this is asked of the connection.
+    pool.retain(|r| {
+      r.connection(&clients)
         .is_some_and(|c| c.reported_instance_id.as_deref() == Some(instance))
     });
   }
@@ -471,7 +522,7 @@ pub(crate) async fn pick_proxy_client(
   // Sticky affinity: honor the visitor's cookie when that client is still in
   // the pool; otherwise fall back to rotation (and the response sets a fresh
   // cookie for the newly chosen client).
-  let chosen_id = if state.config().lb_strategy == LbStrategy::Sticky
+  let chosen = if state.config().lb_strategy == LbStrategy::Sticky
     && let Some(previous) = affinity.and_then(|a| find_affinity_match(&pool, &clients, a))
   {
     previous
@@ -483,27 +534,32 @@ pub(crate) async fn pick_proxy_client(
     chosen
   };
 
-  match clients.get(&chosen_id) {
-    Some(c) => PickOutcome::Selected(Box::new(SelectedClient {
-      id: chosen_id.clone(),
+  // Everything per service is read from the service that was chosen, and
+  // everything per connection from the connection carrying it. Before this
+  // the whole struct came off the handle, which meant the same values for
+  // every service on it.
+  match (chosen.connection(&clients), chosen.get(&clients)) {
+    (Some(c), Some(svc)) => PickOutcome::Selected(Box::new(SelectedClient {
+      id: chosen.client.clone(),
+      service_index: chosen.index,
       tx: c.tx.clone(),
-      request_count: c.sole().request_count.clone(),
-      inflight_limiter: c.sole().inflight_limiter.clone(),
+      request_count: svc.request_count.clone(),
+      inflight_limiter: svc.inflight_limiter.clone(),
       token_name: c.perms.token_name.clone(),
       token_id: c.perms.token_id.clone(),
       org_id: c.perms.org_id.clone(),
       instance_id: c.reported_instance_id.clone(),
       protocol: c.client_protocol,
-      cache: c.sole().cache,
-      resilience: c.sole().resilience,
-      capture: c.sole().capture,
-      max_request_body: c.sole().max_request_body,
-      response_timeout: c.sole().response_timeout,
-      webhook_inbox: c.sole().webhook_inbox,
-      service_name: c.sole().service_name.clone(),
-      service_custom_name: c.sole().service_custom_name.clone(),
+      cache: svc.cache,
+      resilience: svc.resilience,
+      capture: svc.capture,
+      max_request_body: svc.max_request_body,
+      response_timeout: svc.response_timeout,
+      webhook_inbox: svc.webhook_inbox,
+      service_name: svc.service_name.clone(),
+      service_custom_name: svc.service_custom_name.clone(),
     })),
-    None => PickOutcome::NoRoute,
+    _ => PickOutcome::NoRoute,
   }
 }
 
@@ -549,16 +605,16 @@ pub(crate) async fn route_exists(
 /// it predates the split, so treating it as the new version would send traffic
 /// to the one candidate nobody nominated.
 fn narrow_to_side(
-  pool: &[String],
+  pool: &[ServiceRef],
   clients: &HashMap<String, ClientHandle>,
   (service, side): (&str, crate::static_routes::Side),
-) -> Vec<String> {
+) -> Vec<ServiceRef> {
   pool
     .iter()
-    .filter(|id| {
-      let is_canary = clients
-        .get(*id)
-        .and_then(|c| c.sole().service_name.as_deref())
+    .filter(|r| {
+      let is_canary = r
+        .get(clients)
+        .and_then(|s| s.service_name.as_deref())
         .is_some_and(|name| name == service);
       match side {
         crate::static_routes::Side::Canary => is_canary,
@@ -598,7 +654,7 @@ pub(crate) async fn route_is_public(
   !pool.is_empty()
     && pool
       .iter()
-      .all(|id| clients.get(id).is_some_and(|c| c.sole().public))
+      .all(|r| r.get(&clients).is_some_and(|s| s.public))
 }
 
 /// Per-candidate visitor-IP eligibility of a routed pool: each candidate is
@@ -608,17 +664,16 @@ pub(crate) async fn route_is_public(
 /// joining a route opens it; route-wide lockdown belongs to the token-level
 /// IP allowlist.
 pub(crate) fn filter_pool_by_ip(
-  pool: Vec<String>,
+  pool: Vec<ServiceRef>,
   clients: &HashMap<String, ClientHandle>,
   ip: Option<IpAddr>,
 ) -> IpFilterOutcome {
   let Some(ip) = ip else {
     return IpFilterOutcome::Allowed(pool);
   };
-  let (passing, rejecting): (Vec<String>, Vec<String>) = pool.into_iter().partition(|id| {
-    clients.get(id).is_none_or(|c| {
-      c.sole().allowed_ips.is_empty() || crate::auth::ip_allowed(ip, &c.sole().allowed_ips)
-    })
+  let (passing, rejecting): (Vec<ServiceRef>, Vec<ServiceRef>) = pool.into_iter().partition(|r| {
+    r.get(clients)
+      .is_none_or(|s| s.allowed_ips.is_empty() || crate::auth::ip_allowed(ip, &s.allowed_ips))
   });
   if !passing.is_empty() {
     return IpFilterOutcome::Allowed(passing);
@@ -628,8 +683,8 @@ pub(crate) fn filter_pool_by_ip(
   // one; with none declared anywhere, the caller answers stealth.
   let denied = rejecting
     .iter()
-    .filter_map(|id| clients.get(id))
-    .filter_map(|c| c.sole().denied.clone().map(|url| (c.sole().priority, url)))
+    .filter_map(|r| r.get(clients))
+    .filter_map(|s| s.denied.clone().map(|url| (s.priority, url)))
     .min_by_key(|(priority, _)| *priority)
     .map(|(_, url)| url);
   IpFilterOutcome::Denied(denied)
@@ -638,7 +693,7 @@ pub(crate) fn filter_pool_by_ip(
 /// Outcome of the per-candidate visitor-IP filter.
 pub(crate) enum IpFilterOutcome {
   /// Candidates admitting the visitor (their own lists pass, or impose nothing).
-  Allowed(Vec<String>),
+  Allowed(Vec<ServiceRef>),
   /// Every candidate rejected the visitor; carries the winning `denied:`
   /// redirect, if any candidate declared one.
   Denied(Option<String>),
@@ -698,11 +753,8 @@ pub(crate) async fn route_visitor_auth(
     return None;
   }
   let mut creds: Option<&str> = None;
-  for id in &pool {
-    match clients
-      .get(id)
-      .and_then(|c| c.sole().visitor_auth.as_deref())
-    {
+  for r in &pool {
+    match r.get(&clients).and_then(|s| s.visitor_auth.as_deref()) {
       Some(c) => match creds {
         None => creds = Some(c),
         Some(existing) if existing == c => {}
@@ -747,11 +799,8 @@ pub(crate) async fn route_visitor_policy(
     return None;
   }
   let mut policy: Option<&crate::visitor_auth::Policy> = None;
-  for id in &pool {
-    match clients
-      .get(id)
-      .and_then(|c| c.sole().visitor_auth_policy.as_ref())
-    {
+  for r in &pool {
+    match r.get(&clients).and_then(|s| s.visitor_auth_policy.as_ref()) {
       Some(p) => match policy {
         None => policy = Some(p),
         Some(existing) if existing == p => {}
@@ -792,8 +841,8 @@ pub(crate) async fn route_path_bind(
   // Every client in a pool shares the bind, that is what pools them.
   pool
     .first()
-    .and_then(|id| clients.get(id))
-    .and_then(|c| c.effective_path_bind().cloned())
+    .and_then(|r| r.get(&clients))
+    .and_then(|s| s.effective_path_bind().cloned())
 }
 
 /// True when any connected client that could serve this host declares a

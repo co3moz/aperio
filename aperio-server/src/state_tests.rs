@@ -488,24 +488,24 @@ fn test_client_health_and_ejection() {
   assert!(!c.is_healthy(Duration::from_nanos(0)));
 
   // Not ejected initially.
-  assert!(!c.is_ejected(now));
+  assert!(!c.sole().is_ejected(now));
   // Below the failure threshold: no ejection.
   let window = Duration::from_secs(30);
   let eject_for = Duration::from_secs(30);
-  assert!(!c.record_failure(now, window, 3, eject_for));
-  assert!(!c.record_failure(now, window, 3, eject_for));
+  assert!(!c.sole_mut().record_failure(now, window, 3, eject_for));
+  assert!(!c.sole_mut().record_failure(now, window, 3, eject_for));
   // The third failure inside the window trips the ejection.
-  assert!(c.record_failure(now, window, 3, eject_for));
-  assert!(c.is_ejected(now));
+  assert!(c.sole_mut().record_failure(now, window, 3, eject_for));
+  assert!(c.sole().is_ejected(now));
   // Failures are cleared once ejected; a repeat call while ejected is a no-op.
-  assert!(!c.record_failure(now, window, 3, eject_for));
+  assert!(!c.sole_mut().record_failure(now, window, 3, eject_for));
 
   // Stale failures outside the window are pruned before counting.
   let mut c2 = mock_client(None, None, None, None);
   let old = now - Duration::from_secs(120);
   c2.sole_mut().recent_failures.push_back(old);
   c2.sole_mut().recent_failures.push_back(old);
-  assert!(!c2.record_failure(now, window, 3, eject_for));
+  assert!(!c2.sole_mut().record_failure(now, window, 3, eject_for));
   assert_eq!(c2.sole().recent_failures.len(), 1, "old failures pruned");
 }
 

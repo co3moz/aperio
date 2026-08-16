@@ -240,7 +240,7 @@ async fn record_outlier_failure_guarded_by_config() {
     .write()
     .await
     .insert("c1".to_string(), mock_client(None, None, None, None));
-  record_outlier_failure(&state, "c1").await;
+  record_outlier_failure(&state, "c1", 0).await;
 
   // Enabled → records against the serving client (and tolerates a missing id).
   let mut cfg = test_config();
@@ -252,8 +252,8 @@ async fn record_outlier_failure_guarded_by_config() {
     .write()
     .await
     .insert("c1".to_string(), mock_client(None, None, None, None));
-  record_outlier_failure(&state, "c1").await;
-  record_outlier_failure(&state, "missing").await;
+  record_outlier_failure(&state, "c1", 0).await;
+  record_outlier_failure(&state, "missing", 0).await;
 }
 
 // --- cache_hit_response ------------------------------------------------------

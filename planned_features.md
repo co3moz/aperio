@@ -141,14 +141,34 @@ readable without scrolling past what is already done.
   The old names remain as one-line delegates, and each of those is itself a
   `sole` on the list.
 
+  **And routing decides on a service.** `select_client_pool` returned
+  connection ids; it returns `ServiceRef { client, index }` now, and the
+  whole pipeline downstream carries the pair: the IP filter, the load
+  balancer, the canary split, sticky affinity, and `SelectedClient`, which
+  gained the index and reads its per-service fields from the service that was
+  chosen rather than from the connection. The eligibility stage asks health
+  and draining of the connection, because a heartbeat and a shutdown belong
+  to the socket, and the backend probe and the kill switch of the service,
+  because that is what they describe. Passive ejection moved with it: a
+  failing backend ejects its own service, where before it would have taken
+  every service on the connection out of routing over one bad minute.
+
+  Three tests, all needing a two-service connection because with one the
+  index is always zero and any implementation looks right: the pool names the
+  service that matched, two services of one connection can bind different
+  paths and each gets its own traffic, and ejecting one leaves its neighbour
+  serving. Getting this wrong is not an error anybody would see, which is why
+  it is worth pinning: the request would go to the other service's backend,
+  and that backend is connected, healthy, and will answer.
+
   **What is left of the split.** `clients` is still one map keyed by
   connection id, and the list is always length one because the Ping refuses
-  longer. What comes next is the part with behavior in it, and it starts
-  with the question every `sole` is standing in for: `select_client_pool`
-  returns connection ids and has to return *which service of which
-  connection* instead, which is now a small change rather than a large one,
-  since the predicates it filters on already take a service. Then the
-  callers downstream of routing take it from there. After that, the pieces the entry
+  longer. The remaining single-service assumptions are still countable:
+  `grep sole` is 179 reads and 256 writes, most of them now in the Ping
+  handler, which writes the whole service from the wire and is the next
+  caller that has to be told which one it is describing. After that the
+  dashboard's client table, the per-service statistics, and the elastic
+  pool's growth signal. After that, the pieces the entry
   already names: load balancing on the pair, the elastic pool's per-service
   growth signal, a pacer per service so a large response cannot queue ahead
   of a small API on the shared writer, and the dashboard's client table.

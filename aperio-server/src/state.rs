@@ -1618,22 +1618,6 @@ impl ClientHandle {
   /// Routing predicates, delegated to the one service. Each is a `sole` on
   /// the #46 list: a caller that knows *which* service it means should ask
   /// the `ServiceState` directly instead.
-  pub(crate) fn is_ejected(&self, now: Instant) -> bool {
-    self.sole().is_ejected(now)
-  }
-
-  pub(crate) fn record_failure(
-    &mut self,
-    now: Instant,
-    window: Duration,
-    threshold: u32,
-    eject_for: Duration,
-  ) -> bool {
-    self
-      .sole_mut()
-      .record_failure(now, window, threshold, eject_for)
-  }
-
   pub(crate) fn effective_path_bind(&self) -> Option<&String> {
     self.sole().effective_path_bind()
   }

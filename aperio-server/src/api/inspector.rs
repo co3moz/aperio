@@ -107,13 +107,15 @@ pub(crate) async fn request_replay_handler(
         let idx = rr_map.entry(group_key).or_insert(0);
         let chosen_id = &pool[*idx % pool.len()];
         *idx = (*idx + 1) % pool.len();
-        clients.get(chosen_id).map(|c| {
-          (
-            chosen_id.clone(),
+        // The sender is the connection's, the counter the service's.
+        match (chosen_id.connection(&clients), chosen_id.get(&clients)) {
+          (Some(c), Some(svc)) => Some((
+            chosen_id.client.clone(),
             c.tx.clone(),
-            c.sole().request_count.clone(),
-          )
-        })
+            svc.request_count.clone(),
+          )),
+          _ => None,
+        }
       }
     }
   };

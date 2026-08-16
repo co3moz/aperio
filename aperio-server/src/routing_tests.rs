@@ -448,7 +448,7 @@ fn pool_prefers_host_matched_clients() {
   let clients = pool_of(vec![("bound", bound), ("unbound", unbound)]);
   let (pool, (host_key, path_key)) =
     select_client_pool(&clients, "/", Some("a.example.com"), false, HEALTHY).unwrap();
-  assert_eq!(pool, vec!["bound".to_string()]);
+  assert_eq!(ids(&pool), vec!["bound".to_string()]);
   assert_eq!(host_key, Some("a.example.com".to_string()));
   assert_eq!(path_key, None);
 }
@@ -463,7 +463,7 @@ fn pool_falls_back_to_unbound_when_not_strict() {
   // Request host matches nobody → unbound pool answers when not strict.
   let (pool, (host_key, _)) =
     select_client_pool(&clients, "/", Some("other.example.com"), false, HEALTHY).unwrap();
-  assert_eq!(pool, vec!["unbound".to_string()]);
+  assert_eq!(ids(&pool), vec!["unbound".to_string()]);
   assert_eq!(host_key, None);
 }
 
@@ -477,7 +477,7 @@ fn ejected_client_removed_but_pool_fails_open_when_all_ejected() {
   let healthy = base_handle();
   let clients = pool_of(vec![("ejected", ejected), ("healthy", healthy)]);
   let (pool, _) = select_client_pool(&clients, "/", None, false, HEALTHY).unwrap();
-  assert_eq!(pool, vec!["healthy".to_string()]);
+  assert_eq!(ids(&pool), vec!["healthy".to_string()]);
 
   // Every candidate ejected → fail open (better a struggling client than none).
   let mut a = base_handle();
@@ -496,15 +496,15 @@ fn record_failure_ejects_after_threshold() {
   let window = Duration::from_secs(30);
   let eject = Duration::from_secs(30);
   // Below threshold: not yet ejected.
-  assert!(!h.record_failure(now, window, 3, eject));
-  assert!(!h.record_failure(now, window, 3, eject));
-  assert!(!h.is_ejected(now));
+  assert!(!h.sole_mut().record_failure(now, window, 3, eject));
+  assert!(!h.sole_mut().record_failure(now, window, 3, eject));
+  assert!(!h.sole().is_ejected(now));
   // Third failure crosses the threshold and ejects.
-  assert!(h.record_failure(now, window, 3, eject));
-  assert!(h.is_ejected(now));
+  assert!(h.sole_mut().record_failure(now, window, 3, eject));
+  assert!(h.sole().is_ejected(now));
   // Still ejected before the window, clear after it.
-  assert!(h.is_ejected(now + Duration::from_secs(29)));
-  assert!(!h.is_ejected(now + Duration::from_secs(31)));
+  assert!(h.sole().is_ejected(now + Duration::from_secs(29)));
+  assert!(!h.sole().is_ejected(now + Duration::from_secs(31)));
 }
 
 #[test]
@@ -526,7 +526,7 @@ fn pool_longest_path_bind_wins() {
   let clients = pool_of(vec![("api", api), ("apiv1", apiv1), ("unbound", unbound)]);
   let (pool, (_, path_key)) =
     select_client_pool(&clients, "/api/v1/users", None, false, HEALTHY).unwrap();
-  assert_eq!(pool, vec!["apiv1".to_string()]);
+  assert_eq!(ids(&pool), vec!["apiv1".to_string()]);
   assert_eq!(path_key, Some("/api/v1".to_string()));
 }
 
@@ -560,14 +560,22 @@ fn pool_excludes_stale_clients() {
 #[test]
 fn lb_round_robin_and_sticky_keep_pool() {
   let clients = pool_of(vec![("a", base_handle()), ("b", base_handle())]);
-  let pool = vec!["a".to_string(), "b".to_string()];
+  let pool = refs(&["a", "b"]);
   assert_eq!(
-    apply_lb_strategy(pool.clone(), &clients, LbStrategy::RoundRobin),
-    pool
+    ids(&apply_lb_strategy(
+      pool.clone(),
+      &clients,
+      LbStrategy::RoundRobin
+    )),
+    ids(&pool)
   );
   assert_eq!(
-    apply_lb_strategy(pool.clone(), &clients, LbStrategy::Sticky),
-    pool
+    ids(&apply_lb_strategy(
+      pool.clone(),
+      &clients,
+      LbStrategy::Sticky
+    )),
+    ids(&pool)
   );
 }
 
@@ -579,9 +587,9 @@ fn lb_primary_standby_keeps_lowest_priority() {
   standby.sole_mut().priority = 5;
   let clients = pool_of(vec![("primary", primary), ("standby", standby)]);
 
-  let pool = vec!["primary".to_string(), "standby".to_string()];
+  let pool = refs(&["primary", "standby"]);
   let narrowed = apply_lb_strategy(pool, &clients, LbStrategy::PrimaryStandby);
-  assert_eq!(narrowed, vec!["primary".to_string()]);
+  assert_eq!(ids(&narrowed), vec!["primary".to_string()]);
 }
 
 // --- find_affinity_match ----------------------------------------------------
@@ -593,16 +601,16 @@ fn affinity_matches_instance_id_then_connection_id() {
   let plain = base_handle();
 
   let clients = pool_of(vec![("conn-a", with_instance), ("conn-b", plain)]);
-  let pool = vec!["conn-a".to_string(), "conn-b".to_string()];
+  let pool = refs(&["conn-a", "conn-b"]);
 
   // Reported instance id wins.
   assert_eq!(
-    find_affinity_match(&pool, &clients, "inst-1"),
+    find_affinity_match(&pool, &clients, "inst-1").map(|r| r.client),
     Some("conn-a".to_string())
   );
   // Falls back to the connection id.
   assert_eq!(
-    find_affinity_match(&pool, &clients, "conn-b"),
+    find_affinity_match(&pool, &clients, "conn-b").map(|r| r.client),
     Some("conn-b".to_string())
   );
   // Unknown affinity value.
@@ -723,18 +731,14 @@ fn test_filter_pool_by_ip_union_semantics() {
 
   // Union semantics: the unrestricted candidate admits the visitor even
   // though the restricted one rejects them (fail-open by design).
-  match filter_pool_by_ip(
-    vec!["restricted".to_string(), "open".to_string()],
-    &clients,
-    Some(visitor),
-  ) {
-    IpFilterOutcome::Allowed(pool) => assert_eq!(pool, vec!["open".to_string()]),
+  match filter_pool_by_ip(refs(&["restricted", "open"]), &clients, Some(visitor)) {
+    IpFilterOutcome::Allowed(pool) => assert_eq!(ids(&pool), vec!["open".to_string()]),
     IpFilterOutcome::Denied(_) => panic!("open candidate must admit the visitor"),
   }
 
   // No visitor IP (internal callers): the pool passes through untouched.
-  match filter_pool_by_ip(vec!["restricted".to_string()], &clients, None) {
-    IpFilterOutcome::Allowed(pool) => assert_eq!(pool, vec!["restricted".to_string()]),
+  match filter_pool_by_ip(refs(&["restricted"]), &clients, None) {
+    IpFilterOutcome::Allowed(pool) => assert_eq!(ids(&pool), vec!["restricted".to_string()]),
     IpFilterOutcome::Denied(_) => panic!("no-ip filtering must not deny"),
   }
 }
@@ -755,11 +759,7 @@ fn test_filter_pool_by_ip_denied_picks_most_primary_redirect() {
   standby.sole_mut().denied = Some("https://standby.example.com/denied".to_string());
   let clients = pool_of(vec![("p", primary), ("s", standby)]);
 
-  match filter_pool_by_ip(
-    vec!["p".to_string(), "s".to_string()],
-    &clients,
-    Some(visitor),
-  ) {
+  match filter_pool_by_ip(refs(&["p", "s"]), &clients, Some(visitor)) {
     IpFilterOutcome::Denied(redirect) => {
       assert_eq!(
         redirect.as_deref(),
@@ -777,7 +777,7 @@ fn test_filter_pool_by_ip_denied_without_redirect_is_stealth() {
   restricted.sole_mut().allowed_ips = vec!["203.0.113.7".to_string()];
   let clients = pool_of(vec![("r", restricted)]);
 
-  match filter_pool_by_ip(vec!["r".to_string()], &clients, Some(visitor)) {
+  match filter_pool_by_ip(refs(&["r"]), &clients, Some(visitor)) {
     IpFilterOutcome::Denied(redirect) => assert!(redirect.is_none()),
     IpFilterOutcome::Allowed(_) => panic!("the only candidate must reject the visitor"),
   }
@@ -889,4 +889,104 @@ async fn a_selection_carries_both_names_a_client_can_be_shown_under() {
       std::mem::discriminant(&other)
     ),
   }
+}
+
+/// A routed pool as connection ids, which is what these assertions were
+/// written against and still the readable thing to compare. The pool itself
+/// is `(connection, service)` pairs now.
+fn ids(pool: &[crate::routing::ServiceRef]) -> Vec<String> {
+  pool.iter().map(|r| r.client.clone()).collect()
+}
+
+/// A pool built from connection ids, every one of them the connection's only
+/// service.
+fn refs(ids: &[&str]) -> Vec<crate::routing::ServiceRef> {
+  ids
+    .iter()
+    .map(|id| crate::routing::ServiceRef {
+      client: (*id).to_string(),
+      index: 0,
+    })
+    .collect()
+}
+
+// --- Which service, not just which connection --------------------------------
+
+/// The pool names the service that matched, not merely the connection.
+///
+/// This is what the whole `(connection, service)` change is for, and it is
+/// the one thing a single-service fixture cannot show: with one service the
+/// index is always zero and any implementation looks right. Two services on
+/// one connection, bound to different hostnames, is the smallest case where
+/// a wrong answer is a wrong answer.
+///
+/// What it would mean to get this wrong is worth stating, because it is not
+/// an error anyone would see: the request would be dispatched to the other
+/// service's backend, which is connected, healthy, and will answer.
+#[test]
+fn the_pool_names_which_service_of_the_connection_matched() {
+  let mut handle = base_handle();
+  handle.sole_mut().declared_hostname = Some("first.example".to_string());
+  let mut extra = base_handle();
+  extra.sole_mut().declared_hostname = Some("second.example".to_string());
+  handle.services.extend(extra.services);
+  let clients = pool_of(vec![("conn", handle)]);
+
+  let (pool, _) =
+    select_client_pool(&clients, "/", Some("second.example"), false, HEALTHY).expect("routed");
+  assert_eq!(pool.len(), 1, "only one service binds that hostname");
+  assert_eq!(pool[0].client, "conn");
+  assert_eq!(
+    pool[0].index, 1,
+    "the second service is the one that matched"
+  );
+
+  let (pool, _) =
+    select_client_pool(&clients, "/", Some("first.example"), false, HEALTHY).expect("routed");
+  assert_eq!(pool[0].index, 0, "and the first for its own hostname");
+}
+
+/// A path bind is the service's too, so two services of one connection can
+/// bind different prefixes and each gets its own traffic.
+#[test]
+fn two_services_of_one_connection_can_bind_different_paths() {
+  let mut handle = base_handle();
+  handle.sole_mut().declared_path = Some("/alpha".to_string());
+  let mut extra = base_handle();
+  extra.sole_mut().declared_path = Some("/beta".to_string());
+  handle.services.extend(extra.services);
+  let clients = pool_of(vec![("conn", handle)]);
+
+  let (pool, key) = select_client_pool(&clients, "/beta/x", None, false, HEALTHY).expect("routed");
+  assert_eq!(pool.len(), 1);
+  assert_eq!(pool[0].index, 1);
+  assert_eq!(key.1.as_deref(), Some("/beta"), "the winning bind is /beta");
+}
+
+/// Ejecting a failing service leaves the other one on the same connection
+/// serving, which is the reason ejection had to stop being per connection.
+#[test]
+fn ejecting_one_service_does_not_take_its_neighbour_out_of_routing() {
+  let now = std::time::Instant::now();
+  let mut handle = base_handle();
+  handle.sole_mut().declared_hostname = Some("alpha.example".to_string());
+  let mut extra = base_handle();
+  extra.sole_mut().declared_hostname = Some("beta.example".to_string());
+  handle.services.extend(extra.services);
+  handle.services[1].ejected_until = Some(now + Duration::from_secs(30));
+  let clients = pool_of(vec![("conn", handle)]);
+
+  // The healthy neighbour still routes.
+  let (pool, _) =
+    select_client_pool(&clients, "/", Some("alpha.example"), false, HEALTHY).expect("routed");
+  assert_eq!(pool[0].index, 0);
+
+  // And the ejected one still routes to itself rather than to its neighbour,
+  // because ejection fails open when it is the route's only candidate.
+  let (pool, _) =
+    select_client_pool(&clients, "/", Some("beta.example"), false, HEALTHY).expect("routed");
+  assert_eq!(
+    pool[0].index, 1,
+    "an ejected sole candidate is served, never silently swapped for another service"
+  );
 }

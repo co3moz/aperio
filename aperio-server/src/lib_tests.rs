@@ -1279,22 +1279,22 @@ fn test_find_affinity_match() {
   let b = mock_client(None, None, None, None);
   clients.insert("conn-a".to_string(), a);
   clients.insert("conn-b".to_string(), b);
-  let pool = vec!["conn-a".to_string(), "conn-b".to_string()];
+  let pool = refs(&["conn-a", "conn-b"]);
 
   // Matches by instance ID (survives reconnects) and by connection ID.
   assert_eq!(
-    find_affinity_match(&pool, &clients, "instance-a"),
+    find_affinity_match(&pool, &clients, "instance-a").map(|r| r.client),
     Some("conn-a".to_string())
   );
   assert_eq!(
-    find_affinity_match(&pool, &clients, "conn-b"),
+    find_affinity_match(&pool, &clients, "conn-b").map(|r| r.client),
     Some("conn-b".to_string())
   );
   // Unknown affinity falls back to rotation (None).
   assert_eq!(find_affinity_match(&pool, &clients, "gone"), None);
   // A client that left the pool no longer matches.
   assert_eq!(
-    find_affinity_match(&["conn-b".to_string()], &clients, "instance-a"),
+    find_affinity_match(&refs(&["conn-b"]), &clients, "instance-a"),
     None
   );
 }
@@ -1321,7 +1321,7 @@ fn test_apply_lb_strategy_primary_standby() {
   clients.insert("primary".to_string(), primary);
   clients.insert("standby".to_string(), standby);
 
-  let pool = vec!["primary".to_string(), "standby".to_string()];
+  let pool = refs(&["primary", "standby"]);
   // Round-robin keeps the whole pool.
   assert_eq!(
     apply_lb_strategy(pool.clone(), &clients, LbStrategy::RoundRobin).len(),
@@ -1329,16 +1329,20 @@ fn test_apply_lb_strategy_primary_standby() {
   );
   // Primary-standby narrows to the lowest priority tier.
   assert_eq!(
-    apply_lb_strategy(pool, &clients, LbStrategy::PrimaryStandby),
+    ids(&apply_lb_strategy(
+      pool,
+      &clients,
+      LbStrategy::PrimaryStandby
+    )),
     vec!["primary".to_string()]
   );
   // Once the primary is out of the pool, the standby takes over.
   assert_eq!(
-    apply_lb_strategy(
-      vec!["standby".to_string()],
+    ids(&apply_lb_strategy(
+      refs(&["standby"]),
       &clients,
       LbStrategy::PrimaryStandby
-    ),
+    )),
     vec!["standby".to_string()]
   );
 }
@@ -1359,7 +1363,7 @@ fn test_select_client_pool_excludes_unhealthy() {
   fresh.last_ping_at = Some(Instant::now());
   clients.insert("fresh".to_string(), fresh);
   let (pool, _) = select_client_pool(&clients, "/", None, false, Duration::from_secs(15)).unwrap();
-  assert_eq!(pool, vec!["fresh".to_string()]);
+  assert_eq!(ids(&pool), vec!["fresh".to_string()]);
 
   // The stale client recovers with a new ping -> back in the pool
   clients.get_mut("stale").unwrap().last_ping_at = Some(Instant::now());
@@ -1478,13 +1482,13 @@ fn test_select_client_pool_hostname_routing() {
   // Host matches a.example.com → only client "a"
   let (pool, key) =
     select_client_pool(&clients, "/", Some("a.example.com"), false, TEST_THRESHOLD).unwrap();
-  assert_eq!(pool, vec!["a".to_string()]);
+  assert_eq!(ids(&pool), vec!["a".to_string()]);
   assert_eq!(key, (Some("a.example.com".to_string()), None));
 
   // Unknown host → falls back to unbound client
   let (pool, key) =
     select_client_pool(&clients, "/", Some("c.example.com"), false, TEST_THRESHOLD).unwrap();
-  assert_eq!(pool, vec!["unbound".to_string()]);
+  assert_eq!(ids(&pool), vec!["unbound".to_string()]);
   assert_eq!(key, (None, None));
 
   // Strict mode: unknown host → no client at all
@@ -1492,7 +1496,7 @@ fn test_select_client_pool_hostname_routing() {
   // Strict mode: matching host still works
   let (pool, _) =
     select_client_pool(&clients, "/", Some("b.example.com"), true, TEST_THRESHOLD).unwrap();
-  assert_eq!(pool, vec!["b".to_string()]);
+  assert_eq!(ids(&pool), vec!["b".to_string()]);
   // Strict mode: no Host header → no client
   assert!(select_client_pool(&clients, "/", None, true, TEST_THRESHOLD).is_none());
 }
@@ -1518,7 +1522,7 @@ fn test_select_client_pool_hostname_and_path_combined() {
     TEST_THRESHOLD,
   )
   .unwrap();
-  assert_eq!(pool, vec!["host-api".to_string()]);
+  assert_eq!(ids(&pool), vec!["host-api".to_string()]);
   assert_eq!(
     key,
     (Some("a.example.com".to_string()), Some("/api".to_string()))
@@ -1533,7 +1537,7 @@ fn test_select_client_pool_hostname_and_path_combined() {
     TEST_THRESHOLD,
   )
   .unwrap();
-  assert_eq!(pool, vec!["host-root".to_string()]);
+  assert_eq!(ids(&pool), vec!["host-root".to_string()]);
 }
 
 #[test]
@@ -1547,7 +1551,7 @@ fn test_select_client_pool_override_wins() {
 
   let (pool, _) =
     select_client_pool(&clients, "/", Some("a.example.com"), true, TEST_THRESHOLD).unwrap();
-  assert_eq!(pool, vec!["overruled".to_string()]);
+  assert_eq!(ids(&pool), vec!["overruled".to_string()]);
 
   // With the override active, the client is no longer an unbound fallback
   assert!(
@@ -1569,11 +1573,11 @@ fn test_select_client_pool_longest_path_bind_wins() {
 
   let (pool, key) =
     select_client_pool(&clients, "/api/v2/users", None, false, TEST_THRESHOLD).unwrap();
-  assert_eq!(pool, vec!["long".to_string()]);
+  assert_eq!(ids(&pool), vec!["long".to_string()]);
   assert_eq!(key, (None, Some("/api/v2".to_string())));
 
   let (pool, _) = select_client_pool(&clients, "/api/other", None, false, TEST_THRESHOLD).unwrap();
-  assert_eq!(pool, vec!["short".to_string()]);
+  assert_eq!(ids(&pool), vec!["short".to_string()]);
 }
 
 #[test]
@@ -2311,4 +2315,23 @@ fn shutdown_drain_auto_takes_the_longest_client_and_caps_it() {
     shutdown_drain_budget(None, true, []),
     std::time::Duration::ZERO
   );
+}
+
+/// A routed pool as connection ids, which is what these assertions were
+/// written against and still the readable thing to compare. The pool itself
+/// is `(connection, service)` pairs now.
+fn ids(pool: &[crate::routing::ServiceRef]) -> Vec<String> {
+  pool.iter().map(|r| r.client.clone()).collect()
+}
+
+/// A pool built from connection ids, every one of them the connection's only
+/// service.
+fn refs(ids: &[&str]) -> Vec<crate::routing::ServiceRef> {
+  ids
+    .iter()
+    .map(|id| crate::routing::ServiceRef {
+      client: (*id).to_string(),
+      index: 0,
+    })
+    .collect()
 }

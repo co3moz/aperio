@@ -614,12 +614,12 @@ pub(crate) async fn explain_handler(
     .unwrap_or_default();
     let pool: Vec<Conn> = pool
       .into_iter()
-      .map(|id| {
-        let handle = clients.get(&id);
+      .map(|r| {
+        // The name is the service's, the organization the connection's.
         Conn {
-          name: handle.and_then(|c| c.display_name()),
-          org: handle.and_then(|c| c.perms.org_id.clone()),
-          id,
+          name: r.get(&clients).and_then(|s| s.display_name()),
+          org: r.connection(&clients).and_then(|c| c.perms.org_id.clone()),
+          id: r.client,
         }
       })
       .collect();
