@@ -76,6 +76,14 @@ project follows semantic versioning per release tag.
 
 - **A `forward` refusal that set more than one cookie lost all but the first.** The refusal an endpoint gives is forwarded to the visitor verbatim, which is the point of the method, but only the first value of each header was copied. `Set-Cookie` is precisely the header that is sent more than once and may not be folded into a comma-joined line, and a login handoff is routinely two of them: clear the stale session, set the nonce the login is about to check. The visitor arrived at the endpoint's own login missing half of what it had just been sent, so the login failed or looped, on every gated request. Every value of each relayed header now crosses, which also covers `WWW-Authenticate` offering more than one challenge.
 
+### Fixed
+
+- **A traversal path no longer reads one service's gate against another's hostname.** `host_has_visitor_auth` is the entire visitor gate for a request whose path contains a `.` or `..` segment, and it asked the connection rather than each of its services. On a connection carrying two, the first service's gate was paired with the first service's hostname, so a request for the *second* service's hostname read as ungated and `/./admin` was served with no credential on a route whose `/admin` answers 401. It now asks each service for its gate and its hostname together. Only reachable on a connection carrying several services, which no released client produces.
+
+- **The organization hostname fence sees every service of a connection.** The check that refuses to let one organization mint a share link for, or act on, a hostname another organization is currently serving read only the first service's binds, so a hostname served by any other service of the same connection was invisible to it. Same reachability as above.
+
+- **A `scaling:` block on any service but the first is no longer dropped.** The autoscaling record was armed from the first declaration while the binds were captured from whichever service asked, so a Ping declaring scaling on its second service armed nothing at all, silently. The declaration now travels with the binds it was captured for, and those binds are the declaring service's own.
+
 ### Added
 
 - **A dispatch names the service it is for.** The frames that open something over the tunnel, a request, a streamed request, a WebSocket upgrade, a TCP or UDP stream, carry the name of the service routing chose. A connection serving one service ignores it, which is every client today; a connection serving several needs it, because otherwise the client would have to guess from the path which of its targets a request belongs to, and the server has already answered that question by matching the route. Only the opening frames carry it: everything after is addressed by a stream id the server minted alongside it, so the client learns the service once and routes the rest by id rather than the wire growing a selector on every frame.

@@ -919,7 +919,7 @@ fn client_config_view(
 
   // Hostnames, each labeled with where it came from; an active overrule
   // replaces the set, exactly as routing does.
-  let effective_hosts: Vec<String> = handle.effective_hostnames().into_iter().cloned().collect();
+  let effective_hosts: Vec<String> = service.effective_hostnames().into_iter().cloned().collect();
   if effective_hosts.is_empty() {
     push_line(&mut y, &notes, "hostname", "[]");
   } else {

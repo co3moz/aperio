@@ -1789,8 +1789,27 @@ impl ClientHandle {
     self.sole().effective_path_bind()
   }
 
+  /// Every hostname this connection serves, across all of its services.
+  ///
+  /// The union, not the first service's, because every caller of this means
+  /// "is this connection answering for that name": the organization fence
+  /// that refuses to let one org act on a hostname another org is serving,
+  /// the scaling probe, and the edge document. Reading only the first service
+  /// made a hostname served by the second invisible to all three, and for the
+  /// fence that is a tenant boundary with a hole in it.
+  ///
+  /// A caller that means one particular service asks that `ServiceState`
+  /// directly; routing already does.
   pub(crate) fn effective_hostnames(&self) -> Vec<&String> {
-    self.sole().effective_hostnames()
+    let mut out: Vec<&String> = Vec::new();
+    for service in &self.services {
+      for h in service.effective_hostnames() {
+        if !out.contains(&h) {
+          out.push(h);
+        }
+      }
+    }
+    out
   }
 
   pub(crate) fn display_name(&self) -> Option<String> {

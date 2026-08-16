@@ -863,18 +863,26 @@ pub(crate) async fn host_has_visitor_auth(state: &AppState, request_host: Option
     return false;
   }
   let clients = state.clients.read().await;
+  // Asked of each service, not of the connection. Reading the gate off one
+  // service and the hostname off another is the same bug in a second
+  // spelling: a connection carrying a gated `a.example.com` beside an
+  // ungated `b.example.com` would answer "gated" for the wrong host and, far
+  // worse, "ungated" for the right one. Since this is the *entire* gate for a
+  // traversal path, the second reading serves `/./admin` with no credential
+  // on a route whose `/admin` answers 401.
   clients.values().any(|c| {
-    let declares_gate = c.sole().visitor_auth.is_some()
-      || c
-        .sole()
-        .visitor_auth_policy
-        .as_ref()
-        .is_some_and(|policy| policy.gates());
-    declares_gate
-      && match request_host {
-        Some(h) => c.matches_host(h) || !c.has_hostname_bind(),
-        None => !c.has_hostname_bind(),
-      }
+    c.services.iter().any(|s| {
+      let declares_gate = s.visitor_auth.is_some()
+        || s
+          .visitor_auth_policy
+          .as_ref()
+          .is_some_and(|policy| policy.gates());
+      declares_gate
+        && match request_host {
+          Some(h) => s.matches_host(h) || !s.has_hostname_bind(),
+          None => !s.has_hostname_bind(),
+        }
+    })
   })
 }
 

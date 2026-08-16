@@ -2106,3 +2106,28 @@ fn a_service_that_stopped_being_declared_is_simply_unclaimed() {
   let got = match_declarations(&existing, &names(&[Some("jobs"), Some("api")])).unwrap();
   assert_eq!(got, vec![Some(2), Some(0)]);
 }
+
+/// A connection's hostnames are every service's, not the first one's.
+///
+/// The organization fence asks this question to decide whether one org may
+/// mint a share link for, or act on, a hostname another org is currently
+/// serving. Answering from the first service only leaves a hostname served by
+/// the second invisible to the fence, which is a tenant boundary with a hole
+/// in it rather than a display bug.
+#[test]
+fn a_connection_reports_the_hostnames_of_all_its_services() {
+  let mut handle = crate::test_support::mock_client(Some("first.example"), None, None, None);
+  let second = crate::test_support::mock_client(Some("second.example"), None, None, None);
+  handle.services.extend(second.services);
+
+  let hosts: Vec<&str> = handle
+    .effective_hostnames()
+    .into_iter()
+    .map(String::as_str)
+    .collect();
+  assert!(hosts.contains(&"first.example"));
+  assert!(
+    hosts.contains(&"second.example"),
+    "the second service's hostname is served, so the fence has to see it"
+  );
+}

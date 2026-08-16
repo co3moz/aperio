@@ -1017,3 +1017,41 @@ fn the_selected_service_is_the_one_named_for_the_client() {
     "the name the dispatch carries is the matched service's, not the connection's first"
   );
 }
+
+/// The traversal gate asks each service, not the connection.
+///
+/// This is the *entire* gate for a path containing `.` or `..`, so a false
+/// "ungated" here serves `/./admin` with no credential on a route whose
+/// `/admin` answers 401. Reading the gate off one service and the hostname
+/// off another produces exactly that: with two services on one connection,
+/// the gated one's declaration was paired with its own hostname only by
+/// accident of being first.
+#[tokio::test]
+async fn the_traversal_gate_pairs_each_gate_with_its_own_hostname() {
+  let state = std::sync::Arc::new(crate::test_support::test_state());
+  let mut handle = base_handle();
+  handle.sole_mut().declared_hostname = Some("first.example".to_string());
+  handle.sole_mut().visitor_auth = Some("u:p".to_string());
+  let mut second = base_handle();
+  second.sole_mut().declared_hostname = Some("second.example".to_string());
+  second.sole_mut().visitor_auth = Some("u:p".to_string());
+  handle.services.extend(second.services);
+  state
+    .clients
+    .write()
+    .await
+    .insert("conn".to_string(), handle);
+
+  assert!(
+    host_has_visitor_auth(&state, Some("first.example")).await,
+    "the first service's gate covers its own hostname"
+  );
+  assert!(
+    host_has_visitor_auth(&state, Some("second.example")).await,
+    "and so does the second's, which is the reading that was wrong"
+  );
+  assert!(
+    !host_has_visitor_auth(&state, Some("unrelated.example")).await,
+    "a hostname nothing serves is still ungated"
+  );
+}

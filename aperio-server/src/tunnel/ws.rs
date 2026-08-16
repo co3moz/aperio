@@ -85,7 +85,16 @@ use crate::state::{
 /// Bind context captured for the autoscaling upsert: the hostnames this
 /// connection serves, its path bind, its organization, and the token that
 /// armed it.
-type ScalingBindCtx = (Vec<String>, Option<String>, Option<String>, Option<String>);
+/// The scaling declaration and the binds it was captured for. The
+/// declaration travels with the context so a later service's `scaling:`
+/// cannot be paired with the first service's block, or with none at all.
+type ScalingBindCtx = (
+  crate::protocol::ScalingDecl,
+  Vec<String>,
+  Option<String>,
+  Option<String>,
+  Option<String>,
+);
 
 #[cfg(test)]
 #[path = "ws_tests.rs"]
@@ -1898,14 +1907,22 @@ impl ConnCtx {
               handle.perms.org_id.clone(),
             ));
           }
-          if scaling.is_some() {
+          if let Some(ref declared_scaling) = scaling {
             scaling_ctx = Some((
+              declared_scaling.clone(),
+              // The declaring service's own binds, not the connection's
+              // union: an autoscaling record is armed per hostname of the
+              // service that asked for it.
               handle
+                .service_at(service_index)
                 .effective_hostnames()
                 .into_iter()
                 .cloned()
                 .collect::<Vec<String>>(),
-              handle.effective_path_bind().cloned(),
+              handle
+                .service_at(service_index)
+                .effective_path_bind()
+                .cloned(),
               handle.perms.org_id.clone(),
               handle.perms.token_id.clone(),
             ));
@@ -2016,17 +2033,16 @@ impl ConnCtx {
     // to call the endpoint when nothing is running. A fleet of
     // identical replicas converges on one record per bind, because
     // the store dedupes by a hash of the declaration.
-    if let (true, Some(decl), Some((hostnames, path, org, token_id))) = (
-      state.config().scaling_enabled,
-      // The declaration's own, now that the singular locals have been folded
-      // into the list. One entry today, which is the one `scaling_ctx` was
-      // captured for.
-      declarations.first().and_then(|d| d.scaling.as_ref()),
-      scaling_ctx,
-    ) {
+    // The declaration travels with the context it was captured from. Reading
+    // it back off the first entry, as this did, silently armed nothing when a
+    // *later* service was the one that asked for scaling: the context was
+    // set, the declaration was not, and the tuple pattern simply failed.
+    if let (true, Some((decl, hostnames, path, org, token_id))) =
+      (state.config().scaling_enabled, scaling_ctx)
+    {
       for hostname in hostnames {
         let record =
-          crate::api::scaling::record_from_decl(decl, org.clone(), &hostname, path.as_deref());
+          crate::api::scaling::record_from_decl(&decl, org.clone(), &hostname, path.as_deref());
         let record = match record {
           Ok(record) => record,
           Err(e) => {
