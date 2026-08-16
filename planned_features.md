@@ -406,10 +406,16 @@ readable without scrolling past what is already done.
   is almost certainly not intended, and `ColdStartSpec` passes only because
   its server has nothing else attached.
 
-  Fixing it is a product decision, not a repair: a cold start is billable, and
-  making it fire in every case the current behaviour masks changes when an
-  operator is charged. That is the call to make before the next attempt, and
-  it is why this was reverted rather than pushed through.
+  **Decided and shipped (2026-08-16): it should wake.** Waking is what the
+  setting promises, so the route-specific wait went back in and the fixture
+  was rewritten against the real behaviour: it watches the id of the client
+  that armed the record rather than waiting for the hostname to fall empty,
+  which was the same thing only while a request could not wake a replacement.
+  The cost is recorded in the changelog, a billable cold start now fires where
+  it silently did not.
+
+  **None of this fixed #119.** The entry stays open, and the cache flake still
+  reproduces with the same 2.21 s signature after all of it.
 
   Still standing, and where to start: setting `APERIO_DEFAULT_ACCESS=allow`
   on the cache fixture avoided the failure three runs out of three, against
