@@ -78,6 +78,8 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **Passive outlier ejection follows the service that failed, not the position it held.** The dispatch records which service it chose and the timeout can fire half a minute later, by which time a heartbeat may have rebuilt the connection's service list, since a client is free to reorder or withdraw entries. Charging the failure by position then ejected a healthy neighbour from routing and left the failing service serving, reporting nothing either way. It is charged by service name now, which is the identity that survives a heartbeat.
+
 - **A service added to a live connection announces its bandwidth cap where the writer reads it.** The shaper is per socket, and a service declared after the connection opened was given a cell of its own, so its cap went somewhere nothing consults: the dashboard reported the service as throttled while the wire ran at whatever the connection's first service had asked for. The cell is shared now, so the reported number and the enforced one agree. Enforcing two different caps over one socket is a separate question and is tracked with the rest of the per-service-on-a-shared-writer work.
 
 - **A resilient cached answer now survives its client under the closed posture.** With `default_access: deny`, a route whose client had gone was refused with the posture's stealth 504 before the cache was consulted, so `resilience: true` did nothing in the one condition it exists for: an entry is only ever served once the client is absent. The entry is now answered with, and it cannot disclose a route the posture hides, because only a client that asked for serve-stale leaves one behind. A route with no resilient entry still gets the refusal.

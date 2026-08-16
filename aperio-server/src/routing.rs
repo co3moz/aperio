@@ -407,9 +407,6 @@ impl ServiceRef {
 /// A dispatch target chosen from the routed pool.
 pub(crate) struct SelectedClient {
   pub(crate) id: String,
-  /// Which of the connection's services was chosen. One today, and the field
-  /// that stops the answer from being ambiguous when it is not.
-  pub(crate) service_index: usize,
   pub(crate) tx: mpsc::Sender<Message>,
   pub(crate) request_count: Arc<AtomicU64>,
   pub(crate) inflight_limiter: Option<Arc<Semaphore>>,
@@ -440,7 +437,14 @@ pub(crate) struct SelectedClient {
   pub(crate) response_timeout: Option<u64>,
   /// The client asked to persist inbound POSTs into the webhook inbox.
   pub(crate) webhook_inbox: bool,
-  /// Service name announced via Ping (multi-service clients), for display.
+  /// Service name announced via Ping, and what identifies the chosen service
+  /// after the dispatch.
+  ///
+  /// Carried instead of an index on purpose: the dispatch outlives the read
+  /// lock it was chosen under, and a Ping carrying a list rebuilds `services`
+  /// wholesale, so an index captured here can point at a different service,
+  /// or at none, by the time anything acts on it. The name is what reconcile
+  /// preserves, which is why outlier ejection charges by it.
   pub(crate) service_name: Option<String>,
   /// The `custom_name` an operator gave the service, which wins over
   /// `service_name` wherever a client is named for a person to read.
@@ -541,7 +545,6 @@ pub(crate) async fn pick_proxy_client(
   match (chosen.connection(&clients), chosen.get(&clients)) {
     (Some(c), Some(svc)) => PickOutcome::Selected(Box::new(SelectedClient {
       id: chosen.client.clone(),
-      service_index: chosen.index,
       tx: c.tx.clone(),
       request_count: svc.request_count.clone(),
       inflight_limiter: svc.inflight_limiter.clone(),

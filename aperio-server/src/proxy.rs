@@ -48,7 +48,20 @@ fn retry_covers(retry_on_5xx: bool, retry_statuses: &[u16], status: u16) -> bool
 /// Records one dispatch failure (buffered 5xx, response timeout, or connection
 /// loss) against the serving client for passive outlier ejection. A no-op
 /// unless `APERIO_OUTLIER_EJECTION` is enabled.
-async fn record_outlier_failure(state: &AppState, client_id: &str, service_index: usize) {
+/// `service` is the chosen service's *name*, not its index.
+///
+/// The index was captured under a read lock the dispatch has long since
+/// released, and a Ping carrying a list rebuilds `services` wholesale, which
+/// `match_declarations` is expressly designed to survive across a reorder or
+/// a withdrawal. So by the time a 30-second timeout fires, index 1 may be a
+/// different service or may not exist: the failure is charged to a healthy
+/// neighbour and eventually ejects it, while the one that actually failed
+/// keeps serving. The name is the identity reconcile preserves, which is why
+/// it is the thing to carry.
+///
+/// `None` is a connection carrying one service, where no list arrived, no
+/// rebuild happened, and index 0 is exactly as stable as the connection.
+async fn record_outlier_failure(state: &AppState, client_id: &str, service: Option<&str>) {
   let cfg = state.config();
   if !cfg.outlier_ejection {
     return;
@@ -59,16 +72,18 @@ async fn record_outlier_failure(state: &AppState, client_id: &str, service_index
   // removes a candidate from routing, and routing chooses services, so
   // ejecting the connection would take every service on it out over one
   // backend's bad minute.
-  if let Some(service) = clients
-    .get_mut(client_id)
-    .and_then(|c| c.services.get_mut(service_index))
-    && service.record_failure(
-      now,
-      cfg.outlier_window,
-      cfg.outlier_max_failures,
-      cfg.outlier_eject,
-    )
-  {
+  if let Some(service) = clients.get_mut(client_id).and_then(|c| match service {
+    Some(name) => c
+      .services
+      .iter_mut()
+      .find(|s| s.service_name.as_deref() == Some(name)),
+    None => c.services.first_mut(),
+  }) && service.record_failure(
+    now,
+    cfg.outlier_window,
+    cfg.outlier_max_failures,
+    cfg.outlier_eject,
+  ) {
     warn!(
       "Passive ejection: client {} removed from routing for {}s after {} failures within {}s",
       client_id,
@@ -2327,7 +2342,7 @@ async fn proxy_http_request(
               .await;
               state.persistent_stats.lock().await.record_request(false, body_bytes.len() as u64, 0, start_time.elapsed().as_millis() as u64, selected.org_id.as_deref());
               // Passive outlier ejection: a response timeout is a failure.
-              record_outlier_failure(&state, &selected.id, selected.service_index).await;
+              record_outlier_failure(&state, &selected.id, selected.service_name.as_deref()).await;
               break gateway_timeout_response(&state, request_host.as_deref(), "504 Gateway Timeout - Gateway response timeout expired");
           }
           res_opt = rx_response => res_opt.ok(),
@@ -2384,7 +2399,7 @@ async fn proxy_http_request(
         // Passive outlier ejection: a server error counts against the serving
         // client (whether or not it is retried below).
         if status_code.is_server_error() {
-          record_outlier_failure(&state, &selected.id, selected.service_index).await;
+          record_outlier_failure(&state, &selected.id, selected.service_name.as_deref()).await;
         }
 
         // Transparent retry on a buffered server error (APERIO_RETRY_ON_5XX):
@@ -2748,7 +2763,7 @@ async fn proxy_http_request(
         // have reached the visitor yet, so a failover re-dispatch
         // is safe (for retryable methods).
         // Passive outlier ejection: a vanished client is a failure.
-        record_outlier_failure(&state, &selected.id, selected.service_index).await;
+        record_outlier_failure(&state, &selected.id, selected.service_name.as_deref()).await;
         let can_failover = !stream_request
           && state.config().failover_mode != FailoverMode::Fail
           && method_retryable(&method_str, state.config().failover_all_methods)

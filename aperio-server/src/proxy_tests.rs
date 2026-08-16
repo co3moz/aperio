@@ -240,7 +240,7 @@ async fn record_outlier_failure_guarded_by_config() {
     .write()
     .await
     .insert("c1".to_string(), mock_client(None, None, None, None));
-  record_outlier_failure(&state, "c1", 0).await;
+  record_outlier_failure(&state, "c1", None).await;
 
   // Enabled → records against the serving client (and tolerates a missing id).
   let mut cfg = test_config();
@@ -252,8 +252,8 @@ async fn record_outlier_failure_guarded_by_config() {
     .write()
     .await
     .insert("c1".to_string(), mock_client(None, None, None, None));
-  record_outlier_failure(&state, "c1", 0).await;
-  record_outlier_failure(&state, "missing", 0).await;
+  record_outlier_failure(&state, "c1", None).await;
+  record_outlier_failure(&state, "missing", None).await;
 }
 
 // --- cache_hit_response ------------------------------------------------------
@@ -2668,4 +2668,59 @@ async fn a_route_with_no_resilient_entry_still_gets_the_stealth_refusal() {
   );
   let resp = run(state, req).await;
   assert_eq!(resp.status(), axum::http::StatusCode::GATEWAY_TIMEOUT);
+}
+
+/// A failure is charged to the service that failed, across a reorder.
+///
+/// The dispatch captures which service it chose, the timeout fires up to
+/// thirty seconds later, and any heartbeat in between can rebuild the
+/// connection's service list: `match_declarations` is built to survive a
+/// client reordering its `services:` block, so indexes move. Charging by
+/// index then ejects a healthy neighbour and leaves the failing service
+/// serving, which is the worst of both and reports nothing.
+#[tokio::test]
+async fn an_ejection_follows_the_service_it_belongs_to_not_its_old_index() {
+  let mut cfg = crate::test_support::test_config();
+  cfg.outlier_ejection = true;
+  cfg.outlier_max_failures = 1;
+  cfg.outlier_window = std::time::Duration::from_secs(60);
+  cfg.outlier_eject = std::time::Duration::from_secs(60);
+  let state = Arc::new(crate::test_support::test_state_with(cfg));
+
+  {
+    let mut handle = crate::test_support::mock_client(None, None, None, None);
+    handle.sole_mut().service_name = Some("api".to_string());
+    let mut web = crate::state::ServiceState::newly_declared(Default::default());
+    web.service_name = Some("web".to_string());
+    handle.services.push(web);
+    state.clients.write().await.insert("c1".to_string(), handle);
+  }
+
+  // The dispatch chose "web", which was index 1. A heartbeat then reordered
+  // the list, exactly as a client editing its config produces.
+  {
+    let mut clients = state.clients.write().await;
+    clients.get_mut("c1").unwrap().services.reverse();
+  }
+
+  record_outlier_failure(&state, "c1", Some("web")).await;
+
+  let now = Instant::now();
+  let clients = state.clients.read().await;
+  let handle = clients.get("c1").unwrap();
+  let web = handle
+    .services
+    .iter()
+    .find(|s| s.service_name.as_deref() == Some("web"))
+    .unwrap();
+  let api = handle
+    .services
+    .iter()
+    .find(|s| s.service_name.as_deref() == Some("api"))
+    .unwrap();
+  assert!(
+    web.is_ejected(now),
+    "the service that failed is the one ejected"
+  );
+  assert!(!api.is_ejected(now), "and its neighbour is left serving");
 }
