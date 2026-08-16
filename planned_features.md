@@ -65,6 +65,31 @@ readable without scrolling past what is already done.
     than of a service, which is arguably more useful but is a reporting change
     that has to be made deliberately.
 
+  **What has shipped so far (2026-08-16).** The wire, and only the wire.
+  Protocol v8 adds an optional `services` list to the Ping, where each entry
+  carries what the singular per-service fields carry one at a time; when the
+  list is present it is authoritative and those fields are ignored, and when
+  it is absent nothing changes, so the addition is compatible in both
+  directions. The server normalizes a Ping to a service list in one place,
+  which is the line that stops being a `[0]` when the split below is made,
+  and **accepts a list of exactly one**, refusing a longer one at the Ping
+  rather than serving part of it. The client still sends no list. A test now
+  holds the two hand-synced copies of `protocol.rs` to the same wire shape
+  and the same version, which matters here more than for any earlier change:
+  every field of the new entry is optional with a default, so a drift between
+  the copies would not fail, it would come up quietly unset.
+
+  **The obligation that creates, for the client half.** The server's refusal
+  is safe but silent, matching the other refusals in `on_ping`: a `warn!` and
+  a dropped connection, with nothing that tells the client why. That is
+  tolerable only while no client can send a list. The moment one can, it must
+  **not** send a list to a server that cannot serve it, which means the
+  capability is negotiated on the handshake the way every other one is, and
+  a client whose config asks for multiplexing against a server without it
+  holds the services back and says so. Discovering the limit by being
+  disconnected is exactly the failure the connect-time version gate exists to
+  prevent, and it would be reintroduced here by omission.
+
   **Shape.** An opt-in mode (`multiplex: true` or similar), not a default. The
   per-connection model is simpler, is what every deployment runs today, and is
   faster for the small-service-count case that most deployments are. The mode

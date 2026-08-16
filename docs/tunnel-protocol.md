@@ -8,7 +8,7 @@ WebSocket upgrade requests from visitors are detected automatically and proxied 
 
 ## Chunked body streaming
 
-The current `PROTOCOL_VERSION` is **7**. Every version below is negotiated on
+The current `PROTOCOL_VERSION` is **8**. Every version below is negotiated on
 connect, so a client and a server that disagree still work: each feature falls
 back to what the older side understands, and the mismatch is logged on both
 sides and shown on the dashboard.
@@ -18,6 +18,10 @@ Since protocol v5 a **buffered response travels as one binary frame**: the envel
 Protocol **v6** does the same in the other direction: a **buffered request body** (an upload under the streaming threshold) travels as bytes in the dispatch frame instead of base64 inside the `Request` JSON. Same layout, same negotiation, sent only to a client that announced v6. Both frames have a compressed sibling that the sending side's writer produces when the connection negotiated tunnel compression and only when deflating actually made the payload smaller; without it a binary frame would bypass compression entirely, since compression applies to text frames.
 
 Protocol **v7** closes the last base64 leg: the **relay payloads** travel as raw binary frames too. A TCP chunk (`FRAME_TCP_DATA`), a UDP datagram (`FRAME_UDP_DATAGRAM`) and a *binary* WebSocket frame (`FRAME_WS_DATA_BIN`) carry their bytes verbatim in a `[tag][id_len][stream id][payload]` frame, where before they were base64-encoded inside a `TcpData` / `UdpDatagram` / `WsData` JSON message: a third more bytes on the wire, plus an encode, a JSON parse and a decode on every 16 KB chunk, in both directions. Text WebSocket frames keep the JSON shape, since they were never encoded and there is nothing to save.
+
+Protocol **v8** starts describing a connection's work as a *list*. A Ping may carry `services: [...]`, where each entry says what the top-level per-service fields have always said on their own: its binds, its target's announced limits, its gate, its cache and resilience settings. When the list is present it is authoritative and the singular fields are ignored, so the two spellings can never half-agree; when it is absent, which is every client before v8 and every ordinary one-service client after it, nothing changes at all.
+
+This is the first half of [`planned_features.md` #46](../planned_features.md), one connection for several services of the same client process. **This server accepts a list of exactly one**, which is the shape it already served, and refuses a longer one at the Ping rather than serving part of it: routing, load balancing, per-service statistics and the dashboard's client table are all still keyed on the connection, so a second entry would be a declaration the server cannot honour. Refusing where the cause is visible is the same rule the connect-time version gate follows.
 
 Unlike the body frames, these have **no compressed sibling**, and that is a deliberate trade rather than an oversight. A relay payload is an opaque byte stream, often already TLS or an end-to-end-sealed tunnel, so deflating it usually costs more than it saves; the win here is the per-byte codec, not the wire size.
 

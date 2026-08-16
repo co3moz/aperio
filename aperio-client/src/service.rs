@@ -1660,6 +1660,12 @@ pub(crate) async fn run_service(
                 // heartbeat describes the same moment.
                 let (rtt_ms, jitter_ms, reconnects) = self_health_ping.link();
                 let ping_msg = TunnelMessage::Ping {
+                  // Not yet: this client still runs one service per
+                  // connection, and says so in the fields below. The list is
+                  // what a multiplexing client will fill in (#46), and until
+                  // one exists sending an empty shape would be describing a
+                  // capability nothing has.
+                  services: None,
                   cpu_percent: self_health_ping.cpu_percent(),
                   rss_bytes: crate::health_report::rss_bytes(),
                   rtt_ms,

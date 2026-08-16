@@ -1612,12 +1612,13 @@ system, which is why it is fuzzed continuously
 \section{Flow control}
 \label{sec:flow-control}
 
-The current protocol version is 7. Version 3 added flow control for
+The current protocol version is 8. Version 3 added flow control for
 everything that streams; version 5 moved a buffered response body out of
 JSON and into the frame that carries its envelope, version 6 did the same
 for a buffered request body, in the direction an upload travels, and
 version 7 did it for the relay payloads, the last leg that was still
-base64.
+base64, and version 8 lets one connection describe its work as a list of
+services rather than a single one.
 
 The awkward case is a visitor who reads more slowly than the backend
 produces. One connection's read loop is shared by every request and stream
@@ -3833,7 +3834,7 @@ complete list, it is authoritative, and it always matches the running build.
 
 One WebSocket carries every kind of traffic for a service, multiplexed by
 request id. Messages are JSON objects tagged with \code{type}. The
-current protocol version is 7, negotiated per connection, and each step
+current protocol version is 8, negotiated per connection, and each step
 is additive: v2 moves chunk payloads onto binary frames with a compact
 \code{[tag][id\_len][id][payload]} header instead of base64; v3 adds the
 per-stream pause/resume pair (Section~\ref{sec:flow-control}); v4 adds
@@ -3851,7 +3852,12 @@ per-byte codec rather than the wire size. The trade that buys: these
 payloads used to ride inside a text frame, which the writer deflated
 whole when the connection negotiated compression, so a compressible
 protocol tunnelled over TCP with \code{tunnel\_compression} on now
-sends more bytes for less CPU than it did before v7.
+sends more bytes for less CPU than it did before v7. v8 adds an
+optional \code{services} list to the Ping: each entry carries what the
+top-level per-service fields carry one at a time, and when the list is
+present it is authoritative and those fields are ignored. This server
+accepts a list of exactly one, the shape it already served, and refuses
+a longer one at the Ping rather than serving part of it.
 
 \begin{longtable}{@{}R{0.24}R{0.12}R{0.58}@{}}
 \toprule

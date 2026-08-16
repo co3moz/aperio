@@ -19,7 +19,7 @@ connections.
 
 The wire protocol is a tagged JSON message enum (`TunnelMessage`) with a small
 set of binary frames layered on top for bulk body data. `PROTOCOL_VERSION`
-(currently 7) is bumped on breaking changes so version skew surfaces in logs
+(currently 8) is bumped on breaking changes so version skew surfaces in logs
 and on the dashboard rather than failing obscurely.
 
 Key messages:

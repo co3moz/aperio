@@ -268,3 +268,88 @@ fn relay_frame_picks_the_shape_the_peer_speaks() {
     "an unframeable id falls back to JSON instead of being dropped"
   );
 }
+
+/// The client's copy of `ServiceDecl` declares the same wire shape as this one.
+///
+/// The protocol lives in two hand-synced files, one per crate, and until now
+/// the cost of a drift was bounded: the structs are flat, and a field that
+/// went missing on one side was a field that stopped arriving. `ServiceDecl`
+/// changes that arithmetic. It is the unit #46 divides a connection by, it
+/// carries twenty-five fields, and every one of them is optional with a
+/// default, which is exactly the shape where a drift does not fail. A field
+/// misspelled on one side deserializes to its default on the other, and the
+/// service comes up quietly wrong: no gate, no cache, no limit, no error.
+///
+/// So this compares the two declarations by the only thing serde actually
+/// reads, the field names, their types and their serde attributes, and
+/// ignores what the two copies have always been free to differ on: their
+/// visibility, their doc comments and their formatting.
+#[test]
+fn the_two_copies_of_service_decl_describe_the_same_wire() {
+  const SERVER: &str = include_str!("protocol.rs");
+  const CLIENT: &str = include_str!("../../aperio-client/src/protocol.rs");
+
+  let server = wire_shape_of(SERVER, "ServiceDecl");
+  let client = wire_shape_of(CLIENT, "ServiceDecl");
+  assert!(
+    !server.is_empty(),
+    "the server copy still declares ServiceDecl"
+  );
+  assert_eq!(
+    server, client,
+    "aperio-server and aperio-client disagree about the ServiceDecl wire. \
+     Both copies have to be edited together; a field present on one side \
+     only is not a compile error, it is a service that comes up with that \
+     setting silently unset."
+  );
+}
+
+/// The version the two copies announce is the same number.
+///
+/// A skew here is worse than a missing field: each side would negotiate
+/// features against a version the other never claimed.
+#[test]
+fn the_two_copies_announce_the_same_protocol_version() {
+  const CLIENT: &str = include_str!("../../aperio-client/src/protocol.rs");
+  let declared = CLIENT
+    .lines()
+    .find_map(|l| l.split("PROTOCOL_VERSION: u32 = ").nth(1))
+    .and_then(|rest| rest.trim_end_matches(';').trim().parse::<u32>().ok())
+    .expect("the client copy still declares PROTOCOL_VERSION");
+  assert_eq!(
+    declared, PROTOCOL_VERSION,
+    "the client and the server announce different protocol versions"
+  );
+}
+
+/// Reduces a struct declaration to what serde reads: field names, their
+/// types, and the `#[serde(...)]` attributes attached to them. Everything the
+/// two copies are allowed to differ on, visibility, doc comments, line
+/// wrapping and indentation, is dropped.
+#[cfg(test)]
+fn wire_shape_of(source: &str, name: &str) -> Vec<String> {
+  let Some(start) = source.find(&format!("struct {name} {{")) else {
+    return Vec::new();
+  };
+  let mut out = Vec::new();
+  let mut pending = String::new();
+  for line in source[start..].lines().skip(1) {
+    let line = line.trim();
+    if line == "}" {
+      break;
+    }
+    if line.starts_with("///") || line.starts_with("//") || line.is_empty() {
+      continue;
+    }
+    // A wrapped attribute or field carries on until its terminator.
+    pending.push_str(line);
+    pending.push(' ');
+    if !(line.ends_with(',') || line.ends_with(']')) {
+      continue;
+    }
+    let item = pending.split_whitespace().collect::<Vec<_>>().join(" ");
+    pending.clear();
+    out.push(item.replace("pub(crate) ", "").replace("pub ", ""));
+  }
+  out
+}

@@ -135,6 +135,7 @@ async fn read_until_pong(ws: &mut Client) -> bool {
 /// fields they care about.
 fn base_ping() -> TunnelMessage {
   TunnelMessage::Ping {
+    services: None,
     service_custom_name: None,
     client_id: "self".into(),
     timestamp: 1,
@@ -1775,6 +1776,79 @@ async fn v7_relay_frames_deliver_and_keep_their_ownership_fence() {
 }
 
 // --- self-reported client health (planned_features #37) ---------------------
+
+#[tokio::test]
+async fn a_v8_ping_declaring_one_service_is_the_shape_that_already_worked() {
+  // The list is authoritative when present, and one entry has to mean exactly
+  // what the top-level fields have always meant, or the two spellings would
+  // half-agree and every later step of #46 would be built on the difference.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    *services = Some(vec![crate::protocol::ServiceDecl {
+      hostname_bind: Some("one.e2e.local".into()),
+      ..Default::default()
+    }]);
+  }
+  send(&mut ws, &ping).await;
+
+  let id = wait_client_id(&state).await;
+  let _ = read_until_pong(&mut ws).await;
+  assert!(
+    state.clients.read().await.contains_key(&id),
+    "a one-service declaration is served, not refused"
+  );
+}
+
+#[tokio::test]
+async fn a_v8_ping_declaring_several_services_is_refused_rather_than_half_served() {
+  // This server routes to one service per connection. Accepting a
+  // declaration of three and serving one is the connection that establishes
+  // and then does less than it was told to, which is precisely what the
+  // connect-time work exists to stop.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    *services = Some(vec![
+      crate::protocol::ServiceDecl {
+        hostname_bind: Some("one.e2e.local".into()),
+        ..Default::default()
+      },
+      crate::protocol::ServiceDecl {
+        hostname_bind: Some("two.e2e.local".into()),
+        ..Default::default()
+      },
+    ]);
+  }
+  send(&mut ws, &ping).await;
+
+  // The read loop ends, so the socket closes without the connection ever
+  // joining the routing pool.
+  let closed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    loop {
+      match ws.next().await {
+        None => break true,
+        Some(Err(_)) => break true,
+        Some(Ok(_)) => continue,
+      }
+    }
+  })
+  .await
+  .unwrap_or(false);
+  assert!(closed, "the connection is dropped rather than served");
+}
 
 #[tokio::test]
 async fn a_ping_carrying_client_health_stores_it_on_the_handle() {

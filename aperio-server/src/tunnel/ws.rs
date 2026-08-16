@@ -1148,6 +1148,7 @@ impl ConnCtx {
   /// Handles the heartbeat and full service announcement.
   async fn on_ping(&self, msg: TunnelMessage) -> bool {
     let TunnelMessage::Ping {
+      services,
       client_id: cid,
       timestamp,
       visitor_auth_methods,
@@ -1201,6 +1202,34 @@ impl ConnCtx {
     let _ = (client_ip, perms, tx_write, server_max_connections);
 
     debug!("Heartbeat from client {}: {}", cid, timestamp);
+
+    // The one place that says what a Ping describes (#46). Today it is always
+    // exactly one service, whichever spelling arrived, and the rest of this
+    // function reads that one. When the server learns to serve several, this
+    // is the line that stops being a `[0]`.
+    //
+    // A list of more than one is refused rather than half-served. The server
+    // cannot route to a second service yet, so accepting the declaration
+    // would be a connection that establishes and then serves less than it was
+    // told to, which is the failure mode the whole protocol-gate work exists
+    // to prevent.
+    let declared_services = match services {
+      Some(list) if list.len() > 1 => {
+        warn!(
+          "Client {} declared {} services on one connection, which this server cannot serve yet \
+           (planned_features #46). Refusing the connection rather than serving one of them.",
+          cid,
+          list.len()
+        );
+        return false;
+      }
+      Some(list) => list,
+      None => Vec::new(),
+    };
+    // Present but empty is a client saying "I serve nothing here", which is
+    // not a shape anything produces yet; the singular fields still describe
+    // the service in every case that reaches this build.
+    let _ = &declared_services;
     // Update client's reported binds and heartbeat time. Only the
     // server-assigned connection ID is trusted for state updates;
     // the client-declared `cid` is ignored to prevent a client from

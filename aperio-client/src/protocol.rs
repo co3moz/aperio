@@ -18,7 +18,10 @@ use tracing::warn;
 /// the other direction of the same cost (an upload was still base64 in JSON).
 /// v7: TCP/UDP/WS relay payloads travel as raw binary frames instead of
 /// base64 inside JSON, closing the last base64 leg of the tunnel.
-pub(crate) const PROTOCOL_VERSION: u32 = 7;
+/// v8: a Ping may describe its work as a `services` list instead of the
+/// singular per-service fields; when present it is authoritative and they
+/// are ignored, when absent nothing changes. Additive in both directions.
+pub(crate) const PROTOCOL_VERSION: u32 = 8;
 
 // --- Protocol v2 binary frames: [tag][id_len][id bytes][payload] ---
 // Data-heavy chunk messages skip the base64+JSON encoding entirely. The tag
@@ -290,11 +293,90 @@ pub struct ConfigNote {
 // The `Ping` variant is intentionally wide (it announces the client's full
 // per-service configuration); boxing its many small fields would only obscure
 // the protocol for no real memory win, since Pings are short-lived.
+/// One service a client serves, as the Ping declares it (`planned_features.md`
+/// #46).
+///
+/// **The unit the protocol is growing towards.** Until v8 a Ping described
+/// exactly one service in its own top-level fields, which made a connection
+/// and a service the same thing: five services meant five sockets, five
+/// readers, five writers and five heartbeats. This is that same description
+/// lifted into a value, so a Ping can eventually carry a list of them.
+///
+/// Every field is optional or defaulted, because a client that names only a
+/// hostname is the ordinary case and the wire should not carry thirty nulls
+/// to say so.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct ServiceDecl {
+  /// What the client calls this service, and what names it in the dashboard
+  /// and in per-service statistics.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub service: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub service_custom_name: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub path_bind: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub hostname_bind: Option<String>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub hostname_binds: Vec<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub max_concurrent: Option<u32>,
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub tcp: bool,
+  #[serde(default)]
+  pub backend_healthy: bool,
+  #[serde(default)]
+  pub backend_probed: bool,
+  #[serde(default, skip_serializing_if = "is_zero_u32")]
+  pub priority: u32,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub bandwidth_bps: Option<u64>,
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub public: bool,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub visitor_auth: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub visitor_auth_methods: Option<Vec<aperio_config::AuthMethodSpec>>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub allowed_ips: Vec<String>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub tunnels: Vec<TunnelDecl>,
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub cache: bool,
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub resilience: bool,
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub no_capture: bool,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub max_request_body: Option<u64>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub response_timeout: Option<u64>,
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub webhook_inbox: bool,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub denied: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub scaling: Option<ScalingDecl>,
+}
+
+fn is_zero_u32(v: &u32) -> bool {
+  *v == 0
+}
+
 #[allow(clippy::large_enum_variant)]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub(crate) enum TunnelMessage {
   Ping {
+    /// Every service this connection serves (#46, protocol v8).
+    ///
+    /// Absent from a client that predates v8, and from a v8 client running
+    /// the ordinary one-service-per-connection shape: those describe their
+    /// service in the top-level fields below, exactly as before. When present
+    /// it is authoritative and the top-level per-service fields are ignored,
+    /// so the two spellings can never half-agree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    services: Option<Vec<ServiceDecl>>,
     client_id: String,
     timestamp: u64,
     path_bind: Option<String>,
