@@ -387,6 +387,30 @@ readable without scrolling past what is already done.
   for it" before it answers anything else. That question is not in the flag
   and is not in `route_exists` either.
 
+  **Fifth pass: the "armed record" question does not rescue it, and the reason
+  is the interesting part.** The obvious repair for the fourth pass was to ask
+  "is a record armed for this route" before waiting. It does not help, because
+  `cold_start_wait` already asks exactly that and returns immediately when the
+  answer is no. The record is not what makes the wait wrong; the record is
+  what makes it *right*.
+
+  What actually broke the scaling spec is the opposite of a bug: with the
+  route-specific condition, a cold start fires for a request whose route has
+  no candidate **even when other services are online**, where today the
+  server-wide flag masks it. The fixture then never sees the hostname leave
+  routing, because the hook keeps starting a replacement.
+
+  So the real finding, and it is bigger than #119: **scale-to-zero today
+  depends on no other client being connected.** A request for a sleeping
+  service does not wake it if some unrelated service happens to be up. That
+  is almost certainly not intended, and `ColdStartSpec` passes only because
+  its server has nothing else attached.
+
+  Fixing it is a product decision, not a repair: a cold start is billable, and
+  making it fire in every case the current behaviour masks changes when an
+  operator is charged. That is the call to make before the next attempt, and
+  it is why this was reverted rather than pushed through.
+
   Still standing, and where to start: setting `APERIO_DEFAULT_ACCESS=allow`
   on the cache fixture avoided the failure three runs out of three, against
   four failures in six with the default. That implicates the closed posture
