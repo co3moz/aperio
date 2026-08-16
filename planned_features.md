@@ -233,11 +233,33 @@ readable without scrolling past what is already done.
   services of one process stay separate, and two services of one connection
   satisfy that without knowing it was written for something else.
 
-  Nothing in the field is affected yet: no released client sends a list, so
-  the capability is reachable only by a client built for it. The client half
-  (`multiplex: true`) is the other side of that, and it has to negotiate the
-  capability on the handshake rather than discover it by being disconnected,
-  which is written above and still true. After that, the pieces the entry
+  **The dispatch names its service too.** The frames that open something, a
+  request, a streamed request, a WebSocket upgrade, a TCP or UDP stream,
+  carry the chosen service's name. Only those: everything after is addressed
+  by a stream id minted in the same frame, so the client learns the service
+  once and routes the rest by id, and the binary framing did not have to
+  change. Raw `tunnels:` opens are the exception, marked in place, because
+  the TCP/UDP bind registry keys on the connection.
+
+  **What is left is the client half, and its shape is now fully determined.**
+  Measured rather than guessed, so the next sitting starts from numbers:
+  `run_service` is 1533 lines with 95 `spec.` accesses, and it owns both the
+  connection and the service. The accesses fall in three places: 26 in setup
+  and dial, which are the connection's and take the first spec; 38 in the
+  ping, which become the `services` list; and 31 in request handling, which
+  is where the work is.
+
+  Those 31 do **not** need rewriting, for the same reason the server's 495
+  lines did not: resolving the spec once at the top of the request handler,
+  from the selector the frame now carries, leaves the body reading `spec`
+  exactly as it does today. That is the same move that worked on the Ping,
+  and it is why the selector went in first.
+
+  The rest of the client half: `multiplex: true` as a config key on all four
+  surfaces (rule 17), and the negotiation, which must be a handshake check on
+  the server's announced protocol rather than a discovery by disconnection.
+  `>= 8` is a sound gate: 0.9.0 shipped protocol 7, so no released server
+  announces 8, and the first that does is the one that serves several. After that, the pieces the entry
   already names: load balancing on the pair, the elastic pool's per-service
   growth signal, a pacer per service so a large response cannot queue ahead
   of a small API on the shared writer, and the dashboard's client table.
