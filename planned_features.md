@@ -115,6 +115,34 @@ readable without scrolling past what is already done.
   is the open door for the operator with forty services, who is the only one
   who pays for the current design.
 
+- [ ] **#119 `CacheSpec.aResilientRouteServesTheExpiredEntryAndSaysSo` fails
+  under the full e2e suite, and the reason is not yet the timing everyone
+  assumes.** (triage 30) It failed two full runs out of three and passed the
+  third, and passes every time in isolation, so the reflex reading is a slow
+  machine. The timings say something narrower. In the runs where it **passes**
+  the fetch takes about three seconds on top of the sleep; in the runs where it
+  **fails** it comes back in about two tenths of a second. Lengthening the
+  sleep after the client is killed from two seconds to six does not change
+  either number: the passing fetch still spends its three seconds. So the
+  failure is not the server needing longer to notice the disconnect, which was
+  the first hypothesis and is wrong. Something answers immediately instead of
+  taking the three-second path, and the immediate answer is not the stale
+  entry.
+
+  The reading that fits is that the stale entry is not there to be served,
+  which would make this a cache defect wearing a flaky test's clothes rather
+  than a flaky test. Worth a look before assuming otherwise: the test
+  immediately before it fetches the same `/data` path on a *different*
+  hostname and kills that host's client, and it is the only thing between
+  warming the entry and asking for it back.
+
+  **Why it matters more than one red line.** A test that fails intermittently
+  on the resilience path teaches the room to re-run rather than to read, and
+  the thing it is guarding is precisely the promise that a cached answer
+  survives its client. See also the webhook receiver fixed on 2026-08-16,
+  where the same shrug would have hidden a test accusing an outbound fence of
+  a leak it never had.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
