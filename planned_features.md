@@ -169,12 +169,36 @@ readable without scrolling past what is already done.
   taking the three-second path, and the immediate answer is not the stale
   entry.
 
-  The reading that fits is that the stale entry is not there to be served,
-  which would make this a cache defect wearing a flaky test's clothes rather
-  than a flaky test. Worth a look before assuming otherwise: the test
-  immediately before it fetches the same `/data` path on a *different*
-  hostname and kills that host's client, and it is the only thing between
-  warming the entry and asking for it back.
+  **What the second pass established, including two of its own hypotheses
+  refuted.** The assertion that fails is the first one, `504 !== 200`: the
+  route answers gateway-timeout instead of serving the entry, so it is not
+  the stale header and not the body.
+
+  Ruled out, each by measurement rather than reasoning:
+  - *The serve-stale window.* The fixture sets `APERIO_CACHE_MAX_STALE=60`
+    and the entry is about four seconds old when it is asked for, so
+    `expires_at + max_stale` is nowhere near.
+  - *Cross-contamination from the test before it.* That one fetches the same
+    `/data` path on another hostname, but the cache key is `host|uri`, so
+    the two never meet.
+  - *The no-client state on its own.* This was the strongest-looking lead,
+    since the passing fetch spends about three seconds and the failing one
+    two tenths, which reads as one taking the cold-start wait and the other
+    not. It is wrong. Making the test wait until the server's own stats
+    endpoint stops listing any client serving the hostname, so the request
+    provably arrives with the route unserved, does **not** reproduce it: the
+    fetch still takes its three seconds and still succeeds, three times out
+    of three. Whatever produces the fast answer is not simply the client
+    being gone.
+
+  Still standing, and where to start: setting `APERIO_DEFAULT_ACCESS=allow`
+  on the cache fixture avoided the failure three runs out of three, against
+  four failures in six with the default. That implicates the closed posture
+  from #108, but *not* through the obvious route, because the no-client
+  experiment above rules out the branch that would explain it. The next
+  question is what else the closed posture answers early, and under which
+  concurrency it does so, since the cache specs alone at concurrency four
+  pass four times out of four and only the full suite reproduces it.
 
   **Why it matters more than one red line.** A test that fails intermittently
   on the resilience path teaches the room to re-run rather than to read, and
