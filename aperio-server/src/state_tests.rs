@@ -2006,3 +2006,103 @@ fn each_service_answers_the_routing_questions_for_itself() {
   // caller that has not been taught to pick a service still gets.
   assert!(handle.matches_host("first.example"));
 }
+
+// ----- match_declarations: which service a Ping entry updates ---------------
+
+/// Builds a connection's service list from names, `None` for a nameless one.
+fn services_named(names: &[Option<&str>]) -> Vec<ServiceState> {
+  names
+    .iter()
+    .map(|n| {
+      let mut s = crate::test_support::mock_client(None, None, None, None)
+        .services
+        .remove(0);
+      s.service_name = n.map(str::to_string);
+      s
+    })
+    .collect()
+}
+
+fn names(v: &[Option<&str>]) -> Vec<Option<String>> {
+  v.iter().map(|n| n.map(str::to_string)).collect()
+}
+
+#[test]
+fn a_named_declaration_finds_its_own_service_however_the_list_is_ordered() {
+  // The case position-matching gets wrong, and the reason this function
+  // exists: the client reordered its `services:` block. Nothing about the
+  // services changed, so nothing may move between them.
+  let existing = services_named(&[Some("api"), Some("web")]);
+  let got = match_declarations(&existing, &names(&[Some("web"), Some("api")])).unwrap();
+  assert_eq!(got, vec![Some(1), Some(0)]);
+}
+
+#[test]
+fn a_service_this_connection_does_not_carry_yet_is_reported_as_new() {
+  let existing = services_named(&[Some("api")]);
+  let got = match_declarations(&existing, &names(&[Some("api"), Some("jobs")])).unwrap();
+  assert_eq!(got, vec![Some(0), None]);
+}
+
+#[test]
+fn nameless_declarations_match_nameless_services_in_order() {
+  // A client that names nothing is every client before #46, so this path has
+  // to keep behaving exactly like the single-service one it replaces.
+  let existing = services_named(&[None, None]);
+  let got = match_declarations(&existing, &names(&[None, None])).unwrap();
+  assert_eq!(got, vec![Some(0), Some(1)]);
+}
+
+#[test]
+fn a_nameless_declaration_never_claims_a_named_service() {
+  // Otherwise adding a name to one entry of a two-service config would hand
+  // the other entry that service's history.
+  let existing = services_named(&[Some("api"), None]);
+  let got = match_declarations(&existing, &names(&[None])).unwrap();
+  assert_eq!(got, vec![Some(1)]);
+}
+
+#[test]
+fn a_named_declaration_adopts_a_service_that_has_no_name_yet() {
+  // Not the mirror of the rule above, and the first draft of this had it
+  // backwards. A connection is created carrying one nameless placeholder,
+  // and it is the first Ping that names it. Refusing the adoption would mean
+  // every client that names its service gets a second one appended beside
+  // the empty one it meant to fill, on its very first heartbeat.
+  //
+  // It is also the kinder answer for a client that adds a `name:` to a
+  // service it had been running without one: same service, new label, and no
+  // reason to lose its counters over it. The named-first pass means this can
+  // only fire when no service of that name exists, so it never steals one.
+  let existing = services_named(&[None]);
+  let got = match_declarations(&existing, &names(&[Some("api")])).unwrap();
+  assert_eq!(got, vec![Some(0)]);
+}
+
+#[test]
+fn no_two_declarations_land_on_the_same_service() {
+  // Two nameless entries against one nameless service: the second is new,
+  // not a second writer of the first one's state.
+  let existing = services_named(&[None]);
+  let got = match_declarations(&existing, &names(&[None, None])).unwrap();
+  assert_eq!(got, vec![Some(0), None]);
+}
+
+#[test]
+fn a_repeated_name_is_refused_rather_than_resolved() {
+  // Either answer is wrong. Taking the first silently drops the second
+  // service; taking the last silently drops the first. Both leave a client
+  // serving less than its config says with nothing to read about it.
+  let existing = services_named(&[Some("api")]);
+  let err = match_declarations(&existing, &names(&[Some("api"), Some("api")])).unwrap_err();
+  assert_eq!(err, "api");
+}
+
+#[test]
+fn a_service_that_stopped_being_declared_is_simply_unclaimed() {
+  // Nothing here removes it; the caller does. What this has to get right is
+  // that its absence does not shift the others onto each other.
+  let existing = services_named(&[Some("api"), Some("web"), Some("jobs")]);
+  let got = match_declarations(&existing, &names(&[Some("jobs"), Some("api")])).unwrap();
+  assert_eq!(got, vec![Some(2), Some(0)]);
+}

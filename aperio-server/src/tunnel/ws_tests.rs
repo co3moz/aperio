@@ -2080,3 +2080,56 @@ async fn without_a_list_the_singular_fields_still_decide() {
   assert_eq!(handle.sole().max_concurrent, Some(5));
   assert_eq!(handle.sole().response_timeout, Some(11));
 }
+
+#[tokio::test]
+async fn a_named_service_keeps_its_state_across_heartbeats() {
+  // The reason declarations are matched by name rather than by position. The
+  // state that has to survive is the state the wire does not carry: how many
+  // requests this service has served, whether it is ejected, which warnings
+  // it has already produced. A second Ping is an update, not a new service.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    *services = Some(vec![crate::protocol::ServiceDecl {
+      service: Some("api".into()),
+      ..Default::default()
+    }]);
+  }
+  send(&mut ws, &ping).await;
+  let id = wait_client_id(&state).await;
+  let _ = read_until_pong(&mut ws).await;
+
+  // Something only the server knows, which a fresh service would not have.
+  {
+    let mut clients = state.clients.write().await;
+    let handle = clients.get_mut(&id).expect("served");
+    assert_eq!(
+      handle.services.len(),
+      1,
+      "the first Ping adopted, not added"
+    );
+    handle.services[0]
+      .request_count
+      .store(7, std::sync::atomic::Ordering::SeqCst);
+  }
+
+  send(&mut ws, &ping).await;
+  let _ = read_until_pong(&mut ws).await;
+
+  let clients = state.clients.read().await;
+  let handle = clients.get(&id).expect("still served");
+  assert_eq!(handle.services.len(), 1, "still one service, not two");
+  assert_eq!(
+    handle.services[0]
+      .request_count
+      .load(std::sync::atomic::Ordering::SeqCst),
+    7,
+    "the second heartbeat updated the same service"
+  );
+}

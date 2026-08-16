@@ -161,14 +161,37 @@ readable without scrolling past what is already done.
   it is worth pinning: the request would go to the other service's backend,
   and that backend is connected, healthy, and will answer.
 
+  **A service's identity across heartbeats is decided.** A Ping has to say
+  not only what the services are but which of the ones already here each
+  entry updates, and position cannot answer it: a client that reorders its
+  `services:` block would hand one service's ejection state, warn-once flags,
+  counters and limiter to another, none of which is on the wire to correct
+  itself. It would look like two healthy services wearing each other's
+  history. So a named declaration matches the service of that name, and
+  anything left over adopts a service that has no name yet, which is both the
+  placeholder a connection is created with and the kind answer for a client
+  that adds a `name:` to a service it had been running without one.
+  `match_declarations` is that rule, with eight tests over its edges, and the
+  Ping handler now writes through the index it returns instead of through
+  `sole`.
+
+  Two things about it are worth saying rather than leaving to be found. The
+  duplicate-name refusal it carries is **unreachable today**: repeating a name
+  needs two declarations, and a list of two is turned away for its length
+  before the names are read. So is the claim-marking in its named pass. Both
+  are kept, and both say so in place, because they are what stops a duplicate
+  becoming a silent merge on the day the length refusal goes, which is the
+  point of this entry. A test was written for the first and then deleted: it
+  passed, but for the length refusal rather than for the thing it named, and
+  a test that passes for the wrong reason is worse than none.
+
   **What is left of the split.** `clients` is still one map keyed by
   connection id, and the list is always length one because the Ping refuses
-  longer. The remaining single-service assumptions are still countable:
-  `grep sole` is 179 reads and 256 writes, most of them now in the Ping
-  handler, which writes the whole service from the wire and is the next
-  caller that has to be told which one it is describing. After that the
-  dashboard's client table, the per-service statistics, and the elastic
-  pool's growth signal. After that, the pieces the entry
+  longer, so the index it now computes is always zero. What lifts the
+  refusal, and makes all of the above observable, is the reconcile the Ping
+  does not yet do: appending a service the connection has gained and retiring
+  one it no longer declares. After that the dashboard's client table, the
+  per-service statistics, and the elastic pool's growth signal. After that, the pieces the entry
   already names: load balancing on the pair, the elastic pool's per-service
   growth signal, a pacer per service so a large response cannot queue ahead
   of a small API on the shared writer, and the dashboard's client table.

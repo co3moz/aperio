@@ -1137,6 +1137,92 @@ pub(crate) const CONNECTION_SCOPED: &[&str] = &[
   "subscriptions",
 ];
 
+/// Which existing service each declaration in a Ping updates.
+///
+/// A Ping carrying a list has to say not only *what* the services are but
+/// *which* of the ones already here each entry is. Position alone cannot: a
+/// client that reorders its `services:` block would hand service A's
+/// ejection state, warn-once flags, request counter and concurrency limiter
+/// to service B, and none of that is on the wire to correct itself. It would
+/// look like two healthy services with each other's history.
+///
+/// So a named declaration matches the service of that name; anything left
+/// over, named or not, adopts an unadopted (nameless) service in order.
+/// Names come from the client's
+/// own `services:` entries, which is what an operator already thinks of as
+/// the service's identity and what the dashboard shows.
+///
+/// Returns one entry per declaration: `Some(i)` to update the service at `i`,
+/// `None` for one this connection does not carry yet. `Err` when two
+/// declarations claim the same name, which is a client-side mistake that
+/// must be refused rather than resolved: either answer silently merges two
+/// services into one.
+pub(crate) fn match_declarations(
+  existing: &[ServiceState],
+  declared_names: &[Option<String>],
+) -> Result<Vec<Option<usize>>, String> {
+  let mut seen: Vec<&str> = Vec::new();
+  for name in declared_names.iter().flatten() {
+    if seen.contains(&name.as_str()) {
+      return Err(name.clone());
+    }
+    seen.push(name);
+  }
+
+  // Consumed as they are claimed, so two nameless declarations never land on
+  // the same existing service.
+  let mut taken = vec![false; existing.len()];
+  let mut out = Vec::with_capacity(declared_names.len());
+
+  // Named first, and across the whole list, so a rename or a reorder cannot
+  // make a named declaration lose to a nameless one that happened to sit at
+  // its index.
+  for name in declared_names {
+    let found = name.as_ref().and_then(|n| {
+      (0..existing.len())
+        .find(|&i| !taken[i] && existing[i].service_name.as_deref() == Some(n.as_str()))
+    });
+    // Marked, though nothing can currently reach the case: the duplicate
+    // check above means two declarations never carry the same name, and a
+    // named service is not adoptable, so no second claimant exists. Deleting
+    // it changes no test, which is exactly why the reason is written here
+    // rather than left to be rediscovered. It is what keeps this pass correct
+    // if the duplicate refusal above is ever relaxed.
+    if let Some(i) = found {
+      taken[i] = true;
+    }
+    out.push(found);
+  }
+
+  // Then everything still unmatched, named or not, against the *unadopted*
+  // services: the nameless ones still unclaimed, in order.
+  //
+  // A nameless service is one nothing has claimed by name yet, and that
+  // includes the placeholder a connection is created with, before its first
+  // Ping has said anything. Without this a client that names its service
+  // would be told, on that first Ping, that it is describing a service this
+  // connection does not carry, and a second one would be appended beside the
+  // empty one it meant to fill.
+  //
+  // It also does the kinder thing for a client that adds a `name:` to a
+  // service it had been running without one: same service, new label, and no
+  // reason to lose its counters, its ejection state and its warn-once flags
+  // over it. The named-first pass above means adoption only happens when no
+  // service of that name exists, so it never steals from one.
+  for slot in out.iter_mut() {
+    if slot.is_some() {
+      continue;
+    }
+    if let Some(i) = (0..existing.len()).find(|i| !taken[*i] && existing[*i].service_name.is_none())
+    {
+      taken[i] = true;
+      *slot = Some(i);
+    }
+  }
+
+  Ok(out)
+}
+
 /// What routing asks of a service.
 ///
 /// These hung off `ClientHandle`, which was true only because a connection
@@ -1485,6 +1571,19 @@ impl ClientHandle {
       .services
       .first()
       .expect("a connection always carries at least one service")
+  }
+
+  /// One service by index, for callers that have been told which they mean.
+  ///
+  /// Unlike `sole` these carry no assumption, so they are not on the #46
+  /// list. The index comes from `match_declarations` or from routing, both
+  /// of which decide it rather than guess it.
+  pub(crate) fn service_at(&self, index: usize) -> &ServiceState {
+    &self.services[index]
+  }
+
+  pub(crate) fn service_at_mut(&mut self, index: usize) -> &mut ServiceState {
+    &mut self.services[index]
   }
 
   /// The mutable half of `sole`, with the same meaning and the same debt.
