@@ -306,157 +306,6 @@ readable without scrolling past what is already done.
   is the open door for the operator with forty services, who is the only one
   who pays for the current design.
 
-- [ ] **#119 `CacheSpec.aResilientRouteServesTheExpiredEntryAndSaysSo` fails
-  under the full e2e suite, and the reason is not yet the timing everyone
-  assumes.** (triage 30) It failed two full runs out of three and passed the
-  third, and passes every time in isolation, so the reflex reading is a slow
-  machine. The timings say something narrower. In the runs where it **passes**
-  the fetch takes about three seconds on top of the sleep; in the runs where it
-  **fails** it comes back in about two tenths of a second. Lengthening the
-  sleep after the client is killed from two seconds to six does not change
-  either number: the passing fetch still spends its three seconds. So the
-  failure is not the server needing longer to notice the disconnect, which was
-  the first hypothesis and is wrong. Something answers immediately instead of
-  taking the three-second path, and the immediate answer is not the stale
-  entry.
-
-  **What the second pass established, including two of its own hypotheses
-  refuted.** The assertion that fails is the first one, `504 !== 200`: the
-  route answers gateway-timeout instead of serving the entry, so it is not
-  the stale header and not the body.
-
-  Ruled out, each by measurement rather than reasoning:
-  - *The serve-stale window.* The fixture sets `APERIO_CACHE_MAX_STALE=60`
-    and the entry is about four seconds old when it is asked for, so
-    `expires_at + max_stale` is nowhere near.
-  - *Cross-contamination from the test before it.* That one fetches the same
-    `/data` path on another hostname, but the cache key is `host|uri`, so
-    the two never meet.
-  - *The no-client state on its own.* This was the strongest-looking lead,
-    since the passing fetch spends about three seconds and the failing one
-    two tenths, which reads as one taking the cold-start wait and the other
-    not. It is wrong. Making the test wait until the server's own stats
-    endpoint stops listing any client serving the hostname, so the request
-    provably arrives with the route unserved, does **not** reproduce it: the
-    fetch still takes its three seconds and still succeeds, three times out
-    of three. Whatever produces the fast answer is not simply the client
-    being gone.
-
-  **It is no longer intermittent here.** The last four full runs failed it
-  four times, all at 2.21 s, where earlier in the same session it failed
-  roughly two runs in three. Nothing in between touched the cache or the
-  proxy, so the likeliest reading is that this machine now loses the race
-  every time rather than most times. That is good news for whoever picks it
-  up: it reproduces on demand under the full suite, and only there.
-
-  **Third pass: a real oddity found, and a fix that failed its own check.**
-  The reconnect-and-serve-stale path in `proxy.rs` is guarded by
-  `if !is_connected`, and that flag is **server-wide**, not per route. So the
-  request takes one of two completely different paths depending on whether
-  *some unrelated client* happens to be online: with none, it waits and then
-  serves the stale entry; with one, the whole block is skipped. That matches
-  the two durations exactly (the passing fetch spends about three seconds in
-  that wait, the failing one returns in two tenths having skipped it), and it
-  is worth fixing on its own terms, because whether a resilient route
-  survives its client should not depend on another service's client being up.
-
-  It is **not** established as the cause of the 504, though. Making the
-  skipped path fall through to the resilient cache, and making the test
-  deterministic by restarting an unrelated client first, was tried: the test
-  then passed, but it also passed with the product change reverted, so the
-  test was passing for some other reason and the fix pinned nothing. Both
-  were reverted rather than committed. A change whose negative check comes
-  back green is not a fix, it is a coincidence with good timing.
-
-  **Fourth pass: the route-specific wait was built, and it broke scale-to-zero.**
-  Splitting the server-wide flag into its two questions, *does this route have
-  a candidate* and *could one arrive*, is right on its own terms and the
-  decision was written as a pure function with four passing tests over its
-  edges. It still had to be reverted (`bedbe35`, reverted in `00a319b`):
-  `ColdStartSpec.anArmedRecordOutlivesTheClientThatArmedIt` goes from 226 ms
-  to a 22 s timeout, deterministically.
-
-  The reason is worth keeping, because it is the constraint the next attempt
-  has to satisfy. With scale-to-zero enabled and no candidate for the route,
-  "could one arrive" is always yes, so the request enters the cold-start wait.
-  Today the global flag *masks* that whenever any other client is connected,
-  and the scaling spec depends on the masking: an armed record is meant to be
-  answered from the record, not waited on. So the wait's entry condition is
-  load-bearing in a way that is not about connectivity at all, and any
-  route-specific version has to answer "an armed record exists, do not wait
-  for it" before it answers anything else. That question is not in the flag
-  and is not in `route_exists` either.
-
-  **Fifth pass: the "armed record" question does not rescue it, and the reason
-  is the interesting part.** The obvious repair for the fourth pass was to ask
-  "is a record armed for this route" before waiting. It does not help, because
-  `cold_start_wait` already asks exactly that and returns immediately when the
-  answer is no. The record is not what makes the wait wrong; the record is
-  what makes it *right*.
-
-  What actually broke the scaling spec is the opposite of a bug: with the
-  route-specific condition, a cold start fires for a request whose route has
-  no candidate **even when other services are online**, where today the
-  server-wide flag masks it. The fixture then never sees the hostname leave
-  routing, because the hook keeps starting a replacement.
-
-  So the real finding, and it is bigger than #119: **scale-to-zero today
-  depends on no other client being connected.** A request for a sleeping
-  service does not wake it if some unrelated service happens to be up. That
-  is almost certainly not intended, and `ColdStartSpec` passes only because
-  its server has nothing else attached.
-
-  **Decided and shipped (2026-08-16): it should wake.** Waking is what the
-  setting promises, so the route-specific wait went back in and the fixture
-  was rewritten against the real behaviour: it watches the id of the client
-  that armed the record rather than waiting for the hostname to fall empty,
-  which was the same thing only while a request could not wake a replacement.
-  The cost is recorded in the changelog, a billable cold start now fires where
-  it silently did not.
-
-  **None of this fixed #119.** The entry stays open, and the cache flake still
-  reproduces with the same 2.21 s signature after all of it.
-
-  **Sixth pass: the server's own log, captured mid-failure.** The test was
-  made to dump the server log tail into the assertion message and the suite
-  run until it failed. The tail contains **no request-failure record at all**,
-  only an unrelated INFO line. That rules out both 504s that log: the
-  reconnect-expired one and the no-candidate one. What is left is the visitor
-  gate's `Undeclared` refusal, which logs at `debug!` and so leaves nothing at
-  the suite's level, and which is a 504 by construction. That is consistent
-  with `APERIO_DEFAULT_ACCESS=allow` avoiding it, and it is the first direct
-  evidence rather than inference.
-
-  The obvious repair, serving the resilient entry before that refusal, was
-  written and run: four full-suite runs with it, four without, **all eight
-  green**. The flake reproduced once, on the diagnostic run, and then stopped,
-  so the repair is unproven and was reverted for the third time. It remains
-  defensible on its own terms, `resilience: true` otherwise does nothing in
-  exactly the state it exists for, but that is a separate argument from this
-  entry and should be made on its own.
-
-  **What the next pass needs is a deterministic reproduction, not another
-  hypothesis.** Six passes have produced five eliminations and one positive
-  identification; what has never been available is a way to make it fail on
-  demand. The gate path is now known, so that is where to build one: a Rust
-  test that drives the closed posture with a resilient entry and no candidate,
-  rather than an e2e suite that has to be lucky.
-
-  Still standing, and where to start: setting `APERIO_DEFAULT_ACCESS=allow`
-  on the cache fixture avoided the failure three runs out of three, against
-  four failures in six with the default. That implicates the closed posture
-  from #108, but *not* through the obvious route, because the no-client
-  experiment above rules out the branch that would explain it. The next
-  question is what else the closed posture answers early, and under which
-  concurrency it does so, since the cache specs alone at concurrency four
-  pass four times out of four and only the full suite reproduces it.
-
-  **Why it matters more than one red line.** A test that fails intermittently
-  on the resilience path teaches the room to re-run rather than to read, and
-  the thing it is guarding is precisely the promise that a cached answer
-  survives its client. See also the webhook receiver fixed on 2026-08-16,
-  where the same shrug would have hidden a test accusing an outbound fence of
-  a leak it never had.
 
 ## Withdrawn
 
@@ -803,6 +652,169 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#119 `CacheSpec.aResilientRouteServesTheExpiredEntryAndSaysSo` fails
+  under the full e2e suite, and the reason is not yet the timing everyone
+  assumes.** (triage 30) It failed two full runs out of three and passed the
+  third, and passes every time in isolation, so the reflex reading is a slow
+  machine. The timings say something narrower. In the runs where it **passes**
+  the fetch takes about three seconds on top of the sleep; in the runs where it
+  **fails** it comes back in about two tenths of a second. Lengthening the
+  sleep after the client is killed from two seconds to six does not change
+  either number: the passing fetch still spends its three seconds. So the
+  failure is not the server needing longer to notice the disconnect, which was
+  the first hypothesis and is wrong. Something answers immediately instead of
+  taking the three-second path, and the immediate answer is not the stale
+  entry.
+
+  **What the second pass established, including two of its own hypotheses
+  refuted.** The assertion that fails is the first one, `504 !== 200`: the
+  route answers gateway-timeout instead of serving the entry, so it is not
+  the stale header and not the body.
+
+  Ruled out, each by measurement rather than reasoning:
+  - *The serve-stale window.* The fixture sets `APERIO_CACHE_MAX_STALE=60`
+    and the entry is about four seconds old when it is asked for, so
+    `expires_at + max_stale` is nowhere near.
+  - *Cross-contamination from the test before it.* That one fetches the same
+    `/data` path on another hostname, but the cache key is `host|uri`, so
+    the two never meet.
+  - *The no-client state on its own.* This was the strongest-looking lead,
+    since the passing fetch spends about three seconds and the failing one
+    two tenths, which reads as one taking the cold-start wait and the other
+    not. It is wrong. Making the test wait until the server's own stats
+    endpoint stops listing any client serving the hostname, so the request
+    provably arrives with the route unserved, does **not** reproduce it: the
+    fetch still takes its three seconds and still succeeds, three times out
+    of three. Whatever produces the fast answer is not simply the client
+    being gone.
+
+  **It is no longer intermittent here.** The last four full runs failed it
+  four times, all at 2.21 s, where earlier in the same session it failed
+  roughly two runs in three. Nothing in between touched the cache or the
+  proxy, so the likeliest reading is that this machine now loses the race
+  every time rather than most times. That is good news for whoever picks it
+  up: it reproduces on demand under the full suite, and only there.
+
+  **Third pass: a real oddity found, and a fix that failed its own check.**
+  The reconnect-and-serve-stale path in `proxy.rs` is guarded by
+  `if !is_connected`, and that flag is **server-wide**, not per route. So the
+  request takes one of two completely different paths depending on whether
+  *some unrelated client* happens to be online: with none, it waits and then
+  serves the stale entry; with one, the whole block is skipped. That matches
+  the two durations exactly (the passing fetch spends about three seconds in
+  that wait, the failing one returns in two tenths having skipped it), and it
+  is worth fixing on its own terms, because whether a resilient route
+  survives its client should not depend on another service's client being up.
+
+  It is **not** established as the cause of the 504, though. Making the
+  skipped path fall through to the resilient cache, and making the test
+  deterministic by restarting an unrelated client first, was tried: the test
+  then passed, but it also passed with the product change reverted, so the
+  test was passing for some other reason and the fix pinned nothing. Both
+  were reverted rather than committed. A change whose negative check comes
+  back green is not a fix, it is a coincidence with good timing.
+
+  **Fourth pass: the route-specific wait was built, and it broke scale-to-zero.**
+  Splitting the server-wide flag into its two questions, *does this route have
+  a candidate* and *could one arrive*, is right on its own terms and the
+  decision was written as a pure function with four passing tests over its
+  edges. It still had to be reverted (`bedbe35`, reverted in `00a319b`):
+  `ColdStartSpec.anArmedRecordOutlivesTheClientThatArmedIt` goes from 226 ms
+  to a 22 s timeout, deterministically.
+
+  The reason is worth keeping, because it is the constraint the next attempt
+  has to satisfy. With scale-to-zero enabled and no candidate for the route,
+  "could one arrive" is always yes, so the request enters the cold-start wait.
+  Today the global flag *masks* that whenever any other client is connected,
+  and the scaling spec depends on the masking: an armed record is meant to be
+  answered from the record, not waited on. So the wait's entry condition is
+  load-bearing in a way that is not about connectivity at all, and any
+  route-specific version has to answer "an armed record exists, do not wait
+  for it" before it answers anything else. That question is not in the flag
+  and is not in `route_exists` either.
+
+  **Fifth pass: the "armed record" question does not rescue it, and the reason
+  is the interesting part.** The obvious repair for the fourth pass was to ask
+  "is a record armed for this route" before waiting. It does not help, because
+  `cold_start_wait` already asks exactly that and returns immediately when the
+  answer is no. The record is not what makes the wait wrong; the record is
+  what makes it *right*.
+
+  What actually broke the scaling spec is the opposite of a bug: with the
+  route-specific condition, a cold start fires for a request whose route has
+  no candidate **even when other services are online**, where today the
+  server-wide flag masks it. The fixture then never sees the hostname leave
+  routing, because the hook keeps starting a replacement.
+
+  So the real finding, and it is bigger than #119: **scale-to-zero today
+  depends on no other client being connected.** A request for a sleeping
+  service does not wake it if some unrelated service happens to be up. That
+  is almost certainly not intended, and `ColdStartSpec` passes only because
+  its server has nothing else attached.
+
+  **Decided and shipped (2026-08-16): it should wake.** Waking is what the
+  setting promises, so the route-specific wait went back in and the fixture
+  was rewritten against the real behaviour: it watches the id of the client
+  that armed the record rather than waiting for the hostname to fall empty,
+  which was the same thing only while a request could not wake a replacement.
+  The cost is recorded in the changelog, a billable cold start now fires where
+  it silently did not.
+
+  **None of this fixed #119.** The entry stays open, and the cache flake still
+  reproduces with the same 2.21 s signature after all of it.
+
+  **Sixth pass: the server's own log, captured mid-failure.** The test was
+  made to dump the server log tail into the assertion message and the suite
+  run until it failed. The tail contains **no request-failure record at all**,
+  only an unrelated INFO line. That rules out both 504s that log: the
+  reconnect-expired one and the no-candidate one. What is left is the visitor
+  gate's `Undeclared` refusal, which logs at `debug!` and so leaves nothing at
+  the suite's level, and which is a 504 by construction. That is consistent
+  with `APERIO_DEFAULT_ACCESS=allow` avoiding it, and it is the first direct
+  evidence rather than inference.
+
+  The obvious repair, serving the resilient entry before that refusal, was
+  written and run: four full-suite runs with it, four without, **all eight
+  green**. The flake reproduced once, on the diagnostic run, and then stopped,
+  so the repair is unproven and was reverted for the third time. It remains
+  defensible on its own terms, `resilience: true` otherwise does nothing in
+  exactly the state it exists for, but that is a separate argument from this
+  entry and should be made on its own.
+
+  **What the next pass needs is a deterministic reproduction, not another
+  hypothesis.** Six passes have produced five eliminations and one positive
+  identification; what has never been available is a way to make it fail on
+  demand. The gate path is now known, so that is where to build one: a Rust
+  test that drives the closed posture with a resilient entry and no candidate,
+  rather than an e2e suite that has to be lucky.
+
+  Still standing, and where to start: setting `APERIO_DEFAULT_ACCESS=allow`
+  on the cache fixture avoided the failure three runs out of three, against
+  four failures in six with the default. That implicates the closed posture
+  from #108, but *not* through the obvious route, because the no-client
+  experiment above rules out the branch that would explain it. The next
+  question is what else the closed posture answers early, and under which
+  concurrency it does so, since the cache specs alone at concurrency four
+  pass four times out of four and only the full suite reproduces it.
+
+  **Why it matters more than one red line.** A test that fails intermittently
+  on the resilience path teaches the room to re-run rather than to read, and
+  the thing it is guarding is precisely the promise that a cached answer
+  survives its client. See also the webhook receiver fixed on 2026-08-16,
+  where the same shrug would have hidden a test accusing an outbound fence of
+  a leak it never had.
+
+  **Shipped 2026-08-16.** Seventh pass, and the one that worked because it
+  stopped hunting and built the reproduction first: a Rust test driving the
+  closed posture with a resilient entry and no candidate fails `504 != 200`
+  every single time. Six passes of e2e archaeology had produced five
+  eliminations and one identification but never a way to make it fail on
+  demand; the moment there was one, the fix was a five-line branch. The stale
+  answer now precedes the stealth refusal, and a second test pins that a
+  non-resilient entry still gets refused, so the fix reads as "resilience
+  survives the posture" rather than "the posture skips cacheable routes".
+
 
 - [x] **#108 Closed by default: a route is reachable because something says
   so.** (stage two, the flip; stage one shipped, see below) Today, a server with no `server_auth` and no OIDC serves every route

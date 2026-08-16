@@ -2570,3 +2570,102 @@ fn scale_to_zero_is_always_worth_waiting_for() {
     true
   ));
 }
+
+// --- #119: a resilient entry under the closed posture ------------------------
+
+/// A resilient cached answer survives its client under the closed posture.
+///
+/// This is the deterministic form of `planned_features.md` #119, which spent
+/// six passes as an intermittent e2e failure because reproducing it needed the
+/// request to arrive in exactly the state below and the suite only sometimes
+/// arranged that. Driven directly it is not intermittent at all.
+///
+/// The state: `default_access: deny`, a route with a resilient entry in the
+/// cache, and no client serving it. Nothing declares the route open, so the
+/// visitor gate answers `Undeclared`, and that answer is a 504. Returning it
+/// makes `resilience: true` do nothing in the one condition it exists for,
+/// since a resilient entry is only ever consulted once the client is gone.
+///
+/// The entry is itself the declaration: `get_for_outage` hands back nothing
+/// for a key whose client never asked for serve-stale, so admitting it here
+/// cannot disclose a route the posture is meant to hide.
+#[tokio::test]
+async fn a_resilient_entry_outlives_its_client_under_the_closed_posture() {
+  let mut cfg = crate::test_support::test_config();
+  cfg.cache_enabled = true;
+  cfg.cache_max_stale = 3600;
+  cfg.default_access = crate::settings::DefaultAccess::Deny;
+  let state = Arc::new(crate::test_support::test_state_with(cfg));
+
+  // Stored as a client with `resilience: true` would have stored it, then
+  // expired. No client is connected, which is the whole point.
+  state.response_cache.lock().await.insert(
+    crate::cache::cache_key(Some("resilient.example"), "/data"),
+    200,
+    vec![("content-type".to_string(), "text/plain".to_string())],
+    axum::body::Bytes::from_static(b"cached body"),
+    std::time::Duration::from_millis(1),
+    64 * 1024 * 1024,
+    true,
+    std::time::Duration::ZERO,
+    Vec::new(),
+  );
+  tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+  let mut req = get("/data");
+  req.headers_mut().insert(
+    "host",
+    axum::http::HeaderValue::from_static("resilient.example"),
+  );
+  let resp = run(state.clone(), req).await;
+
+  assert_eq!(
+    resp.status(),
+    axum::http::StatusCode::OK,
+    "the stale entry answers instead of the posture's stealth 504"
+  );
+  assert_eq!(
+    resp
+      .headers()
+      .get("x-aperio-stale")
+      .map(|v| v.to_str().unwrap()),
+    Some("true"),
+    "and it says it is stale"
+  );
+}
+
+/// The same request without a resilient entry still gets the posture's answer.
+///
+/// Without this the fix above would read as "the closed posture does not apply
+/// to cacheable routes", which is not what it says. A key nothing stored, or
+/// one stored by a client that never asked for serve-stale, stays hidden.
+#[tokio::test]
+async fn a_route_with_no_resilient_entry_still_gets_the_stealth_refusal() {
+  let mut cfg = crate::test_support::test_config();
+  cfg.cache_enabled = true;
+  cfg.cache_max_stale = 3600;
+  cfg.default_access = crate::settings::DefaultAccess::Deny;
+  let state = Arc::new(crate::test_support::test_state_with(cfg));
+
+  // Present, expired, and *not* resilient: the client never asked.
+  state.response_cache.lock().await.insert(
+    crate::cache::cache_key(Some("plain.example"), "/data"),
+    200,
+    vec![],
+    axum::body::Bytes::from_static(b"cached body"),
+    std::time::Duration::from_millis(1),
+    64 * 1024 * 1024,
+    false,
+    std::time::Duration::ZERO,
+    Vec::new(),
+  );
+  tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+  let mut req = get("/data");
+  req.headers_mut().insert(
+    "host",
+    axum::http::HeaderValue::from_static("plain.example"),
+  );
+  let resp = run(state, req).await;
+  assert_eq!(resp.status(), axum::http::StatusCode::GATEWAY_TIMEOUT);
+}

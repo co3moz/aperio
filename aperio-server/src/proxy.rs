@@ -1365,7 +1365,29 @@ async fn proxy_http_request(
     {
       VisitorGate::Allow(identity) => visitor = identity,
       VisitorGate::Deny(denied) => return denied,
-      VisitorGate::Undeclared(_) => return resp,
+      VisitorGate::Undeclared(_) => {
+        // Nothing declares this route open, which under the closed posture is
+        // a stealth refusal. Except that a *resilient* cached answer is
+        // itself the declaration, and this is the one condition it exists
+        // for: an entry is only consulted here once its client is gone, so
+        // refusing makes `resilience: true` work exactly while nobody needs
+        // it.
+        //
+        // This is #119. The intermittent 504 was this refusal, reached
+        // whenever the request arrived with the route unserved and the
+        // posture closed; the runs that passed had taken the reconnect path
+        // and served the entry from further down.
+        //
+        // It cannot disclose a route nothing declared: `get_for_outage`
+        // returns nothing for a key whose client never asked for serve-stale,
+        // which the second test beside this one pins.
+        if let Some(stale) =
+          stale_cache_response(&state, &method_str, &uri_str, &headers, start_time).await
+        {
+          return stale;
+        }
+        return resp;
+      }
     }
   }
 
