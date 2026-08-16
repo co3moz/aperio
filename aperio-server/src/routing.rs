@@ -235,7 +235,10 @@ pub(crate) fn select_client_pool(
   let eligible: Vec<(&String, &ClientHandle)> = clients
     .iter()
     .filter(|(_, c)| {
-      c.is_healthy(down_threshold) && c.backend_healthy && !c.draining && c.admin_enabled
+      c.is_healthy(down_threshold)
+        && c.service.backend_healthy
+        && !c.draining
+        && c.service.admin_enabled
     })
     .collect();
 
@@ -338,12 +341,16 @@ pub(crate) fn apply_lb_strategy(
       let min_priority = pool
         .iter()
         .filter_map(|id| clients.get(id))
-        .map(|c| c.priority)
+        .map(|c| c.service.priority)
         .min()
         .unwrap_or(0);
       pool
         .into_iter()
-        .filter(|id| clients.get(id).is_some_and(|c| c.priority == min_priority))
+        .filter(|id| {
+          clients
+            .get(id)
+            .is_some_and(|c| c.service.priority == min_priority)
+        })
         .collect()
     }
   }
@@ -480,21 +487,21 @@ pub(crate) async fn pick_proxy_client(
     Some(c) => PickOutcome::Selected(Box::new(SelectedClient {
       id: chosen_id.clone(),
       tx: c.tx.clone(),
-      request_count: c.request_count.clone(),
-      inflight_limiter: c.inflight_limiter.clone(),
+      request_count: c.service.request_count.clone(),
+      inflight_limiter: c.service.inflight_limiter.clone(),
       token_name: c.perms.token_name.clone(),
       token_id: c.perms.token_id.clone(),
       org_id: c.perms.org_id.clone(),
       instance_id: c.reported_instance_id.clone(),
       protocol: c.client_protocol,
-      cache: c.cache,
-      resilience: c.resilience,
-      capture: c.capture,
-      max_request_body: c.max_request_body,
-      response_timeout: c.response_timeout,
-      webhook_inbox: c.webhook_inbox,
-      service_name: c.service_name.clone(),
-      service_custom_name: c.service_custom_name.clone(),
+      cache: c.service.cache,
+      resilience: c.service.resilience,
+      capture: c.service.capture,
+      max_request_body: c.service.max_request_body,
+      response_timeout: c.service.response_timeout,
+      webhook_inbox: c.service.webhook_inbox,
+      service_name: c.service.service_name.clone(),
+      service_custom_name: c.service.service_custom_name.clone(),
     })),
     None => PickOutcome::NoRoute,
   }
@@ -551,7 +558,7 @@ fn narrow_to_side(
     .filter(|id| {
       let is_canary = clients
         .get(*id)
-        .and_then(|c| c.service_name.as_deref())
+        .and_then(|c| c.service.service_name.as_deref())
         .is_some_and(|name| name == service);
       match side {
         crate::static_routes::Side::Canary => is_canary,
@@ -591,7 +598,7 @@ pub(crate) async fn route_is_public(
   !pool.is_empty()
     && pool
       .iter()
-      .all(|id| clients.get(id).is_some_and(|c| c.public))
+      .all(|id| clients.get(id).is_some_and(|c| c.service.public))
 }
 
 /// Per-candidate visitor-IP eligibility of a routed pool: each candidate is
@@ -609,9 +616,9 @@ pub(crate) fn filter_pool_by_ip(
     return IpFilterOutcome::Allowed(pool);
   };
   let (passing, rejecting): (Vec<String>, Vec<String>) = pool.into_iter().partition(|id| {
-    clients
-      .get(id)
-      .is_none_or(|c| c.allowed_ips.is_empty() || crate::auth::ip_allowed(ip, &c.allowed_ips))
+    clients.get(id).is_none_or(|c| {
+      c.service.allowed_ips.is_empty() || crate::auth::ip_allowed(ip, &c.service.allowed_ips)
+    })
   });
   if !passing.is_empty() {
     return IpFilterOutcome::Allowed(passing);
@@ -622,7 +629,12 @@ pub(crate) fn filter_pool_by_ip(
   let denied = rejecting
     .iter()
     .filter_map(|id| clients.get(id))
-    .filter_map(|c| c.denied.clone().map(|url| (c.priority, url)))
+    .filter_map(|c| {
+      c.service
+        .denied
+        .clone()
+        .map(|url| (c.service.priority, url))
+    })
     .min_by_key(|(priority, _)| *priority)
     .map(|(_, url)| url);
   IpFilterOutcome::Denied(denied)
@@ -692,7 +704,10 @@ pub(crate) async fn route_visitor_auth(
   }
   let mut creds: Option<&str> = None;
   for id in &pool {
-    match clients.get(id).and_then(|c| c.visitor_auth.as_deref()) {
+    match clients
+      .get(id)
+      .and_then(|c| c.service.visitor_auth.as_deref())
+    {
       Some(c) => match creds {
         None => creds = Some(c),
         Some(existing) if existing == c => {}
@@ -738,7 +753,10 @@ pub(crate) async fn route_visitor_policy(
   }
   let mut policy: Option<&crate::visitor_auth::Policy> = None;
   for id in &pool {
-    match clients.get(id).and_then(|c| c.visitor_auth_policy.as_ref()) {
+    match clients
+      .get(id)
+      .and_then(|c| c.service.visitor_auth_policy.as_ref())
+    {
       Some(p) => match policy {
         None => policy = Some(p),
         Some(existing) if existing == p => {}
@@ -802,8 +820,9 @@ pub(crate) async fn host_has_visitor_auth(state: &AppState, request_host: Option
   }
   let clients = state.clients.read().await;
   clients.values().any(|c| {
-    let declares_gate = c.visitor_auth.is_some()
+    let declares_gate = c.service.visitor_auth.is_some()
       || c
+        .service
         .visitor_auth_policy
         .as_ref()
         .is_some_and(|policy| policy.gates());

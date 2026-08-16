@@ -146,8 +146,8 @@ pub(crate) async fn tcp_ws_handler(
       let found = clients
         .iter()
         .find(|(_, c)| {
-          c.tcp_enabled
-            && c.admin_enabled
+          c.service.tcp_enabled
+            && c.service.admin_enabled
             && !c.draining
             && c.is_healthy(state.config().client_down_threshold)
             && registry::may_bind(&perms, &c.perms)
@@ -543,7 +543,7 @@ pub(crate) async fn tunnels_list_handler(
   if !registry::may_bind(&perms, &c.perms) {
     return reject(registry::Rejection::Forbidden, id).into_response();
   }
-  Json(c.tunnels.clone()).into_response()
+  Json(c.service.tunnels.clone()).into_response()
 }
 
 /// Relays bytes between a public TCP consumer WebSocket and the tunnel.

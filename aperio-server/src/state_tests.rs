@@ -450,7 +450,7 @@ fn test_client_effective_binds_precedence() {
 
   // assigned path used when nothing declared/overridden.
   let mut c = mock_client(None, None, None, None);
-  c.assigned_path = Some("/assigned".to_string());
+  c.service.assigned_path = Some("/assigned".to_string());
   assert_eq!(c.effective_path_bind(), Some(&"/assigned".to_string()));
 
   // hostname override replaces the whole set.
@@ -461,8 +461,8 @@ fn test_client_effective_binds_precedence() {
 
   // union of assigned + declared + extra declared hostnames, de-duplicated.
   let mut c = mock_client(Some("declared.local"), None, None, None);
-  c.assigned_hostnames = vec!["assigned.local".to_string(), "declared.local".to_string()];
-  c.declared_hostnames = vec!["extra.local".to_string(), "assigned.local".to_string()];
+  c.service.assigned_hostnames = vec!["assigned.local".to_string(), "declared.local".to_string()];
+  c.service.declared_hostnames = vec!["extra.local".to_string(), "assigned.local".to_string()];
   let hosts = c.effective_hostnames();
   assert!(hosts.contains(&&"assigned.local".to_string()));
   assert!(hosts.contains(&&"declared.local".to_string()));
@@ -502,10 +502,10 @@ fn test_client_health_and_ejection() {
   // Stale failures outside the window are pruned before counting.
   let mut c2 = mock_client(None, None, None, None);
   let old = now - Duration::from_secs(120);
-  c2.recent_failures.push_back(old);
-  c2.recent_failures.push_back(old);
+  c2.service.recent_failures.push_back(old);
+  c2.service.recent_failures.push_back(old);
   assert!(!c2.record_failure(now, window, 3, eject_for));
-  assert_eq!(c2.recent_failures.len(), 1, "old failures pruned");
+  assert_eq!(c2.service.recent_failures.len(), 1, "old failures pruned");
 }
 
 // ----- AppState: config, request slots -----
@@ -1781,7 +1781,10 @@ fn the_wire_says_what_a_service_is_and_the_handle_accounts_for_all_of_it() {
     "the protocol still declares ServiceDecl"
   );
 
-  let mapped: Vec<&str> = SERVICE_DECL_ON_THE_HANDLE.iter().map(|(w, _)| *w).collect();
+  let mapped: Vec<&str> = SERVICE_DECL_IN_SERVICE_STATE
+    .iter()
+    .map(|(w, _)| *w)
+    .collect();
 
   let unclassified: Vec<&String> = declared
     .iter()
@@ -1789,7 +1792,7 @@ fn the_wire_says_what_a_service_is_and_the_handle_accounts_for_all_of_it() {
     .collect();
   assert!(
     unclassified.is_empty(),
-    "ServiceDecl gained {unclassified:?} and SERVICE_DECL_ON_THE_HANDLE does not say where \
+    "ServiceDecl gained {unclassified:?} and SERVICE_DECL_IN_SERVICE_STATE does not say where \
      it lands. Add a line, with None if it does not reach the handle at all."
   );
 
@@ -1799,7 +1802,7 @@ fn the_wire_says_what_a_service_is_and_the_handle_accounts_for_all_of_it() {
     .collect();
   assert!(
     invented.is_empty(),
-    "SERVICE_DECL_ON_THE_HANDLE names {invented:?}, which the wire no longer has."
+    "SERVICE_DECL_IN_SERVICE_STATE names {invented:?}, which the wire no longer has."
   );
 
   let mut seen = std::collections::HashSet::new();
@@ -1808,24 +1811,93 @@ fn the_wire_says_what_a_service_is_and_the_handle_accounts_for_all_of_it() {
   }
 }
 
-/// And every handle field the table points at actually exists.
+/// And every field the table points at actually exists, in `ServiceState`.
 ///
-/// The other direction of the same drift: a rename in `ClientHandle` would
-/// leave the table pointing at nothing, and it would still read as authority.
+/// The other direction of the same drift: a rename would leave the table
+/// pointing at nothing, and it would still read as authority.
 #[test]
-fn every_field_the_table_points_at_is_a_field_the_handle_has() {
-  let handle = struct_fields(include_str!("state.rs"), "ClientHandle");
-  assert!(!handle.is_empty(), "ClientHandle is still a struct");
+fn every_field_the_table_points_at_is_a_field_the_service_has() {
+  let service = struct_fields(include_str!("state.rs"), "ServiceState");
+  assert!(!service.is_empty(), "ServiceState is still a struct");
 
-  let dangling: Vec<&str> = SERVICE_DECL_ON_THE_HANDLE
+  let dangling: Vec<&str> = SERVICE_DECL_IN_SERVICE_STATE
     .iter()
     .filter_map(|(_, h)| *h)
-    .filter(|h| !handle.contains(&h.to_string()))
+    .filter(|h| !service.contains(&h.to_string()))
     .collect();
   assert!(
     dangling.is_empty(),
-    "SERVICE_DECL_ON_THE_HANDLE points at {dangling:?}, which ClientHandle does not have. \
+    "SERVICE_DECL_IN_SERVICE_STATE points at {dangling:?}, which ServiceState does not have. \
      A rename has to be made in both places."
+  );
+}
+
+/// The two structs divide the fields the way the three lists say they should.
+///
+/// The compiler already stops a service field from being read off a
+/// connection, which is the half a type can do. It cannot say the division is
+/// the right one: a field put in the wrong struct compiles, and the mistake
+/// only shows later as one value shared by services that should each have had
+/// their own, or as a warn-once flag that silences the second service because
+/// the first already warned. Neither is a compile error and neither fails any
+/// other test, so this is the only thing standing between the seam and a
+/// quiet drift back across it.
+#[test]
+fn the_two_structs_divide_the_fields_the_way_the_seam_says() {
+  let src = include_str!("state.rs");
+  let handle = struct_fields(src, "ClientHandle");
+  let service = struct_fields(src, "ServiceState");
+  assert!(!handle.is_empty() && !service.is_empty());
+
+  let mut want_service: Vec<&str> = SERVICE_DECL_IN_SERVICE_STATE
+    .iter()
+    .filter_map(|(_, h)| *h)
+    .collect();
+  want_service.extend(SERVICE_SCOPED_DERIVED.iter().copied());
+
+  let mut seen = std::collections::HashSet::new();
+  for f in &want_service {
+    assert!(seen.insert(*f), "{f} is claimed twice by the service side");
+  }
+
+  let mut stray: Vec<&String> = service
+    .iter()
+    .filter(|f| !want_service.contains(&f.as_str()))
+    .collect();
+  assert!(
+    stray.is_empty(),
+    "ServiceState carries {stray:?}, which the seam does not call service-scoped. \
+     Either it belongs on ClientHandle, or a list has to say why it is here."
+  );
+
+  let missing: Vec<&&str> = want_service
+    .iter()
+    .filter(|f| !service.contains(&f.to_string()))
+    .collect();
+  assert!(
+    missing.is_empty(),
+    "the seam calls {missing:?} service-scoped, but they are not in ServiceState."
+  );
+
+  // The connection side, and the one field that joins the two.
+  let mut want_handle: Vec<&str> = CONNECTION_SCOPED.to_vec();
+  want_handle.push("service");
+  stray = handle
+    .iter()
+    .filter(|f| !want_handle.contains(&f.as_str()))
+    .collect();
+  assert!(
+    stray.is_empty(),
+    "ClientHandle gained {stray:?} and nothing says whether it belongs to the connection \
+     or to the service. Put it in CONNECTION_SCOPED, or in ServiceState."
+  );
+  let missing: Vec<&&str> = want_handle
+    .iter()
+    .filter(|f| !handle.contains(&f.to_string()))
+    .collect();
+  assert!(
+    missing.is_empty(),
+    "the seam calls {missing:?} connection-scoped, but ClientHandle does not have them."
   );
 }
 
@@ -1857,55 +1929,4 @@ fn struct_fields(source: &str, name: &str) -> Vec<String> {
     }
   }
   out
-}
-
-/// The three lists partition `ClientHandle` exactly: no field unclassified,
-/// none classified twice, none named that does not exist.
-///
-/// This is the guard that makes the seam worth having. Without it the lists
-/// describe the handle as it was on the day they were written, and the next
-/// field added lands on whichever side the person doing #46 guesses. A field
-/// guessed onto the connection when it belongs to the service is not a
-/// compile error and not a test failure anywhere else: it is one value shared
-/// by services that should each have had their own, which surfaces as the
-/// second service quietly inheriting the first one's setting.
-#[test]
-fn every_field_of_the_handle_sits_on_one_side_of_the_seam() {
-  let fields = struct_fields(include_str!("state.rs"), "ClientHandle");
-  assert!(!fields.is_empty(), "ClientHandle is still a struct");
-
-  let mut classified: Vec<&str> = SERVICE_DECL_ON_THE_HANDLE
-    .iter()
-    .filter_map(|(_, h)| *h)
-    .collect();
-  classified.extend(SERVICE_SCOPED_DERIVED.iter().copied());
-  classified.extend(CONNECTION_SCOPED.iter().copied());
-
-  let unclassified: Vec<&String> = fields
-    .iter()
-    .filter(|f| !classified.contains(&f.as_str()))
-    .collect();
-  assert!(
-    unclassified.is_empty(),
-    "ClientHandle gained {unclassified:?} and nothing says whether it belongs to the \
-     connection or to the service. Put it in CONNECTION_SCOPED, in \
-     SERVICE_SCOPED_DERIVED, or on the wire."
-  );
-
-  let mut seen = std::collections::HashSet::new();
-  for f in &classified {
-    assert!(
-      seen.insert(*f),
-      "{f} is classified on more than one side of the seam"
-    );
-  }
-
-  let phantom: Vec<&&str> = classified
-    .iter()
-    .filter(|f| !fields.contains(&f.to_string()))
-    .collect();
-  assert!(
-    phantom.is_empty(),
-    "the seam names {phantom:?}, which ClientHandle does not have."
-  );
 }

@@ -122,7 +122,7 @@ async fn insert_client(
 async fn find_declarer_matches_healthy_declaring_client() {
   let state = Arc::new(test_state());
   insert_client(&state, "c1", |c| {
-    c.tunnels = vec![tunnel(Some("mykey12345"), "tcp", false)];
+    c.service.tunnels = vec![tunnel(Some("mykey12345"), "tcp", false)];
   })
   .await;
 
@@ -147,19 +147,19 @@ async fn find_declarer_skips_ineligible_and_mismatched_clients() {
   let state = Arc::new(test_state());
   // Disabled client (skipped by the health/enabled guard).
   insert_client(&state, "disabled", |c| {
-    c.admin_enabled = false;
-    c.tunnels = vec![tunnel(Some("mykey12345"), "tcp", false)];
+    c.service.admin_enabled = false;
+    c.service.tunnels = vec![tunnel(Some("mykey12345"), "tcp", false)];
   })
   .await;
   // Draining client (also skipped).
   insert_client(&state, "draining", |c| {
     c.draining = true;
-    c.tunnels = vec![tunnel(Some("mykey12345"), "tcp", false)];
+    c.service.tunnels = vec![tunnel(Some("mykey12345"), "tcp", false)];
   })
   .await;
   // Healthy client but the tunnel is encrypted / udp / wrong key.
   insert_client(&state, "wrong", |c| {
-    c.tunnels = vec![
+    c.service.tunnels = vec![
       tunnel(Some("mykey12345"), "tcp", true), // encrypted -> excluded
       tunnel(Some("mykey12345"), "udp", false), // wrong protocol
       tunnel(Some("otherkey123"), "tcp", false), // wrong key
@@ -207,7 +207,7 @@ async fn relay_end_to_end_pumps_bytes_both_directions() {
   {
     let mut c = crate::test_support::mock_client(None, None, None, None);
     c.tx = tx;
-    c.tunnels = vec![tunnel(Some("mykey12345"), "tcp", false)];
+    c.service.tunnels = vec![tunnel(Some("mykey12345"), "tcp", false)];
     state.clients.write().await.insert("c1".to_string(), c);
   }
 
@@ -305,7 +305,7 @@ async fn relay_bails_when_the_client_channel_is_closed() {
   // TcpOpen fails, so the relay removes the just-registered stream and returns.
   {
     let mut c = crate::test_support::mock_client(None, None, None, None); // rx already dropped
-    c.tunnels = vec![tunnel(Some("mykey12345"), "tcp", false)];
+    c.service.tunnels = vec![tunnel(Some("mykey12345"), "tcp", false)];
     state.clients.write().await.insert("dead".to_string(), c);
   }
 
@@ -329,7 +329,7 @@ async fn relay_closes_when_tunnel_signals_close() {
   {
     let mut c = crate::test_support::mock_client(None, None, None, None);
     c.tx = tx;
-    c.tunnels = vec![tunnel(Some("mykey12345"), "tcp", false)];
+    c.service.tunnels = vec![tunnel(Some("mykey12345"), "tcp", false)];
     state.clients.write().await.insert("c1".to_string(), c);
   }
 
@@ -427,7 +427,7 @@ fn named_tunnel(name: &str) -> TunnelDecl {
 async fn a_named_rule_matches_the_tunnel_of_the_named_token() {
   let state = Arc::new(test_state());
   insert_client(&state, "c1", |c| {
-    c.tunnels = vec![named_tunnel("ssh_bastion")];
+    c.service.tunnels = vec![named_tunnel("ssh_bastion")];
     c.perms.token_name = Some("bastion-host".to_string());
   })
   .await;
@@ -444,7 +444,7 @@ async fn a_named_rule_does_not_match_another_token_claiming_the_name() {
   // must not be able to take the name and receive the public port's traffic.
   let state = Arc::new(test_state());
   insert_client(&state, "impostor", |c| {
-    c.tunnels = vec![named_tunnel("ssh_bastion")];
+    c.service.tunnels = vec![named_tunnel("ssh_bastion")];
     c.perms.token_name = Some("some-other-token".to_string());
   })
   .await;
@@ -460,7 +460,7 @@ async fn a_named_rule_does_not_match_another_token_claiming_the_name() {
 async fn a_named_rule_without_a_token_accepts_only_the_master_token() {
   let state = Arc::new(test_state());
   insert_client(&state, "master-client", |c| {
-    c.tunnels = vec![named_tunnel("ssh_bastion")];
+    c.service.tunnels = vec![named_tunnel("ssh_bastion")];
     // A master-token client reports no token name.
     c.perms.token_name = None;
   })
@@ -473,7 +473,7 @@ async fn a_named_rule_without_a_token_accepts_only_the_master_token() {
 
   let state2 = Arc::new(test_state());
   insert_client(&state2, "named-client", |c| {
-    c.tunnels = vec![named_tunnel("ssh_bastion")];
+    c.service.tunnels = vec![named_tunnel("ssh_bastion")];
     c.perms.token_name = Some("ops".to_string());
   })
   .await;
@@ -517,13 +517,13 @@ async fn a_named_rule_matches_the_organization_that_owns_the_tunnel() {
   let payments = make_org(&state, "payments").await;
   let billing = make_org(&state, "billing").await;
   insert_client(&state, "payments-client", |c| {
-    c.tunnels = vec![named_tunnel("postgres")];
+    c.service.tunnels = vec![named_tunnel("postgres")];
     c.perms.token_name = Some("ci".to_string());
     c.perms.org_id = Some(payments.clone());
   })
   .await;
   insert_client(&state, "billing-client", |c| {
-    c.tunnels = vec![named_tunnel("postgres")];
+    c.service.tunnels = vec![named_tunnel("postgres")];
     c.perms.token_name = Some("ci".to_string());
     c.perms.org_id = Some(billing);
   })
@@ -546,7 +546,7 @@ async fn a_named_rule_with_no_organization_is_the_master_one() {
   let state = Arc::new(test_state());
   let payments = make_org(&state, "payments").await;
   insert_client(&state, "payments-client", |c| {
-    c.tunnels = vec![named_tunnel("postgres")];
+    c.service.tunnels = vec![named_tunnel("postgres")];
     c.perms.org_id = Some(payments);
   })
   .await;
@@ -558,7 +558,7 @@ async fn a_named_rule_with_no_organization_is_the_master_one() {
   );
 
   insert_client(&state, "master-client", |c| {
-    c.tunnels = vec![named_tunnel("postgres")];
+    c.service.tunnels = vec![named_tunnel("postgres")];
     c.perms.org_id = None;
   })
   .await;
@@ -575,7 +575,7 @@ async fn a_rule_naming_an_organization_that_does_not_exist_matches_nothing() {
   let state = Arc::new(test_state());
   let payments = make_org(&state, "payments").await;
   insert_client(&state, "payments-client", |c| {
-    c.tunnels = vec![named_tunnel("postgres")];
+    c.service.tunnels = vec![named_tunnel("postgres")];
     c.perms.org_id = Some(payments);
   })
   .await;
@@ -594,7 +594,7 @@ async fn a_token_rule_written_before_organizations_still_matches_as_it_did() {
   let state = Arc::new(test_state());
   let payments = make_org(&state, "payments").await;
   insert_client(&state, "payments-client", |c| {
-    c.tunnels = vec![named_tunnel("postgres")];
+    c.service.tunnels = vec![named_tunnel("postgres")];
     c.perms.token_name = Some("bastion-host".to_string());
     c.perms.org_id = Some(payments);
   })
@@ -614,7 +614,7 @@ async fn a_named_rule_still_refuses_an_encrypted_tunnel() {
   insert_client(&state, "c1", |c| {
     let mut decl = named_tunnel("ssh_bastion");
     decl.encrypt = true;
-    c.tunnels = vec![decl];
+    c.service.tunnels = vec![decl];
     c.perms.token_name = Some("bastion-host".to_string());
   })
   .await;

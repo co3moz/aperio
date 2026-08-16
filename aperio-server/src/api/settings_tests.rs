@@ -295,11 +295,12 @@ async fn changing_subdomain_suffix_reassigns_connected_clients() {
   // The connected client was handed a fresh random hostname.
   let clients = state.clients.read().await;
   let c = clients.get("c1").unwrap();
-  assert!(c.random_hostname.is_some());
+  assert!(c.service.random_hostname.is_some());
   assert!(
-    c.assigned_hostnames
+    c.service
+      .assigned_hostnames
       .iter()
-      .any(|h| Some(h) == c.random_hostname.as_ref())
+      .any(|h| Some(h) == c.service.random_hostname.as_ref())
   );
 }
 

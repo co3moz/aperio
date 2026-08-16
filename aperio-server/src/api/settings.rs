@@ -334,12 +334,12 @@ async fn reassign_random_hostnames(state: &Arc<AppState>) {
   {
     let mut clients = state.clients.write().await;
     for (id, c) in clients.iter_mut() {
-      if let Some(ref old) = c.random_hostname {
-        c.assigned_hostnames.retain(|h| h != old);
+      if let Some(ref old) = c.service.random_hostname {
+        c.service.assigned_hostnames.retain(|h| h != old);
       }
-      c.random_hostname = pattern.as_deref().map(random_subdomain_hostname);
-      if let Some(ref h) = c.random_hostname {
-        c.assigned_hostnames.push(h.clone());
+      c.service.random_hostname = pattern.as_deref().map(random_subdomain_hostname);
+      if let Some(ref h) = c.service.random_hostname {
+        c.service.assigned_hostnames.push(h.clone());
         info!("Reassigned random hostname {} to client {}", h, id);
         notifications.push((c.tx.clone(), h.clone()));
       }

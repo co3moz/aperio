@@ -52,23 +52,23 @@ async fn stats_snapshot_reports_active_clients_and_shared_instances() {
   // a mismatched protocol, and non-zero bandwidth.
   insert_client(&state, "c1", |h| {
     h.reported_instance_id = Some("iid-1".to_string());
-    h.declared_hostname = Some("extra.example.com".to_string());
-    h.assigned_hostnames = vec!["assigned.example.com".to_string()];
+    h.service.declared_hostname = Some("extra.example.com".to_string());
+    h.service.assigned_hostnames = vec!["assigned.example.com".to_string()];
     h.client_protocol = Some(crate::protocol::PROTOCOL_VERSION.wrapping_add(1));
-    h.bandwidth_bps.store(1234, Ordering::Relaxed);
-    h.request_count.store(7, Ordering::SeqCst);
-    h.service_name = Some("svc".to_string());
+    h.service.bandwidth_bps.store(1234, Ordering::Relaxed);
+    h.service.request_count.store(7, Ordering::SeqCst);
+    h.service.service_name = Some("svc".to_string());
   })
   .await;
   insert_client(&state, "c2", |h| {
     h.reported_instance_id = Some("iid-1".to_string());
     // declared hostname already present in the assigned set → not appended.
-    h.declared_hostname = Some("dup.example.com".to_string());
-    h.assigned_hostnames = vec!["dup.example.com".to_string()];
+    h.service.declared_hostname = Some("dup.example.com".to_string());
+    h.service.assigned_hostnames = vec!["dup.example.com".to_string()];
     // assigned_path used because declared_path is cleared.
-    h.declared_path = None;
-    h.assigned_path = Some("/assigned".to_string());
-    h.bandwidth_bps.store(0, Ordering::Relaxed);
+    h.service.declared_path = None;
+    h.service.assigned_path = Some("/assigned".to_string());
+    h.service.bandwidth_bps.store(0, Ordering::Relaxed);
     h.client_protocol = None;
   })
   .await;
@@ -113,10 +113,11 @@ async fn stats_lists_declared_hostnames_before_assigned_ones() {
   // declared name must be reported (not only the first), declared names lead
   // the bind list, and the random one is called out separately.
   insert_client(&state, "c1", |h| {
-    h.declared_hostname = Some("app.example.com".to_string());
-    h.declared_hostnames = vec!["app.example.com".to_string(), "www.example.com".to_string()];
-    h.assigned_hostnames = vec!["wild-fox.tunnel.example.com".to_string()];
-    h.random_hostname = Some("wild-fox.tunnel.example.com".to_string());
+    h.service.declared_hostname = Some("app.example.com".to_string());
+    h.service.declared_hostnames =
+      vec!["app.example.com".to_string(), "www.example.com".to_string()];
+    h.service.assigned_hostnames = vec!["wild-fox.tunnel.example.com".to_string()];
+    h.service.random_hostname = Some("wild-fox.tunnel.example.com".to_string());
   })
   .await;
 
@@ -333,10 +334,10 @@ async fn an_elastic_pool_is_rendered_as_its_range_and_its_current_size() {
   // connection announced itself. The range is what says the number moves.
   let state = Arc::new(test_state());
   insert_client(&state, "pool", |h| {
-    h.service_name = Some("axum".to_string());
-    h.connections = Some(4);
-    h.connections_min = Some(1);
-    h.connections_max = Some(5);
+    h.service.service_name = Some("axum".to_string());
+    h.service.connections = Some(4);
+    h.service.connections_min = Some(1);
+    h.service.connections_max = Some(5);
   })
   .await;
   let headers = admin_headers(&state).await;
@@ -350,8 +351,8 @@ async fn an_elastic_pool_is_rendered_as_its_range_and_its_current_size() {
 
   // A fixed pool announces no range and is written the way the file wrote it.
   insert_client(&state, "fixed", |h| {
-    h.service_name = Some("api".to_string());
-    h.connections = Some(3);
+    h.service.service_name = Some("api".to_string());
+    h.service.connections = Some(3);
   })
   .await;
   let headers = admin_headers(&state).await;
@@ -366,22 +367,22 @@ async fn an_elastic_pool_is_rendered_as_its_range_and_its_current_size() {
 async fn client_config_renders_yaml_with_declared_vs_effective_notes() {
   let state = Arc::new(test_state());
   insert_client(&state, "c1", |h| {
-    h.service_name = Some("api".to_string());
+    h.service.service_name = Some("api".to_string());
     h.reported_instance_id = Some("my-box-0".to_string());
-    h.connections = Some(10);
-    h.declared_hostname = Some("app.example.com".to_string());
-    h.declared_hostnames = vec!["app.example.com".to_string()];
-    h.assigned_hostnames = vec![
+    h.service.connections = Some(10);
+    h.service.declared_hostname = Some("app.example.com".to_string());
+    h.service.declared_hostnames = vec!["app.example.com".to_string()];
+    h.service.assigned_hostnames = vec![
       "app.example.com".to_string(),
       "wild-fox.example.com".to_string(),
     ];
-    h.random_hostname = Some("wild-fox.example.com".to_string());
-    h.max_concurrent = Some(32);
-    h.bandwidth_bps.store(125_000, Ordering::Relaxed);
+    h.service.random_hostname = Some("wild-fox.example.com".to_string());
+    h.service.max_concurrent = Some(32);
+    h.service.bandwidth_bps.store(125_000, Ordering::Relaxed);
     // Opted into caching while the test server has its cache disabled.
-    h.cache = true;
+    h.service.cache = true;
     // What the client itself resolved differently before announcing it.
-    h.config_notes = vec![crate::protocol::ConfigNote {
+    h.service.config_notes = vec![crate::protocol::ConfigNote {
       field: "bandwidth".to_string(),
       declared: "10mbit".to_string(),
       effective: "1mbit".to_string(),
@@ -431,10 +432,10 @@ async fn client_config_renders_yaml_with_declared_vs_effective_notes() {
 async fn client_config_renders_an_empty_hostname_list() {
   let state = Arc::new(test_state());
   insert_client(&state, "c1", |h| {
-    h.declared_hostname = None;
-    h.declared_hostnames = Vec::new();
-    h.assigned_hostnames = Vec::new();
-    h.random_hostname = None;
+    h.service.declared_hostname = None;
+    h.service.declared_hostnames = Vec::new();
+    h.service.assigned_hostnames = Vec::new();
+    h.service.random_hostname = None;
   })
   .await;
 
@@ -453,10 +454,10 @@ async fn client_config_renders_an_empty_hostname_list() {
 async fn client_config_reports_an_active_overrule_and_hides_other_orgs() {
   let state = Arc::new(test_state());
   insert_client(&state, "c1", |h| {
-    h.declared_hostname = Some("app.example.com".to_string());
-    h.declared_hostnames = vec!["app.example.com".to_string()];
-    h.assigned_hostnames = vec!["app.example.com".to_string()];
-    h.override_hostname_binds = vec!["moved.example.com".to_string()];
+    h.service.declared_hostname = Some("app.example.com".to_string());
+    h.service.declared_hostnames = vec!["app.example.com".to_string()];
+    h.service.assigned_hostnames = vec!["app.example.com".to_string()];
+    h.service.override_hostname_binds = vec!["moved.example.com".to_string()];
   })
   .await;
   insert_client(&state, "other", |h| {
@@ -553,10 +554,10 @@ async fn override_set_then_clear() {
     let clients = state.clients.read().await;
     let h = clients.get("c1").unwrap();
     assert_eq!(
-      h.override_hostname_binds,
+      h.service.override_hostname_binds,
       vec!["new.example.com".to_string()]
     );
-    assert_eq!(h.override_path_bind.as_deref(), Some("/api/v2"));
+    assert_eq!(h.service.override_path_bind.as_deref(), Some("/api/v2"));
   }
 
   // Clear both (empty string and null).
@@ -572,8 +573,8 @@ async fn override_set_then_clear() {
   {
     let clients = state.clients.read().await;
     let h = clients.get("c1").unwrap();
-    assert!(h.override_hostname_binds.is_empty());
-    assert!(h.override_path_bind.is_none());
+    assert!(h.service.override_hostname_binds.is_empty());
+    assert!(h.service.override_path_bind.is_none());
   }
 }
 
@@ -601,7 +602,9 @@ async fn override_accepts_a_list_of_hostnames() {
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
   assert_eq!(
-    state.clients.write().await["c1"].override_hostname_binds,
+    state.clients.write().await["c1"]
+      .service
+      .override_hostname_binds,
     vec![
       "new.example.com".to_string(),
       "wild-fox.tunnel.example.com".to_string()
@@ -620,6 +623,7 @@ async fn override_accepts_a_list_of_hostnames() {
   assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
   assert_eq!(
     state.clients.write().await["c1"]
+      .service
       .override_hostname_binds
       .len(),
     2
@@ -637,6 +641,7 @@ async fn override_accepts_a_list_of_hostnames() {
   assert_eq!(resp.status(), StatusCode::OK);
   assert!(
     state.clients.write().await["c1"]
+      .service
       .override_hostname_binds
       .is_empty()
   );
@@ -697,6 +702,7 @@ async fn override_cross_org_client_is_404() {
     clients
       .get("c1")
       .unwrap()
+      .service
       .override_hostname_binds
       .is_empty()
   );
@@ -709,7 +715,7 @@ async fn override_cross_org_client_is_404() {
 #[tokio::test]
 async fn enabled_toggle_and_unknown() {
   let state = Arc::new(test_state());
-  insert_client(&state, "c1", |h| h.admin_enabled = true).await;
+  insert_client(&state, "c1", |h| h.service.admin_enabled = true).await;
   let headers = admin_headers(&state).await;
 
   // Disable.
@@ -722,7 +728,16 @@ async fn enabled_toggle_and_unknown() {
   )
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
-  assert!(!state.clients.write().await.get("c1").unwrap().admin_enabled);
+  assert!(
+    !state
+      .clients
+      .write()
+      .await
+      .get("c1")
+      .unwrap()
+      .service
+      .admin_enabled
+  );
 
   // Re-enable.
   let resp = client_enabled_handler(
@@ -734,7 +749,16 @@ async fn enabled_toggle_and_unknown() {
   )
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
-  assert!(state.clients.write().await.get("c1").unwrap().admin_enabled);
+  assert!(
+    state
+      .clients
+      .write()
+      .await
+      .get("c1")
+      .unwrap()
+      .service
+      .admin_enabled
+  );
 
   // Unknown client.
   let resp = client_enabled_handler(
@@ -753,7 +777,7 @@ async fn enabled_cross_org_client_is_404() {
   let state = Arc::new(test_state());
   insert_client(&state, "c1", |h| {
     h.perms.org_id = Some("acme".to_string());
-    h.admin_enabled = true;
+    h.service.admin_enabled = true;
   })
   .await;
   let headers = admin_headers(&state).await;
@@ -767,7 +791,16 @@ async fn enabled_cross_org_client_is_404() {
   .await;
   assert_eq!(resp.status(), StatusCode::NOT_FOUND);
   // Untouched.
-  assert!(state.clients.write().await.get("c1").unwrap().admin_enabled);
+  assert!(
+    state
+      .clients
+      .write()
+      .await
+      .get("c1")
+      .unwrap()
+      .service
+      .admin_enabled
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -910,6 +943,7 @@ async fn override_refuses_a_hostname_outside_the_org_allowlist() {
   assert_eq!(resp.status(), StatusCode::FORBIDDEN);
   assert!(
     state.clients.write().await["c1"]
+      .service
       .override_hostname_binds
       .is_empty()
   );
@@ -925,7 +959,9 @@ async fn override_refuses_a_hostname_outside_the_org_allowlist() {
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
   assert_eq!(
-    state.clients.write().await["c1"].override_hostname_binds,
+    state.clients.write().await["c1"]
+      .service
+      .override_hostname_binds,
     vec!["app.acme.com".to_string()]
   );
 }
@@ -980,30 +1016,30 @@ async fn client_config_renders_every_optional_knob_and_server_overrule() {
   // dashboard overrules, the refused announcements, and each optional line.
   let state = Arc::new(test_state());
   insert_client(&state, "c1", |h| {
-    h.declared_hostname = Some("app.example.com".to_string());
-    h.declared_hostnames = vec!["app.example.com".to_string()];
-    h.assigned_hostnames = vec![
+    h.service.declared_hostname = Some("app.example.com".to_string());
+    h.service.declared_hostnames = vec!["app.example.com".to_string()];
+    h.service.assigned_hostnames = vec![
       "app.example.com".to_string(),
       "wild-fox.example.com".to_string(),
     ];
-    h.random_hostname = Some("wild-fox.example.com".to_string());
-    h.override_hostname_binds = vec!["forced.example.com".to_string()];
-    h.declared_path = Some("/api".to_string());
-    h.override_path_bind = Some("/forced".to_string());
-    h.public_denied_warned = true;
-    h.visitor_auth_denied_warned = true;
-    h.priority = 2;
-    h.public = true;
-    h.visitor_auth = Some("user:pass".to_string());
-    h.allowed_ips = vec!["10.0.0.0/8".to_string(), "203.0.113.7".to_string()];
-    h.denied = Some("https://example.com/no".to_string());
-    h.cache = false;
-    h.resilience = true;
-    h.webhook_inbox = true;
-    h.max_request_body = Some(1048576);
-    h.response_timeout = Some(120);
-    h.tcp_enabled = true;
-    h.tunnels = vec![crate::protocol::TunnelDecl {
+    h.service.random_hostname = Some("wild-fox.example.com".to_string());
+    h.service.override_hostname_binds = vec!["forced.example.com".to_string()];
+    h.service.declared_path = Some("/api".to_string());
+    h.service.override_path_bind = Some("/forced".to_string());
+    h.service.public_denied_warned = true;
+    h.service.visitor_auth_denied_warned = true;
+    h.service.priority = 2;
+    h.service.public = true;
+    h.service.visitor_auth = Some("user:pass".to_string());
+    h.service.allowed_ips = vec!["10.0.0.0/8".to_string(), "203.0.113.7".to_string()];
+    h.service.denied = Some("https://example.com/no".to_string());
+    h.service.cache = false;
+    h.service.resilience = true;
+    h.service.webhook_inbox = true;
+    h.service.max_request_body = Some(1048576);
+    h.service.response_timeout = Some(120);
+    h.service.tcp_enabled = true;
+    h.service.tunnels = vec![crate::protocol::TunnelDecl {
       name: Some("pg".to_string()),
       custom_name: None,
       target: "127.0.0.1:5432".to_string(),
@@ -1090,7 +1126,16 @@ async fn enabling_an_unknown_or_foreign_client_is_not_found() {
   .await;
   assert_eq!(resp.status(), StatusCode::NOT_FOUND);
   // And the master client is untouched.
-  assert!(state.clients.write().await.get("c1").unwrap().admin_enabled);
+  assert!(
+    state
+      .clients
+      .write()
+      .await
+      .get("c1")
+      .unwrap()
+      .service
+      .admin_enabled
+  );
 }
 
 // --- log filtering (planned_features #31) -----------------------------------

@@ -1278,23 +1278,23 @@ async fn ping_master_applies_all_binds() {
   {
     let clients = state.clients.read().await;
     let h = clients.get(&cid).unwrap();
-    assert_eq!(h.declared_path.as_deref(), Some("/api"));
-    assert_eq!(h.declared_hostnames.len(), 2);
-    assert_eq!(h.max_concurrent, Some(4));
-    assert!(h.tcp_enabled);
-    assert!(h.cache);
-    assert!(h.resilience);
-    assert!(h.webhook_inbox);
-    assert!(h.public);
-    assert!(h.visitor_auth.is_some());
-    assert_eq!(h.allowed_ips, vec!["127.0.0.1".to_string()]);
-    assert!(h.denied.is_some());
-    assert_eq!(h.response_timeout, Some(30));
-    assert_eq!(h.max_request_body, Some(1000));
-    assert_eq!(h.priority, 7);
-    assert_eq!(h.service_name.as_deref(), Some("svc"));
+    assert_eq!(h.service.declared_path.as_deref(), Some("/api"));
+    assert_eq!(h.service.declared_hostnames.len(), 2);
+    assert_eq!(h.service.max_concurrent, Some(4));
+    assert!(h.service.tcp_enabled);
+    assert!(h.service.cache);
+    assert!(h.service.resilience);
+    assert!(h.service.webhook_inbox);
+    assert!(h.service.public);
+    assert!(h.service.visitor_auth.is_some());
+    assert_eq!(h.service.allowed_ips, vec!["127.0.0.1".to_string()]);
+    assert!(h.service.denied.is_some());
+    assert_eq!(h.service.response_timeout, Some(30));
+    assert_eq!(h.service.max_request_body, Some(1000));
+    assert_eq!(h.service.priority, 7);
+    assert_eq!(h.service.service_name.as_deref(), Some("svc"));
     assert_eq!(h.reported_instance_id.as_deref(), Some("self"));
-    assert!(!h.backend_healthy);
+    assert!(!h.service.backend_healthy);
   }
 
   // A second, identical Ping exercises the "no change" / warn-once branches
@@ -1316,6 +1316,7 @@ async fn ping_master_applies_all_binds() {
       .await
       .get(&cid)
       .unwrap()
+      .service
       .backend_healthy
   );
 
@@ -1345,8 +1346,8 @@ async fn ping_master_invalid_visitor_and_denied() {
 
   let clients = state.clients.read().await;
   let h = clients.get(&cid).unwrap();
-  assert!(h.visitor_auth.is_none());
-  assert!(h.denied.is_none());
+  assert!(h.service.visitor_auth.is_none());
+  assert!(h.service.denied.is_none());
 }
 
 #[tokio::test]
@@ -1377,11 +1378,11 @@ async fn ping_dynamic_token_denies_public_and_visitor_auth() {
 
   let clients = state.clients.read().await;
   let h = clients.get(&cid).unwrap();
-  assert!(!h.public);
-  assert!(h.visitor_auth.is_none());
-  assert!(h.public_denied_warned);
-  assert!(h.visitor_auth_denied_warned);
-  assert_eq!(h.allowed_ips, vec!["10.0.0.0/8".to_string()]);
+  assert!(!h.service.public);
+  assert!(h.service.visitor_auth.is_none());
+  assert!(h.service.public_denied_warned);
+  assert!(h.service.visitor_auth_denied_warned);
+  assert_eq!(h.service.allowed_ips, vec!["10.0.0.0/8".to_string()]);
 }
 
 // --- Token pinning ----------------------------------------------------------
@@ -2035,12 +2036,12 @@ async fn a_v8_entry_outranks_the_singular_field_it_disagrees_with() {
   let clients = state.clients.read().await;
   let handle = clients.get(&id).expect("the connection is served");
   assert_eq!(
-    handle.max_concurrent,
+    handle.service.max_concurrent,
     Some(9),
     "the entry's concurrency wins over the singular field"
   );
   assert_eq!(
-    handle.response_timeout,
+    handle.service.response_timeout,
     Some(22),
     "the entry's response timeout wins over the singular field"
   );
@@ -2076,6 +2077,6 @@ async fn without_a_list_the_singular_fields_still_decide() {
 
   let clients = state.clients.read().await;
   let handle = clients.get(&id).expect("the connection is served");
-  assert_eq!(handle.max_concurrent, Some(5));
-  assert_eq!(handle.response_timeout, Some(11));
+  assert_eq!(handle.service.max_concurrent, Some(5));
+  assert_eq!(handle.service.response_timeout, Some(11));
 }

@@ -205,12 +205,12 @@ fn expose_ports_report_who_serves_them_without_leaking_the_key() {
     expose: expose.map(str::to_string),
   };
   let mut by_name = mock_client(Some("a.example.com"), None, None, None);
-  by_name.tunnels = vec![decl("pg_main", None)];
+  by_name.service.tunnels = vec![decl("pg_main", None)];
   let mut by_key = mock_client(Some("b.example.com"), None, None, None);
-  by_key.tunnels = vec![decl("other", Some("shared-secret"))];
+  by_key.service.tunnels = vec![decl("other", Some("shared-secret"))];
   // A draining client serves nothing, whatever it declares.
   let mut draining = mock_client(Some("c.example.com"), None, None, None);
-  draining.tunnels = vec![decl("nothing_declares_this", None)];
+  draining.service.tunnels = vec![decl("nothing_declares_this", None)];
   draining.draining = true;
   {
     let mut clients = state.clients.write().await;

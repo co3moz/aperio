@@ -1355,7 +1355,7 @@ impl ConnCtx {
         // Declared binds must be permitted by the token used to connect.
         if let Some(p) = normalized_path {
           if handle.perms.path_allowed(&p) {
-            handle.declared_path = Some(p);
+            handle.service.declared_path = Some(p);
           } else {
             warn!(
               "Client {} declared path bind {} not permitted by its token; ignored",
@@ -1365,7 +1365,7 @@ impl ConnCtx {
         }
         if let Some(h) = normalized_host {
           if handle.perms.hostname_allowed(&h) {
-            handle.declared_hostname = Some(h);
+            handle.service.declared_hostname = Some(h);
           } else {
             warn!(
               "Client {} declared hostname bind {} not permitted by its token; ignored",
@@ -1392,28 +1392,28 @@ impl ConnCtx {
               );
             }
           }
-          handle.declared_hostnames = admitted;
+          handle.service.declared_hostnames = admitted;
         }
         // Create the concurrency limiter on the first Ping that
         // announces a limit; the limit is fixed for the connection.
-        if handle.inflight_limiter.is_none()
+        if handle.service.inflight_limiter.is_none()
           && let Some(n) = max_concurrent
           && n > 0
         {
-          handle.max_concurrent = Some(n);
+          handle.service.max_concurrent = Some(n);
           // Clamp to the semaphore's permit ceiling: a client
           // announcing an absurd limit must not panic Semaphore::new
           // (its max is below u32::MAX on 32-bit targets).
           let permits = (n as usize).min(Semaphore::MAX_PERMITS);
-          handle.inflight_limiter = Some(Arc::new(Semaphore::new(permits)));
+          handle.service.inflight_limiter = Some(Arc::new(Semaphore::new(permits)));
           info!(
             "Client {} announced concurrency limit: {}, excess requests will be queued",
             client_id, n
           );
         }
-        handle.tcp_enabled = tcp;
-        if handle.cache != cache {
-          handle.cache = cache;
+        handle.service.tcp_enabled = tcp;
+        if handle.service.cache != cache {
+          handle.service.cache = cache;
           if cache {
             info!(
               "Client {} opted into the server-side response cache",
@@ -1425,15 +1425,15 @@ impl ConnCtx {
         // off, so the opt-in silently does nothing, warn once so the
         // operator can enable APERIO_CACHE (or the owner can drop the
         // flag). Surfaced in the dashboard as a badge too.
-        if cache && !state.config().cache_enabled && !handle.cache_ignored_warned {
-          handle.cache_ignored_warned = true;
+        if cache && !state.config().cache_enabled && !handle.service.cache_ignored_warned {
+          handle.service.cache_ignored_warned = true;
           warn!(
             "Client {} requested response caching (cache: true) but the server cache is disabled (APERIO_CACHE off); the opt-in is ignored",
             client_id
           );
         }
-        if handle.max_request_body != max_request_body {
-          handle.max_request_body = max_request_body;
+        if handle.service.max_request_body != max_request_body {
+          handle.service.max_request_body = max_request_body;
           if let Some(limit) = max_request_body {
             info!(
               "Client {} declared a request body cap of {} bytes; bigger uploads are rejected with 413 before dispatch",
@@ -1441,8 +1441,8 @@ impl ConnCtx {
             );
           }
         }
-        if handle.response_timeout != response_timeout {
-          handle.response_timeout = response_timeout;
+        if handle.service.response_timeout != response_timeout {
+          handle.service.response_timeout = response_timeout;
           if let Some(secs) = response_timeout {
             info!(
               "Client {} declared a per-service response timeout of {}s (overrides the global gateway response timeout)",
@@ -1455,22 +1455,22 @@ impl ConnCtx {
         let denied = denied
           .filter(|u| u.starts_with("http://") || u.starts_with("https://"))
           .filter(|u| url::Url::parse(u).is_ok());
-        if handle.denied != denied {
+        if handle.service.denied != denied {
           if let Some(url) = &denied {
             info!(
               "Client {} declares a denied-visitor redirect: {}",
               client_id, url
             );
           }
-          handle.denied = denied;
+          handle.service.denied = denied;
         }
         // Parallel-connection count and the client's own record of
         // what it resolved differently: display-only, for the
         // dashboard's per-connection config view.
-        handle.connections = connections;
-        handle.connections_min = connections_min;
-        handle.connections_max = connections_max;
-        handle.capture = !no_capture;
+        handle.service.connections = connections;
+        handle.service.connections_min = connections_min;
+        handle.service.connections_max = connections_max;
+        handle.service.capture = !no_capture;
         // The declared id is `<base>-<service>` for the first
         // connection and `<base>-<service>-c<N>` for the rest, so it
         // names both the service and this connection's place in its
@@ -1484,18 +1484,18 @@ impl ConnCtx {
           handle.instance_group.clone(),
           handle.perms.connection_ceiling(server_max_connections),
         ));
-        if handle.config_notes != config_notes {
-          handle.config_notes = config_notes;
+        if handle.service.config_notes != config_notes {
+          handle.service.config_notes = config_notes;
         }
         // Sanitized on arrival rather than on the way out: a series, once
         // scraped, is in the metrics backend whatever the server does later.
         let metrics_labels = crate::metrics_labels::sanitize(&metrics_labels);
-        if handle.metrics_labels != metrics_labels {
-          handle.metrics_labels = metrics_labels;
+        if handle.service.metrics_labels != metrics_labels {
+          handle.service.metrics_labels = metrics_labels;
         }
         handle.drain_secs = drain_secs;
-        if handle.webhook_inbox != webhook_inbox {
-          handle.webhook_inbox = webhook_inbox;
+        if handle.service.webhook_inbox != webhook_inbox {
+          handle.service.webhook_inbox = webhook_inbox;
           if webhook_inbox {
             info!(
               "Client {} opted into the webhook inbox: inbound POSTs are persisted for re-firing",
@@ -1503,8 +1503,8 @@ impl ConnCtx {
             );
           }
         }
-        if handle.resilience != resilience {
-          handle.resilience = resilience;
+        if handle.service.resilience != resilience {
+          handle.service.resilience = resilience;
           if resilience {
             info!(
               "Client {} asked for serve-stale resilience: cached responses outlive its disconnects",
@@ -1512,17 +1512,17 @@ impl ConnCtx {
             );
           }
         }
-        if handle.tunnels != tunnels {
+        if handle.service.tunnels != tunnels {
           info!(
             "Client {} declares {} bindable tunnel(s)",
             client_id,
             tunnels.len()
           );
-          handle.tunnels = tunnels;
+          handle.service.tunnels = tunnels;
         }
         // Log backend health transitions reported by the client's
         // own probe; the eligibility filter honours the flag.
-        handle.backend_probed = backend_probed;
+        handle.service.backend_probed = backend_probed;
         // Self-reported client health. Stored as sent, including absences: a
         // client that stops reporting a figure (an older build, or a platform
         // where it cannot be read) should show nothing rather than the last
@@ -1532,8 +1532,8 @@ impl ConnCtx {
         handle.rtt_ms = rtt_ms;
         handle.jitter_ms = jitter_ms;
         handle.reconnects = reconnects;
-        if handle.backend_healthy != backend_healthy {
-          handle.backend_healthy = backend_healthy;
+        if handle.service.backend_healthy != backend_healthy {
+          handle.service.backend_healthy = backend_healthy;
           if backend_healthy {
             info!(
               "Client {} reports its backend is healthy again; back in routing",
@@ -1546,12 +1546,12 @@ impl ConnCtx {
             );
           }
         }
-        if handle.priority != priority {
+        if handle.service.priority != priority {
           info!(
             "Client {} announced load-balancing priority {}",
             client_id, priority
           );
-          handle.priority = priority;
+          handle.service.priority = priority;
         }
         // The self-reported instance ID is remembered (first value
         // wins) so failover `wait` mode can recognize this client
@@ -1561,7 +1561,11 @@ impl ConnCtx {
         }
         // Announced link capacity feeds the writer task's shaper.
         let announced_bw = bandwidth_bps.unwrap_or(0);
-        if handle.bandwidth_bps.swap(announced_bw, Ordering::Relaxed) != announced_bw
+        if handle
+          .service
+          .bandwidth_bps
+          .swap(announced_bw, Ordering::Relaxed)
+          != announced_bw
           && announced_bw > 0
         {
           info!(
@@ -1573,21 +1577,21 @@ impl ConnCtx {
           handle.client_version = Some(v);
         }
         if service.is_some() {
-          handle.service_name = service;
-          handle.service_custom_name = service_custom_name;
+          handle.service.service_name = service;
+          handle.service.service_custom_name = service_custom_name;
         }
         // Public declaration: honored only when the token permits
         // publishing public services.
         let effective_public = public && handle.perms.allow_public;
-        if public && !handle.perms.allow_public && !handle.public_denied_warned {
-          handle.public_denied_warned = true;
+        if public && !handle.perms.allow_public && !handle.service.public_denied_warned {
+          handle.service.public_denied_warned = true;
           warn!(
             "Client {} declared itself public but its token does not permit publishing public services; keeping the visitor auth gate",
             client_id
           );
         }
-        if handle.public != effective_public {
-          handle.public = effective_public;
+        if handle.service.public != effective_public {
+          handle.service.public = effective_public;
           if effective_public {
             info!(
               "Client {} serves public traffic: the visitor auth gate is skipped for its routes",
@@ -1606,8 +1610,8 @@ impl ConnCtx {
           .map(str::to_string);
         let effective_auth = match requested_auth {
           Some(_) if !handle.perms.allow_public => {
-            if !handle.visitor_auth_denied_warned {
-              handle.visitor_auth_denied_warned = true;
+            if !handle.service.visitor_auth_denied_warned {
+              handle.service.visitor_auth_denied_warned = true;
               warn!(
                 "Client {} declared a visitor password but its token does not permit controlling the visitor gate; ignoring it",
                 client_id
@@ -1616,8 +1620,8 @@ impl ConnCtx {
             None
           }
           Some(ref creds) if !crate::routing::valid_visitor_creds(creds) => {
-            if !handle.visitor_auth_denied_warned {
-              handle.visitor_auth_denied_warned = true;
+            if !handle.service.visitor_auth_denied_warned {
+              handle.service.visitor_auth_denied_warned = true;
               warn!(
                 "Client {} declared an invalid visitor password (expected user:password); ignoring it",
                 client_id
@@ -1640,8 +1644,8 @@ impl ConnCtx {
             // serving this route at all; a client that sent one anyway is
             // reading an announcement it should have refused on, and the
             // reason belongs in the operator's log either way.
-            if !handle.visitor_auth_denied_warned {
-              handle.visitor_auth_denied_warned = true;
+            if !handle.service.visitor_auth_denied_warned {
+              handle.service.visitor_auth_denied_warned = true;
               warn!(
                 "Client {} declared a visitor-auth policy but its token does not permit controlling the visitor gate; ignoring it",
                 client_id
@@ -1656,8 +1660,8 @@ impl ConnCtx {
             })
             .cloned()
             .collect();
-          if usable.len() != specs.len() && !handle.visitor_auth_denied_warned {
-            handle.visitor_auth_denied_warned = true;
+          if usable.len() != specs.len() && !handle.service.visitor_auth_denied_warned {
+            handle.service.visitor_auth_denied_warned = true;
             warn!(
               "Client {} declared a visitor-auth method this server does not accept from a client; ignoring it",
               client_id
@@ -1675,7 +1679,7 @@ impl ConnCtx {
             })
             .filter(|p| p.gates() || p.admits_everyone())
         });
-        if handle.visitor_auth_policy != declared_policy {
+        if handle.service.visitor_auth_policy != declared_policy {
           if let Some(ref p) = declared_policy {
             info!(
               "Client {} gates its service with method(s): {}",
@@ -1683,11 +1687,11 @@ impl ConnCtx {
               p.method_names().join(", ")
             );
           }
-          handle.visitor_auth_policy = declared_policy;
+          handle.service.visitor_auth_policy = declared_policy;
         }
-        if handle.visitor_auth != effective_auth {
+        if handle.service.visitor_auth != effective_auth {
           let now_set = effective_auth.is_some();
-          handle.visitor_auth = effective_auth;
+          handle.service.visitor_auth = effective_auth;
           if now_set {
             info!(
               "Client {} gates its service behind a client-set visitor login",
@@ -1701,14 +1705,14 @@ impl ConnCtx {
         // nothing in the file says so: it is open because nothing closed it.
         // Under `default_access: deny` this is not a warning but the stated
         // policy, and the route is simply refused (planned_features #108).
-        if !handle.ungated_warned
-          && handle.visitor_auth.is_none()
-          && handle.visitor_auth_policy.is_none()
-          && !handle.public
+        if !handle.service.ungated_warned
+          && handle.service.visitor_auth.is_none()
+          && handle.service.visitor_auth_policy.is_none()
+          && !handle.service.public
           && !state.config().visitor_auth.gates()
           && state.oidc.is_none()
         {
-          handle.ungated_warned = true;
+          handle.service.ungated_warned = true;
           if state.config().default_access == crate::settings::DefaultAccess::Deny {
             // The one message that turns "the site went dark after we
             // upgraded" from an afternoon into a minute. It fires where the
@@ -1736,21 +1740,21 @@ impl ConnCtx {
           .collect();
         let before = effective_ips.len();
         effective_ips.retain(|e| crate::auth::valid_ip_entry(e));
-        if effective_ips.len() != before && !handle.allowed_ips_invalid_warned {
-          handle.allowed_ips_invalid_warned = true;
+        if effective_ips.len() != before && !handle.service.allowed_ips_invalid_warned {
+          handle.service.allowed_ips_invalid_warned = true;
           warn!(
             "Client {} declared allowed_ips with invalid entries; dropping them",
             client_id
           );
         }
-        if handle.allowed_ips != effective_ips {
+        if handle.service.allowed_ips != effective_ips {
           if !effective_ips.is_empty() {
             info!(
               "Client {} restricts visitors to {:?}",
               client_id, effective_ips
             );
           }
-          handle.allowed_ips = effective_ips;
+          handle.service.allowed_ips = effective_ips;
         }
         // Warn once per change, not on every heartbeat.
         if protocol.is_some() && handle.client_protocol != protocol {
@@ -1906,8 +1910,8 @@ impl ConnCtx {
               let mut clients = state.clients.write().await;
               match clients.get_mut(client_id) {
                 Some(handle) => {
-                  let already = handle.scaling_invalid_warned;
-                  handle.scaling_invalid_warned = true;
+                  let already = handle.service.scaling_invalid_warned;
+                  handle.service.scaling_invalid_warned = true;
                   already
                 }
                 None => true,
@@ -2515,65 +2519,67 @@ pub(crate) async fn handle_socket(
         disconnect: disconnect.clone(),
         connected_at: Instant::now(),
         client_ip: client_ip.clone(),
-        request_count: client_req_count.clone(),
-        declared_path: None,
-        assigned_path: perms.granted_path(),
-        declared_hostname: None,
-        declared_hostnames: Vec::new(),
-        assigned_hostnames,
-        random_hostname: random_hostname.clone(),
-        override_path_bind: None,
-        override_hostname_binds: Vec::new(),
-        capture: true,
-        connections: None,
-        connections_min: None,
-        connections_max: None,
         declared_client_id: None,
-        config_notes: Vec::new(),
-        metrics_labels: Vec::new(),
         drain_secs: None,
         last_ping_at: None,
         perms: perms.clone(),
-        max_concurrent: None,
-        inflight_limiter: None,
         draining: false,
-        admin_enabled: true,
-        tcp_enabled: false,
         client_version: None,
         client_protocol: None,
-        backend_healthy: true,
-        backend_probed: true,
         cpu_percent: None,
         rss_bytes: None,
         rtt_ms: None,
         jitter_ms: None,
         reconnects: None,
-        priority: 0,
         reported_instance_id: None,
         instance_group: instance_group.clone(),
         subscriptions: Vec::new(),
-        bandwidth_bps: bandwidth_bps.clone(),
-        service_name: None,
-        service_custom_name: None,
-        public: false,
-        public_denied_warned: false,
-        visitor_auth: None,
-        visitor_auth_policy: None,
-        visitor_auth_denied_warned: false,
-        ungated_warned: false,
-        allowed_ips: Vec::new(),
-        allowed_ips_invalid_warned: false,
-        scaling_invalid_warned: false,
-        tunnels: Vec::new(),
-        cache: false,
-        cache_ignored_warned: false,
-        resilience: false,
-        max_request_body: None,
-        response_timeout: None,
-        webhook_inbox: false,
-        denied: None,
-        recent_failures: VecDeque::new(),
-        ejected_until: None,
+        service: crate::state::ServiceState {
+          request_count: client_req_count.clone(),
+          declared_path: None,
+          assigned_path: perms.granted_path(),
+          declared_hostname: None,
+          declared_hostnames: Vec::new(),
+          assigned_hostnames,
+          random_hostname: random_hostname.clone(),
+          override_path_bind: None,
+          override_hostname_binds: Vec::new(),
+          capture: true,
+          connections: None,
+          connections_min: None,
+          connections_max: None,
+          config_notes: Vec::new(),
+          metrics_labels: Vec::new(),
+          max_concurrent: None,
+          inflight_limiter: None,
+          admin_enabled: true,
+          tcp_enabled: false,
+          backend_healthy: true,
+          backend_probed: true,
+          priority: 0,
+          bandwidth_bps: bandwidth_bps.clone(),
+          service_name: None,
+          service_custom_name: None,
+          public: false,
+          public_denied_warned: false,
+          visitor_auth: None,
+          visitor_auth_policy: None,
+          visitor_auth_denied_warned: false,
+          ungated_warned: false,
+          allowed_ips: Vec::new(),
+          allowed_ips_invalid_warned: false,
+          scaling_invalid_warned: false,
+          tunnels: Vec::new(),
+          cache: false,
+          cache_ignored_warned: false,
+          resilience: false,
+          max_request_body: None,
+          response_timeout: None,
+          webhook_inbox: false,
+          denied: None,
+          recent_failures: VecDeque::new(),
+          ejected_until: None,
+        },
       },
     );
     drop(clients);

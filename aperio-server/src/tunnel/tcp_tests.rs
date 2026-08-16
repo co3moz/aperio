@@ -212,7 +212,7 @@ async fn tcp_handler_token_mismatch() {
   let caller = make_token(&state).await;
   seed_client(&state, "c1", |c| {
     c.perms = dynamic_perms("owner-token");
-    c.tunnels = vec![tcp_tunnel("127.0.0.1:9")];
+    c.service.tunnels = vec![tcp_tunnel("127.0.0.1:9")];
   })
   .await;
   let url = start_tunnel_server(state).await;
@@ -229,7 +229,7 @@ async fn tcp_handler_client_unavailable() {
   let state = Arc::new(test_state());
   seed_client(&state, "c1", |c| {
     c.draining = true;
-    c.tunnels = vec![tcp_tunnel("127.0.0.1:9")];
+    c.service.tunnels = vec![tcp_tunnel("127.0.0.1:9")];
   })
   .await;
   let url = start_tunnel_server(state).await;
@@ -258,7 +258,7 @@ async fn tcp_handler_tunnel_not_declared() {
 async fn tcp_handler_declared_tunnel_success() {
   let state = Arc::new(test_state());
   seed_client(&state, "c1", |c| {
-    c.tunnels = vec![tcp_tunnel("127.0.0.1:9")];
+    c.service.tunnels = vec![tcp_tunnel("127.0.0.1:9")];
   })
   .await;
   let url = start_tunnel_server(state).await;
@@ -282,7 +282,7 @@ async fn tcp_handler_legacy_no_capable_client() {
 async fn tcp_handler_legacy_success() {
   let state = Arc::new(test_state());
   seed_client(&state, "c1", |c| {
-    c.tcp_enabled = true;
+    c.service.tcp_enabled = true;
   })
   .await;
   let url = start_tunnel_server(state).await;
@@ -305,7 +305,7 @@ async fn tcp_handler_legacy_will_not_reach_another_organizations_client() {
     .unwrap()
     .id;
   seed_client(&state, "c1", |c| {
-    c.tcp_enabled = true;
+    c.service.tcp_enabled = true;
     c.perms.org_id = Some(acme);
   })
   .await;
@@ -365,7 +365,7 @@ async fn udp_handler_token_mismatch() {
   let caller = make_token(&state).await;
   seed_client(&state, "c1", |c| {
     c.perms = dynamic_perms("owner-token");
-    c.tunnels = vec![udp_tunnel("127.0.0.1:9")];
+    c.service.tunnels = vec![udp_tunnel("127.0.0.1:9")];
   })
   .await;
   let url = start_tunnel_server(state).await;
@@ -381,8 +381,8 @@ async fn udp_handler_token_mismatch() {
 async fn udp_handler_client_unavailable() {
   let state = Arc::new(test_state());
   seed_client(&state, "c1", |c| {
-    c.admin_enabled = false;
-    c.tunnels = vec![udp_tunnel("127.0.0.1:9")];
+    c.service.admin_enabled = false;
+    c.service.tunnels = vec![udp_tunnel("127.0.0.1:9")];
   })
   .await;
   let url = start_tunnel_server(state).await;
@@ -398,7 +398,7 @@ async fn udp_handler_client_unavailable() {
 async fn udp_handler_tunnel_not_declared() {
   let state = Arc::new(test_state());
   seed_client(&state, "c1", |c| {
-    c.tunnels = vec![tcp_tunnel("127.0.0.1:9")]; // tcp, not udp
+    c.service.tunnels = vec![tcp_tunnel("127.0.0.1:9")]; // tcp, not udp
   })
   .await;
   let url = start_tunnel_server(state).await;
@@ -414,7 +414,7 @@ async fn udp_handler_tunnel_not_declared() {
 async fn udp_handler_success() {
   let state = Arc::new(test_state());
   seed_client(&state, "c1", |c| {
-    c.tunnels = vec![udp_tunnel("127.0.0.1:9")];
+    c.service.tunnels = vec![udp_tunnel("127.0.0.1:9")];
   })
   .await;
   let url = start_tunnel_server(state).await;
@@ -494,7 +494,7 @@ async fn tunnels_list_token_mismatch() {
 async fn tunnels_list_success() {
   let state = Arc::new(test_state());
   seed_client(&state, "c1", |c| {
-    c.tunnels = vec![tcp_tunnel("127.0.0.1:9"), udp_tunnel("127.0.0.1:53")];
+    c.service.tunnels = vec![tcp_tunnel("127.0.0.1:9"), udp_tunnel("127.0.0.1:53")];
   })
   .await;
   let resp = tunnels_list_handler(
@@ -570,7 +570,7 @@ async fn tcp_relay_full_roundtrip() {
   {
     let mut c = mock_client(None, None, None, None);
     c.tx = ctx;
-    c.tcp_enabled = true;
+    c.service.tcp_enabled = true;
     state.clients.write().await.insert("c1".into(), c);
   }
   let url = start_tunnel_server(state.clone()).await;
@@ -615,7 +615,7 @@ async fn tcp_relay_client_channel_closed_aborts() {
   // mock_client drops its receiver, so the first send (TcpOpen) fails and the
   // relay tears down immediately.
   seed_client(&state, "c1", |c| {
-    c.tcp_enabled = true;
+    c.service.tcp_enabled = true;
   })
   .await;
   let url = start_tunnel_server(state.clone()).await;
@@ -630,7 +630,7 @@ async fn udp_relay_full_roundtrip() {
   {
     let mut c = mock_client(None, None, None, None);
     c.tx = ctx;
-    c.tunnels = vec![udp_tunnel("127.0.0.1:9")];
+    c.service.tunnels = vec![udp_tunnel("127.0.0.1:9")];
     state.clients.write().await.insert("c1".into(), c);
   }
   let url = start_tunnel_server(state.clone()).await;
@@ -667,7 +667,7 @@ async fn udp_relay_full_roundtrip() {
 async fn udp_relay_client_channel_closed_aborts() {
   let state = Arc::new(test_state());
   seed_client(&state, "c1", |c| {
-    c.tunnels = vec![udp_tunnel("127.0.0.1:9")];
+    c.service.tunnels = vec![udp_tunnel("127.0.0.1:9")];
   })
   .await;
   let url = start_tunnel_server(state.clone()).await;

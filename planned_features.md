@@ -90,17 +90,35 @@ readable without scrolling past what is already done.
   and the config notes. The pool matters most, since leaving it out would
   have buried the #48 question below rather than posing it.
 
-  **And the seam is named.** `ClientHandle`'s sixty-three fields are
-  partitioned in three, beside the struct: what the wire declares per service
-  (mapped field by field, eight of them not name-for-name), what the server
-  *derives* per service, and what belongs to the socket. The derived half is
-  the one to read first when doing the split below, because it is invisible
-  from the wire: the token-granted binds, the dashboard's overrides, the
-  failover bookkeeping, and the warn-once flags. A warn-once flag left on the
-  connection silences the second service's warning because the first already
-  warned, which is a failure that never announces itself. Tests hold the
-  partition exact, so a field cannot be added to the handle without being
-  placed on one side of it.
+  **And the seam is named, then cut.** `ClientHandle`'s sixty-three fields
+  were partitioned in three, beside the struct: what the wire declares per
+  service (mapped field by field, eight of them not name-for-name), what the
+  server *derives* per service, and what belongs to the socket. The derived
+  half is the one to read first, because it is invisible from the wire: the
+  token-granted binds, the dashboard's overrides, the failover bookkeeping,
+  and the warn-once flags. A warn-once flag left on the connection silences
+  the second service's warning because the first already warned, which is a
+  failure that never announces itself.
+
+  The forty-four service-scoped fields then moved out into a `ServiceState`
+  struct, reached through `ClientHandle::service`, so the compiler enforces
+  what the lists describe. Four hundred and fifty read sites and seven
+  constructions followed, done from the compiler's own diagnostics rather
+  than by pattern, so nothing was touched that rustc had not already pointed
+  at. The suite reports the same number of passing tests before and after,
+  which is the whole claim being made: nothing changed but the shape.
+
+  The lists stayed, because a type says a field is *somewhere* and cannot say
+  it is in the *right* place, and a field in the wrong struct compiles. They
+  now check both structs against the classification.
+
+  **What is left of the split.** `clients` is still one map keyed by
+  connection id, and `service` is still one `ServiceState` rather than many.
+  Making it many is the next step, and the pieces that follow from it are the
+  ones the entry below already names: routing and load balancing keyed on the
+  pair, the elastic pool's per-service growth signal, a pacer per service so
+  a large response cannot queue ahead of a small API on the shared writer,
+  and the dashboard's client table.
 
   **The obligation that creates, for the client half.** The server's refusal
   is safe but silent, matching the other refusals in `on_ping`: a `warn!` and

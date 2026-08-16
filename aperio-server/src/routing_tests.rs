@@ -13,69 +13,71 @@ fn base_handle() -> ClientHandle {
   // receiver can be dropped immediately.
   let (tx, _rx) = mpsc::channel::<Message>(1);
   ClientHandle {
-    service_custom_name: None,
     tx,
     disconnect: std::sync::Arc::new(tokio::sync::Notify::new()),
     connected_at: std::time::Instant::now(),
     client_ip: "127.0.0.1".to_string(),
-    request_count: Arc::new(AtomicU64::new(0)),
-    declared_path: None,
-    assigned_path: None,
-    declared_hostname: None,
-    declared_hostnames: Vec::new(),
-    assigned_hostnames: Vec::new(),
-    random_hostname: None,
-    override_path_bind: None,
-    override_hostname_binds: Vec::new(),
-    capture: true,
-    connections: None,
-    connections_min: None,
-    connections_max: None,
     declared_client_id: None,
-    config_notes: Vec::new(),
-    metrics_labels: Vec::new(),
     drain_secs: None,
     last_ping_at: None,
     perms: ClientPerms::master(),
-    max_concurrent: None,
-    inflight_limiter: None,
     draining: false,
-    admin_enabled: true,
-    tcp_enabled: false,
     client_version: None,
     client_protocol: None,
-    backend_healthy: true,
-    backend_probed: true,
     cpu_percent: None,
     rss_bytes: None,
     rtt_ms: None,
     jitter_ms: None,
     reconnects: None,
-    priority: 0,
     reported_instance_id: None,
     instance_group: None,
     subscriptions: Vec::new(),
-    bandwidth_bps: Arc::new(AtomicU64::new(0)),
-    service_name: None,
-    public: false,
-    public_denied_warned: false,
-    visitor_auth: None,
-    visitor_auth_policy: None,
-    visitor_auth_denied_warned: false,
-    ungated_warned: false,
-    allowed_ips: Vec::new(),
-    allowed_ips_invalid_warned: false,
-    scaling_invalid_warned: false,
-    tunnels: Vec::new(),
-    cache: false,
-    cache_ignored_warned: false,
-    resilience: false,
-    max_request_body: None,
-    response_timeout: None,
-    webhook_inbox: false,
-    denied: None,
-    recent_failures: VecDeque::new(),
-    ejected_until: None,
+    service: crate::state::ServiceState {
+      service_custom_name: None,
+      request_count: Arc::new(AtomicU64::new(0)),
+      declared_path: None,
+      assigned_path: None,
+      declared_hostname: None,
+      declared_hostnames: Vec::new(),
+      assigned_hostnames: Vec::new(),
+      random_hostname: None,
+      override_path_bind: None,
+      override_hostname_binds: Vec::new(),
+      capture: true,
+      connections: None,
+      connections_min: None,
+      connections_max: None,
+      config_notes: Vec::new(),
+      metrics_labels: Vec::new(),
+      max_concurrent: None,
+      inflight_limiter: None,
+      admin_enabled: true,
+      tcp_enabled: false,
+      backend_healthy: true,
+      backend_probed: true,
+      priority: 0,
+      bandwidth_bps: Arc::new(AtomicU64::new(0)),
+      service_name: None,
+      public: false,
+      public_denied_warned: false,
+      visitor_auth: None,
+      visitor_auth_policy: None,
+      visitor_auth_denied_warned: false,
+      ungated_warned: false,
+      allowed_ips: Vec::new(),
+      allowed_ips_invalid_warned: false,
+      scaling_invalid_warned: false,
+      tunnels: Vec::new(),
+      cache: false,
+      cache_ignored_warned: false,
+      resilience: false,
+      max_request_body: None,
+      response_timeout: None,
+      webhook_inbox: false,
+      denied: None,
+      recent_failures: VecDeque::new(),
+      ejected_until: None,
+    },
   }
 }
 
@@ -440,7 +442,7 @@ fn trusted_proxies_parse_and_reject() {
 #[test]
 fn pool_prefers_host_matched_clients() {
   let mut bound = base_handle();
-  bound.assigned_hostnames = vec!["a.example.com".to_string()];
+  bound.service.assigned_hostnames = vec!["a.example.com".to_string()];
   let unbound = base_handle();
 
   let clients = pool_of(vec![("bound", bound), ("unbound", unbound)]);
@@ -454,7 +456,7 @@ fn pool_prefers_host_matched_clients() {
 #[test]
 fn pool_falls_back_to_unbound_when_not_strict() {
   let mut bound = base_handle();
-  bound.assigned_hostnames = vec!["a.example.com".to_string()];
+  bound.service.assigned_hostnames = vec!["a.example.com".to_string()];
   let unbound = base_handle();
 
   let clients = pool_of(vec![("bound", bound), ("unbound", unbound)]);
@@ -471,7 +473,7 @@ fn ejected_client_removed_but_pool_fails_open_when_all_ejected() {
 
   // One healthy, one ejected → only the healthy client is routed.
   let mut ejected = base_handle();
-  ejected.ejected_until = Some(future);
+  ejected.service.ejected_until = Some(future);
   let healthy = base_handle();
   let clients = pool_of(vec![("ejected", ejected), ("healthy", healthy)]);
   let (pool, _) = select_client_pool(&clients, "/", None, false, HEALTHY).unwrap();
@@ -479,9 +481,9 @@ fn ejected_client_removed_but_pool_fails_open_when_all_ejected() {
 
   // Every candidate ejected → fail open (better a struggling client than none).
   let mut a = base_handle();
-  a.ejected_until = Some(future);
+  a.service.ejected_until = Some(future);
   let mut b = base_handle();
-  b.ejected_until = Some(future);
+  b.service.ejected_until = Some(future);
   let all = pool_of(vec![("a", a), ("b", b)]);
   let (pool, _) = select_client_pool(&all, "/", None, false, HEALTHY).unwrap();
   assert_eq!(pool.len(), 2);
@@ -516,9 +518,9 @@ fn pool_strict_mode_rejects_unbound() {
 #[test]
 fn pool_longest_path_bind_wins() {
   let mut api = base_handle();
-  api.declared_path = Some("/api".to_string());
+  api.service.declared_path = Some("/api".to_string());
   let mut apiv1 = base_handle();
-  apiv1.declared_path = Some("/api/v1".to_string());
+  apiv1.service.declared_path = Some("/api/v1".to_string());
   let unbound = base_handle();
 
   let clients = pool_of(vec![("api", api), ("apiv1", apiv1), ("unbound", unbound)]);
@@ -533,9 +535,9 @@ fn pool_ineligible_clients_excluded() {
   let mut draining = base_handle();
   draining.draining = true;
   let mut disabled = base_handle();
-  disabled.admin_enabled = false;
+  disabled.service.admin_enabled = false;
   let mut unhealthy_backend = base_handle();
-  unhealthy_backend.backend_healthy = false;
+  unhealthy_backend.service.backend_healthy = false;
 
   let clients = pool_of(vec![
     ("draining", draining),
@@ -572,9 +574,9 @@ fn lb_round_robin_and_sticky_keep_pool() {
 #[test]
 fn lb_primary_standby_keeps_lowest_priority() {
   let mut primary = base_handle();
-  primary.priority = 0;
+  primary.service.priority = 0;
   let mut standby = base_handle();
-  standby.priority = 5;
+  standby.service.priority = 5;
   let clients = pool_of(vec![("primary", primary), ("standby", standby)]);
 
   let pool = vec!["primary".to_string(), "standby".to_string()];
@@ -612,36 +614,37 @@ fn affinity_matches_instance_id_then_connection_id() {
 #[test]
 fn effective_path_bind_precedence() {
   let mut h = base_handle();
-  h.assigned_path = Some("/granted".to_string());
+  h.service.assigned_path = Some("/granted".to_string());
   assert_eq!(h.effective_path_bind(), Some(&"/granted".to_string()));
 
   // Declared wins over assigned.
-  h.declared_path = Some("/declared".to_string());
+  h.service.declared_path = Some("/declared".to_string());
   assert_eq!(h.effective_path_bind(), Some(&"/declared".to_string()));
 
   // Dashboard override wins over everything.
-  h.override_path_bind = Some("/override".to_string());
+  h.service.override_path_bind = Some("/override".to_string());
   assert_eq!(h.effective_path_bind(), Some(&"/override".to_string()));
 }
 
 #[test]
 fn matches_host_uses_override_then_union() {
   let mut h = base_handle();
-  h.assigned_hostnames = vec!["a.example.com".to_string()];
-  h.declared_hostname = Some("b.example.com".to_string());
+  h.service.assigned_hostnames = vec!["a.example.com".to_string()];
+  h.service.declared_hostname = Some("b.example.com".to_string());
   assert!(h.has_hostname_bind());
   assert!(h.matches_host("a.example.com"));
   assert!(h.matches_host("b.example.com"));
   assert!(!h.matches_host("c.example.com"));
 
   // An override replaces the whole set.
-  h.override_hostname_binds = vec!["c.example.com".to_string()];
+  h.service.override_hostname_binds = vec!["c.example.com".to_string()];
   assert!(h.matches_host("c.example.com"));
   assert!(!h.matches_host("a.example.com"));
 
   // Several overridden names all route: an operator retargeting the hostname
   // the client declared can keep the random subdomain alive alongside it.
-  h.override_hostname_binds = vec!["c.example.com".to_string(), "a.example.com".to_string()];
+  h.service.override_hostname_binds =
+    vec!["c.example.com".to_string(), "a.example.com".to_string()];
   assert!(h.matches_host("c.example.com"));
   assert!(h.matches_host("a.example.com"));
   assert!(!h.matches_host("b.example.com"));
@@ -714,7 +717,7 @@ fn test_filter_pool_by_ip_union_semantics() {
   let visitor: IpAddr = "127.0.0.1".parse().unwrap();
 
   let mut restricted = base_handle();
-  restricted.allowed_ips = vec!["203.0.113.7".to_string()];
+  restricted.service.allowed_ips = vec!["203.0.113.7".to_string()];
   let open = base_handle();
   let clients = pool_of(vec![("restricted", restricted), ("open", open)]);
 
@@ -743,13 +746,13 @@ fn test_filter_pool_by_ip_denied_picks_most_primary_redirect() {
   // Two rejecting candidates: the standby declares a redirect, the primary
   // does too, the most-primary (lowest tier) declaring entry wins.
   let mut primary = base_handle();
-  primary.allowed_ips = vec!["203.0.113.7".to_string()];
-  primary.priority = 0;
-  primary.denied = Some("https://primary.example.com/denied".to_string());
+  primary.service.allowed_ips = vec!["203.0.113.7".to_string()];
+  primary.service.priority = 0;
+  primary.service.denied = Some("https://primary.example.com/denied".to_string());
   let mut standby = base_handle();
-  standby.allowed_ips = vec!["203.0.113.8".to_string()];
-  standby.priority = 5;
-  standby.denied = Some("https://standby.example.com/denied".to_string());
+  standby.service.allowed_ips = vec!["203.0.113.8".to_string()];
+  standby.service.priority = 5;
+  standby.service.denied = Some("https://standby.example.com/denied".to_string());
   let clients = pool_of(vec![("p", primary), ("s", standby)]);
 
   match filter_pool_by_ip(
@@ -771,7 +774,7 @@ fn test_filter_pool_by_ip_denied_picks_most_primary_redirect() {
 fn test_filter_pool_by_ip_denied_without_redirect_is_stealth() {
   let visitor: IpAddr = "127.0.0.1".parse().unwrap();
   let mut restricted = base_handle();
-  restricted.allowed_ips = vec!["203.0.113.7".to_string()];
+  restricted.service.allowed_ips = vec!["203.0.113.7".to_string()];
   let clients = pool_of(vec![("r", restricted)]);
 
   match filter_pool_by_ip(vec!["r".to_string()], &clients, Some(visitor)) {
@@ -872,8 +875,8 @@ async fn a_selection_carries_both_names_a_client_can_be_shown_under() {
   // these off the selection rather than taking the clients lock again.
   let state = std::sync::Arc::new(crate::test_support::test_state());
   let mut c = crate::test_support::mock_client(Some("app.example.com"), None, None, None);
-  c.service_name = Some("web".to_string());
-  c.service_custom_name = Some("web (blue)".to_string());
+  c.service.service_name = Some("web".to_string());
+  c.service.service_custom_name = Some("web (blue)".to_string());
   state.clients.write().await.insert("a".to_string(), c);
 
   match pick_proxy_client(&state, "/", Some("app.example.com"), None, None, None, None).await {

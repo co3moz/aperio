@@ -197,9 +197,13 @@ pub(crate) async fn inbox_refire_handler(
         let idx = rr_map.entry(group_key).or_insert(0);
         let chosen_id = &pool[*idx % pool.len()];
         *idx = (*idx + 1) % pool.len();
-        clients
-          .get(chosen_id)
-          .map(|c| (chosen_id.clone(), c.tx.clone(), c.request_count.clone()))
+        clients.get(chosen_id).map(|c| {
+          (
+            chosen_id.clone(),
+            c.tx.clone(),
+            c.service.request_count.clone(),
+          )
+        })
       }
     }
   };

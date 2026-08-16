@@ -1021,30 +1021,24 @@ impl RouteTrends {
 
 /// Where each field of a wire `ServiceDecl` lands on this server today.
 ///
-/// `ClientHandle` mixes two scopes that are the same thing only because one
-/// connection currently serves one service. Some of its fields describe the
-/// **connection**: the sender, the disconnect notify, the peer address, the
-/// heartbeat, the link and process telemetry, the token and its permissions.
-/// The rest describe the **service** the connection happens to carry, and
-/// those are the ones that have to become many when `planned_features.md`
-/// #46 splits identity into `(connection, service)`.
+/// The two scopes are now two types, `ClientHandle` for the connection and
+/// `ServiceState` for what it carries, so the compiler enforces the split
+/// that this table used to only describe. What the table still does is the
+/// part a type cannot: say that the division is the *right* one. A field can
+/// sit in the wrong struct and compile perfectly.
 ///
-/// Nothing in the type says which is which, and the knowledge lived only in
-/// `on_ping`, spread across six hundred lines of assignment. This table is
-/// that knowledge written down, keyed by the wire contract rather than by
-/// the handle, because the wire is what defines a service: a field of
-/// `ServiceDecl` is service-scoped by construction, so anything it maps to
-/// is a field that moves in the split. What is absent from the table is the
-/// answer to the other half, the connection-scoped remainder.
+/// It is keyed by the wire contract rather than by either struct, because the
+/// wire is what defines a service: a field of `ServiceDecl` is service-scoped
+/// by construction, so anything it maps to belongs in `ServiceState`.
 ///
-/// `None` means the field does not land on the handle at all. That is not an
+/// `None` means the field does not reach either struct. That is not an
 /// omission: `scaling` arms a record per hostname in the autoscaling store,
-/// and the only trace it leaves here is a warn-once flag.
+/// and the only trace it leaves is a warn-once flag.
 ///
 /// A test holds this to the wire, so a field added to `ServiceDecl` cannot
 /// arrive without somebody saying where it goes.
 #[cfg(test)]
-pub(crate) const SERVICE_DECL_ON_THE_HANDLE: &[(&str, Option<&str>)] = &[
+pub(crate) const SERVICE_DECL_IN_SERVICE_STATE: &[(&str, Option<&str>)] = &[
   ("service", Some("service_name")),
   ("service_custom_name", Some("service_custom_name")),
   ("path_bind", Some("declared_path")),
@@ -1111,6 +1105,9 @@ pub(crate) const SERVICE_SCOPED_DERIVED: &[&str] = &[
 
 /// What genuinely belongs to the connection, and stays one per socket.
 ///
+/// These are `ClientHandle`'s own fields, everything it has besides the
+/// service it carries.
+///
 /// The socket and its liveness, the peer, the token that authenticated it,
 /// the process and link telemetry, the identity the client announces for
 /// itself. #37 is the entry to read before moving any of the telemetry:
@@ -1143,22 +1140,19 @@ pub(crate) const CONNECTION_SCOPED: &[&str] = &[
 /// Handle tracking active WebSocket sender channel and metadata.
 ///
 /// Two scopes live here, and the three lists above partition them: what the
-/// wire declares per service (`SERVICE_DECL_ON_THE_HANDLE`), what the server
+/// wire declares per service (`SERVICE_DECL_IN_SERVICE_STATE`), what the server
 /// derives per service (`SERVICE_SCOPED_DERIVED`), and what belongs to the
 /// connection (`CONNECTION_SCOPED`). The first two become many under #46.
 /// A test holds the partition exact, so a field cannot be added here without
 /// being placed on one side of the seam.
-pub(crate) struct ClientHandle {
-  /// Sender channel to push messages to the client.
-  pub(crate) tx: mpsc::Sender<Message>,
-  /// Notified to force this connection's read loop to end (e.g. when the token
-  /// it connected with is revoked), so the client leaves the routing pool at
-  /// once instead of serving until it next reconnects.
-  pub(crate) disconnect: Arc<Notify>,
-  /// Instant when client connection was established.
-  pub(crate) connected_at: Instant,
-  /// Client remote IP address.
-  pub(crate) client_ip: String,
+/// One service carried by a connection.
+///
+/// Everything here is per service, which is the same as per connection only
+/// while a connection carries one. Splitting it out is what lets #46 make it
+/// many without hunting for which of the handle's fields should follow: the
+/// three lists above are the record of that decision, and this struct is the
+/// decision applied.
+pub(crate) struct ServiceState {
   /// Total request count processed by this specific client connection.
   pub(crate) request_count: Arc<AtomicU64>,
   /// Path prefix the client declared via Ping (from APERIO_PATH),
@@ -1187,19 +1181,12 @@ pub(crate) struct ClientHandle {
   /// the random subdomain the server handed it (or the other way round). Not
   /// persisted: lost when the client reconnects or the server restarts.
   pub(crate) override_hostname_binds: Vec<String>,
-  /// Instant of the last heartbeat Ping received from this client.
-  pub(crate) last_ping_at: Option<Instant>,
-  /// Permissions attached to the token this client authenticated with.
-  pub(crate) perms: ClientPerms,
   /// Announced concurrency limit of the client (from Ping), for display.
   pub(crate) max_concurrent: Option<u32>,
   /// Semaphore enforcing the client's announced concurrency limit. Requests
   /// beyond the limit wait here (bounded by the gateway timeout) instead of
   /// being dispatched, so the server never floods the client's backend.
   pub(crate) inflight_limiter: Option<Arc<Semaphore>>,
-  /// True after the client announced a graceful shutdown: no new requests
-  /// are routed to it while in-flight ones finish.
-  pub(crate) draining: bool,
   /// Dashboard kill switch: false = temporarily excluded from routing even
   /// though the connection and heartbeats remain healthy.
   pub(crate) admin_enabled: bool,
@@ -1217,12 +1204,6 @@ pub(crate) struct ClientHandle {
   /// count beside it is expected to move.
   pub(crate) connections_min: Option<u32>,
   pub(crate) connections_max: Option<u32>,
-  /// The id the client calls this connection, `<base>-<service>` for the first
-  /// of a service and `<base>-<service>-c<N>` for the rest. Not trusted for
-  /// state changes (the server's own connection id is), but it is what names
-  /// the *service* a connection belongs to, which is the unit the
-  /// per-service connection ceiling is about.
-  pub(crate) declared_client_id: Option<String>,
   /// Settings the client resolved to something other than its config asked
   /// for (a bandwidth budget divided across connections, a clamped connection
   /// count, …), announced via Ping. Display-only, surfaced in the dashboard's
@@ -1231,17 +1212,8 @@ pub(crate) struct ClientHandle {
   /// Static Prometheus labels this client announced, already validated and
   /// capped (planned_features #53). Attached to its own metric series only.
   pub(crate) metrics_labels: Vec<(String, String)>,
-  /// Seconds this client says it gives its own in-flight requests when asked
-  /// to stand down. Advisory: it sizes `shutdown_drain: auto`, under the
-  /// operator's cap, and is never trusted on its own.
-  pub(crate) drain_secs: Option<u64>,
   /// True when the client announced a TCP target (experimental TCP tunneling).
   pub(crate) tcp_enabled: bool,
-  /// Client build version announced via Ping (None until the first Ping,
-  /// or for clients predating version reporting).
-  pub(crate) client_version: Option<String>,
-  /// Tunnel protocol version announced via Ping.
-  pub(crate) client_protocol: Option<u32>,
   /// Latest backend health verdict reported by the client's own probe
   /// (APERIO_TARGET_HEALTH). False = excluded from routing while the
   /// tunnel connection itself stays up.
@@ -1249,32 +1221,8 @@ pub(crate) struct ClientHandle {
   /// False only while a configured health check has not completed its first
   /// probe (dashboard shows "checking" instead of "backend down").
   pub(crate) backend_probed: bool,
-  /// What the client reports about itself (planned_features #37): CPU as a
-  /// percentage of one core and resident memory of the client process, then
-  /// round-trip time, jitter and reconnects of this tunnel connection. All
-  /// `None` from a client that does not report them, and the process figures
-  /// are `None` where they cannot be read without guessing.
-  pub(crate) cpu_percent: Option<f64>,
-  pub(crate) rss_bytes: Option<u64>,
-  pub(crate) rtt_ms: Option<u64>,
-  pub(crate) jitter_ms: Option<u64>,
-  pub(crate) reconnects: Option<u32>,
   /// Announced load-balancing priority tier (0 = primary, higher = standby).
   pub(crate) priority: u32,
-  /// Client-process instance ID self-reported via Ping. Unlike the
-  /// server-assigned connection ID it survives reconnects of the same
-  /// process, letting the failover `wait` mode recognize a returning client.
-  pub(crate) reported_instance_id: Option<String>,
-  /// Process-wide instance group id from the `x-aperio-instance` handshake
-  /// header (the client's raw `client_id` base). Shared by every service and
-  /// parallel connection of one client process; used to group connections in
-  /// the dashboard and to share one random hostname across them. `None` for
-  /// clients that do not send the header.
-  pub(crate) instance_group: Option<String>,
-  /// Topic filters this connection has subscribed to. Held per connection
-  /// because that is what the client re-sends after a reconnect, and reduced
-  /// to one delivery per client *process* at publish time.
-  pub(crate) subscriptions: Vec<String>,
   /// Announced downstream link capacity in bytes/second (0 = unlimited).
   /// Shared with the connection's writer task, which paces outgoing frames.
   pub(crate) bandwidth_bps: Arc<AtomicU64>,
@@ -1350,6 +1298,68 @@ pub(crate) struct ClientHandle {
   /// Instant until which this client is ejected from routing after crossing
   /// the failure threshold (None = not ejected). Re-admitted automatically.
   pub(crate) ejected_until: Option<Instant>,
+}
+
+pub(crate) struct ClientHandle {
+  /// Sender channel to push messages to the client.
+  pub(crate) tx: mpsc::Sender<Message>,
+  /// Notified to force this connection's read loop to end (e.g. when the token
+  /// it connected with is revoked), so the client leaves the routing pool at
+  /// once instead of serving until it next reconnects.
+  pub(crate) disconnect: Arc<Notify>,
+  /// Instant when client connection was established.
+  pub(crate) connected_at: Instant,
+  /// Client remote IP address.
+  pub(crate) client_ip: String,
+  /// Instant of the last heartbeat Ping received from this client.
+  pub(crate) last_ping_at: Option<Instant>,
+  /// Permissions attached to the token this client authenticated with.
+  pub(crate) perms: ClientPerms,
+  /// True after the client announced a graceful shutdown: no new requests
+  /// are routed to it while in-flight ones finish.
+  pub(crate) draining: bool,
+  /// The id the client calls this connection, `<base>-<service>` for the first
+  /// of a service and `<base>-<service>-c<N>` for the rest. Not trusted for
+  /// state changes (the server's own connection id is), but it is what names
+  /// the *service* a connection belongs to, which is the unit the
+  /// per-service connection ceiling is about.
+  pub(crate) declared_client_id: Option<String>,
+  /// Seconds this client says it gives its own in-flight requests when asked
+  /// to stand down. Advisory: it sizes `shutdown_drain: auto`, under the
+  /// operator's cap, and is never trusted on its own.
+  pub(crate) drain_secs: Option<u64>,
+  /// Client build version announced via Ping (None until the first Ping,
+  /// or for clients predating version reporting).
+  pub(crate) client_version: Option<String>,
+  /// Tunnel protocol version announced via Ping.
+  pub(crate) client_protocol: Option<u32>,
+  /// What the client reports about itself (planned_features #37): CPU as a
+  /// percentage of one core and resident memory of the client process, then
+  /// round-trip time, jitter and reconnects of this tunnel connection. All
+  /// `None` from a client that does not report them, and the process figures
+  /// are `None` where they cannot be read without guessing.
+  pub(crate) cpu_percent: Option<f64>,
+  pub(crate) rss_bytes: Option<u64>,
+  pub(crate) rtt_ms: Option<u64>,
+  pub(crate) jitter_ms: Option<u64>,
+  pub(crate) reconnects: Option<u32>,
+  /// Client-process instance ID self-reported via Ping. Unlike the
+  /// server-assigned connection ID it survives reconnects of the same
+  /// process, letting the failover `wait` mode recognize a returning client.
+  pub(crate) reported_instance_id: Option<String>,
+  /// Process-wide instance group id from the `x-aperio-instance` handshake
+  /// header (the client's raw `client_id` base). Shared by every service and
+  /// parallel connection of one client process; used to group connections in
+  /// the dashboard and to share one random hostname across them. `None` for
+  /// clients that do not send the header.
+  pub(crate) instance_group: Option<String>,
+  /// Topic filters this connection has subscribed to. Held per connection
+  /// because that is what the client re-sends after a reconnect, and reduced
+  /// to one delivery per client *process* at publish time.
+  pub(crate) subscriptions: Vec<String>,
+  /// The service this connection carries. One today; #46 is the entry that
+  /// makes it many, and the reason the field is not simply inlined back.
+  pub(crate) service: ServiceState,
 }
 
 /// Permissions resolved at connection time from the presented token.
@@ -1463,7 +1473,7 @@ impl ClientPerms {
 impl ClientHandle {
   /// True while this client is passively ejected from routing.
   pub(crate) fn is_ejected(&self, now: Instant) -> bool {
-    self.ejected_until.is_some_and(|t| now < t)
+    self.service.ejected_until.is_some_and(|t| now < t)
   }
 
   /// Records one dispatch failure (5xx / timeout / connection loss). Prunes
@@ -1478,16 +1488,17 @@ impl ClientHandle {
     eject_for: Duration,
   ) -> bool {
     while self
+      .service
       .recent_failures
       .front()
       .is_some_and(|t| now.duration_since(*t) > window)
     {
-      self.recent_failures.pop_front();
+      self.service.recent_failures.pop_front();
     }
-    self.recent_failures.push_back(now);
-    if !self.is_ejected(now) && self.recent_failures.len() as u32 >= threshold {
-      self.ejected_until = Some(now + eject_for);
-      self.recent_failures.clear();
+    self.service.recent_failures.push_back(now);
+    if !self.is_ejected(now) && self.service.recent_failures.len() as u32 >= threshold {
+      self.service.ejected_until = Some(now + eject_for);
+      self.service.recent_failures.clear();
       return true;
     }
     false
@@ -1497,25 +1508,26 @@ impl ClientHandle {
   /// value, which wins over the token-granted value.
   pub(crate) fn effective_path_bind(&self) -> Option<&String> {
     self
+      .service
       .override_path_bind
       .as_ref()
-      .or(self.declared_path.as_ref())
-      .or(self.assigned_path.as_ref())
+      .or(self.service.declared_path.as_ref())
+      .or(self.service.assigned_path.as_ref())
   }
 
   /// Hostnames used for routing. A dashboard override replaces the whole
   /// set; otherwise the union of assigned and declared hostnames applies.
   pub(crate) fn effective_hostnames(&self) -> Vec<&String> {
-    if !self.override_hostname_binds.is_empty() {
-      return self.override_hostname_binds.iter().collect();
+    if !self.service.override_hostname_binds.is_empty() {
+      return self.service.override_hostname_binds.iter().collect();
     }
-    let mut set: Vec<&String> = self.assigned_hostnames.iter().collect();
-    if let Some(d) = &self.declared_hostname
+    let mut set: Vec<&String> = self.service.assigned_hostnames.iter().collect();
+    if let Some(d) = &self.service.declared_hostname
       && !set.contains(&d)
     {
       set.push(d);
     }
-    for d in &self.declared_hostnames {
+    for d in &self.service.declared_hostnames {
       if !set.contains(&d) {
         set.push(d);
       }
@@ -1530,9 +1542,10 @@ impl ClientHandle {
   /// the `name` of its `services:` entry. `None` leaves only the id.
   pub(crate) fn display_name(&self) -> Option<String> {
     self
+      .service
       .service_custom_name
       .clone()
-      .or_else(|| self.service_name.clone())
+      .or_else(|| self.service.service_name.clone())
   }
 
   pub(crate) fn matches_host(&self, host: &str) -> bool {
@@ -2958,9 +2971,10 @@ impl AppState {
       }
       handle.perms.org_hostnames = hostnames.to_vec();
       let serving: Vec<String> = handle
+        .service
         .assigned_hostnames
         .iter()
-        .chain(handle.declared_hostnames.iter())
+        .chain(handle.service.declared_hostnames.iter())
         .cloned()
         .collect();
       if serving

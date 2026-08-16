@@ -618,69 +618,71 @@ async fn test_proxy_handler_success() {
   state.clients.write().await.insert(
     "mock-client-1".to_string(),
     ClientHandle {
-      metrics_labels: Vec::new(),
       drain_secs: None,
-      service_custom_name: None,
       tx: tx_write,
       disconnect: std::sync::Arc::new(tokio::sync::Notify::new()),
       connected_at: Instant::now(),
       client_ip: "127.0.0.1".to_string(),
-      request_count: client_req_count,
-      declared_path: None,
-      assigned_path: None,
-      declared_hostname: None,
-      declared_hostnames: Vec::new(),
-      assigned_hostnames: Vec::new(),
-      random_hostname: None,
-      override_path_bind: None,
-      override_hostname_binds: Vec::new(),
-      connections: None,
-      connections_min: None,
-      connections_max: None,
-      capture: true,
       declared_client_id: None,
-      config_notes: Vec::new(),
       last_ping_at: None,
       perms: ClientPerms::master(),
-      max_concurrent: None,
-      inflight_limiter: None,
       draining: false,
-      admin_enabled: true,
-      tcp_enabled: false,
       client_version: None,
       client_protocol: None,
-      backend_healthy: true,
-      backend_probed: true,
       cpu_percent: None,
       rss_bytes: None,
       rtt_ms: None,
       jitter_ms: None,
       reconnects: None,
-      priority: 0,
       reported_instance_id: None,
       instance_group: None,
       subscriptions: Vec::new(),
-      bandwidth_bps: Arc::new(AtomicU64::new(0)),
-      service_name: None,
-      public: false,
-      public_denied_warned: false,
-      visitor_auth: None,
-      visitor_auth_policy: None,
-      visitor_auth_denied_warned: false,
-      ungated_warned: false,
-      allowed_ips: Vec::new(),
-      allowed_ips_invalid_warned: false,
-      scaling_invalid_warned: false,
-      tunnels: Vec::new(),
-      cache: false,
-      cache_ignored_warned: false,
-      resilience: false,
-      max_request_body: None,
-      response_timeout: None,
-      webhook_inbox: false,
-      denied: None,
-      recent_failures: VecDeque::new(),
-      ejected_until: None,
+      service: crate::state::ServiceState {
+        metrics_labels: Vec::new(),
+        service_custom_name: None,
+        request_count: client_req_count,
+        declared_path: None,
+        assigned_path: None,
+        declared_hostname: None,
+        declared_hostnames: Vec::new(),
+        assigned_hostnames: Vec::new(),
+        random_hostname: None,
+        override_path_bind: None,
+        override_hostname_binds: Vec::new(),
+        connections: None,
+        connections_min: None,
+        connections_max: None,
+        capture: true,
+        config_notes: Vec::new(),
+        max_concurrent: None,
+        inflight_limiter: None,
+        admin_enabled: true,
+        tcp_enabled: false,
+        backend_healthy: true,
+        backend_probed: true,
+        priority: 0,
+        bandwidth_bps: Arc::new(AtomicU64::new(0)),
+        service_name: None,
+        public: false,
+        public_denied_warned: false,
+        visitor_auth: None,
+        visitor_auth_policy: None,
+        visitor_auth_denied_warned: false,
+        ungated_warned: false,
+        allowed_ips: Vec::new(),
+        allowed_ips_invalid_warned: false,
+        scaling_invalid_warned: false,
+        tunnels: Vec::new(),
+        cache: false,
+        cache_ignored_warned: false,
+        resilience: false,
+        max_request_body: None,
+        response_timeout: None,
+        webhook_inbox: false,
+        denied: None,
+        recent_failures: VecDeque::new(),
+        ejected_until: None,
+      },
     },
   );
 
@@ -946,72 +948,74 @@ fn mock_client(
 ) -> ClientHandle {
   let (tx, _rx) = mpsc::channel::<Message>(1);
   ClientHandle {
-    metrics_labels: Vec::new(),
     drain_secs: None,
-    service_custom_name: None,
     tx,
     disconnect: std::sync::Arc::new(tokio::sync::Notify::new()),
     connected_at: Instant::now(),
     client_ip: "127.0.0.1".to_string(),
-    request_count: Arc::new(AtomicU64::new(0)),
-    declared_path: path_bind.map(|s| s.to_string()),
-    assigned_path: None,
-    declared_hostname: hostname_bind.map(|s| s.to_string()),
-    declared_hostnames: Vec::new(),
-    assigned_hostnames: Vec::new(),
-    random_hostname: None,
-    override_path_bind: override_path.map(|s| s.to_string()),
-    override_hostname_binds: override_hostname
-      .map(|s| s.to_string())
-      .into_iter()
-      .collect(),
-    capture: true,
-    connections: None,
-    connections_min: None,
-    connections_max: None,
     declared_client_id: None,
-    config_notes: Vec::new(),
     last_ping_at: None,
     perms: ClientPerms::master(),
-    max_concurrent: None,
-    inflight_limiter: None,
     draining: false,
-    admin_enabled: true,
-    tcp_enabled: false,
     client_version: None,
     client_protocol: None,
-    backend_healthy: true,
-    backend_probed: true,
     cpu_percent: None,
     rss_bytes: None,
     rtt_ms: None,
     jitter_ms: None,
     reconnects: None,
-    priority: 0,
     reported_instance_id: None,
     instance_group: None,
     subscriptions: Vec::new(),
-    bandwidth_bps: Arc::new(AtomicU64::new(0)),
-    service_name: None,
-    public: false,
-    public_denied_warned: false,
-    visitor_auth: None,
-    visitor_auth_policy: None,
-    visitor_auth_denied_warned: false,
-    ungated_warned: false,
-    allowed_ips: Vec::new(),
-    allowed_ips_invalid_warned: false,
-    scaling_invalid_warned: false,
-    tunnels: Vec::new(),
-    cache: false,
-    cache_ignored_warned: false,
-    resilience: false,
-    max_request_body: None,
-    response_timeout: None,
-    webhook_inbox: false,
-    denied: None,
-    recent_failures: VecDeque::new(),
-    ejected_until: None,
+    service: crate::state::ServiceState {
+      metrics_labels: Vec::new(),
+      service_custom_name: None,
+      request_count: Arc::new(AtomicU64::new(0)),
+      declared_path: path_bind.map(|s| s.to_string()),
+      assigned_path: None,
+      declared_hostname: hostname_bind.map(|s| s.to_string()),
+      declared_hostnames: Vec::new(),
+      assigned_hostnames: Vec::new(),
+      random_hostname: None,
+      override_path_bind: override_path.map(|s| s.to_string()),
+      override_hostname_binds: override_hostname
+        .map(|s| s.to_string())
+        .into_iter()
+        .collect(),
+      capture: true,
+      connections: None,
+      connections_min: None,
+      connections_max: None,
+      config_notes: Vec::new(),
+      max_concurrent: None,
+      inflight_limiter: None,
+      admin_enabled: true,
+      tcp_enabled: false,
+      backend_healthy: true,
+      backend_probed: true,
+      priority: 0,
+      bandwidth_bps: Arc::new(AtomicU64::new(0)),
+      service_name: None,
+      public: false,
+      public_denied_warned: false,
+      visitor_auth: None,
+      visitor_auth_policy: None,
+      visitor_auth_denied_warned: false,
+      ungated_warned: false,
+      allowed_ips: Vec::new(),
+      allowed_ips_invalid_warned: false,
+      scaling_invalid_warned: false,
+      tunnels: Vec::new(),
+      cache: false,
+      cache_ignored_warned: false,
+      resilience: false,
+      max_request_body: None,
+      response_timeout: None,
+      webhook_inbox: false,
+      denied: None,
+      recent_failures: VecDeque::new(),
+      ejected_until: None,
+    },
   }
 }
 
@@ -1313,7 +1317,7 @@ fn test_apply_lb_strategy_primary_standby() {
   let mut clients = HashMap::new();
   let primary = mock_client(None, None, None, None);
   let mut standby = mock_client(None, None, None, None);
-  standby.priority = 1;
+  standby.service.priority = 1;
   clients.insert("primary".to_string(), primary);
   clients.insert("standby".to_string(), standby);
 
@@ -1727,7 +1731,7 @@ async fn test_observe_service_availability_states() {
 
   // Healthy client, keyed by its service_name → Up.
   let mut up = mock_client(None, None, None, None);
-  up.service_name = Some("web".to_string());
+  up.service.service_name = Some("web".to_string());
   state.clients.write().await.insert("c-up".to_string(), up);
 
   // Connected but draining → Degraded, keyed by reported_instance_id (no name).
@@ -1742,7 +1746,7 @@ async fn test_observe_service_availability_states() {
 
   // Backend probe failing → Degraded, keyed by connection id (no name/instance).
   let mut bad_backend = mock_client(None, None, None, None);
-  bad_backend.backend_healthy = false;
+  bad_backend.service.backend_healthy = false;
   state
     .clients
     .write()
@@ -1751,8 +1755,8 @@ async fn test_observe_service_availability_states() {
 
   // Admin-disabled → Degraded as well.
   let mut disabled = mock_client(None, None, None, None);
-  disabled.admin_enabled = false;
-  disabled.service_name = Some("disabled-svc".to_string());
+  disabled.service.admin_enabled = false;
+  disabled.service.service_name = Some("disabled-svc".to_string());
   state
     .clients
     .write()
@@ -1778,7 +1782,7 @@ async fn test_observe_service_availability_down_and_best_state_wins() {
 
   // Stale heartbeat → Down.
   let mut stale = mock_client(None, None, None, None);
-  stale.service_name = Some("svc".to_string());
+  stale.service.service_name = Some("svc".to_string());
   stale.last_ping_at = Some(Instant::now() - Duration::from_secs(120));
   state
     .clients
@@ -1788,7 +1792,7 @@ async fn test_observe_service_availability_down_and_best_state_wins() {
 
   // A second, healthy connection for the SAME entity → the best state wins.
   let mut healthy = mock_client(None, None, None, None);
-  healthy.service_name = Some("svc".to_string());
+  healthy.service.service_name = Some("svc".to_string());
   healthy.last_ping_at = Some(Instant::now());
   state
     .clients

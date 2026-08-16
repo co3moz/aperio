@@ -164,7 +164,7 @@ pub(crate) fn may_bind(consumer: &ClientPerms, owner: &ClientPerms) -> bool {
 
 /// True when this connection can carry a bind right now.
 fn serviceable(handle: &ClientHandle, down_threshold: std::time::Duration) -> bool {
-  handle.admin_enabled && !handle.draining && handle.is_healthy(down_threshold)
+  handle.service.admin_enabled && !handle.draining && handle.is_healthy(down_threshold)
 }
 
 /// Does this connection belong to the process (or the connection) `selector`
@@ -227,7 +227,7 @@ pub(crate) async fn resolve(
     let decl = match selector {
       Selector::Name(name) => {
         let (_, name) = split_qualified(name);
-        handle.tunnels.iter().find(|d| name_of(d) == name)
+        handle.service.tunnels.iter().find(|d| name_of(d) == name)
       }
       Selector::ClientTarget {
         client,
@@ -237,7 +237,7 @@ pub(crate) async fn resolve(
         if !matches_client(cid, handle, client.trim()) {
           continue;
         }
-        handle.tunnels.iter().find(|d| {
+        handle.service.tunnels.iter().find(|d| {
           d.target == target.trim() && aperio_config::protocol_serves(&d.protocol, protocol)
         })
       }
@@ -299,7 +299,7 @@ async fn collect(state: &Arc<AppState>, include: impl Fn(&ClientPerms) -> bool) 
       continue;
     }
     let usable = serviceable(handle, down_threshold);
-    for decl in &handle.tunnels {
+    for decl in &handle.service.tunnels {
       let name = name_of(decl);
       let org = handle
         .perms

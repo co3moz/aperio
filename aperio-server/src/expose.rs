@@ -273,12 +273,13 @@ async fn find_declarer(
   };
   let clients = state.clients.read().await;
   for (cid, c) in clients.iter() {
-    if !c.admin_enabled || c.draining || !c.is_healthy(state.config().client_down_threshold) {
+    if !c.service.admin_enabled || c.draining || !c.is_healthy(state.config().client_down_threshold)
+    {
       continue;
     }
     // A public socket cannot run the client-side encryption handshake, so an
     // encrypted tunnel is never eligible however it is addressed.
-    let matched = c.tunnels.iter().find(|d| {
+    let matched = c.service.tunnels.iter().find(|d| {
       if !aperio_config::protocol_serves(&d.protocol, "tcp") || d.encrypt {
         return false;
       }

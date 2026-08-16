@@ -103,7 +103,7 @@ async fn insert(
 async fn a_name_resolves_without_any_client_id() {
   let state = Arc::new(test_state());
   insert(&state, "conn-abc", |c| {
-    c.tunnels = vec![decl("pg_main", "tcp")]
+    c.service.tunnels = vec![decl("pg_main", "tcp")]
   })
   .await;
   let found = resolve(&state, &ClientPerms::master(), Selector::Name("pg_main"))
@@ -126,11 +126,11 @@ async fn an_org_qualified_name_picks_that_organizations_tunnel() {
     .unwrap()
     .id;
   insert(&state, "conn-master", |c| {
-    c.tunnels = vec![decl("pg_main", "tcp")];
+    c.service.tunnels = vec![decl("pg_main", "tcp")];
   })
   .await;
   insert(&state, "conn-payments", |c| {
-    c.tunnels = vec![decl("pg_main", "tcp")];
+    c.service.tunnels = vec![decl("pg_main", "tcp")];
     c.perms.org_id = Some(payments);
   })
   .await;
@@ -173,13 +173,13 @@ async fn a_draining_path_is_skipped_for_a_healthy_sibling() {
   // exactly the failure this walk exists to avoid.
   let state = Arc::new(test_state());
   insert(&state, "conn-drain", |c| {
-    c.tunnels = vec![decl("pg_main", "tcp")];
+    c.service.tunnels = vec![decl("pg_main", "tcp")];
     c.instance_group = Some("proc-1".to_string());
     c.draining = true;
   })
   .await;
   insert(&state, "conn-ok", |c| {
-    c.tunnels = vec![decl("pg_main", "tcp")];
+    c.service.tunnels = vec![decl("pg_main", "tcp")];
     c.instance_group = Some("proc-1".to_string());
   })
   .await;
@@ -196,7 +196,7 @@ async fn the_raw_client_id_from_the_config_file_resolves() {
   // has is the `client_id:` they wrote, which arrives as the instance group.
   let state = Arc::new(test_state());
   insert(&state, "conn-xyz", |c| {
-    c.tunnels = vec![decl("pg_main", "tcp")];
+    c.service.tunnels = vec![decl("pg_main", "tcp")];
     c.instance_group = Some("3beebfdb-079f-4a00-9e03-1bb6eb9222b4".to_string());
     c.reported_instance_id = Some("3beebfdb-079f-4a00-9e03-1bb6eb9222b4-0".to_string());
   })
@@ -225,7 +225,7 @@ async fn the_raw_client_id_from_the_config_file_resolves() {
 async fn an_unknown_name_and_a_forbidden_one_are_told_apart() {
   let state = Arc::new(test_state());
   insert(&state, "conn-abc", |c| {
-    c.tunnels = vec![decl("pg_main", "tcp")];
+    c.service.tunnels = vec![decl("pg_main", "tcp")];
     c.perms = perms("owner", Some("org-a"), false);
   })
   .await;
@@ -249,7 +249,7 @@ async fn an_unknown_name_and_a_forbidden_one_are_told_apart() {
 async fn an_unavailable_tunnel_is_not_reported_as_missing() {
   let state = Arc::new(test_state());
   insert(&state, "conn-abc", |c| {
-    c.tunnels = vec![decl("pg_main", "tcp")];
+    c.service.tunnels = vec![decl("pg_main", "tcp")];
     c.draining = true;
   })
   .await;
@@ -266,7 +266,7 @@ async fn the_listing_folds_a_process_into_one_entry_per_name() {
   let state = Arc::new(test_state());
   for cid in ["conn-0", "conn-1", "conn-2"] {
     insert(&state, cid, |c| {
-      c.tunnels = vec![decl("pg_main", "tcp"), decl("dns", "udp")];
+      c.service.tunnels = vec![decl("pg_main", "tcp"), decl("dns", "udp")];
       c.instance_group = Some("proc-1".to_string());
     })
     .await;
@@ -282,12 +282,12 @@ async fn the_listing_folds_a_process_into_one_entry_per_name() {
 async fn the_listing_shows_only_what_the_caller_may_bind() {
   let state = Arc::new(test_state());
   insert(&state, "mine", |c| {
-    c.tunnels = vec![decl("mine", "tcp")];
+    c.service.tunnels = vec![decl("mine", "tcp")];
     c.perms = perms("owner", Some("org-a"), false);
   })
   .await;
   insert(&state, "theirs", |c| {
-    c.tunnels = vec![decl("theirs", "tcp")];
+    c.service.tunnels = vec![decl("theirs", "tcp")];
     c.perms = perms("stranger", Some("org-b"), false);
   })
   .await;
@@ -303,7 +303,7 @@ async fn a_combined_tunnel_resolves_on_both_transports() {
   // One name, one declaration, addressable from the tcp and the udp endpoint.
   let state = Arc::new(test_state());
   insert(&state, "conn-abc", |c| {
-    c.tunnels = vec![decl("dns", "tcp/udp")];
+    c.service.tunnels = vec![decl("dns", "tcp/udp")];
   })
   .await;
 
@@ -332,7 +332,7 @@ async fn a_combined_tunnel_resolves_on_both_transports() {
 async fn a_single_transport_tunnel_still_refuses_the_other() {
   let state = Arc::new(test_state());
   insert(&state, "conn-abc", |c| {
-    c.tunnels = vec![decl("pg_main", "tcp")];
+    c.service.tunnels = vec![decl("pg_main", "tcp")];
   })
   .await;
   let selector = Selector::ClientTarget {
@@ -357,7 +357,7 @@ async fn the_listing_names_the_process_not_one_of_its_connections() {
   let state = Arc::new(test_state());
   for (cid, index) in [("conn-a", "0"), ("conn-b", "1")] {
     insert(&state, cid, |c| {
-      c.tunnels = vec![decl("dns", "udp")];
+      c.service.tunnels = vec![decl("dns", "udp")];
       c.instance_group = Some("dae0d524-3408-4a1a-bbda-304c7502d3ce".to_string());
       c.reported_instance_id = Some(format!("dae0d524-3408-4a1a-bbda-304c7502d3ce-{index}"));
     })
@@ -380,7 +380,7 @@ async fn an_older_client_still_reports_an_id() {
   // the per-connection id is better than nothing.
   let state = Arc::new(test_state());
   insert(&state, "conn-a", |c| {
-    c.tunnels = vec![decl("dns", "udp")];
+    c.service.tunnels = vec![decl("dns", "udp")];
     c.instance_group = None;
     c.reported_instance_id = Some("legacy-id".to_string());
   })
@@ -397,10 +397,10 @@ async fn the_listing_names_the_declaring_client() {
   // recognized; the id stays for what addresses the connection.
   let state = Arc::new(test_state());
   insert(&state, "conn-a", |c| {
-    c.tunnels = vec![decl("postgres", "tcp")];
+    c.service.tunnels = vec![decl("postgres", "tcp")];
     c.instance_group = Some("group-1".to_string());
-    c.service_name = Some("db".to_string());
-    c.service_custom_name = Some("db (primary)".to_string());
+    c.service.service_name = Some("db".to_string());
+    c.service.service_custom_name = Some("db (primary)".to_string());
   })
   .await;
 
@@ -413,7 +413,7 @@ async fn the_listing_names_the_declaring_client() {
 async fn a_client_that_named_no_service_has_no_name_to_show() {
   let state = Arc::new(test_state());
   insert(&state, "conn-a", |c| {
-    c.tunnels = vec![decl("postgres", "tcp")];
+    c.service.tunnels = vec![decl("postgres", "tcp")];
     c.instance_group = Some("group-1".to_string());
   })
   .await;
