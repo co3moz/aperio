@@ -19,293 +19,51 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#46 One WebSocket for several services of the same client process,
-  as an opt-in mode.** (triage 40) Each service opens its own tunnel
-  connection, so a client with five services pays five readers, five writers,
-  five sockets and five heartbeats. At five services nobody notices. At forty
-  it is forty of everything, and the ping/pong traffic alone is forty
-  round-trips per interval for one process, which is the case this exists for.
-  The 2026-08 connection sweep found that on a machine where client and server
-  share CPU fewer connections is measurably faster, which is the same argument
-  from the other end.
+- [ ] **#120 The client half of one WebSocket for several services
+  (`multiplex: true`).** (triage 40) Split from `#46`, which shipped the
+  server half: a Ping declaring several services is served as that many, each
+  routed by its own binds, ejected on its own failures, and shown and
+  controlled separately in the dashboard. No released client produces such a
+  Ping, so nothing in the field uses it yet, and this entry is what makes it
+  reachable.
 
-  **What the code says today.** A connection *is* the unit of identity. The
-  Ping describes exactly one service: a single `path_bind`, one
-  `hostname_binds` list, one `target`, one `max_concurrent`, one `connections`.
-  On the server, `ClientHandle` is keyed by connection id and carries that
-  service's binds, health, permissions, announced limits and per-client
-  statistics. Routing, load balancing, failover tiers, the dashboard's client
-  table, per-service bandwidth and the `--bind-tunnels` registry all key on
-  that handle. So the architecture does **not** support this today, and saying
-  so is the point of this entry.
+  **What already landed on the client.** `run_service` takes a list of specs
+  rather than one, the first standing for the connection, and each dispatch
+  resolves its own service from the name the server puts in the opening
+  frame by shadowing `spec` at the top of the arm. That is why the 31 reads
+  in those arm bodies do not have to be rewritten.
 
-  **What it would take.** A protocol version bump (v8), and in it: a service
-  *list* in the handshake/Ping instead of the current singular fields; a
-  service selector on every server-to-client frame; and `ClientHandle` split
-  so its identity is `(connection, service)` rather than `connection`.
-  Everything keyed on the handle follows from that split.
-
-  **Its relationship with what has already shipped, which is the part not to
-  forget.** Three completed items assume one connection = one service, and
-  this contradicts all three:
-  - **#48 (`connections: {min, max}`)** scales *one service's* connection pool
-    with load. #46 goes the other way, many services per connection. They are
-    not opposites, they compose: together they mean "sockets proportional to
-    load, not to service count", which is the right target. But the elastic
-    pool's growth signal is per-service in-flight, and under multiplexing
-    in-flight would have to be attributed per service on a shared socket.
-  - **#24 (client-side chunk coalescing)** and **#38 (server writer batching
-    and pacing)** both assume one writer serves one service. Multiplexed, a
-    service streaming a large response would queue its frames ahead of a small
-    API's on the same writer, which is head-of-line blocking between unrelated
-    services. Splitting flow control and the pacer per service on a shared
-    socket is part of this work, not a follow-up to it.
-  - **#37 (client health telemetry)** reports RTT, jitter and reconnects per
-    connection. Multiplexed, those become properties of the process rather
-    than of a service, which is arguably more useful but is a reporting change
-    that has to be made deliberately.
-
-  **What has shipped so far (2026-08-16).** The wire, and the seam named
-  against it. Nothing routes to a second service yet.
-  Protocol v8 adds an optional `services` list to the Ping, where each entry
-  carries what the singular per-service fields carry one at a time; when the
-  list is present it is authoritative and those fields are ignored, and when
-  it is absent nothing changes, so the addition is compatible in both
-  directions. The entry is honoured, not merely accepted: where a list is
-  present the singular fields are not read at all, in one binding rather
-  than a field-by-field merge, because a merge is where a field gets
-  forgotten and forgetting one is silent. The server normalizes a Ping to a
-  service list in one place,
-  which is the line that stops being a `[0]` when the split below is made,
-  and **accepts a list of exactly one**, refusing a longer one at the Ping
-  rather than serving part of it. The client still sends no list. A test now
-  holds the two hand-synced copies of `protocol.rs` to the same wire shape
-  and the same version, which matters here more than for any earlier change:
-  every field of the new entry is optional with a default, so a drift between
-  the copies would not fail, it would come up quietly unset.
-
-  What an entry carries was settled against `ServiceEntry` in the client's
-  config rather than by eye, which turned up three per-service settings the
-  first pass had missed: the connection pool, the per-service metrics labels
-  and the config notes. The pool matters most, since leaving it out would
-  have buried the #48 question below rather than posing it.
-
-  **And the seam is named, then cut.** `ClientHandle`'s sixty-three fields
-  were partitioned in three, beside the struct: what the wire declares per
-  service (mapped field by field, eight of them not name-for-name), what the
-  server *derives* per service, and what belongs to the socket. The derived
-  half is the one to read first, because it is invisible from the wire: the
-  token-granted binds, the dashboard's overrides, the failover bookkeeping,
-  and the warn-once flags. A warn-once flag left on the connection silences
-  the second service's warning because the first already warned, which is a
-  failure that never announces itself.
-
-  The forty-four service-scoped fields then moved out into a `ServiceState`
-  struct, reached through `ClientHandle::service`, so the compiler enforces
-  what the lists describe. Four hundred and fifty read sites and seven
-  constructions followed, done from the compiler's own diagnostics rather
-  than by pattern, so nothing was touched that rustc had not already pointed
-  at. The suite reports the same number of passing tests before and after,
-  which is the whole claim being made: nothing changed but the shape.
-
-  The lists stayed, because a type says a field is *somewhere* and cannot say
-  it is in the *right* place, and a field in the wrong struct compiles. They
-  now check both structs against the classification.
-
-  **Then the representation went plural.** `service: ServiceState` became
-  `services: Vec<ServiceState>`, never empty, and the four hundred and fifty
-  sites that used to read a field now go through `sole()` or `sole_mut()`.
-  That is deliberately not a tidy-up: **every `sole` call is a caller that
-  has not yet been taught which service it means**, so `grep sole` is the
-  remaining work of this entry, currently 205 reads and 246 writes, and it
-  shrinks as callers learn. Keeping the singular field and changing it later
-  is the same four hundred sites, except later and all at once.
-
-  One test earns its place here: `sole` and `sole_mut` have to address the
-  same entry. They are two methods over a list and nothing else says they
-  agree; if one reached for the first and the other for the last, everything
-  would compile and every test would pass while the length is one, and the
-  bug would appear on the day a second service arrives, as writes landing
-  where the reads do not look, in four hundred places at once.
-
-  **And the routing predicates moved to the thing they describe.** The seven
-  questions routing asks, `matches_host`, `has_hostname_bind`,
-  `effective_path_bind`, `effective_hostnames`, `is_ejected`,
-  `record_failure` and `display_name`, hung off `ClientHandle` and read
-  `sole()`. Every one of them reads nothing but a service's own fields, so on
-  a connection carrying two they would each have answered for the first, and
-  routing would have sent the second service's traffic to the first's
-  backend. They are `ServiceState` methods now, which makes answering for
-  another service structurally impossible rather than merely unintended.
-  `is_healthy` stayed on the connection, because a heartbeat is the socket's.
-  The old names remain as one-line delegates, and each of those is itself a
-  `sole` on the list.
-
-  **And routing decides on a service.** `select_client_pool` returned
-  connection ids; it returns `ServiceRef { client, index }` now, and the
-  whole pipeline downstream carries the pair: the IP filter, the load
-  balancer, the canary split, sticky affinity, and `SelectedClient`, which
-  gained the index and reads its per-service fields from the service that was
-  chosen rather than from the connection. The eligibility stage asks health
-  and draining of the connection, because a heartbeat and a shutdown belong
-  to the socket, and the backend probe and the kill switch of the service,
-  because that is what they describe. Passive ejection moved with it: a
-  failing backend ejects its own service, where before it would have taken
-  every service on the connection out of routing over one bad minute.
-
-  Three tests, all needing a two-service connection because with one the
-  index is always zero and any implementation looks right: the pool names the
-  service that matched, two services of one connection can bind different
-  paths and each gets its own traffic, and ejecting one leaves its neighbour
-  serving. Getting this wrong is not an error anybody would see, which is why
-  it is worth pinning: the request would go to the other service's backend,
-  and that backend is connected, healthy, and will answer.
-
-  **A service's identity across heartbeats is decided.** A Ping has to say
-  not only what the services are but which of the ones already here each
-  entry updates, and position cannot answer it: a client that reorders its
-  `services:` block would hand one service's ejection state, warn-once flags,
-  counters and limiter to another, none of which is on the wire to correct
-  itself. It would look like two healthy services wearing each other's
-  history. So a named declaration matches the service of that name, and
-  anything left over adopts a service that has no name yet, which is both the
-  placeholder a connection is created with and the kind answer for a client
-  that adds a `name:` to a service it had been running without one.
-  `match_declarations` is that rule, with eight tests over its edges, and the
-  Ping handler now writes through the index it returns instead of through
-  `sole`.
-
-  Two things about it are worth saying rather than leaving to be found. The
-  duplicate-name refusal it carries is **unreachable today**: repeating a name
-  needs two declarations, and a list of two is turned away for its length
-  before the names are read. So is the claim-marking in its named pass. Both
-  are kept, and both say so in place, because they are what stops a duplicate
-  becoming a silent merge on the day the length refusal goes, which is the
-  point of this entry. A test was written for the first and then deleted: it
-  passed, but for the length refusal rather than for the thing it named, and
-  a test that passes for the wrong reason is worse than none.
-
-  **What is left, and why it should land as one milestone rather than more
-  slices.** Everything above is preparation, and it went in as slices because
-  each one could be verified on its own. That has now run out. Three
-  candidates for the next slice were measured and all three fail the same
-  test: nothing about them is observable until the server actually serves two
-  services, and a change nobody can watch is a change nobody can check.
-
-  - **Reconcile in the Ping** (append a service the connection gained, retire
-    one it no longer declares) is the thing that would lift the length
-    refusal. On its own, with the refusal still standing, it runs on a list
-    that is never longer than one and does nothing.
-  - **Applying each declaration to its own service.** This is the real
-    blocker and it was measured rather than guessed: the Ping's handle block
-    is 495 lines carrying 36 service writes interleaved with 11 connection
-    writes, thirteen permission checks, the warn-once logging and the
-    autoscaling capture, and it closes over `state`, `perms`, `cid`,
-    `client_id`, `scaling_ctx` and `server_max_connections`. Turning it into
-    a per-declaration function is a single surgery with no verifiable
-    halfway point. It reaches further up than the block, too: 27 of the
-    entry's 29 fields are read inside it, and the other two, `path_bind` and
-    `hostname_bind`, are normalized above it and arrive as already-validated
-    locals, so the normalization has to come along.
-  - **The dashboard's client table** cannot simply grow a row per service.
-    Its rows are keyed by connection id and that id is the address of
-    `/api/clients/{id}/override`, `/enabled` and `/config`. Two services on
-    one connection means a per-service identity in the API and a frontend
-    that uses it, which is a user-facing contract change, not preparation.
-
-  **Three of the four landed (2026-08-16), and the server serves several.**
-  The per-declaration application turned out not to need the function
-  extraction it looked like it needed: the 495-line body already described a
-  single service, and what stopped it describing more was that its values
-  were destructured once, above it, from a tuple of twenty-nine locals. The
-  tuple became a `Vec<ServiceDecl>` and the destructure moved inside a loop
-  over it, leaving the body untouched. Reconcile followed, the length refusal
-  went, and a Ping declaring two services is now served as two, each routable
-  by its own binds, with a withdrawn one leaving routing on the next
-  heartbeat.
-
-  **And the fourth landed: the dashboard shows and controls a service.** One
-  row per service, addressed by the connection id together with a new
-  `service_index`, which the config, override and enable endpoints take as an
-  optional `?service=`. Omitting it means the first service, so nothing that
-  exists today changes. The frontend's grouping needed no work: it already
-  keyed rows by process *and* service, on the assumption that different
-  services of one process stay separate, and two services of one connection
-  satisfy that without knowing it was written for something else.
-
-  **The dispatch names its service too.** The frames that open something, a
-  request, a streamed request, a WebSocket upgrade, a TCP or UDP stream,
-  carry the chosen service's name. Only those: everything after is addressed
-  by a stream id minted in the same frame, so the client learns the service
-  once and routes the rest by id, and the binary framing did not have to
-  change. Raw `tunnels:` opens are the exception, marked in place, because
-  the TCP/UDP bind registry keys on the connection.
-
-  **What is left is the client half, and its shape is now fully determined.**
-  Measured rather than guessed, so the next sitting starts from numbers:
-  `run_service` is 1533 lines with 95 `spec.` accesses, and it owns both the
-  connection and the service. The accesses fall in three places: 26 in setup
-  and dial, which are the connection's and take the first spec; 38 in the
-  ping, which become the `services` list; and 31 in request handling, which
-  is where the work is.
-
-  Those 31 do **not** need rewriting, for the same reason the server's 495
-  lines did not: resolving the spec once at the top of the request handler,
-  from the selector the frame now carries, leaves the body reading `spec`
-  exactly as it does today. That is the same move that worked on the Ping,
-  and it is why the selector went in first.
-
-  **The structural half of that landed (2026-08-16).** `run_service` takes a
-  list, the first spec stands for the connection, and each dispatch resolves
-  its service from the name the frame carries by shadowing `spec` at the top
-  of the arm, which leaves all 31 body reads untouched. The list has one
-  entry everywhere, so nothing changed yet.
-
-  **What remains is not one more slice.** Four things in the client are
-  per-connection today and every one of them is *silently* wrong if
-  multiplexed halfway, which is the same property that made the server half a
-  single milestone:
-  - **Backend health.** `BackendHealth` is per service and the probe runs on
-    one connection of its pool. Six sites, so the mechanics are small, but a
-    second service reported `backend_healthy: true` without being probed is a
-    route the server will send traffic to.
-  - **Gate negotiation.** `visitor_auth_methods` comes from a connection-level
-    `GateNegotiation`, computed for one gate. Services with different gates
-    each need their own, and the failure mode is a service running under a
-    gate that was not the one written for it.
+  **The four things still per-connection, and why they are one piece of work
+  rather than four.** Each is small on its own; none is observable on its
+  own, because the only surface any of them reports through is the Ping's
+  `services` list, and that list cannot be built correctly until all four
+  are. Built with a field missing, it announces a second service as
+  ungated, unprobed or unlimited, which is exactly the class of quiet defect
+  the server half spent three fixes on.
+  - **Backend health.** `BackendHealth` is per service and its probe runs on
+    one connection of the pool; six sites, and the probe body captures only
+    `label` and `spec`, so extracting it is clean. It does not need the
+    connection at all, which means the natural home is the caller, where
+    `lib.rs` already builds one `BackendHealth::for_spec` per service.
+  - **Gate negotiation.** `visitor_auth_methods` comes from a
+    connection-level `GateNegotiation` computed for one gate. Services with
+    different gates each need their own, or one runs under a gate that was
+    not written for it.
   - **Adaptive concurrency and the connection pool**, 19 sites between them.
-    A multiplexed connection is one connection, so per-service `connections:`
-    stops meaning what it means today; this is the #48 composition question
-    arriving in person rather than in the abstract.
+    A multiplexed connection is one connection, so per-service
+    `connections:` stops meaning what it means today. This is `#48` arriving
+    in person.
   - **`multiplex: true` itself**, on all four surfaces (rule 17), plus the
-    handshake negotiation. `>= 8` is a sound gate for that: 0.9.0 shipped
-    protocol 7, so no released server announces 8, and the first that does is
-    the one that serves several.
+    handshake negotiation. A client must not send a list to a server that
+    cannot serve one, and must say so rather than discover it by being
+    disconnected. `>= 8` is a sound gate: 0.9.0 shipped protocol 7, so no
+    released server announces 8, and the first that does is the one that
+    serves several.
 
-  Written down with the counts because the pattern this entry keeps teaching
-  is that the measurement is the cheap part and the guess is the expensive
-  one. After that, the pieces the entry
-  already names: load balancing on the pair, the elastic pool's per-service
-  growth signal, a pacer per service so a large response cannot queue ahead
-  of a small API on the shared writer, and the dashboard's client table.
-
-  **The obligation that creates, for the client half.** The server's refusal
-  is safe but silent, matching the other refusals in `on_ping`: a `warn!` and
-  a dropped connection, with nothing that tells the client why. That is
-  tolerable only while no client can send a list. The moment one can, it must
-  **not** send a list to a server that cannot serve it, which means the
-  capability is negotiated on the handshake the way every other one is, and
-  a client whose config asks for multiplexing against a server without it
-  holds the services back and says so. Discovering the limit by being
-  disconnected is exactly the failure the connect-time version gate exists to
-  prevent, and it would be reintroduced here by omission.
-
-  **Shape.** An opt-in mode (`multiplex: true` or similar), not a default. The
-  per-connection model is simpler, is what every deployment runs today, and is
-  faster for the small-service-count case that most deployments are. The mode
-  is the open door for the operator with forty services, who is the only one
-  who pays for the current design.
-
+  **One measurement to save repeating.** `run_service` is 1533 lines with 95
+  `spec.` accesses: 26 in setup and dial, which are the connection's and take
+  the first spec; 38 in the Ping, which become the list; 31 in request
+  handling, already covered by the shadowing above.
 
 ## Withdrawn
 
@@ -652,6 +410,309 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#46 One WebSocket for several services of the same client process,
+  as an opt-in mode.** (triage 40) Each service opens its own tunnel
+  connection, so a client with five services pays five readers, five writers,
+  five sockets and five heartbeats. At five services nobody notices. At forty
+  it is forty of everything, and the ping/pong traffic alone is forty
+  round-trips per interval for one process, which is the case this exists for.
+  The 2026-08 connection sweep found that on a machine where client and server
+  share CPU fewer connections is measurably faster, which is the same argument
+  from the other end.
+
+  **What the code says today.** A connection *is* the unit of identity. The
+  Ping describes exactly one service: a single `path_bind`, one
+  `hostname_binds` list, one `target`, one `max_concurrent`, one `connections`.
+  On the server, `ClientHandle` is keyed by connection id and carries that
+  service's binds, health, permissions, announced limits and per-client
+  statistics. Routing, load balancing, failover tiers, the dashboard's client
+  table, per-service bandwidth and the `--bind-tunnels` registry all key on
+  that handle. So the architecture does **not** support this today, and saying
+  so is the point of this entry.
+
+  **What it would take.** A protocol version bump (v8), and in it: a service
+  *list* in the handshake/Ping instead of the current singular fields; a
+  service selector on every server-to-client frame; and `ClientHandle` split
+  so its identity is `(connection, service)` rather than `connection`.
+  Everything keyed on the handle follows from that split.
+
+  **Its relationship with what has already shipped, which is the part not to
+  forget.** Three completed items assume one connection = one service, and
+  this contradicts all three:
+  - **#48 (`connections: {min, max}`)** scales *one service's* connection pool
+    with load. #46 goes the other way, many services per connection. They are
+    not opposites, they compose: together they mean "sockets proportional to
+    load, not to service count", which is the right target. But the elastic
+    pool's growth signal is per-service in-flight, and under multiplexing
+    in-flight would have to be attributed per service on a shared socket.
+  - **#24 (client-side chunk coalescing)** and **#38 (server writer batching
+    and pacing)** both assume one writer serves one service. Multiplexed, a
+    service streaming a large response would queue its frames ahead of a small
+    API's on the same writer, which is head-of-line blocking between unrelated
+    services. Splitting flow control and the pacer per service on a shared
+    socket is part of this work, not a follow-up to it.
+  - **#37 (client health telemetry)** reports RTT, jitter and reconnects per
+    connection. Multiplexed, those become properties of the process rather
+    than of a service, which is arguably more useful but is a reporting change
+    that has to be made deliberately.
+
+  **What has shipped so far (2026-08-16).** The wire, and the seam named
+  against it. Nothing routes to a second service yet.
+  Protocol v8 adds an optional `services` list to the Ping, where each entry
+  carries what the singular per-service fields carry one at a time; when the
+  list is present it is authoritative and those fields are ignored, and when
+  it is absent nothing changes, so the addition is compatible in both
+  directions. The entry is honoured, not merely accepted: where a list is
+  present the singular fields are not read at all, in one binding rather
+  than a field-by-field merge, because a merge is where a field gets
+  forgotten and forgetting one is silent. The server normalizes a Ping to a
+  service list in one place,
+  which is the line that stops being a `[0]` when the split below is made,
+  and **accepts a list of exactly one**, refusing a longer one at the Ping
+  rather than serving part of it. The client still sends no list. A test now
+  holds the two hand-synced copies of `protocol.rs` to the same wire shape
+  and the same version, which matters here more than for any earlier change:
+  every field of the new entry is optional with a default, so a drift between
+  the copies would not fail, it would come up quietly unset.
+
+  What an entry carries was settled against `ServiceEntry` in the client's
+  config rather than by eye, which turned up three per-service settings the
+  first pass had missed: the connection pool, the per-service metrics labels
+  and the config notes. The pool matters most, since leaving it out would
+  have buried the #48 question below rather than posing it.
+
+  **And the seam is named, then cut.** `ClientHandle`'s sixty-three fields
+  were partitioned in three, beside the struct: what the wire declares per
+  service (mapped field by field, eight of them not name-for-name), what the
+  server *derives* per service, and what belongs to the socket. The derived
+  half is the one to read first, because it is invisible from the wire: the
+  token-granted binds, the dashboard's overrides, the failover bookkeeping,
+  and the warn-once flags. A warn-once flag left on the connection silences
+  the second service's warning because the first already warned, which is a
+  failure that never announces itself.
+
+  The forty-four service-scoped fields then moved out into a `ServiceState`
+  struct, reached through `ClientHandle::service`, so the compiler enforces
+  what the lists describe. Four hundred and fifty read sites and seven
+  constructions followed, done from the compiler's own diagnostics rather
+  than by pattern, so nothing was touched that rustc had not already pointed
+  at. The suite reports the same number of passing tests before and after,
+  which is the whole claim being made: nothing changed but the shape.
+
+  The lists stayed, because a type says a field is *somewhere* and cannot say
+  it is in the *right* place, and a field in the wrong struct compiles. They
+  now check both structs against the classification.
+
+  **Then the representation went plural.** `service: ServiceState` became
+  `services: Vec<ServiceState>`, never empty, and the four hundred and fifty
+  sites that used to read a field now go through `sole()` or `sole_mut()`.
+  That is deliberately not a tidy-up: **every `sole` call is a caller that
+  has not yet been taught which service it means**, so `grep sole` is the
+  remaining work of this entry, currently 205 reads and 246 writes, and it
+  shrinks as callers learn. Keeping the singular field and changing it later
+  is the same four hundred sites, except later and all at once.
+
+  One test earns its place here: `sole` and `sole_mut` have to address the
+  same entry. They are two methods over a list and nothing else says they
+  agree; if one reached for the first and the other for the last, everything
+  would compile and every test would pass while the length is one, and the
+  bug would appear on the day a second service arrives, as writes landing
+  where the reads do not look, in four hundred places at once.
+
+  **And the routing predicates moved to the thing they describe.** The seven
+  questions routing asks, `matches_host`, `has_hostname_bind`,
+  `effective_path_bind`, `effective_hostnames`, `is_ejected`,
+  `record_failure` and `display_name`, hung off `ClientHandle` and read
+  `sole()`. Every one of them reads nothing but a service's own fields, so on
+  a connection carrying two they would each have answered for the first, and
+  routing would have sent the second service's traffic to the first's
+  backend. They are `ServiceState` methods now, which makes answering for
+  another service structurally impossible rather than merely unintended.
+  `is_healthy` stayed on the connection, because a heartbeat is the socket's.
+  The old names remain as one-line delegates, and each of those is itself a
+  `sole` on the list.
+
+  **And routing decides on a service.** `select_client_pool` returned
+  connection ids; it returns `ServiceRef { client, index }` now, and the
+  whole pipeline downstream carries the pair: the IP filter, the load
+  balancer, the canary split, sticky affinity, and `SelectedClient`, which
+  gained the index and reads its per-service fields from the service that was
+  chosen rather than from the connection. The eligibility stage asks health
+  and draining of the connection, because a heartbeat and a shutdown belong
+  to the socket, and the backend probe and the kill switch of the service,
+  because that is what they describe. Passive ejection moved with it: a
+  failing backend ejects its own service, where before it would have taken
+  every service on the connection out of routing over one bad minute.
+
+  Three tests, all needing a two-service connection because with one the
+  index is always zero and any implementation looks right: the pool names the
+  service that matched, two services of one connection can bind different
+  paths and each gets its own traffic, and ejecting one leaves its neighbour
+  serving. Getting this wrong is not an error anybody would see, which is why
+  it is worth pinning: the request would go to the other service's backend,
+  and that backend is connected, healthy, and will answer.
+
+  **A service's identity across heartbeats is decided.** A Ping has to say
+  not only what the services are but which of the ones already here each
+  entry updates, and position cannot answer it: a client that reorders its
+  `services:` block would hand one service's ejection state, warn-once flags,
+  counters and limiter to another, none of which is on the wire to correct
+  itself. It would look like two healthy services wearing each other's
+  history. So a named declaration matches the service of that name, and
+  anything left over adopts a service that has no name yet, which is both the
+  placeholder a connection is created with and the kind answer for a client
+  that adds a `name:` to a service it had been running without one.
+  `match_declarations` is that rule, with eight tests over its edges, and the
+  Ping handler now writes through the index it returns instead of through
+  `sole`.
+
+  Two things about it are worth saying rather than leaving to be found. The
+  duplicate-name refusal it carries is **unreachable today**: repeating a name
+  needs two declarations, and a list of two is turned away for its length
+  before the names are read. So is the claim-marking in its named pass. Both
+  are kept, and both say so in place, because they are what stops a duplicate
+  becoming a silent merge on the day the length refusal goes, which is the
+  point of this entry. A test was written for the first and then deleted: it
+  passed, but for the length refusal rather than for the thing it named, and
+  a test that passes for the wrong reason is worse than none.
+
+  **What is left, and why it should land as one milestone rather than more
+  slices.** Everything above is preparation, and it went in as slices because
+  each one could be verified on its own. That has now run out. Three
+  candidates for the next slice were measured and all three fail the same
+  test: nothing about them is observable until the server actually serves two
+  services, and a change nobody can watch is a change nobody can check.
+
+  - **Reconcile in the Ping** (append a service the connection gained, retire
+    one it no longer declares) is the thing that would lift the length
+    refusal. On its own, with the refusal still standing, it runs on a list
+    that is never longer than one and does nothing.
+  - **Applying each declaration to its own service.** This is the real
+    blocker and it was measured rather than guessed: the Ping's handle block
+    is 495 lines carrying 36 service writes interleaved with 11 connection
+    writes, thirteen permission checks, the warn-once logging and the
+    autoscaling capture, and it closes over `state`, `perms`, `cid`,
+    `client_id`, `scaling_ctx` and `server_max_connections`. Turning it into
+    a per-declaration function is a single surgery with no verifiable
+    halfway point. It reaches further up than the block, too: 27 of the
+    entry's 29 fields are read inside it, and the other two, `path_bind` and
+    `hostname_bind`, are normalized above it and arrive as already-validated
+    locals, so the normalization has to come along.
+  - **The dashboard's client table** cannot simply grow a row per service.
+    Its rows are keyed by connection id and that id is the address of
+    `/api/clients/{id}/override`, `/enabled` and `/config`. Two services on
+    one connection means a per-service identity in the API and a frontend
+    that uses it, which is a user-facing contract change, not preparation.
+
+  **Three of the four landed (2026-08-16), and the server serves several.**
+  The per-declaration application turned out not to need the function
+  extraction it looked like it needed: the 495-line body already described a
+  single service, and what stopped it describing more was that its values
+  were destructured once, above it, from a tuple of twenty-nine locals. The
+  tuple became a `Vec<ServiceDecl>` and the destructure moved inside a loop
+  over it, leaving the body untouched. Reconcile followed, the length refusal
+  went, and a Ping declaring two services is now served as two, each routable
+  by its own binds, with a withdrawn one leaving routing on the next
+  heartbeat.
+
+  **And the fourth landed: the dashboard shows and controls a service.** One
+  row per service, addressed by the connection id together with a new
+  `service_index`, which the config, override and enable endpoints take as an
+  optional `?service=`. Omitting it means the first service, so nothing that
+  exists today changes. The frontend's grouping needed no work: it already
+  keyed rows by process *and* service, on the assumption that different
+  services of one process stay separate, and two services of one connection
+  satisfy that without knowing it was written for something else.
+
+  **The dispatch names its service too.** The frames that open something, a
+  request, a streamed request, a WebSocket upgrade, a TCP or UDP stream,
+  carry the chosen service's name. Only those: everything after is addressed
+  by a stream id minted in the same frame, so the client learns the service
+  once and routes the rest by id, and the binary framing did not have to
+  change. Raw `tunnels:` opens are the exception, marked in place, because
+  the TCP/UDP bind registry keys on the connection.
+
+  **What is left is the client half, and its shape is now fully determined.**
+  Measured rather than guessed, so the next sitting starts from numbers:
+  `run_service` is 1533 lines with 95 `spec.` accesses, and it owns both the
+  connection and the service. The accesses fall in three places: 26 in setup
+  and dial, which are the connection's and take the first spec; 38 in the
+  ping, which become the `services` list; and 31 in request handling, which
+  is where the work is.
+
+  Those 31 do **not** need rewriting, for the same reason the server's 495
+  lines did not: resolving the spec once at the top of the request handler,
+  from the selector the frame now carries, leaves the body reading `spec`
+  exactly as it does today. That is the same move that worked on the Ping,
+  and it is why the selector went in first.
+
+  **The structural half of that landed (2026-08-16).** `run_service` takes a
+  list, the first spec stands for the connection, and each dispatch resolves
+  its service from the name the frame carries by shadowing `spec` at the top
+  of the arm, which leaves all 31 body reads untouched. The list has one
+  entry everywhere, so nothing changed yet.
+
+  **What remains is not one more slice.** Four things in the client are
+  per-connection today and every one of them is *silently* wrong if
+  multiplexed halfway, which is the same property that made the server half a
+  single milestone:
+  - **Backend health.** `BackendHealth` is per service and the probe runs on
+    one connection of its pool. Six sites, so the mechanics are small, but a
+    second service reported `backend_healthy: true` without being probed is a
+    route the server will send traffic to.
+  - **Gate negotiation.** `visitor_auth_methods` comes from a connection-level
+    `GateNegotiation`, computed for one gate. Services with different gates
+    each need their own, and the failure mode is a service running under a
+    gate that was not the one written for it.
+  - **Adaptive concurrency and the connection pool**, 19 sites between them.
+    A multiplexed connection is one connection, so per-service `connections:`
+    stops meaning what it means today; this is the #48 composition question
+    arriving in person rather than in the abstract.
+  - **`multiplex: true` itself**, on all four surfaces (rule 17), plus the
+    handshake negotiation. `>= 8` is a sound gate for that: 0.9.0 shipped
+    protocol 7, so no released server announces 8, and the first that does is
+    the one that serves several.
+
+  Written down with the counts because the pattern this entry keeps teaching
+  is that the measurement is the cheap part and the guess is the expensive
+  one. After that, the pieces the entry
+  already names: load balancing on the pair, the elastic pool's per-service
+  growth signal, a pacer per service so a large response cannot queue ahead
+  of a small API on the shared writer, and the dashboard's client table.
+
+  **The obligation that creates, for the client half.** The server's refusal
+  is safe but silent, matching the other refusals in `on_ping`: a `warn!` and
+  a dropped connection, with nothing that tells the client why. That is
+  tolerable only while no client can send a list. The moment one can, it must
+  **not** send a list to a server that cannot serve it, which means the
+  capability is negotiated on the handshake the way every other one is, and
+  a client whose config asks for multiplexing against a server without it
+  holds the services back and says so. Discovering the limit by being
+  disconnected is exactly the failure the connect-time version gate exists to
+  prevent, and it would be reintroduced here by omission.
+
+  **Shape.** An opt-in mode (`multiplex: true` or similar), not a default. The
+  per-connection model is simpler, is what every deployment runs today, and is
+  faster for the small-service-count case that most deployments are. The mode
+  is the open door for the operator with forty services, who is the only one
+  who pays for the current design.
+
+  **shipped: the server half, 2026-08-16.** A connection carries a list of
+  services; each is routed by its own binds, asked its own gate and IP
+  allowlist, ejected on its own failures, paced from the connection's own
+  shaper cell, and shown and controlled separately in the dashboard behind a
+  `?service=` address. Identity across heartbeats is by the name the client
+  gives a service, with an unnamed one adopting a service that has none yet.
+
+  Where it differed from the plan: the per-declaration application needed no
+  function extraction, because the handler already described a single service
+  and only its values were destructured once, above the loop. Raw `tunnels:`
+  opens still key on the connection and carry no service selector, which is
+  marked in place. **The client half is `#120`**, split out because it is a
+  milestone of its own and the server half is useful without it only to a
+  client built for it.
+
 
 - [x] **#119 `CacheSpec.aResilientRouteServesTheExpiredEntryAndSaysSo` fails
   under the full e2e suite, and the reason is not yet the timing everyone
