@@ -629,11 +629,11 @@ pub(crate) async fn explain_handler(
       .iter()
       .filter(|(id, c)| !pool.iter().any(|p| p.id == **id) && c.matches_host(&hostname))
       .map(|(id, c)| {
-        let (why, code) = if !c.service.admin_enabled {
+        let (why, code) = if !c.sole().admin_enabled {
           ("disabled from the dashboard", "ineligible.disabled")
         } else if c.draining {
           ("draining", "ineligible.draining")
-        } else if !c.service.backend_healthy {
+        } else if !c.sole().backend_healthy {
           (
             "its backend health probe is failing",
             "ineligible.backend_unhealthy",

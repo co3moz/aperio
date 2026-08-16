@@ -111,7 +111,7 @@ pub(crate) async fn request_replay_handler(
           (
             chosen_id.clone(),
             c.tx.clone(),
-            c.service.request_count.clone(),
+            c.sole().request_count.clone(),
           )
         })
       }

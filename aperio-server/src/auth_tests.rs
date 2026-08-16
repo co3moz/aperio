@@ -647,7 +647,7 @@ async fn login_visitor_credentials_host_scoped() {
   let state = test_state();
   // A connected client bound to `site.test` sets a per-service visitor password.
   let mut client = mock_client(Some("site.test"), None, None, None);
-  client.service.visitor_auth = Some("guest:letmein".to_string());
+  client.sole_mut().visitor_auth = Some("guest:letmein".to_string());
   state.clients.write().await.insert("c1".to_string(), client);
   let state = Arc::new(state);
   let res = call_login(
@@ -671,7 +671,7 @@ async fn login_admits_any_user_a_clients_policy_names() {
   // the visitor to. The gate was unopenable by anyone it was written for.
   let state = test_state();
   let mut client = mock_client(Some("site.test"), None, None, None);
-  client.service.visitor_auth_policy = Some(crate::visitor_auth::Policy::compile(
+  client.sole_mut().visitor_auth_policy = Some(crate::visitor_auth::Policy::compile(
     &serde_yaml::from_str("{method: basic, users: [\"alice:one\", \"bob:two\"]}").unwrap(),
   ));
   state.clients.write().await.insert("c1".to_string(), client);

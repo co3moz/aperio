@@ -637,7 +637,7 @@ async fn test_proxy_handler_success() {
       reported_instance_id: None,
       instance_group: None,
       subscriptions: Vec::new(),
-      service: crate::state::ServiceState {
+      services: vec![crate::state::ServiceState {
         metrics_labels: Vec::new(),
         service_custom_name: None,
         request_count: client_req_count,
@@ -682,7 +682,7 @@ async fn test_proxy_handler_success() {
         denied: None,
         recent_failures: VecDeque::new(),
         ejected_until: None,
-      },
+      }],
     },
   );
 
@@ -967,7 +967,7 @@ fn mock_client(
     reported_instance_id: None,
     instance_group: None,
     subscriptions: Vec::new(),
-    service: crate::state::ServiceState {
+    services: vec![crate::state::ServiceState {
       metrics_labels: Vec::new(),
       service_custom_name: None,
       request_count: Arc::new(AtomicU64::new(0)),
@@ -1015,7 +1015,7 @@ fn mock_client(
       denied: None,
       recent_failures: VecDeque::new(),
       ejected_until: None,
-    },
+    }],
   }
 }
 
@@ -1317,7 +1317,7 @@ fn test_apply_lb_strategy_primary_standby() {
   let mut clients = HashMap::new();
   let primary = mock_client(None, None, None, None);
   let mut standby = mock_client(None, None, None, None);
-  standby.service.priority = 1;
+  standby.sole_mut().priority = 1;
   clients.insert("primary".to_string(), primary);
   clients.insert("standby".to_string(), standby);
 
@@ -1731,7 +1731,7 @@ async fn test_observe_service_availability_states() {
 
   // Healthy client, keyed by its service_name → Up.
   let mut up = mock_client(None, None, None, None);
-  up.service.service_name = Some("web".to_string());
+  up.sole_mut().service_name = Some("web".to_string());
   state.clients.write().await.insert("c-up".to_string(), up);
 
   // Connected but draining → Degraded, keyed by reported_instance_id (no name).
@@ -1746,7 +1746,7 @@ async fn test_observe_service_availability_states() {
 
   // Backend probe failing → Degraded, keyed by connection id (no name/instance).
   let mut bad_backend = mock_client(None, None, None, None);
-  bad_backend.service.backend_healthy = false;
+  bad_backend.sole_mut().backend_healthy = false;
   state
     .clients
     .write()
@@ -1755,8 +1755,8 @@ async fn test_observe_service_availability_states() {
 
   // Admin-disabled → Degraded as well.
   let mut disabled = mock_client(None, None, None, None);
-  disabled.service.admin_enabled = false;
-  disabled.service.service_name = Some("disabled-svc".to_string());
+  disabled.sole_mut().admin_enabled = false;
+  disabled.sole_mut().service_name = Some("disabled-svc".to_string());
   state
     .clients
     .write()
@@ -1782,7 +1782,7 @@ async fn test_observe_service_availability_down_and_best_state_wins() {
 
   // Stale heartbeat → Down.
   let mut stale = mock_client(None, None, None, None);
-  stale.service.service_name = Some("svc".to_string());
+  stale.sole_mut().service_name = Some("svc".to_string());
   stale.last_ping_at = Some(Instant::now() - Duration::from_secs(120));
   state
     .clients
@@ -1792,7 +1792,7 @@ async fn test_observe_service_availability_down_and_best_state_wins() {
 
   // A second, healthy connection for the SAME entity → the best state wins.
   let mut healthy = mock_client(None, None, None, None);
-  healthy.service.service_name = Some("svc".to_string());
+  healthy.sole_mut().service_name = Some("svc".to_string());
   healthy.last_ping_at = Some(Instant::now());
   state
     .clients

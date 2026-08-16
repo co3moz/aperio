@@ -86,8 +86,8 @@ pub(crate) async fn metrics_handler(
     .map(|(id, c)| {
       (
         id.clone(),
-        c.service.request_count.load(Ordering::SeqCst),
-        crate::metrics_labels::render(&c.service.metrics_labels),
+        c.sole().request_count.load(Ordering::SeqCst),
+        crate::metrics_labels::render(&c.sole().metrics_labels),
       )
     })
     .collect();

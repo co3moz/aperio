@@ -259,12 +259,12 @@ pub(crate) async fn measure(state: &AppState, hostname: &str, path: Option<&str>
   for client in clients.values() {
     // Only clients that could actually take a request count as capacity.
     let eligible = client.is_healthy(down_threshold)
-      && client.service.backend_healthy
+      && client.sole().backend_healthy
       && !client.draining
-      && client.service.admin_enabled
+      && client.sole().admin_enabled
       // Standby tiers exist to be idle; counting them would hide saturation
       // of the primaries under `primary-standby`.
-      && client.service.priority == 0
+      && client.sole().priority == 0
       && client.effective_hostnames().iter().any(|h| **h == hostname)
       && match path {
         Some(p) => client.effective_path_bind().map(String::as_str) == Some(p),
@@ -275,8 +275,8 @@ pub(crate) async fn measure(state: &AppState, hostname: &str, path: Option<&str>
     }
     out.instances += 1;
     if let (Some(limit), Some(limiter)) = (
-      client.service.max_concurrent,
-      client.service.inflight_limiter.as_ref(),
+      client.sole().max_concurrent,
+      client.sole().inflight_limiter.as_ref(),
     ) {
       out.capacity += limit;
       out.inflight += limit.saturating_sub(limiter.available_permits() as u32);

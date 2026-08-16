@@ -440,7 +440,7 @@ async fn visitor_gate_per_route_visitor_auth() {
   // gate: without a host session (and no share), the visitor is denied.
   let state = Arc::new(test_state_with(test_config()));
   let mut c = mock_client(None, None, None, None);
-  c.service.visitor_auth = Some("pw".to_string());
+  c.sole_mut().visitor_auth = Some("pw".to_string());
   state.clients.write().await.insert("c1".to_string(), c);
   let uri: axum::http::Uri = "/svc".parse().unwrap();
   let gate = check_visitor_gate(
@@ -781,7 +781,7 @@ async fn handler_serves_cache_hit_without_tunnel() {
   mark_connected(&state).await;
   // Client marked cacheable; its receiver stays dropped since we never dispatch.
   let mut c = mock_client(None, None, None, None);
-  c.service.cache = true;
+  c.sole_mut().cache = true;
   state.clients.write().await.insert("c1".to_string(), c);
   // Pre-seed a fresh cache entry for GET /cached.
   state.response_cache.lock().await.insert(
@@ -943,7 +943,7 @@ async fn handler_stores_cacheable_response() {
   let mut c = mock_client(None, None, None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
-  c.service.cache = true;
+  c.sole_mut().cache = true;
   state.clients.write().await.insert("c1".to_string(), c);
   let mut r = text_response(200);
   r.headers.push((
@@ -970,7 +970,7 @@ async fn handler_negatively_caches_404() {
   let mut c = mock_client(None, None, None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
-  c.service.cache = true;
+  c.sole_mut().cache = true;
   state.clients.write().await.insert("c1".to_string(), c);
   spawn_custom(state.clone(), rx, vec![Some(text_response(404))]);
   let resp = run(state.clone(), get("/missing")).await;
@@ -984,8 +984,8 @@ async fn handler_webhook_inbox_records_post() {
   let mut c = mock_client(None, None, None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
-  c.service.webhook_inbox = true;
-  c.service.service_name = Some("svc".to_string());
+  c.sole_mut().webhook_inbox = true;
+  c.sole_mut().service_name = Some("svc".to_string());
   state.clients.write().await.insert("c1".to_string(), c);
   spawn_custom(state.clone(), rx, vec![Some(text_response(200))]);
   let mut req = axum::extract::Request::new(Body::from("hook"));
@@ -1196,8 +1196,8 @@ async fn visitor_gate_traversal_sees_a_policy_the_scalar_cannot_hold() {
 
     let state = Arc::new(test_state_with(test_config()));
     let mut c = mock_client(None, None, None, None);
-    c.service.visitor_auth = None; // exactly the shape the bug turned on
-    c.service.visitor_auth_policy = Some(policy);
+    c.sole_mut().visitor_auth = None; // exactly the shape the bug turned on
+    c.sole_mut().visitor_auth_policy = Some(policy);
     state.clients.write().await.insert("c1".to_string(), c);
 
     for path in ["/./admin", "/x/../admin", "/."] {
@@ -1235,7 +1235,7 @@ async fn a_query_token_cookie_is_scoped_to_the_route_that_admitted_it() {
   )
   .expect("a valid auth: value");
   let mut c = mock_client(Some("app.e2e.local"), Some("/metrics"), None, None);
-  c.service.visitor_auth_policy = Some(crate::visitor_auth::Policy::compile(&setting));
+  c.sole_mut().visitor_auth_policy = Some(crate::visitor_auth::Policy::compile(&setting));
   state.clients.write().await.insert("c1".to_string(), c);
 
   let mut headers = HeaderMap::new();
@@ -1329,7 +1329,7 @@ async fn handler_swr_serves_stale_and_revalidates() {
   let mut c = mock_client(None, None, None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
-  c.service.cache = true;
+  c.sole_mut().cache = true;
   state.clients.write().await.insert("c1".to_string(), c);
   // A cacheable entry that is past its TTL but within its SWR window.
   state.response_cache.lock().await.insert(
@@ -1366,7 +1366,7 @@ async fn handler_denied_visitor_stealth_504() {
   let mut c = mock_client(None, None, None, None);
   // The caller (127.0.0.1) is not in the client's allowlist → rejected, and no
   // `denied:` redirect is declared → stealth 504 (identical to unclaimed).
-  c.service.allowed_ips = vec!["10.0.0.0/8".to_string()];
+  c.sole_mut().allowed_ips = vec!["10.0.0.0/8".to_string()];
   state.clients.write().await.insert("c1".to_string(), c);
   let resp = run(state, get("/secret")).await;
   assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
@@ -1377,8 +1377,8 @@ async fn handler_denied_visitor_redirect_302() {
   let state = connected(test_config());
   mark_connected(&state).await;
   let mut c = mock_client(None, None, None, None);
-  c.service.allowed_ips = vec!["10.0.0.0/8".to_string()];
-  c.service.denied = Some("https://denied.example/blocked".to_string());
+  c.sole_mut().allowed_ips = vec!["10.0.0.0/8".to_string()];
+  c.sole_mut().denied = Some("https://denied.example/blocked".to_string());
   state.clients.write().await.insert("c1".to_string(), c);
   let resp = run(state, get("/secret")).await;
   assert_eq!(resp.status(), StatusCode::FOUND);
@@ -1437,8 +1437,8 @@ async fn handler_inflight_limiter_admits_request() {
   let mut c = mock_client(None, None, None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
-  c.service.max_concurrent = Some(2);
-  c.service.inflight_limiter = Some(StdArc::new(Semaphore::new(2)));
+  c.sole_mut().max_concurrent = Some(2);
+  c.sole_mut().inflight_limiter = Some(StdArc::new(Semaphore::new(2)));
   state.clients.write().await.insert("c1".to_string(), c);
   spawn_custom(state.clone(), rx, vec![Some(text_response(200))]);
   let resp = run(state, get("/limited")).await;
@@ -1454,7 +1454,7 @@ async fn handler_single_flight_follower_serves_from_cache() {
   let mut c = mock_client(None, None, None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
-  c.service.cache = true;
+  c.sole_mut().cache = true;
   state.clients.write().await.insert("c1".to_string(), c);
   // Only the leader dispatches; it stores a cacheable answer, then the follower
   // wakes and re-checks the cache instead of stampeding the backend.
@@ -1554,10 +1554,10 @@ async fn handler_inflight_limiter_timeout_returns_429() {
   let mut c = mock_client(None, None, None, None);
   let (tx, _rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
-  c.service.max_concurrent = Some(1);
+  c.sole_mut().max_concurrent = Some(1);
   // No permits available → the acquire never succeeds within the gateway
   // timeout → 429.
-  c.service.inflight_limiter = Some(StdArc::new(Semaphore::new(0)));
+  c.sole_mut().inflight_limiter = Some(StdArc::new(Semaphore::new(0)));
   state.clients.write().await.insert("c1".to_string(), c);
   let resp = run(state, get("/blocked")).await;
   assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
@@ -1732,7 +1732,7 @@ async fn handler_response_timeout_override_and_header_strip() {
   let mut c = mock_client(None, None, None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
-  c.service.response_timeout = Some(5); // per-service response-timeout override
+  c.sole_mut().response_timeout = Some(5); // per-service response-timeout override
   state.clients.write().await.insert("c1".to_string(), c);
   let mut r = text_response(200);
   // Hop-by-hop headers must be stripped from the visitor response.
@@ -1935,7 +1935,7 @@ async fn closed_by_default_still_serves_what_declares_itself_open() {
   cfg.default_access = crate::settings::DefaultAccess::Deny;
   let state = Arc::new(test_state_with(cfg));
   let mut c = mock_client(None, None, None, None);
-  c.service.public = true;
+  c.sole_mut().public = true;
   state.clients.write().await.insert("c1".to_string(), c);
 
   let uri: axum::http::Uri = "/anything".parse().unwrap();
@@ -2202,7 +2202,7 @@ async fn a_route_nothing_is_connected_to_is_undeclared_rather_than_refused() {
   // And a client that *is* connected and declares itself open is served, so
   // the posture is not simply deferring everything.
   let mut c = mock_client(Some("awake.e2e.local"), None, None, None);
-  c.service.public = true;
+  c.sole_mut().public = true;
   state.clients.write().await.insert("c1".to_string(), c);
   let gate = check_visitor_gate(
     &state,
@@ -2457,7 +2457,7 @@ async fn one_written_policy_behaves_the_same_whichever_side_wrote_it() {
   // Written on a client that serves the route.
   let client_side = Arc::new(test_state_with(test_config()));
   let mut c = mock_client(None, None, None, None);
-  c.service.visitor_auth_policy = Some(crate::visitor_auth::Policy::compile(
+  c.sole_mut().visitor_auth_policy = Some(crate::visitor_auth::Policy::compile(
     &serde_yaml::from_str(yaml).unwrap(),
   ));
   client_side

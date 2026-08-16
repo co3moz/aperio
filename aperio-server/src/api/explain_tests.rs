@@ -456,10 +456,10 @@ async fn every_ineligible_reason_is_named() {
     draining.draining = true;
     clients.insert("c-drain".to_string(), draining);
     let mut sick = mock_client(Some("app.example.com"), None, None, None);
-    sick.service.backend_healthy = false;
+    sick.sole_mut().backend_healthy = false;
     clients.insert("c-sick".to_string(), sick);
     let mut wrong_path = mock_client(Some("app.example.com"), Some("/api"), None, None);
-    wrong_path.service.declared_path = Some("/api".to_string());
+    wrong_path.sole_mut().declared_path = Some("/api".to_string());
     clients.insert("c-path".to_string(), wrong_path);
   }
   let headers = admin_headers(&state).await;
@@ -609,7 +609,7 @@ async fn a_client_is_named_by_its_service_rather_than_its_id() {
   {
     let mut clients = state.clients.write().await;
     let mut named = mock_client(Some("app.example.com"), None, None, None);
-    named.service.service_name = Some("payments".to_string());
+    named.sole_mut().service_name = Some("payments".to_string());
     clients.insert("11111111-aaaa".to_string(), named);
   }
   let headers = admin_headers(&state).await;
@@ -640,7 +640,7 @@ async fn two_connections_of_one_service_are_counted_not_repeated() {
     let mut clients = state.clients.write().await;
     for id in ["aaaaaaaabbbb", "ccccccccdddd"] {
       let mut c = mock_client(Some("app.example.com"), None, None, None);
-      c.service.service_name = Some("payments".to_string());
+      c.sole_mut().service_name = Some("payments".to_string());
       clients.insert(id.to_string(), c);
     }
   }
@@ -679,7 +679,7 @@ async fn an_ineligible_client_is_named_the_same_way() {
     let mut clients = state.clients.write().await;
     let mut draining = mock_client(Some("app.example.com"), None, None, None);
     draining.draining = true;
-    draining.service.service_custom_name = Some("checkout (blue)".to_string());
+    draining.sole_mut().service_custom_name = Some("checkout (blue)".to_string());
     clients.insert("22222222-bbbb".to_string(), draining);
   }
   let headers = admin_headers(&state).await;
@@ -717,7 +717,7 @@ async fn a_tenant_is_not_told_who_else_serves_a_hostname_its_fence_covers() {
   {
     let mut clients = state.clients.write().await;
     let mut foreign = mock_client(Some("app.example.com"), None, None, None);
-    foreign.service.service_name = Some("axum".to_string());
+    foreign.sole_mut().service_name = Some("axum".to_string());
     clients.insert("master-conn".to_string(), foreign);
   }
   let token = seed_session(&state, Role::Admin, None, Some(org)).await;
@@ -757,7 +757,7 @@ async fn a_foreign_client_that_cannot_serve_keeps_its_reason_to_itself() {
     let mut clients = state.clients.write().await;
     let mut foreign = mock_client(Some("app.example.com"), None, None, None);
     foreign.draining = true;
-    foreign.service.service_name = Some("axum".to_string());
+    foreign.sole_mut().service_name = Some("axum".to_string());
     clients.insert("master-conn".to_string(), foreign);
   }
   let token = seed_session(&state, Role::Admin, None, Some(org)).await;
@@ -790,7 +790,7 @@ async fn a_tenant_sees_its_own_clients_named_and_qualified() {
   {
     let mut clients = state.clients.write().await;
     let mut mine = mock_client(Some("acme.example"), None, None, None);
-    mine.service.service_name = Some("axum".to_string());
+    mine.sole_mut().service_name = Some("axum".to_string());
     mine.perms.org_id = Some(org.clone());
     clients.insert("tenant-conn".to_string(), mine);
   }

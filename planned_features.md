@@ -112,13 +112,31 @@ readable without scrolling past what is already done.
   it is in the *right* place, and a field in the wrong struct compiles. They
   now check both structs against the classification.
 
+  **Then the representation went plural.** `service: ServiceState` became
+  `services: Vec<ServiceState>`, never empty, and the four hundred and fifty
+  sites that used to read a field now go through `sole()` or `sole_mut()`.
+  That is deliberately not a tidy-up: **every `sole` call is a caller that
+  has not yet been taught which service it means**, so `grep sole` is the
+  remaining work of this entry, currently 205 reads and 246 writes, and it
+  shrinks as callers learn. Keeping the singular field and changing it later
+  is the same four hundred sites, except later and all at once.
+
+  One test earns its place here: `sole` and `sole_mut` have to address the
+  same entry. They are two methods over a list and nothing else says they
+  agree; if one reached for the first and the other for the last, everything
+  would compile and every test would pass while the length is one, and the
+  bug would appear on the day a second service arrives, as writes landing
+  where the reads do not look, in four hundred places at once.
+
   **What is left of the split.** `clients` is still one map keyed by
-  connection id, and `service` is still one `ServiceState` rather than many.
-  Making it many is the next step, and the pieces that follow from it are the
-  ones the entry below already names: routing and load balancing keyed on the
-  pair, the elastic pool's per-service growth signal, a pacer per service so
-  a large response cannot queue ahead of a small API on the shared writer,
-  and the dashboard's client table.
+  connection id, and the list is always length one because the Ping refuses
+  longer. What comes next is the part with behavior in it, and it starts
+  with the question every `sole` is standing in for: routing has to return
+  *which* service matched, not just which connection, and then the callers
+  downstream of routing take it from there. After that, the pieces the entry
+  already names: load balancing on the pair, the elastic pool's per-service
+  growth signal, a pacer per service so a large response cannot queue ahead
+  of a small API on the shared writer, and the dashboard's client table.
 
   **The obligation that creates, for the client half.** The server's refusal
   is safe but silent, matching the other refusals in `on_ping`: a `warn!` and

@@ -180,10 +180,10 @@ async fn measure_reports_pool_capacity_and_utilization() {
   let state = test_state();
   // Two clients on the bind, one with a concurrency limit half consumed.
   let mut a = mock_client(Some("app.example.com"), None, None, None);
-  a.service.max_concurrent = Some(10);
-  a.service.inflight_limiter = Some(std::sync::Arc::new(tokio::sync::Semaphore::new(10)));
+  a.sole_mut().max_concurrent = Some(10);
+  a.sole_mut().inflight_limiter = Some(std::sync::Arc::new(tokio::sync::Semaphore::new(10)));
   let permits = a
-    .service
+    .sole()
     .inflight_limiter
     .as_ref()
     .unwrap()
@@ -191,8 +191,8 @@ async fn measure_reports_pool_capacity_and_utilization() {
     .try_acquire_many_owned(4)
     .unwrap();
   let mut b = mock_client(Some("app.example.com"), None, None, None);
-  b.service.max_concurrent = Some(10);
-  b.service.inflight_limiter = Some(std::sync::Arc::new(tokio::sync::Semaphore::new(10)));
+  b.sole_mut().max_concurrent = Some(10);
+  b.sole_mut().inflight_limiter = Some(std::sync::Arc::new(tokio::sync::Semaphore::new(10)));
   // A client on a different hostname must not count.
   let other = mock_client(Some("other.example.com"), None, None, None);
   {
@@ -221,13 +221,13 @@ async fn measure_excludes_clients_that_cannot_take_a_request() {
   let mut draining = mock_client(Some("app.example.com"), None, None, None);
   draining.draining = true;
   let mut unhealthy = mock_client(Some("app.example.com"), None, None, None);
-  unhealthy.service.backend_healthy = false;
+  unhealthy.sole_mut().backend_healthy = false;
   let mut disabled = mock_client(Some("app.example.com"), None, None, None);
-  disabled.service.admin_enabled = false;
+  disabled.sole_mut().admin_enabled = false;
   // A standby tier exists to be idle; counting it would mask saturation of
   // the primaries under primary-standby.
   let mut standby = mock_client(Some("app.example.com"), None, None, None);
-  standby.service.priority = 1;
+  standby.sole_mut().priority = 1;
   {
     let mut clients = state.clients.write().await;
     clients.insert("d".into(), draining);
@@ -407,7 +407,7 @@ async fn cold_start_wait_holds_until_a_routable_client_appears() {
   {
     let mut clients = state.clients.write().await;
     let mut c = mock_client(Some("cold.example.com"), None, None, None);
-    c.service.max_concurrent = Some(4);
+    c.sole_mut().max_concurrent = Some(4);
     clients.insert("c-new".to_string(), c);
   }
   let _ = state.client_connected.send(true);

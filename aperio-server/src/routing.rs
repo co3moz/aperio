@@ -236,9 +236,9 @@ pub(crate) fn select_client_pool(
     .iter()
     .filter(|(_, c)| {
       c.is_healthy(down_threshold)
-        && c.service.backend_healthy
+        && c.sole().backend_healthy
         && !c.draining
-        && c.service.admin_enabled
+        && c.sole().admin_enabled
     })
     .collect();
 
@@ -341,7 +341,7 @@ pub(crate) fn apply_lb_strategy(
       let min_priority = pool
         .iter()
         .filter_map(|id| clients.get(id))
-        .map(|c| c.service.priority)
+        .map(|c| c.sole().priority)
         .min()
         .unwrap_or(0);
       pool
@@ -349,7 +349,7 @@ pub(crate) fn apply_lb_strategy(
         .filter(|id| {
           clients
             .get(id)
-            .is_some_and(|c| c.service.priority == min_priority)
+            .is_some_and(|c| c.sole().priority == min_priority)
         })
         .collect()
     }
@@ -487,21 +487,21 @@ pub(crate) async fn pick_proxy_client(
     Some(c) => PickOutcome::Selected(Box::new(SelectedClient {
       id: chosen_id.clone(),
       tx: c.tx.clone(),
-      request_count: c.service.request_count.clone(),
-      inflight_limiter: c.service.inflight_limiter.clone(),
+      request_count: c.sole().request_count.clone(),
+      inflight_limiter: c.sole().inflight_limiter.clone(),
       token_name: c.perms.token_name.clone(),
       token_id: c.perms.token_id.clone(),
       org_id: c.perms.org_id.clone(),
       instance_id: c.reported_instance_id.clone(),
       protocol: c.client_protocol,
-      cache: c.service.cache,
-      resilience: c.service.resilience,
-      capture: c.service.capture,
-      max_request_body: c.service.max_request_body,
-      response_timeout: c.service.response_timeout,
-      webhook_inbox: c.service.webhook_inbox,
-      service_name: c.service.service_name.clone(),
-      service_custom_name: c.service.service_custom_name.clone(),
+      cache: c.sole().cache,
+      resilience: c.sole().resilience,
+      capture: c.sole().capture,
+      max_request_body: c.sole().max_request_body,
+      response_timeout: c.sole().response_timeout,
+      webhook_inbox: c.sole().webhook_inbox,
+      service_name: c.sole().service_name.clone(),
+      service_custom_name: c.sole().service_custom_name.clone(),
     })),
     None => PickOutcome::NoRoute,
   }
@@ -558,7 +558,7 @@ fn narrow_to_side(
     .filter(|id| {
       let is_canary = clients
         .get(*id)
-        .and_then(|c| c.service.service_name.as_deref())
+        .and_then(|c| c.sole().service_name.as_deref())
         .is_some_and(|name| name == service);
       match side {
         crate::static_routes::Side::Canary => is_canary,
@@ -598,7 +598,7 @@ pub(crate) async fn route_is_public(
   !pool.is_empty()
     && pool
       .iter()
-      .all(|id| clients.get(id).is_some_and(|c| c.service.public))
+      .all(|id| clients.get(id).is_some_and(|c| c.sole().public))
 }
 
 /// Per-candidate visitor-IP eligibility of a routed pool: each candidate is
@@ -617,7 +617,7 @@ pub(crate) fn filter_pool_by_ip(
   };
   let (passing, rejecting): (Vec<String>, Vec<String>) = pool.into_iter().partition(|id| {
     clients.get(id).is_none_or(|c| {
-      c.service.allowed_ips.is_empty() || crate::auth::ip_allowed(ip, &c.service.allowed_ips)
+      c.sole().allowed_ips.is_empty() || crate::auth::ip_allowed(ip, &c.sole().allowed_ips)
     })
   });
   if !passing.is_empty() {
@@ -629,12 +629,7 @@ pub(crate) fn filter_pool_by_ip(
   let denied = rejecting
     .iter()
     .filter_map(|id| clients.get(id))
-    .filter_map(|c| {
-      c.service
-        .denied
-        .clone()
-        .map(|url| (c.service.priority, url))
-    })
+    .filter_map(|c| c.sole().denied.clone().map(|url| (c.sole().priority, url)))
     .min_by_key(|(priority, _)| *priority)
     .map(|(_, url)| url);
   IpFilterOutcome::Denied(denied)
@@ -706,7 +701,7 @@ pub(crate) async fn route_visitor_auth(
   for id in &pool {
     match clients
       .get(id)
-      .and_then(|c| c.service.visitor_auth.as_deref())
+      .and_then(|c| c.sole().visitor_auth.as_deref())
     {
       Some(c) => match creds {
         None => creds = Some(c),
@@ -755,7 +750,7 @@ pub(crate) async fn route_visitor_policy(
   for id in &pool {
     match clients
       .get(id)
-      .and_then(|c| c.service.visitor_auth_policy.as_ref())
+      .and_then(|c| c.sole().visitor_auth_policy.as_ref())
     {
       Some(p) => match policy {
         None => policy = Some(p),
@@ -820,9 +815,9 @@ pub(crate) async fn host_has_visitor_auth(state: &AppState, request_host: Option
   }
   let clients = state.clients.read().await;
   clients.values().any(|c| {
-    let declares_gate = c.service.visitor_auth.is_some()
+    let declares_gate = c.sole().visitor_auth.is_some()
       || c
-        .service
+        .sole()
         .visitor_auth_policy
         .as_ref()
         .is_some_and(|policy| policy.gates());

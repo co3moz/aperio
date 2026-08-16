@@ -140,8 +140,8 @@ async fn ws_denied_visitor_redirect_302() {
   let state = connected(test_config());
   mark_connected(&state).await;
   let mut c = mock_client(None, None, None, None);
-  c.service.allowed_ips = vec!["10.0.0.0/8".to_string()];
-  c.service.denied = Some("https://denied.example/ws".to_string());
+  c.sole_mut().allowed_ips = vec!["10.0.0.0/8".to_string()];
+  c.sole_mut().denied = Some("https://denied.example/ws".to_string());
   state.clients.write().await.insert("c1".to_string(), c);
   let resp = run(state, ws_request("/ws", false)).await;
   assert_eq!(resp.status(), StatusCode::FOUND);
@@ -156,7 +156,7 @@ async fn ws_denied_visitor_stealth_504() {
   let state = connected(test_config());
   mark_connected(&state).await;
   let mut c = mock_client(None, None, None, None);
-  c.service.allowed_ips = vec!["10.0.0.0/8".to_string()];
+  c.sole_mut().allowed_ips = vec!["10.0.0.0/8".to_string()];
   state.clients.write().await.insert("c1".to_string(), c);
   let resp = run(state, ws_request("/ws", false)).await;
   assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);

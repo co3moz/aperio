@@ -1357,9 +1357,51 @@ pub(crate) struct ClientHandle {
   /// because that is what the client re-sends after a reconnect, and reduced
   /// to one delivery per client *process* at publish time.
   pub(crate) subscriptions: Vec<String>,
-  /// The service this connection carries. One today; #46 is the entry that
-  /// makes it many, and the reason the field is not simply inlined back.
-  pub(crate) service: ServiceState,
+  /// The services this connection carries.
+  ///
+  /// **Never empty.** A connection exists because something is served over
+  /// it, and every construction puts one here; `sole` relies on that and is
+  /// the only reason it can hand back a reference rather than an `Option`
+  /// that four hundred call sites would have to answer for.
+  ///
+  /// A `Vec` while the length is always one, because the alternative was to
+  /// keep the singular field and change it later, and "later" is where the
+  /// four hundred sites come back. The representation is plural now; what is
+  /// left is teaching each caller *which* service it means, and `sole` is
+  /// the list of places that still have not been asked.
+  pub(crate) services: Vec<ServiceState>,
+}
+
+impl ClientHandle {
+  /// The one service this connection carries, on the assumption that there
+  /// is exactly one.
+  ///
+  /// Every call is a place that has not yet been taught to pick a service,
+  /// which is the point of the name: `grep sole` is the remaining work of
+  /// #46, and it shrinks as callers learn. A caller that genuinely wants
+  /// every service should iterate `services` instead and will keep working
+  /// when the length stops being one; a caller that wants a *particular*
+  /// service will take it from routing, which is what decides.
+  ///
+  /// Panics on an empty list, which is the honest reading of an invariant a
+  /// `Vec` cannot express: every construction puts a service here, so an
+  /// empty one is a bug in this file rather than anything a peer can cause.
+  /// The alternative, an `Option` threaded through four hundred callers, is
+  /// four hundred invented answers to a question that has no real case.
+  pub(crate) fn sole(&self) -> &ServiceState {
+    self
+      .services
+      .first()
+      .expect("a connection always carries at least one service")
+  }
+
+  /// The mutable half of `sole`, with the same meaning and the same debt.
+  pub(crate) fn sole_mut(&mut self) -> &mut ServiceState {
+    self
+      .services
+      .first_mut()
+      .expect("a connection always carries at least one service")
+  }
 }
 
 /// Permissions resolved at connection time from the presented token.
@@ -1473,7 +1515,7 @@ impl ClientPerms {
 impl ClientHandle {
   /// True while this client is passively ejected from routing.
   pub(crate) fn is_ejected(&self, now: Instant) -> bool {
-    self.service.ejected_until.is_some_and(|t| now < t)
+    self.sole().ejected_until.is_some_and(|t| now < t)
   }
 
   /// Records one dispatch failure (5xx / timeout / connection loss). Prunes
@@ -1488,17 +1530,17 @@ impl ClientHandle {
     eject_for: Duration,
   ) -> bool {
     while self
-      .service
+      .sole()
       .recent_failures
       .front()
       .is_some_and(|t| now.duration_since(*t) > window)
     {
-      self.service.recent_failures.pop_front();
+      self.sole_mut().recent_failures.pop_front();
     }
-    self.service.recent_failures.push_back(now);
-    if !self.is_ejected(now) && self.service.recent_failures.len() as u32 >= threshold {
-      self.service.ejected_until = Some(now + eject_for);
-      self.service.recent_failures.clear();
+    self.sole_mut().recent_failures.push_back(now);
+    if !self.is_ejected(now) && self.sole().recent_failures.len() as u32 >= threshold {
+      self.sole_mut().ejected_until = Some(now + eject_for);
+      self.sole_mut().recent_failures.clear();
       return true;
     }
     false
@@ -1508,26 +1550,26 @@ impl ClientHandle {
   /// value, which wins over the token-granted value.
   pub(crate) fn effective_path_bind(&self) -> Option<&String> {
     self
-      .service
+      .sole()
       .override_path_bind
       .as_ref()
-      .or(self.service.declared_path.as_ref())
-      .or(self.service.assigned_path.as_ref())
+      .or(self.sole().declared_path.as_ref())
+      .or(self.sole().assigned_path.as_ref())
   }
 
   /// Hostnames used for routing. A dashboard override replaces the whole
   /// set; otherwise the union of assigned and declared hostnames applies.
   pub(crate) fn effective_hostnames(&self) -> Vec<&String> {
-    if !self.service.override_hostname_binds.is_empty() {
-      return self.service.override_hostname_binds.iter().collect();
+    if !self.sole().override_hostname_binds.is_empty() {
+      return self.sole().override_hostname_binds.iter().collect();
     }
-    let mut set: Vec<&String> = self.service.assigned_hostnames.iter().collect();
-    if let Some(d) = &self.service.declared_hostname
+    let mut set: Vec<&String> = self.sole().assigned_hostnames.iter().collect();
+    if let Some(d) = &self.sole().declared_hostname
       && !set.contains(&d)
     {
       set.push(d);
     }
-    for d in &self.service.declared_hostnames {
+    for d in &self.sole().declared_hostnames {
       if !set.contains(&d) {
         set.push(d);
       }
@@ -1542,10 +1584,10 @@ impl ClientHandle {
   /// the `name` of its `services:` entry. `None` leaves only the id.
   pub(crate) fn display_name(&self) -> Option<String> {
     self
-      .service
+      .sole()
       .service_custom_name
       .clone()
-      .or_else(|| self.service.service_name.clone())
+      .or_else(|| self.sole().service_name.clone())
   }
 
   pub(crate) fn matches_host(&self, host: &str) -> bool {
@@ -2971,10 +3013,10 @@ impl AppState {
       }
       handle.perms.org_hostnames = hostnames.to_vec();
       let serving: Vec<String> = handle
-        .service
+        .sole()
         .assigned_hostnames
         .iter()
-        .chain(handle.service.declared_hostnames.iter())
+        .chain(handle.sole().declared_hostnames.iter())
         .cloned()
         .collect();
       if serving

@@ -813,8 +813,8 @@ async fn hostnames_apply_to_live_connections() {
   for (id, host) in [("keep", "ok.acme.com"), ("evict", "old.example.com")] {
     let mut c = crate::test_support::mock_client(Some(host), None, None, None);
     c.perms.org_id = Some(org_id.clone());
-    c.service.declared_hostnames = vec![host.to_string()];
-    c.service.assigned_hostnames = vec![host.to_string()];
+    c.sole_mut().declared_hostnames = vec![host.to_string()];
+    c.sole_mut().assigned_hostnames = vec![host.to_string()];
     state.clients.write().await.insert(id.to_string(), c);
   }
 

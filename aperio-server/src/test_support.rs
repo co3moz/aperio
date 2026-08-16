@@ -362,7 +362,7 @@ pub(crate) fn mock_client(
     reported_instance_id: None,
     instance_group: None,
     subscriptions: Vec::new(),
-    service: crate::state::ServiceState {
+    services: vec![crate::state::ServiceState {
       metrics_labels: Vec::new(),
       service_custom_name: None,
       request_count: Arc::new(AtomicU64::new(0)),
@@ -410,7 +410,7 @@ pub(crate) fn mock_client(
       denied: None,
       recent_failures: VecDeque::new(),
       ejected_until: None,
-    },
+    }],
   }
 }
 

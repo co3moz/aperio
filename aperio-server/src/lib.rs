@@ -2764,7 +2764,7 @@ pub mod testkit {
         reported_instance_id: None,
         instance_group: None,
         subscriptions: Vec::new(),
-        service: crate::state::ServiceState {
+        services: vec![crate::state::ServiceState {
           service_custom_name: None,
           request_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
           declared_path: None,
@@ -2809,7 +2809,7 @@ pub mod testkit {
           denied: None,
           recent_failures: std::collections::VecDeque::new(),
           ejected_until: None,
-        },
+        }],
       };
       self
         .state
@@ -2868,14 +2868,14 @@ pub(crate) async fn observe_service_availability(
     std::collections::HashMap::new();
   for (conn_id, handle) in clients.iter() {
     let key = handle
-      .service
+      .sole()
       .service_name
       .clone()
       .or_else(|| handle.reported_instance_id.clone())
       .unwrap_or_else(|| conn_id.clone());
     let status = if !handle.is_healthy(down_threshold) {
       Availability::Down
-    } else if handle.service.backend_healthy && handle.service.admin_enabled && !handle.draining {
+    } else if handle.sole().backend_healthy && handle.sole().admin_enabled && !handle.draining {
       Availability::Up
     } else {
       Availability::Degraded

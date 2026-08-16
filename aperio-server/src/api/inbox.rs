@@ -201,7 +201,7 @@ pub(crate) async fn inbox_refire_handler(
           (
             chosen_id.clone(),
             c.tx.clone(),
-            c.service.request_count.clone(),
+            c.sole().request_count.clone(),
           )
         })
       }

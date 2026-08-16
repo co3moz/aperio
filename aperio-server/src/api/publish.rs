@@ -171,7 +171,7 @@ pub(crate) async fn subscribers_handler(
       .entry(key.clone())
       .or_insert_with(|| SubscriberView {
         instance_group: handle.instance_group.clone(),
-        service: handle.service.service_name.clone(),
+        service: handle.sole().service_name.clone(),
         token_name: handle.perms.token_name.clone(),
         connections: 0,
         topics: Vec::new(),

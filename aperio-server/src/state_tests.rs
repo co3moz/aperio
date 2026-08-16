@@ -450,7 +450,7 @@ fn test_client_effective_binds_precedence() {
 
   // assigned path used when nothing declared/overridden.
   let mut c = mock_client(None, None, None, None);
-  c.service.assigned_path = Some("/assigned".to_string());
+  c.sole_mut().assigned_path = Some("/assigned".to_string());
   assert_eq!(c.effective_path_bind(), Some(&"/assigned".to_string()));
 
   // hostname override replaces the whole set.
@@ -461,8 +461,9 @@ fn test_client_effective_binds_precedence() {
 
   // union of assigned + declared + extra declared hostnames, de-duplicated.
   let mut c = mock_client(Some("declared.local"), None, None, None);
-  c.service.assigned_hostnames = vec!["assigned.local".to_string(), "declared.local".to_string()];
-  c.service.declared_hostnames = vec!["extra.local".to_string(), "assigned.local".to_string()];
+  c.sole_mut().assigned_hostnames =
+    vec!["assigned.local".to_string(), "declared.local".to_string()];
+  c.sole_mut().declared_hostnames = vec!["extra.local".to_string(), "assigned.local".to_string()];
   let hosts = c.effective_hostnames();
   assert!(hosts.contains(&&"assigned.local".to_string()));
   assert!(hosts.contains(&&"declared.local".to_string()));
@@ -502,10 +503,10 @@ fn test_client_health_and_ejection() {
   // Stale failures outside the window are pruned before counting.
   let mut c2 = mock_client(None, None, None, None);
   let old = now - Duration::from_secs(120);
-  c2.service.recent_failures.push_back(old);
-  c2.service.recent_failures.push_back(old);
+  c2.sole_mut().recent_failures.push_back(old);
+  c2.sole_mut().recent_failures.push_back(old);
   assert!(!c2.record_failure(now, window, 3, eject_for));
-  assert_eq!(c2.service.recent_failures.len(), 1, "old failures pruned");
+  assert_eq!(c2.sole().recent_failures.len(), 1, "old failures pruned");
 }
 
 // ----- AppState: config, request slots -----
@@ -1881,7 +1882,7 @@ fn the_two_structs_divide_the_fields_the_way_the_seam_says() {
 
   // The connection side, and the one field that joins the two.
   let mut want_handle: Vec<&str> = CONNECTION_SCOPED.to_vec();
-  want_handle.push("service");
+  want_handle.push("services");
   stray = handle
     .iter()
     .filter(|f| !want_handle.contains(&f.as_str()))
@@ -1929,4 +1930,46 @@ fn struct_fields(source: &str, name: &str) -> Vec<String> {
     }
   }
   out
+}
+
+/// `sole` and `sole_mut` address the same service.
+///
+/// They are two methods over a list, and nothing but this says they agree.
+/// If one ever reached for the first entry and the other for the last, every
+/// call site would still compile and every test would still pass while the
+/// length is one, which it is everywhere today. The bug would appear on the
+/// day a second service arrives, in the form of writes landing somewhere the
+/// reads do not look, and it would appear in four hundred places at once.
+///
+/// So the list is given a second entry here, which is the only place in the
+/// tree that does it, precisely because that is the condition under which
+/// the two could disagree.
+#[test]
+fn the_one_service_written_to_is_the_one_read_back() {
+  let mut handle = crate::test_support::mock_client(Some("first.example"), None, None, None);
+  let second = crate::test_support::mock_client(Some("second.example"), None, None, None);
+  handle.services.extend(second.services);
+  assert_eq!(handle.services.len(), 2, "the case worth testing");
+
+  handle.sole_mut().response_timeout = Some(77);
+  assert_eq!(
+    handle.sole().response_timeout,
+    Some(77),
+    "a write through sole_mut is visible through sole"
+  );
+  assert_eq!(
+    handle.services[1].response_timeout, None,
+    "and it went to one service, not to every service"
+  );
+}
+
+/// A handle carries at least one service, which is what lets `sole` return a
+/// reference instead of an `Option`.
+///
+/// Pinned at the constructor the tests themselves use, because an invariant
+/// that only holds in production is an invariant the tests will break first.
+#[test]
+fn a_handle_is_never_built_without_a_service() {
+  let handle = crate::test_support::mock_client(None, None, None, None);
+  assert!(!handle.services.is_empty());
 }
