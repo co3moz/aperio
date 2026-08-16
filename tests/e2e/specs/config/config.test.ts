@@ -304,15 +304,35 @@ export class ServerCliSpec extends Test({ timeout: 90_000 }) {
     ].sort()
     assert.deepEqual(
       notices,
-      ['breaking@0.8.0', 'migration@0.6.0', 'migration@0.9.0'],
+      // 0.10.0 added two breaking entries that reach this file: the
+      // `default_access` flip, which `Applies::Always` so every file in range
+      // gets it, and the dashboard password, which this fixture sets as
+      // `server_auth`. Deduped by severity and version, the two arrive as one
+      // line. This assertion changing is the mechanism working: it is the
+      // moment somebody confirms an upgrader is told what was intended.
+      ['breaking@0.10.0', 'breaking@0.8.0', 'migration@0.6.0', 'migration@0.9.0'],
       `the notices a 0.5.0 file gets from this build changed:\n${res.out}`,
     )
 
     // An entry recorded for a version this build has not reached is dormant
-    // by design (it fires for the upgrade that ships it) and invisible here,
-    // which is exactly why a guessed version has to be corrected at release:
-    // it would otherwise never fire, or fire for the wrong upgrade.
-    assert.doesNotMatch(res.out, /since 0\.10\.0/)
+    // by design: it fires for the upgrade that ships it. Written as "nothing
+    // newer than this build" rather than against one hardcoded version,
+    // because the hardcoded form stops meaning anything the moment that
+    // version is released, which is exactly what happened to 0.10.0. This
+    // shape keeps the property at every future release too, and it is the
+    // property that makes a guessed version worth correcting at release time:
+    // left in the future it would never fire.
+    const build = res.out.match(/this build \(([0-9.]+)\)/)?.[1]
+    assert.ok(build, `the report names the build version:\n${res.out}`)
+    const asNumbers = (v: string) => v.split('.').map(Number)
+    const newer = [...res.out.matchAll(/\(since ([0-9.]+)\)/g)]
+      .map((m) => m[1])
+      .filter((v) => {
+        const [a, b, c] = asNumbers(v)
+        const [x, y, z] = asNumbers(build)
+        return a > x || (a === x && (b > y || (b === y && c > z)))
+      })
+    assert.deepEqual(newer, [], `a notice names a version newer than the build:\n${res.out}`)
   }
 
   async aSecurityRelevantChangeRefusesTheStartRatherThanWarning() {
