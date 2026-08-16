@@ -203,7 +203,10 @@ readable without scrolling past what is already done.
     autoscaling capture, and it closes over `state`, `perms`, `cid`,
     `client_id`, `scaling_ctx` and `server_max_connections`. Turning it into
     a per-declaration function is a single surgery with no verifiable
-    halfway point.
+    halfway point. It reaches further up than the block, too: 27 of the
+    entry's 29 fields are read inside it, and the other two, `path_bind` and
+    `hostname_bind`, are normalized above it and arrive as already-validated
+    locals, so the normalization has to come along.
   - **The dashboard's client table** cannot simply grow a row per service.
     Its rows are keyed by connection id and that id is the address of
     `/api/clients/{id}/override`, `/enabled` and `/config`. Two services on
