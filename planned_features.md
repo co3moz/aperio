@@ -191,6 +191,13 @@ readable without scrolling past what is already done.
     of three. Whatever produces the fast answer is not simply the client
     being gone.
 
+  **It is no longer intermittent here.** The last four full runs failed it
+  four times, all at 2.21 s, where earlier in the same session it failed
+  roughly two runs in three. Nothing in between touched the cache or the
+  proxy, so the likeliest reading is that this machine now loses the race
+  every time rather than most times. That is good news for whoever picks it
+  up: it reproduces on demand under the full suite, and only there.
+
   Still standing, and where to start: setting `APERIO_DEFAULT_ACCESS=allow`
   on the cache fixture avoided the failure three runs out of three, against
   four failures in six with the default. That implicates the closed posture
