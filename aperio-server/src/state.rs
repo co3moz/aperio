@@ -1019,7 +1019,135 @@ impl RouteTrends {
   }
 }
 
+/// Where each field of a wire `ServiceDecl` lands on this server today.
+///
+/// `ClientHandle` mixes two scopes that are the same thing only because one
+/// connection currently serves one service. Some of its fields describe the
+/// **connection**: the sender, the disconnect notify, the peer address, the
+/// heartbeat, the link and process telemetry, the token and its permissions.
+/// The rest describe the **service** the connection happens to carry, and
+/// those are the ones that have to become many when `planned_features.md`
+/// #46 splits identity into `(connection, service)`.
+///
+/// Nothing in the type says which is which, and the knowledge lived only in
+/// `on_ping`, spread across six hundred lines of assignment. This table is
+/// that knowledge written down, keyed by the wire contract rather than by
+/// the handle, because the wire is what defines a service: a field of
+/// `ServiceDecl` is service-scoped by construction, so anything it maps to
+/// is a field that moves in the split. What is absent from the table is the
+/// answer to the other half, the connection-scoped remainder.
+///
+/// `None` means the field does not land on the handle at all. That is not an
+/// omission: `scaling` arms a record per hostname in the autoscaling store,
+/// and the only trace it leaves here is a warn-once flag.
+///
+/// A test holds this to the wire, so a field added to `ServiceDecl` cannot
+/// arrive without somebody saying where it goes.
+#[cfg(test)]
+pub(crate) const SERVICE_DECL_ON_THE_HANDLE: &[(&str, Option<&str>)] = &[
+  ("service", Some("service_name")),
+  ("service_custom_name", Some("service_custom_name")),
+  ("path_bind", Some("declared_path")),
+  ("hostname_bind", Some("declared_hostname")),
+  ("hostname_binds", Some("declared_hostnames")),
+  ("max_concurrent", Some("max_concurrent")),
+  ("bandwidth_bps", Some("bandwidth_bps")),
+  ("priority", Some("priority")),
+  ("tcp", Some("tcp_enabled")),
+  ("public", Some("public")),
+  ("visitor_auth", Some("visitor_auth")),
+  ("visitor_auth_methods", Some("visitor_auth_policy")),
+  ("allowed_ips", Some("allowed_ips")),
+  ("tunnels", Some("tunnels")),
+  ("cache", Some("cache")),
+  ("resilience", Some("resilience")),
+  // Inverted on arrival: the wire says "do not capture", the handle says
+  // whether it captures.
+  ("no_capture", Some("capture")),
+  ("max_request_body", Some("max_request_body")),
+  ("response_timeout", Some("response_timeout")),
+  ("webhook_inbox", Some("webhook_inbox")),
+  ("denied", Some("denied")),
+  ("backend_healthy", Some("backend_healthy")),
+  ("backend_probed", Some("backend_probed")),
+  ("connections", Some("connections")),
+  ("connections_min", Some("connections_min")),
+  ("connections_max", Some("connections_max")),
+  ("config_notes", Some("config_notes")),
+  ("metrics_labels", Some("metrics_labels")),
+  ("scaling", None),
+];
+
+/// Service-scoped fields the server derives rather than receives.
+///
+/// These belong to the service as surely as the declared ones, and they are
+/// the half that is easy to miss when reading the wire alone: the binds a
+/// token granted rather than the client asked for, the dashboard's temporary
+/// overrides of them, the limiter built from the announced concurrency, the
+/// failover bookkeeping, and the warn-once flags that exist so a
+/// misconfiguration is reported to the operator once instead of every
+/// heartbeat. Under #46 each of them becomes one per service; a warn-once
+/// flag left on the connection would silence the second service's warning
+/// because the first already warned.
+#[cfg(test)]
+pub(crate) const SERVICE_SCOPED_DERIVED: &[&str] = &[
+  "assigned_path",
+  "assigned_hostnames",
+  "random_hostname",
+  "override_path_bind",
+  "override_hostname_binds",
+  "inflight_limiter",
+  "recent_failures",
+  "ejected_until",
+  "admin_enabled",
+  "request_count",
+  "public_denied_warned",
+  "visitor_auth_denied_warned",
+  "ungated_warned",
+  "allowed_ips_invalid_warned",
+  "cache_ignored_warned",
+  "scaling_invalid_warned",
+];
+
+/// What genuinely belongs to the connection, and stays one per socket.
+///
+/// The socket and its liveness, the peer, the token that authenticated it,
+/// the process and link telemetry, the identity the client announces for
+/// itself. #37 is the entry to read before moving any of the telemetry:
+/// multiplexed, RTT and reconnects become properties of the process rather
+/// than of a service, which is arguably the more useful reading but is a
+/// reporting change to make deliberately rather than by accident.
+#[cfg(test)]
+pub(crate) const CONNECTION_SCOPED: &[&str] = &[
+  "tx",
+  "disconnect",
+  "connected_at",
+  "client_ip",
+  "last_ping_at",
+  "perms",
+  "draining",
+  "drain_secs",
+  "declared_client_id",
+  "client_version",
+  "client_protocol",
+  "cpu_percent",
+  "rss_bytes",
+  "rtt_ms",
+  "jitter_ms",
+  "reconnects",
+  "reported_instance_id",
+  "instance_group",
+  "subscriptions",
+];
+
 /// Handle tracking active WebSocket sender channel and metadata.
+///
+/// Two scopes live here, and the three lists above partition them: what the
+/// wire declares per service (`SERVICE_DECL_ON_THE_HANDLE`), what the server
+/// derives per service (`SERVICE_SCOPED_DERIVED`), and what belongs to the
+/// connection (`CONNECTION_SCOPED`). The first two become many under #46.
+/// A test holds the partition exact, so a field cannot be added here without
+/// being placed on one side of the seam.
 pub(crate) struct ClientHandle {
   /// Sender channel to push messages to the client.
   pub(crate) tx: mpsc::Sender<Message>,

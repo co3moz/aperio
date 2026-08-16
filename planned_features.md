@@ -65,7 +65,8 @@ readable without scrolling past what is already done.
     than of a service, which is arguably more useful but is a reporting change
     that has to be made deliberately.
 
-  **What has shipped so far (2026-08-16).** The wire, and only the wire.
+  **What has shipped so far (2026-08-16).** The wire, and the seam named
+  against it. Nothing routes to a second service yet.
   Protocol v8 adds an optional `services` list to the Ping, where each entry
   carries what the singular per-service fields carry one at a time; when the
   list is present it is authoritative and those fields are ignored, and when
@@ -78,6 +79,24 @@ readable without scrolling past what is already done.
   and the same version, which matters here more than for any earlier change:
   every field of the new entry is optional with a default, so a drift between
   the copies would not fail, it would come up quietly unset.
+
+  What an entry carries was settled against `ServiceEntry` in the client's
+  config rather than by eye, which turned up three per-service settings the
+  first pass had missed: the connection pool, the per-service metrics labels
+  and the config notes. The pool matters most, since leaving it out would
+  have buried the #48 question below rather than posing it.
+
+  **And the seam is named.** `ClientHandle`'s sixty-three fields are
+  partitioned in three, beside the struct: what the wire declares per service
+  (mapped field by field, eight of them not name-for-name), what the server
+  *derives* per service, and what belongs to the socket. The derived half is
+  the one to read first when doing the split below, because it is invisible
+  from the wire: the token-granted binds, the dashboard's overrides, the
+  failover bookkeeping, and the warn-once flags. A warn-once flag left on the
+  connection silences the second service's warning because the first already
+  warned, which is a failure that never announces itself. Tests hold the
+  partition exact, so a field cannot be added to the handle without being
+  placed on one side of it.
 
   **The obligation that creates, for the client half.** The server's refusal
   is safe but silent, matching the other refusals in `on_ping`: a `warn!` and

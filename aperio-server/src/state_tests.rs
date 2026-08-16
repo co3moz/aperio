@@ -1763,3 +1763,149 @@ async fn a_widened_grant_keeps_everything_and_leaves_other_tokens_alone() {
   assert_eq!(subscriptions_of(&state, "other").await, vec!["deploy/web"]);
   assert!(theirs.try_recv().is_err());
 }
+
+/// Every field of the wire's `ServiceDecl` is accounted for on the handle.
+///
+/// The table above `ClientHandle` is the only written record of which of its
+/// fields are service-scoped and therefore become many when #46 splits
+/// identity into `(connection, service)`. A record like that is worth exactly
+/// as much as the thing that stops it going stale: a field added to the wire
+/// without a line here would be a service setting nobody classified, and the
+/// split would silently leave it on the connection, which is the same as
+/// giving every service the last one's value.
+#[test]
+fn the_wire_says_what_a_service_is_and_the_handle_accounts_for_all_of_it() {
+  let declared = struct_fields(include_str!("protocol.rs"), "ServiceDecl");
+  assert!(
+    !declared.is_empty(),
+    "the protocol still declares ServiceDecl"
+  );
+
+  let mapped: Vec<&str> = SERVICE_DECL_ON_THE_HANDLE.iter().map(|(w, _)| *w).collect();
+
+  let unclassified: Vec<&String> = declared
+    .iter()
+    .filter(|f| !mapped.contains(&f.as_str()))
+    .collect();
+  assert!(
+    unclassified.is_empty(),
+    "ServiceDecl gained {unclassified:?} and SERVICE_DECL_ON_THE_HANDLE does not say where \
+     it lands. Add a line, with None if it does not reach the handle at all."
+  );
+
+  let invented: Vec<&&str> = mapped
+    .iter()
+    .filter(|w| !declared.contains(&w.to_string()))
+    .collect();
+  assert!(
+    invented.is_empty(),
+    "SERVICE_DECL_ON_THE_HANDLE names {invented:?}, which the wire no longer has."
+  );
+
+  let mut seen = std::collections::HashSet::new();
+  for w in &mapped {
+    assert!(seen.insert(*w), "{w} is listed twice");
+  }
+}
+
+/// And every handle field the table points at actually exists.
+///
+/// The other direction of the same drift: a rename in `ClientHandle` would
+/// leave the table pointing at nothing, and it would still read as authority.
+#[test]
+fn every_field_the_table_points_at_is_a_field_the_handle_has() {
+  let handle = struct_fields(include_str!("state.rs"), "ClientHandle");
+  assert!(!handle.is_empty(), "ClientHandle is still a struct");
+
+  let dangling: Vec<&str> = SERVICE_DECL_ON_THE_HANDLE
+    .iter()
+    .filter_map(|(_, h)| *h)
+    .filter(|h| !handle.contains(&h.to_string()))
+    .collect();
+  assert!(
+    dangling.is_empty(),
+    "SERVICE_DECL_ON_THE_HANDLE points at {dangling:?}, which ClientHandle does not have. \
+     A rename has to be made in both places."
+  );
+}
+
+/// Field names of a struct, read from source. Reading them avoids the one
+/// alternative, a second hand-written list, which is the thing being guarded
+/// against in the first place.
+#[cfg(test)]
+fn struct_fields(source: &str, name: &str) -> Vec<String> {
+  let Some(start) = source.find(&format!("struct {name} {{")) else {
+    return Vec::new();
+  };
+  let mut out = Vec::new();
+  for line in source[start..].lines().skip(1) {
+    let line = line.trim();
+    if line == "}" {
+      break;
+    }
+    let Some(rest) = line
+      .strip_prefix("pub(crate) ")
+      .or_else(|| line.strip_prefix("pub "))
+    else {
+      continue;
+    };
+    if let Some((field, _)) = rest.split_once(':')
+      && field.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+      && !field.is_empty()
+    {
+      out.push(field.to_string());
+    }
+  }
+  out
+}
+
+/// The three lists partition `ClientHandle` exactly: no field unclassified,
+/// none classified twice, none named that does not exist.
+///
+/// This is the guard that makes the seam worth having. Without it the lists
+/// describe the handle as it was on the day they were written, and the next
+/// field added lands on whichever side the person doing #46 guesses. A field
+/// guessed onto the connection when it belongs to the service is not a
+/// compile error and not a test failure anywhere else: it is one value shared
+/// by services that should each have had their own, which surfaces as the
+/// second service quietly inheriting the first one's setting.
+#[test]
+fn every_field_of_the_handle_sits_on_one_side_of_the_seam() {
+  let fields = struct_fields(include_str!("state.rs"), "ClientHandle");
+  assert!(!fields.is_empty(), "ClientHandle is still a struct");
+
+  let mut classified: Vec<&str> = SERVICE_DECL_ON_THE_HANDLE
+    .iter()
+    .filter_map(|(_, h)| *h)
+    .collect();
+  classified.extend(SERVICE_SCOPED_DERIVED.iter().copied());
+  classified.extend(CONNECTION_SCOPED.iter().copied());
+
+  let unclassified: Vec<&String> = fields
+    .iter()
+    .filter(|f| !classified.contains(&f.as_str()))
+    .collect();
+  assert!(
+    unclassified.is_empty(),
+    "ClientHandle gained {unclassified:?} and nothing says whether it belongs to the \
+     connection or to the service. Put it in CONNECTION_SCOPED, in \
+     SERVICE_SCOPED_DERIVED, or on the wire."
+  );
+
+  let mut seen = std::collections::HashSet::new();
+  for f in &classified {
+    assert!(
+      seen.insert(*f),
+      "{f} is classified on more than one side of the seam"
+    );
+  }
+
+  let phantom: Vec<&&str> = classified
+    .iter()
+    .filter(|f| !fields.contains(&f.to_string()))
+    .collect();
+  assert!(
+    phantom.is_empty(),
+    "the seam names {phantom:?}, which ClientHandle does not have."
+  );
+}

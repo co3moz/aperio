@@ -427,6 +427,29 @@ pub struct ServiceDecl {
   pub denied: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub scaling: Option<ScalingDecl>,
+  /// The connection pool this service asked for, the three spellings the
+  /// Ping has always carried: a fixed `connections: n`, or an elastic pool's
+  /// floor and ceiling. Per-service in `aperio.yaml` (`ServiceEntry`), so it
+  /// belongs to the entry rather than to the connection, even though what it
+  /// counts is connections. How a per-service pool composes with several
+  /// services on one socket is the open question in `planned_features.md`
+  /// #48, and leaving the field out here would have hidden it.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub connections: Option<u32>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub connections_min: Option<u32>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub connections_max: Option<u32>,
+  /// Settings this service resolved to something other than its config asked
+  /// for. Built per service on the client, so it is reported per service.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub config_notes: Vec<ConfigNote>,
+  /// Extra Prometheus labels for this service's metrics, per-service in
+  /// `aperio.yaml`. Still bounded by the server on arrival, for the reason
+  /// the singular field gives: label cardinality is how a metrics backend
+  /// dies, and these come from clients.
+  #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+  pub metrics_labels: std::collections::BTreeMap<String, String>,
 }
 
 fn is_zero_u32(v: &u32) -> bool {
