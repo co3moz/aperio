@@ -134,6 +134,7 @@ fn spawn_swr_revalidation(
   client_id: String,
   client_tx: tokio::sync::mpsc::Sender<Message>,
   resilient: bool,
+  service_name: Option<String>,
 ) {
   tokio::spawn(async move {
     let revalidate_id = uuid::Uuid::new_v4().to_string();
@@ -147,6 +148,8 @@ fn spawn_swr_revalidation(
     );
     let msg = TunnelMessage::Request {
       id: revalidate_id.clone(),
+      // The refresh is for the same service the stale entry came from.
+      service: service_name.clone(),
       method: "GET".to_string(),
       uri,
       headers,
@@ -1661,6 +1664,7 @@ async fn proxy_http_request(
               selected.id.clone(),
               selected.tx.clone(),
               selected.resilience,
+              selected.service_name.clone(),
             );
           }
           Some(hit)
@@ -2086,6 +2090,9 @@ async fn proxy_http_request(
     let dispatch_msg = if stream_request {
       TunnelMessage::RequestStart {
         id: request_id.clone(),
+        // The service routing chose, so a client carrying several knows
+        // which of its targets this is for.
+        service: selected.service_name.clone(),
         method: method_str.clone(),
         uri: uri_str.clone(),
         headers: dispatch_headers,
@@ -2093,6 +2100,9 @@ async fn proxy_http_request(
     } else {
       TunnelMessage::Request {
         id: request_id.clone(),
+        // The service routing chose, so a client carrying several knows
+        // which of its targets this is for.
+        service: selected.service_name.clone(),
         method: method_str.clone(),
         uri: uri_str.clone(),
         headers: dispatch_headers,

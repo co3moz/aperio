@@ -113,13 +113,14 @@ pub(crate) async fn request_replay_handler(
             chosen_id.client.clone(),
             c.tx.clone(),
             svc.request_count.clone(),
+            svc.service_name.clone(),
           )),
           _ => None,
         }
       }
     }
   };
-  let (chosen_client_id, client_tx, client_req_counter) = match client_info {
+  let (chosen_client_id, client_tx, client_req_counter, chosen_service) = match client_info {
     Some(info) => info,
     None => {
       return (
@@ -142,6 +143,9 @@ pub(crate) async fn request_replay_handler(
 
   let tunnel_req = TunnelMessage::Request {
     id: replay_id.clone(),
+    // Refires pick a connection rather than a service; the service the
+    // pool chose is named below where it is known.
+    service: chosen_service.clone(),
     method: captured.method.clone(),
     uri: captured.uri.clone(),
     headers: captured.req_headers.clone(),

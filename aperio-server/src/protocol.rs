@@ -657,6 +657,17 @@ pub enum TunnelMessage {
   },
   Request {
     id: String,
+    /// Which of the connection's services this is for, by the name the
+    /// client gave it (protocol v8). `None` on a connection carrying one,
+    /// which is every client before v8 and every ordinary one after it.
+    ///
+    /// Only the frames that *open* something carry it. Everything that
+    /// follows is addressed by a stream id the server minted here, so the
+    /// client learns the service once and routes the rest by id; putting a
+    /// selector on every frame would have meant changing the binary framing
+    /// for a value that never changes mid-stream.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    service: Option<String>,
     method: String,
     uri: String,
     headers: Vec<(String, String)>,
@@ -666,6 +677,17 @@ pub enum TunnelMessage {
   /// only; the body follows as RequestChunk frames ended by RequestEnd.
   RequestStart {
     id: String,
+    /// Which of the connection's services this is for, by the name the
+    /// client gave it (protocol v8). `None` on a connection carrying one,
+    /// which is every client before v8 and every ordinary one after it.
+    ///
+    /// Only the frames that *open* something carry it. Everything that
+    /// follows is addressed by a stream id the server minted here, so the
+    /// client learns the service once and routes the rest by id; putting a
+    /// selector on every frame would have meant changing the binary framing
+    /// for a value that never changes mid-stream.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    service: Option<String>,
     method: String,
     uri: String,
     headers: Vec<(String, String)>,
@@ -717,6 +739,17 @@ pub enum TunnelMessage {
   /// Sent by server to instruct a client to open a WebSocket connection to the local backend.
   UpgradeRequest {
     id: String,
+    /// Which of the connection's services this is for, by the name the
+    /// client gave it (protocol v8). `None` on a connection carrying one,
+    /// which is every client before v8 and every ordinary one after it.
+    ///
+    /// Only the frames that *open* something carry it. Everything that
+    /// follows is addressed by a stream id the server minted here, so the
+    /// client learns the service once and routes the rest by id; putting a
+    /// selector on every frame would have meant changing the binary framing
+    /// for a value that never changes mid-stream.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    service: Option<String>,
     method: String,
     uri: String,
     headers: Vec<(String, String)>,
@@ -751,6 +784,17 @@ pub enum TunnelMessage {
   /// itself declared, regardless of what the server asks.
   TcpOpen {
     stream_id: String,
+    /// Which of the connection's services this is for, by the name the
+    /// client gave it (protocol v8). `None` on a connection carrying one,
+    /// which is every client before v8 and every ordinary one after it.
+    ///
+    /// Only the frames that *open* something carry it. Everything that
+    /// follows is addressed by a stream id the server minted here, so the
+    /// client learns the service once and routes the rest by id; putting a
+    /// selector on every frame would have meant changing the binary framing
+    /// for a value that never changes mid-stream.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    service: Option<String>,
     #[serde(default)]
     target: Option<String>,
     /// The visitor's address, `ip:port`, as the server observed it. Carried so
@@ -777,7 +821,21 @@ pub enum TunnelMessage {
   /// Server → client: open a UDP relay for this stream toward one of the
   /// client's declared `protocol: udp` tunnels. The client only ever sends
   /// to addresses it itself declared, regardless of what the server asks.
-  UdpOpen { stream_id: String, target: String },
+  UdpOpen {
+    stream_id: String,
+    target: String,
+    /// Which of the connection's services this is for, by the name the
+    /// client gave it (protocol v8). `None` on a connection carrying one,
+    /// which is every client before v8 and every ordinary one after it.
+    ///
+    /// Only the frames that *open* something carry it. Everything that
+    /// follows is addressed by a stream id the server minted here, so the
+    /// client learns the service once and routes the rest by id; putting a
+    /// selector on every frame would have meant changing the binary framing
+    /// for a value that never changes mid-stream.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    service: Option<String>,
+  },
   /// One UDP datagram relayed through the tunnel (Base64). Best-effort:
   /// datagrams are dropped, never queued unboundedly, when a hop is slow.
   UdpDatagram { stream_id: String, data: String },

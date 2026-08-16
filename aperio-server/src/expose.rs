@@ -376,6 +376,11 @@ async fn relay_public_tcp(
   let open = TunnelMessage::TcpOpen {
     stream_id: stream_id.clone(),
     target: Some(target),
+    // No selector yet: the TCP/UDP bind registry keys on the connection, so
+    // which service owns a raw tunnel is not resolved here. A multiplexing
+    // client with `tunnels:` is the case this leaves open, and it is named in
+    // planned_features #46 rather than guessed at.
+    service: None,
     // The address the server actually accepted the connection from, so a
     // tunnel with `proxy_protocol: true` can name the visitor to its backend.
     visitor: Some(peer.to_string()),

@@ -203,13 +203,14 @@ pub(crate) async fn inbox_refire_handler(
             chosen_id.client.clone(),
             c.tx.clone(),
             svc.request_count.clone(),
+            svc.service_name.clone(),
           )),
           _ => None,
         }
       }
     }
   };
-  let Some((chosen_client_id, client_tx, client_req_counter)) = client_info else {
+  let Some((chosen_client_id, client_tx, client_req_counter, chosen_service)) = client_info else {
     return (
       StatusCode::GATEWAY_TIMEOUT,
       "No tunnel client available for the entry's route",
@@ -228,6 +229,9 @@ pub(crate) async fn inbox_refire_handler(
   );
   let tunnel_req = TunnelMessage::Request {
     id: refire_id.clone(),
+    // Refires pick a connection rather than a service; the service the
+    // pool chose is named below where it is known.
+    service: chosen_service.clone(),
     method: entry.method.clone(),
     uri: entry.uri.clone(),
     headers: entry.headers.clone(),

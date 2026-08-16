@@ -1928,6 +1928,9 @@ pub(crate) async fn run_service(
                               {
                                   match tunnel_msg {
                                           TunnelMessage::Request {
+                                              // Which service the server routed this to. Read once this client
+                                              // can carry several (#46); with one there is nothing to choose.
+                                              service: _service,
                                               id,
                                               method,
                                               uri,
@@ -1985,6 +1988,9 @@ pub(crate) async fn run_service(
                                               });
                                           }
                                           TunnelMessage::RequestStart {
+                                              // Which service the server routed this to. Read once this client
+                                              // can carry several (#46); with one there is nothing to choose.
+                                              service: _service,
                                               id,
                                               method,
                                               uri,
@@ -2062,6 +2068,9 @@ pub(crate) async fn run_service(
                                               active_request_streams.lock().await.remove(&id);
                                           }
                                           TunnelMessage::UpgradeRequest {
+                                              // Which service the server routed this to. Read once this client
+                                              // can carry several (#46); with one there is nothing to choose.
+                                              service: _service,
                                               id,
                                               method,
                                               uri,
@@ -2138,7 +2147,7 @@ pub(crate) async fn run_service(
                                                   debug!("Closed WebSocket stream {}", stream_id);
                                               }
                                           }
-                                          TunnelMessage::TcpOpen { stream_id, target, visitor } => {
+                                          TunnelMessage::TcpOpen { stream_id, target, visitor, service: _service } => {
                                               shared.mark_request_activity();
                                               // SSRF guard: only addresses this client itself
                                               // declared are ever dialed, a named target must be
@@ -2194,7 +2203,7 @@ pub(crate) async fn run_service(
                                                   }
                                               }
                                           }
-                                          TunnelMessage::UdpOpen { stream_id, target } => {
+                                          TunnelMessage::UdpOpen { stream_id, target, service: _service } => {
                                               shared.mark_request_activity();
                                               // SSRF guard: only declared protocol: udp targets
                                               // are ever dialed, mirroring TcpOpen.

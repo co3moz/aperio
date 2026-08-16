@@ -173,68 +173,71 @@ pub(crate) async fn handle_ws_proxy(
   } else {
     None
   };
-  let (chosen_client_id, client_tx, client_req_counter, ws_org) = match pick_proxy_client(
-    &state,
-    uri_path,
-    request_host.as_deref(),
-    None,
-    ws_affinity.as_deref(),
-    Some(caller_ip),
-    // A proxied WebSocket is one long-lived connection rather than a stream
-    // of requests, so a split would only ever apply to the upgrade. Left out
-    // deliberately: a canary that moved a live socket is not a canary, and
-    // one that only chose where the socket landed would be a second, silent
-    // rule beside the one written for HTTP.
-    None,
-  )
-  .await
-  {
-    crate::routing::PickOutcome::Selected(c) => (c.id, c.tx, c.request_count, c.org_id),
-    crate::routing::PickOutcome::Denied(Some(redirect)) => {
-      log_request_failure(
-        &state,
-        &method_str,
-        &uri_str,
-        302,
-        start_time.elapsed(),
-        Some(&format!(
-          "Visitor IP {} rejected by every candidate; redirected to the denied page",
-          caller_ip
-        )),
-        None,
-      )
-      .await;
-      return axum::response::Response::builder()
-        .status(StatusCode::FOUND)
-        .header("Location", redirect)
-        .body(axum::body::Body::empty())
-        .unwrap_or_else(|_| StatusCode::FOUND.into_response());
-    }
-    outcome
-    @ (crate::routing::PickOutcome::NoRoute | crate::routing::PickOutcome::Denied(None)) => {
-      // Stealth: identical to the unclaimed-route answer (see the HTTP path).
-      let reason = if matches!(outcome, crate::routing::PickOutcome::Denied(_)) {
-        "Visitor IP rejected by every candidate (stealth answer)"
-      } else {
-        "No active client for WebSocket upgrade"
-      };
-      log_request_failure(
-        &state,
-        &method_str,
-        &uri_str,
-        504,
-        start_time.elapsed(),
-        Some(reason),
-        None,
-      )
-      .await;
-      return gateway_timeout_response(
-        &state,
-        request_host.as_deref(),
-        "504 Gateway Timeout - No client available for WebSocket upgrade",
-      );
-    }
-  };
+  let (chosen_client_id, client_tx, client_req_counter, ws_org, chosen_service) =
+    match pick_proxy_client(
+      &state,
+      uri_path,
+      request_host.as_deref(),
+      None,
+      ws_affinity.as_deref(),
+      Some(caller_ip),
+      // A proxied WebSocket is one long-lived connection rather than a stream
+      // of requests, so a split would only ever apply to the upgrade. Left out
+      // deliberately: a canary that moved a live socket is not a canary, and
+      // one that only chose where the socket landed would be a second, silent
+      // rule beside the one written for HTTP.
+      None,
+    )
+    .await
+    {
+      crate::routing::PickOutcome::Selected(c) => {
+        (c.id, c.tx, c.request_count, c.org_id, c.service_name)
+      }
+      crate::routing::PickOutcome::Denied(Some(redirect)) => {
+        log_request_failure(
+          &state,
+          &method_str,
+          &uri_str,
+          302,
+          start_time.elapsed(),
+          Some(&format!(
+            "Visitor IP {} rejected by every candidate; redirected to the denied page",
+            caller_ip
+          )),
+          None,
+        )
+        .await;
+        return axum::response::Response::builder()
+          .status(StatusCode::FOUND)
+          .header("Location", redirect)
+          .body(axum::body::Body::empty())
+          .unwrap_or_else(|_| StatusCode::FOUND.into_response());
+      }
+      outcome @ (crate::routing::PickOutcome::NoRoute
+      | crate::routing::PickOutcome::Denied(None)) => {
+        // Stealth: identical to the unclaimed-route answer (see the HTTP path).
+        let reason = if matches!(outcome, crate::routing::PickOutcome::Denied(_)) {
+          "Visitor IP rejected by every candidate (stealth answer)"
+        } else {
+          "No active client for WebSocket upgrade"
+        };
+        log_request_failure(
+          &state,
+          &method_str,
+          &uri_str,
+          504,
+          start_time.elapsed(),
+          Some(reason),
+          None,
+        )
+        .await;
+        return gateway_timeout_response(
+          &state,
+          request_host.as_deref(),
+          "504 Gateway Timeout - No client available for WebSocket upgrade",
+        );
+      }
+    };
 
   client_req_counter.fetch_add(1, Ordering::SeqCst);
 
@@ -316,6 +319,8 @@ pub(crate) async fn handle_ws_proxy(
   // Send UpgradeRequest to client via tunnel
   let upgrade_req = TunnelMessage::UpgradeRequest {
     id: stream_id.clone(),
+    // The service the pool chose for this upgrade.
+    service: chosen_service.clone(),
     method: method_str.clone(),
     uri: uri_str.clone(),
     headers: serialized_headers,

@@ -990,3 +990,30 @@ fn ejecting_one_service_does_not_take_its_neighbour_out_of_routing() {
     "an ejected sole candidate is served, never silently swapped for another service"
   );
 }
+
+/// The chosen service's name travels with the dispatch.
+///
+/// A client carrying several services receives every request over one socket,
+/// so the frame has to say which of its targets the request is for. Without
+/// it the client would have to guess from the path, which is the server's job
+/// and which it has already done: the pool matched a service, and this is
+/// that answer being carried rather than thrown away.
+#[test]
+fn the_selected_service_is_the_one_named_for_the_client() {
+  let mut handle = base_handle();
+  handle.sole_mut().service_name = Some("api".to_string());
+  handle.sole_mut().declared_path = Some("/api".to_string());
+  let mut extra = base_handle();
+  extra.sole_mut().service_name = Some("web".to_string());
+  extra.sole_mut().declared_path = Some("/web".to_string());
+  handle.services.extend(extra.services);
+  let clients = pool_of(vec![("conn", handle)]);
+
+  let (pool, _) = select_client_pool(&clients, "/web/x", None, false, HEALTHY).expect("routed");
+  let chosen = &pool[0];
+  assert_eq!(
+    chosen.get(&clients).and_then(|s| s.service_name.clone()),
+    Some("web".to_string()),
+    "the name the dispatch carries is the matched service's, not the connection's first"
+  );
+}

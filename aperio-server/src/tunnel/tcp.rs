@@ -389,6 +389,11 @@ async fn relay_udp_consumer(
   let open = TunnelMessage::UdpOpen {
     stream_id: stream_id.clone(),
     target,
+    // No selector yet: the TCP/UDP bind registry keys on the connection, so
+    // which service owns a raw tunnel is not resolved here. A multiplexing
+    // client with `tunnels:` is the case this leaves open, and it is named in
+    // planned_features #46 rather than guessed at.
+    service: None,
   };
   if let Ok(json) = serde_json::to_string(&open)
     && client_tx.send(Message::Text(json.into())).await.is_err()
@@ -589,6 +594,11 @@ async fn relay_tcp_consumer(
   let open = TunnelMessage::TcpOpen {
     stream_id: stream_id.clone(),
     target,
+    // No selector yet: the TCP/UDP bind registry keys on the connection, so
+    // which service owns a raw tunnel is not resolved here. A multiplexing
+    // client with `tunnels:` is the case this leaves open, and it is named in
+    // planned_features #46 rather than guessed at.
+    service: None,
     visitor: visitor.map(|a| a.to_string()),
   };
   if let Ok(json) = serde_json::to_string(&open)

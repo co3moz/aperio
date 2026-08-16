@@ -463,6 +463,7 @@ async fn test_run_service_message_loop() {
   srv_send(
     &mut ws,
     &TunnelMessage::Request {
+      service: None,
       id: "r1".to_string(),
       method: "GET".to_string(),
       uri: "/".to_string(),
@@ -476,6 +477,7 @@ async fn test_run_service_message_loop() {
   srv_send(
     &mut ws,
     &TunnelMessage::RequestStart {
+      service: None,
       id: "r2".to_string(),
       method: "POST".to_string(),
       uri: "/upload".to_string(),
@@ -520,6 +522,7 @@ async fn test_run_service_message_loop() {
   srv_send(
     &mut ws,
     &TunnelMessage::UpgradeRequest {
+      service: None,
       id: "u1".to_string(),
       method: "GET".to_string(),
       uri: "/ws".to_string(),
@@ -552,6 +555,7 @@ async fn test_run_service_message_loop() {
   srv_send(
     &mut ws,
     &TunnelMessage::TcpOpen {
+      service: None,
       visitor: None,
       stream_id: "t1".to_string(),
       target: Some("127.0.0.1:5432".to_string()),
@@ -585,6 +589,7 @@ async fn test_run_service_message_loop() {
   srv_send(
     &mut ws,
     &TunnelMessage::TcpOpen {
+      service: None,
       visitor: None,
       stream_id: "t2".to_string(),
       target: Some("127.0.0.1:9999".to_string()),
@@ -594,6 +599,7 @@ async fn test_run_service_message_loop() {
   srv_send(
     &mut ws,
     &TunnelMessage::TcpOpen {
+      service: None,
       visitor: None,
       stream_id: "t3".to_string(),
       target: None,
@@ -605,6 +611,7 @@ async fn test_run_service_message_loop() {
   srv_send(
     &mut ws,
     &TunnelMessage::UdpOpen {
+      service: None,
       stream_id: "d1".to_string(),
       target: "127.0.0.1:5353".to_string(),
     },
@@ -636,6 +643,7 @@ async fn test_run_service_message_loop() {
   srv_send(
     &mut ws,
     &TunnelMessage::UdpOpen {
+      service: None,
       stream_id: "d2".to_string(),
       target: "127.0.0.1:6666".to_string(),
     },

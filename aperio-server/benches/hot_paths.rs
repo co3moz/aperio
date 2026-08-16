@@ -85,6 +85,7 @@ fn bench_envelope_codec(c: &mut Criterion) {
   .collect();
 
   let request = TunnelMessage::Request {
+    service: None,
     id: "9f8e7d6c-5b4a-3210-fedc-ba9876543210".to_string(),
     method: "GET".to_string(),
     uri: "/products/list?page=3&sort=price".to_string(),
