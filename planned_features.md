@@ -368,6 +368,25 @@ readable without scrolling past what is already done.
   were reverted rather than committed. A change whose negative check comes
   back green is not a fix, it is a coincidence with good timing.
 
+  **Fourth pass: the route-specific wait was built, and it broke scale-to-zero.**
+  Splitting the server-wide flag into its two questions, *does this route have
+  a candidate* and *could one arrive*, is right on its own terms and the
+  decision was written as a pure function with four passing tests over its
+  edges. It still had to be reverted (`bedbe35`, reverted in `00a319b`):
+  `ColdStartSpec.anArmedRecordOutlivesTheClientThatArmedIt` goes from 226 ms
+  to a 22 s timeout, deterministically.
+
+  The reason is worth keeping, because it is the constraint the next attempt
+  has to satisfy. With scale-to-zero enabled and no candidate for the route,
+  "could one arrive" is always yes, so the request enters the cold-start wait.
+  Today the global flag *masks* that whenever any other client is connected,
+  and the scaling spec depends on the masking: an armed record is meant to be
+  answered from the record, not waited on. So the wait's entry condition is
+  load-bearing in a way that is not about connectivity at all, and any
+  route-specific version has to answer "an armed record exists, do not wait
+  for it" before it answers anything else. That question is not in the flag
+  and is not in `route_exists` either.
+
   Still standing, and where to start: setting `APERIO_DEFAULT_ACCESS=allow`
   on the cache fixture avoided the failure three runs out of three, against
   four failures in six with the default. That implicates the closed posture
