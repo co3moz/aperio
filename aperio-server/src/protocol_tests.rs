@@ -39,7 +39,7 @@ fn test_compress_roundtrip() {
 #[test]
 fn test_decode_never_panics_and_holds_invariants() {
   // A deterministic sweep of adversarial byte patterns (the fuzz targets in
-  // `fuzz/` explore this far more deeply on nightly): decoding must never
+  // `tools/fuzz/` explore this far more deeply on nightly): decoding must never
   // panic, and any decoded frame id must satisfy the `id.len() <= 255`
   // prefix invariant.
   let mut seed = 0x1234_5678u32;

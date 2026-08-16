@@ -28,16 +28,16 @@ contents:
   - src: dist/aperio-server
     dst: /usr/bin/aperio-server
 
-  - src: packaging/systemd/aperio-server.service
+  - src: tools/packaging/systemd/aperio-server.service
     dst: /usr/lib/systemd/system/aperio-server.service
 
   # Named per package: two Debian packages may not carry the same path, and
   # both of these declare /etc/aperio. sysusers and tmpfiles are idempotent,
   # so saying it twice is saying it once.
-  - src: packaging/sysusers.d/aperio.conf
+  - src: tools/packaging/sysusers.d/aperio.conf
     dst: /usr/lib/sysusers.d/aperio-server.conf
 
-  - src: packaging/tmpfiles.d/aperio-server.conf
+  - src: tools/packaging/tmpfiles.d/aperio-server.conf
     dst: /usr/lib/tmpfiles.d/aperio-server.conf
 
   # Never overwritten on upgrade: a new default arrives as .rpmnew or

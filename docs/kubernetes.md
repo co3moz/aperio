@@ -1,7 +1,7 @@
 # Kubernetes
 
 A Helm chart for the server, and a sidecar for the client. Both are in
-[`charts/`](../charts/).
+[`charts/`](../tools/charts/).
 
 ```bash
 helm install aperio ./charts/aperio-server \

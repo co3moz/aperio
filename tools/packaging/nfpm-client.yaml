@@ -24,14 +24,14 @@ contents:
 
   # A template unit: `systemctl enable --now aperio-client@myapp` reads
   # /etc/aperio/myapp.yaml.
-  - src: packaging/systemd/aperio-client@.service
+  - src: tools/packaging/systemd/aperio-client@.service
     dst: /usr/lib/systemd/system/aperio-client@.service
 
   # Named per package: see the server's file for why.
-  - src: packaging/sysusers.d/aperio.conf
+  - src: tools/packaging/sysusers.d/aperio.conf
     dst: /usr/lib/sysusers.d/aperio-client.conf
 
-  - src: packaging/tmpfiles.d/aperio-client.conf
+  - src: tools/packaging/tmpfiles.d/aperio-client.conf
     dst: /usr/lib/tmpfiles.d/aperio-client.conf
 
   # An example rather than a config: an instance is a copy of this under its

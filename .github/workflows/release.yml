@@ -140,14 +140,14 @@ jobs:
           # a package and never edited that line. A literal here would go stale
           # the moment it shipped, so it is stamped now.
           mkdir -p dist
-          for f in packaging/etc/*; do
+          for f in tools/packaging/etc/*; do
             sed "s/__APERIO_VERSION__/${NFPM_VERSION}/" "$f" > "dist/$(basename "$f")"
           done
 
           for bin in aperio-server aperio-client; do
             cp "target/${{ matrix.target }}/release/${bin}" "dist/${bin}"
             for fmt in deb rpm; do
-              /tmp/nfpm package -f "packaging/nfpm-${bin#aperio-}.yaml" -p "$fmt" -t dist-pkg
+              /tmp/nfpm package -f "tools/packaging/nfpm-${bin#aperio-}.yaml" -p "$fmt" -t dist-pkg
             done
           done
           (cd dist-pkg && for f in *.deb *.rpm; do shasum -a 256 "$f" > "$f.sha256"; done)
@@ -426,7 +426,7 @@ jobs:
       # SHA256SUMS and under the same signature as everything else.
       - name: Render the Homebrew formulae and Scoop manifests
         run: |
-          packaging/render-manifests.sh "${GITHUB_REF_NAME#v}" dist-pkg dist-pkg
+          tools/packaging/render-manifests.sh "${GITHUB_REF_NAME#v}" dist-pkg dist-pkg
           cat dist-pkg/aperio-client.rb
 
       # The tap is a second repository, so this is the one step that cannot be

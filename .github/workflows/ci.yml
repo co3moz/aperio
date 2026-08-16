@@ -51,7 +51,7 @@ jobs:
       # once already left this behind for a release. Compare them here so the
       # next divergence fails a pull request instead of a tag build.
       - name: Guard, the warm cache builds what the release builds
-        run: python3 scripts/check-release-cache.py
+        run: python3 tools/scripts/check-release-cache.py
 
       - name: Run automated tests
         run: cargo test --all
@@ -223,7 +223,7 @@ jobs:
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: fuzz
+          workspaces: tools/fuzz
 
       # Short smoke run of each tunnel-protocol fuzz target: enough to catch a
       # parser panic introduced by a change without holding up the pipeline.
@@ -235,10 +235,10 @@ jobs:
       # and ASan is incompatible with statically linked libc. Forcing gnu
       # (dynamic libc, std already present) sidesteps both.
       - name: Fuzz decode_binary_frame
-        run: cargo fuzz run --target x86_64-unknown-linux-gnu binary_frame -- -max_total_time=30
+        run: cargo fuzz run --fuzz-dir tools/fuzz --target x86_64-unknown-linux-gnu binary_frame -- -max_total_time=30
 
       - name: Fuzz tunnel-message JSON/zlib decode
-        run: cargo fuzz run --target x86_64-unknown-linux-gnu tunnel_message -- -max_total_time=30
+        run: cargo fuzz run --fuzz-dir tools/fuzz --target x86_64-unknown-linux-gnu tunnel_message -- -max_total_time=30
 
   e2e:
     name: End-to-End Tunnel Test
@@ -331,7 +331,7 @@ jobs:
           node-version: 22
 
       - name: Lint the chart
-        run: helm lint charts/aperio-server
+        run: helm lint tools/charts/aperio-server
 
       # kubeconform rather than `kubectl apply --dry-run=client`, which is the
       # obvious choice and the wrong one: it downloads the OpenAPI schema from
@@ -346,12 +346,12 @@ jobs:
       - name: Render it, in the shapes people use
         run: |
           set -euo pipefail
-          helm template a charts/aperio-server > /tmp/default.yaml
-          helm template a charts/aperio-server \
+          helm template a tools/charts/aperio-server > /tmp/default.yaml
+          helm template a tools/charts/aperio-server \
             --set masterToken=apr_test \
             --set ingress.enabled=true \
             --set persistence.existingClaim=aperio-data > /tmp/full.yaml
-          helm template a charts/aperio-server \
+          helm template a tools/charts/aperio-server \
             --set persistence.enabled=false > /tmp/ephemeral.yaml
           for f in /tmp/default.yaml /tmp/full.yaml /tmp/ephemeral.yaml; do
             test -s "$f"
@@ -378,7 +378,7 @@ jobs:
             retention: { audit_days: 30 }
             backup: { interval: 86400, dir: /var/lib/aperio/backups }
           YAML
-          helm template a charts/aperio-server -f /tmp/values.yaml \
+          helm template a tools/charts/aperio-server -f /tmp/values.yaml \
             | python3 -c "
           import sys, yaml
           docs = [d for d in yaml.safe_load_all(sys.stdin) if d]

@@ -7,7 +7,7 @@
 
 use libfuzzer_sys::fuzz_target;
 
-#[path = "../../aperio-server/src/protocol.rs"]
+#[path = "../../../aperio-server/src/protocol.rs"]
 mod protocol;
 
 fuzz_target!(|data: &[u8]| {

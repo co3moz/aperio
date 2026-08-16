@@ -29,14 +29,14 @@ Dashboard tests: `npm run test` runs the [vitest](https://vitest.dev) unit suite
 
 ### Protocol fuzzing
 
-The tunnel wire protocol, the main corruption/attack surface, has [`cargo-fuzz`](https://github.com/rust-fuzz/cargo-fuzz) targets under [`fuzz/`](../fuzz): `binary_frame` (the v2 binary frame parser, asserting the `id.len() <= 255` prefix invariant) and `tunnel_message` (zlib inflate + `TunnelMessage` JSON decode). Run them on a nightly toolchain:
+The tunnel wire protocol, the main corruption/attack surface, has [`cargo-fuzz`](https://github.com/rust-fuzz/cargo-fuzz) targets under [`tools/fuzz/`](../tools/fuzz): `binary_frame` (the v2 binary frame parser, asserting the `id.len() <= 255` prefix invariant) and `tunnel_message` (zlib inflate + `TunnelMessage` JSON decode). Run them on a nightly toolchain:
 
 ```console
-cargo +nightly fuzz run binary_frame
-cargo +nightly fuzz run tunnel_message
+cargo +nightly fuzz run --fuzz-dir tools/fuzz binary_frame
+cargo +nightly fuzz run --fuzz-dir tools/fuzz tunnel_message
 ```
 
-CI runs a short smoke pass of each. The `fuzz/` crate is a standalone workspace, so it never affects the main `cargo build`/`test`.
+CI runs a short smoke pass of each. The `tools/fuzz/` crate is a standalone workspace, so it never affects the main `cargo build`/`test`.
 
 ### Benchmarks & load
 
@@ -59,7 +59,7 @@ Tagging a version (`git tag v0.2.0 && git push --tags`) triggers the release wor
 
 Every release is also **signed and attested**. A `SHA256SUMS` manifest covering all assets is signed with [Sigstore](https://www.sigstore.dev/) keyless signing (`SHA256SUMS.sigstore.json` next to it), the archives and the container images carry [build provenance attestations](https://docs.github.com/actions/security-guides/using-artifact-attestations), and an SPDX SBOM (`aperio.spdx.json`) is attached. None of it needs a repository secret: the workflow's own OIDC identity signs, so there is no key to rotate or leak. The verification commands are in [SECURITY.md](../SECURITY.md#verifying-a-release).
 
-The Windows leg of that matrix compiles OpenSSL from source, which is minutes of the run, so CI keeps it warm: a `warm-release-cache` job on the default branch builds the Windows target whenever `Cargo.lock`/`Cargo.toml` changed and saves the cache the tag build restores. Two things keep that useful, and a CI step (`scripts/check-release-cache.py`) enforces the first:
+The Windows leg of that matrix compiles OpenSSL from source, which is minutes of the run, so CI keeps it warm: a `warm-release-cache` job on the default branch builds the Windows target whenever `Cargo.lock`/`Cargo.toml` changed and saves the cache the tag build restores. Two things keep that useful, and a CI step (`tools/scripts/check-release-cache.py`) enforces the first:
 
 - **The warm job must run the same cargo invocations as the release**, split the same way. Features are unified per invocation, so building both crates together and building them separately give every shared dependency a different fingerprint, and the release recompiles despite a warm cache.
 - **Push the version bump before the tag**, and let CI finish. The bump changes `Cargo.lock`, which changes the cache key; the warm job on that push is what fills the new one. Tagging the same commit at the same moment races it, and the release build starts against a key nothing has filled yet.

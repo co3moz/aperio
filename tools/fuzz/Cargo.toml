@@ -26,6 +26,10 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
 
 [dependencies]
 libfuzzer-sys = "0.4"
+# The included `protocol.rs` names this crate's types in the tunnel message,
+# so the fuzz target cannot compile without it. Not a new dependency of the
+# fuzzer, a dependency of the file it pulls in by path.
+aperio-config = { path = "../../aperio-config" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 flate2 = "1"

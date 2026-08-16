@@ -48,7 +48,7 @@ Key messages:
   inflation is output-bounded to prevent a decompression bomb.
 
 The frame decoder and the JSON/zlib paths are the primary corruption surface
-and are exercised by the [`fuzz/`](../fuzz) targets.
+and are exercised by the [`tools/fuzz/`](../tools/fuzz) targets.
 
 ## Request lifecycle (server side)
 

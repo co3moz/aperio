@@ -6,7 +6,7 @@
 
 use libfuzzer_sys::fuzz_target;
 
-#[path = "../../aperio-server/src/protocol.rs"]
+#[path = "../../../aperio-server/src/protocol.rs"]
 mod protocol;
 
 const MAX_OUT: usize = 1 << 20; // 1 MiB inflate cap, as the server uses.

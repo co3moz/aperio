@@ -230,7 +230,7 @@ nothing reuses them.
   only, HTTP only (no relays, no `serve:`, no pub/sub, no bind-tunnels), with
   the real socket as the default dispatch and `inject()` as an opt-in fast path
   the user knowingly accepts the fidelity trade for. Before any of it, measure
-  the hop: `scripts/profile-request.sh` against the same backend over
+  the hop: `tools/scripts/profile-request.sh` against the same backend over
   `http://localhost:...` and over `unix://...` prices it in an afternoon.
 
   Two prerequisites from that list are worth doing on their own merits whether
@@ -711,7 +711,7 @@ nothing reuses them.
   supported way in. The chart's values file is the interesting design: it has
   to map cleanly onto the yaml config surface rather than inventing a second
   one, which is the trap every chart falls into.
-  shipped: `charts/aperio-server` (StatefulSet, PVC, Service, optional
+  shipped: `tools/charts/aperio-server` (StatefulSet, PVC, Service, optional
   Ingress, token Secret, `healthz`/`readyz` probes) and `docs/kubernetes.md`.
   - **The trap is avoided by not translating anything**: `values.config` is
     written out verbatim as `aperio-server.yaml`. The chart does not read it,
@@ -880,7 +880,7 @@ nothing reuses them.
   is entirely in reach: `brew install` is how a large share of the audience
   tries a tool at all, and a client nobody can install in one line is a client
   nobody evaluates.
-  shipped: `packaging/render-manifests.sh`, which renders a Homebrew formula
+  shipped: `tools/packaging/render-manifests.sh`, which renders a Homebrew formula
   and a Scoop manifest per binary and is called by the release job before the
   checksum step, so both files are release assets covered by the signed
   manifest. Differed from the plan in the part that matters: the entry assumed
@@ -904,7 +904,7 @@ nothing reuses them.
   and container images; installing on an ordinary Linux box meant `install.sh`
   and then writing your own unit file. The unit file is the part with actual
   content.
-  shipped: `packaging/`, with nfpm descriptions producing `.deb` and `.rpm`
+  shipped: `tools/packaging/`, with nfpm descriptions producing `.deb` and `.rpm`
   for both binaries on amd64 and arm64 from the binaries the release job has
   already built, plus `docs/packages.md` and a guide section. The packages are
   covered by the existing checksum manifest and were added to the

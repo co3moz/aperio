@@ -16,7 +16,12 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+# The repository root, found rather than counted: this file has moved once
+# already (root `scripts/` to `tools/scripts/`) and a hard-coded number of
+# `.parent`s is a thing that breaks silently the next time it moves.
+ROOT = next(
+    p for p in Path(__file__).resolve().parents if (p / ".github" / "workflows").is_dir()
+)
 BUILD = re.compile(r"cargo build --release --locked[^\n\"]*")
 
 

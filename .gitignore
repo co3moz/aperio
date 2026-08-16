@@ -48,7 +48,7 @@ tests/conformance/reports/
 tests/conformance/fuzzingclient.json
 tests/conformance/.data/
 
-# Staged binaries for the native-package build (packaging/nfpm-*.yaml)
+# Staged binaries for the native-package build (tools/packaging/nfpm-*.yaml)
 /dist/
 tests/conformance/.data-h2/
 tests/conformance/.h2spec/
