@@ -79,6 +79,36 @@ async fn record_outlier_failure(state: &AppState, client_id: &str, service_index
   }
 }
 
+/// Whether it is worth waiting for a route that has no candidate right now.
+///
+/// Two different questions used to be one flag. *Does this route have a live
+/// candidate* is per route, and asking the server-wide "is any client
+/// connected" instead meant a dead route skipped the wait entirely whenever
+/// an unrelated service was online. *Could it come back* is what decides
+/// whether waiting is worth anything at all, and answering it with the same
+/// flag meant a route that has been dead for hours still burned the full
+/// gateway timeout before saying so.
+///
+/// Waiting pays only when something might arrive: a client dropped recently
+/// enough that it is plausibly reconnecting, or scale-to-zero is configured
+/// and a cold start can wake one. Otherwise the route is simply not served,
+/// and the caller should be told that now rather than in thirty seconds.
+///
+/// The disconnect clock is server-wide because that is the only one there is;
+/// it is used only to decide *whether* to wait, never how long, and the wait
+/// itself stops the moment this route has a candidate.
+fn worth_waiting_for_route(
+  last_disconnect: Option<Instant>,
+  now: Instant,
+  recent: std::time::Duration,
+  scaling_enabled: bool,
+) -> bool {
+  if scaling_enabled {
+    return true;
+  }
+  last_disconnect.is_some_and(|t| now.saturating_duration_since(t) <= recent)
+}
+
 /// Builds a 504 response: the hostname's own `error_pages:` page when one is
 /// configured, then the global APERIO_504_PAGE HTML, then the given
 /// plain-text message.
@@ -1231,11 +1261,33 @@ async fn proxy_http_request(
 
   // 3. Wait for connection if client is disconnected.
   // Take a consistent snapshot of connection state under a single lock to avoid TOCTOU.
-  let (is_connected, _last_disc) = {
+  //
+  // Asked of *this route*, not of the server, and only then asked whether
+  // waiting could help. See `worth_waiting_for_route` for why those are two
+  // questions: one flag answering both is what let a dead route skip the wait
+  // because a neighbour was up, and what made a long-dead one wait anyway.
+  let (_, last_disconnect) = {
     let conn = state.connection_state.lock().await;
     (conn.connected, conn.last_disconnect)
   };
-  if !is_connected {
+  let host_for_route = extract_request_host(&headers);
+  let route_up = || {
+    crate::routing::route_exists(
+      &state,
+      uri.path(),
+      host_for_route.as_deref(),
+      Some(caller_ip),
+    )
+  };
+  let scaling_enabled = state.config().scaling_enabled;
+  if !route_up().await
+    && worth_waiting_for_route(
+      last_disconnect,
+      Instant::now(),
+      state.config().gateway_timeout,
+      scaling_enabled,
+    )
+  {
     // Wait for a client to reconnect, bounded by the configured gateway timeout.
     let mut rx = state.client_connected.subscribe();
     let timeout_fut = tokio::time::sleep(state.config().gateway_timeout);
@@ -1248,7 +1300,7 @@ async fn proxy_http_request(
               break;
           }
           res = rx.changed() => {
-              if res.is_ok() && *rx.borrow() {
+              if res.is_ok() && *rx.borrow() && route_up().await {
                   reconnected = true;
                   break;
               }
@@ -1268,7 +1320,7 @@ async fn proxy_http_request(
         caller_ip,
       )
       .await;
-      recovered = state.connection_state.lock().await.connected;
+      recovered = route_up().await;
     }
 
     if !recovered {
