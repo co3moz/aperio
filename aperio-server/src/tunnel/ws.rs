@@ -1245,69 +1245,15 @@ impl ConnCtx {
     // silent: the entry's value is dropped and the singular default takes
     // its place, so the service comes up with a setting the client did not
     // ask for and no error anywhere.
-    let (
-      service,
-      service_custom_name,
-      path_bind,
-      hostname_bind,
-      hostname_binds,
-      max_concurrent,
-      tcp,
-      backend_healthy,
-      backend_probed,
-      priority,
-      bandwidth_bps,
-      public,
-      visitor_auth,
-      visitor_auth_methods,
-      allowed_ips,
-      tunnels,
-      cache,
-      resilience,
-      no_capture,
-      max_request_body,
-      response_timeout,
-      webhook_inbox,
-      denied,
-      scaling,
-      connections,
-      connections_min,
-      connections_max,
-      config_notes,
-      metrics_labels,
-    ) = match declared_services.into_iter().next() {
-      Some(d) => (
-        d.service,
-        d.service_custom_name,
-        d.path_bind,
-        d.hostname_bind,
-        d.hostname_binds,
-        d.max_concurrent,
-        d.tcp,
-        d.backend_healthy,
-        d.backend_probed,
-        d.priority,
-        d.bandwidth_bps,
-        d.public,
-        d.visitor_auth,
-        d.visitor_auth_methods,
-        d.allowed_ips,
-        d.tunnels,
-        d.cache,
-        d.resilience,
-        d.no_capture,
-        d.max_request_body,
-        d.response_timeout,
-        d.webhook_inbox,
-        d.denied,
-        d.scaling,
-        d.connections,
-        d.connections_min,
-        d.connections_max,
-        d.config_notes,
-        d.metrics_labels,
-      ),
-      None => (
+    // The declarations this Ping is about, as `ServiceDecl` values rather
+    // than as a tuple of loose locals.
+    //
+    // A client that sent no list still described exactly one service, in the
+    // singular fields, so it becomes one entry here. That is what lets the
+    // rest of this function talk about *a declaration* without caring which
+    // spelling it arrived in, and what lets it eventually talk about several.
+    let declarations: Vec<crate::protocol::ServiceDecl> = if declared_services.is_empty() {
+      vec![crate::protocol::ServiceDecl {
         service,
         service_custom_name,
         path_bind,
@@ -1337,14 +1283,15 @@ impl ConnCtx {
         connections_max,
         config_notes,
         metrics_labels,
-      ),
+      }]
+    } else {
+      declared_services
     };
+
     // Update client's reported binds and heartbeat time. Only the
     // server-assigned connection ID is trusted for state updates;
     // the client-declared `cid` is ignored to prevent a client from
     // mutating another connection's state.
-    let normalized_path = path_bind.and_then(|b| normalize_path_bind(&b));
-    let normalized_host = hostname_bind.and_then(|h| normalize_hostname_bind(&h));
     // Token pinning context captured under the clients lock and used
     // after it is released: (token id, token name, org).
     let mut pin_ctx: Option<(String, String, Option<String>)> = None;
@@ -1367,8 +1314,10 @@ impl ConnCtx {
         // position, so a client that names its services keeps each one's
         // ejection state, warn-once flags and counters across a heartbeat
         // even if it reorders them.
-        let service_index = if declared_names.is_empty() {
-          0
+        // Which of this connection's services each declaration is about,
+        // decided once for the whole Ping before any of them is applied.
+        let indexes: Vec<usize> = if declared_names.is_empty() {
+          vec![0]
         } else {
           match crate::state::match_declarations(&handle.services, &declared_names) {
             // Unreachable while the length refusal above stands: two
@@ -1392,53 +1341,110 @@ impl ConnCtx {
             // statistics, and every answer to that is a guess. Reconnecting
             // is unambiguous and is what the client already does on a config
             // change.
-            Ok(matched) => match matched.first().copied().flatten() {
-              Some(i) => i,
-              None => {
-                warn!(
-                  "Client {} declared a service this connection does not carry; refusing \
-                   rather than silently repurposing the one it does",
-                  cid
-                );
-                return false;
+            Ok(matched) => {
+              let mut out = Vec::with_capacity(matched.len());
+              for m in matched {
+                match m {
+                  Some(i) => out.push(i),
+                  None => {
+                    warn!(
+                      "Client {} declared a service this connection does not carry; refusing \
+                       rather than silently repurposing the one it does",
+                      cid
+                    );
+                    return false;
+                  }
+                }
               }
-            },
+              out
+            }
           }
         };
 
-        // Declared binds must be permitted by the token used to connect.
-        if let Some(p) = normalized_path {
-          if handle.perms.path_allowed(&p) {
-            handle.service_at_mut(service_index).declared_path = Some(p);
-          } else {
-            warn!(
-              "Client {} declared path bind {} not permitted by its token; ignored",
-              client_id, p
-            );
+        // One pass per declaration. The body below describes a single
+        // service, which is what it always did; what changed is that it now
+        // says *which*, and that saying it more than once is a matter of
+        // going round again rather than of rewriting any of it.
+        for (declaration, service_index) in declarations.iter().zip(indexes) {
+          let d0 = declaration.clone();
+          let (
+            service,
+            service_custom_name,
+            path_bind,
+            hostname_bind,
+            hostname_binds,
+            max_concurrent,
+            tcp,
+            backend_healthy,
+            backend_probed,
+            priority,
+            bandwidth_bps,
+            public,
+            visitor_auth,
+            visitor_auth_methods,
+            allowed_ips,
+            tunnels,
+            cache,
+            resilience,
+            no_capture,
+            max_request_body,
+            response_timeout,
+            webhook_inbox,
+            denied,
+            scaling,
+            connections,
+            connections_min,
+            connections_max,
+            config_notes,
+            metrics_labels,
+          ) = (
+            d0.service,
+            d0.service_custom_name,
+            d0.path_bind,
+            d0.hostname_bind,
+            d0.hostname_binds,
+            d0.max_concurrent,
+            d0.tcp,
+            d0.backend_healthy,
+            d0.backend_probed,
+            d0.priority,
+            d0.bandwidth_bps,
+            d0.public,
+            d0.visitor_auth,
+            d0.visitor_auth_methods,
+            d0.allowed_ips,
+            d0.tunnels,
+            d0.cache,
+            d0.resilience,
+            d0.no_capture,
+            d0.max_request_body,
+            d0.response_timeout,
+            d0.webhook_inbox,
+            d0.denied,
+            d0.scaling,
+            d0.connections,
+            d0.connections_min,
+            d0.connections_max,
+            d0.config_notes,
+            d0.metrics_labels,
+          );
+          let normalized_path = path_bind.and_then(|b| normalize_path_bind(&b));
+          let normalized_host = hostname_bind.and_then(|h| normalize_hostname_bind(&h));
+
+          // Declared binds must be permitted by the token used to connect.
+          if let Some(p) = normalized_path {
+            if handle.perms.path_allowed(&p) {
+              handle.service_at_mut(service_index).declared_path = Some(p);
+            } else {
+              warn!(
+                "Client {} declared path bind {} not permitted by its token; ignored",
+                client_id, p
+              );
+            }
           }
-        }
-        if let Some(h) = normalized_host {
-          if handle.perms.hostname_allowed(&h) {
-            handle.service_at_mut(service_index).declared_hostname = Some(h);
-          } else {
-            warn!(
-              "Client {} declared hostname bind {} not permitted by its token; ignored",
-              client_id, h
-            );
-          }
-        }
-        // Additional multi-hostname binds: normalize and admit each
-        // that the token permits (others are dropped with a warning).
-        if !hostname_binds.is_empty() {
-          let mut admitted = Vec::new();
-          for raw in &hostname_binds {
-            let Some(h) = normalize_hostname_bind(raw) else {
-              continue;
-            };
+          if let Some(h) = normalized_host {
             if handle.perms.hostname_allowed(&h) {
-              if !admitted.contains(&h) {
-                admitted.push(h);
-              }
+              handle.service_at_mut(service_index).declared_hostname = Some(h);
             } else {
               warn!(
                 "Client {} declared hostname bind {} not permitted by its token; ignored",
@@ -1446,262 +1452,283 @@ impl ConnCtx {
               );
             }
           }
-          handle.service_at_mut(service_index).declared_hostnames = admitted;
-        }
-        // Create the concurrency limiter on the first Ping that
-        // announces a limit; the limit is fixed for the connection.
-        if handle.service_at(service_index).inflight_limiter.is_none()
-          && let Some(n) = max_concurrent
-          && n > 0
-        {
-          handle.service_at_mut(service_index).max_concurrent = Some(n);
-          // Clamp to the semaphore's permit ceiling: a client
-          // announcing an absurd limit must not panic Semaphore::new
-          // (its max is below u32::MAX on 32-bit targets).
-          let permits = (n as usize).min(Semaphore::MAX_PERMITS);
-          handle.service_at_mut(service_index).inflight_limiter =
-            Some(Arc::new(Semaphore::new(permits)));
-          info!(
-            "Client {} announced concurrency limit: {}, excess requests will be queued",
-            client_id, n
-          );
-        }
-        handle.service_at_mut(service_index).tcp_enabled = tcp;
-        if handle.service_at(service_index).cache != cache {
-          handle.service_at_mut(service_index).cache = cache;
-          if cache {
+          // Additional multi-hostname binds: normalize and admit each
+          // that the token permits (others are dropped with a warning).
+          if !hostname_binds.is_empty() {
+            let mut admitted = Vec::new();
+            for raw in &hostname_binds {
+              let Some(h) = normalize_hostname_bind(raw) else {
+                continue;
+              };
+              if handle.perms.hostname_allowed(&h) {
+                if !admitted.contains(&h) {
+                  admitted.push(h);
+                }
+              } else {
+                warn!(
+                  "Client {} declared hostname bind {} not permitted by its token; ignored",
+                  client_id, h
+                );
+              }
+            }
+            handle.service_at_mut(service_index).declared_hostnames = admitted;
+          }
+          // Create the concurrency limiter on the first Ping that
+          // announces a limit; the limit is fixed for the connection.
+          if handle.service_at(service_index).inflight_limiter.is_none()
+            && let Some(n) = max_concurrent
+            && n > 0
+          {
+            handle.service_at_mut(service_index).max_concurrent = Some(n);
+            // Clamp to the semaphore's permit ceiling: a client
+            // announcing an absurd limit must not panic Semaphore::new
+            // (its max is below u32::MAX on 32-bit targets).
+            let permits = (n as usize).min(Semaphore::MAX_PERMITS);
+            handle.service_at_mut(service_index).inflight_limiter =
+              Some(Arc::new(Semaphore::new(permits)));
             info!(
-              "Client {} opted into the server-side response cache",
-              client_id
+              "Client {} announced concurrency limit: {}, excess requests will be queued",
+              client_id, n
             );
           }
-        }
-        // The service asked to be cached but the server's cache is
-        // off, so the opt-in silently does nothing, warn once so the
-        // operator can enable APERIO_CACHE (or the owner can drop the
-        // flag). Surfaced in the dashboard as a badge too.
-        if cache
-          && !state.config().cache_enabled
-          && !handle.service_at(service_index).cache_ignored_warned
-        {
-          handle.service_at_mut(service_index).cache_ignored_warned = true;
-          warn!(
-            "Client {} requested response caching (cache: true) but the server cache is disabled (APERIO_CACHE off); the opt-in is ignored",
-            client_id
-          );
-        }
-        if handle.service_at(service_index).max_request_body != max_request_body {
-          handle.service_at_mut(service_index).max_request_body = max_request_body;
-          if let Some(limit) = max_request_body {
-            info!(
-              "Client {} declared a request body cap of {} bytes; bigger uploads are rejected with 413 before dispatch",
-              client_id, limit
-            );
+          handle.service_at_mut(service_index).tcp_enabled = tcp;
+          if handle.service_at(service_index).cache != cache {
+            handle.service_at_mut(service_index).cache = cache;
+            if cache {
+              info!(
+                "Client {} opted into the server-side response cache",
+                client_id
+              );
+            }
           }
-        }
-        if handle.service_at(service_index).response_timeout != response_timeout {
-          handle.service_at_mut(service_index).response_timeout = response_timeout;
-          if let Some(secs) = response_timeout {
-            info!(
-              "Client {} declared a per-service response timeout of {}s (overrides the global gateway response timeout)",
-              client_id, secs
-            );
-          }
-        }
-        // Denied-redirect declaration: only well-formed absolute
-        // http(s) URLs are honored; anything else stays stealth.
-        let denied = denied
-          .filter(|u| u.starts_with("http://") || u.starts_with("https://"))
-          .filter(|u| url::Url::parse(u).is_ok());
-        if handle.service_at(service_index).denied != denied {
-          if let Some(url) = &denied {
-            info!(
-              "Client {} declares a denied-visitor redirect: {}",
-              client_id, url
-            );
-          }
-          handle.service_at_mut(service_index).denied = denied;
-        }
-        // Parallel-connection count and the client's own record of
-        // what it resolved differently: display-only, for the
-        // dashboard's per-connection config view.
-        handle.service_at_mut(service_index).connections = connections;
-        handle.service_at_mut(service_index).connections_min = connections_min;
-        handle.service_at_mut(service_index).connections_max = connections_max;
-        handle.service_at_mut(service_index).capture = !no_capture;
-        // The declared id is `<base>-<service>` for the first
-        // connection and `<base>-<service>-c<N>` for the rest, so it
-        // names both the service and this connection's place in its
-        // fan. Recorded here rather than trusted for anything else:
-        // it is what lets the ceiling below be about *one service*
-        // instead of the whole process.
-        handle.declared_client_id = Some(cid.clone());
-        // Counted after this block: `handle` is a mutable borrow of
-        // the map the count has to walk.
-        ceiling_ctx = Some((
-          handle.instance_group.clone(),
-          handle.perms.connection_ceiling(server_max_connections),
-        ));
-        if handle.service_at(service_index).config_notes != config_notes {
-          handle.service_at_mut(service_index).config_notes = config_notes;
-        }
-        // Sanitized on arrival rather than on the way out: a series, once
-        // scraped, is in the metrics backend whatever the server does later.
-        let metrics_labels = crate::metrics_labels::sanitize(&metrics_labels);
-        if handle.service_at(service_index).metrics_labels != metrics_labels {
-          handle.service_at_mut(service_index).metrics_labels = metrics_labels;
-        }
-        handle.drain_secs = drain_secs;
-        if handle.service_at(service_index).webhook_inbox != webhook_inbox {
-          handle.service_at_mut(service_index).webhook_inbox = webhook_inbox;
-          if webhook_inbox {
-            info!(
-              "Client {} opted into the webhook inbox: inbound POSTs are persisted for re-firing",
-              client_id
-            );
-          }
-        }
-        if handle.service_at(service_index).resilience != resilience {
-          handle.service_at_mut(service_index).resilience = resilience;
-          if resilience {
-            info!(
-              "Client {} asked for serve-stale resilience: cached responses outlive its disconnects",
-              client_id
-            );
-          }
-        }
-        if handle.service_at(service_index).tunnels != tunnels {
-          info!(
-            "Client {} declares {} bindable tunnel(s)",
-            client_id,
-            tunnels.len()
-          );
-          handle.service_at_mut(service_index).tunnels = tunnels;
-        }
-        // Log backend health transitions reported by the client's
-        // own probe; the eligibility filter honours the flag.
-        handle.service_at_mut(service_index).backend_probed = backend_probed;
-        // Self-reported client health. Stored as sent, including absences: a
-        // client that stops reporting a figure (an older build, or a platform
-        // where it cannot be read) should show nothing rather than the last
-        // value it happened to send, which would age silently.
-        handle.cpu_percent = cpu_percent;
-        handle.rss_bytes = rss_bytes;
-        handle.rtt_ms = rtt_ms;
-        handle.jitter_ms = jitter_ms;
-        handle.reconnects = reconnects;
-        if handle.service_at(service_index).backend_healthy != backend_healthy {
-          handle.service_at_mut(service_index).backend_healthy = backend_healthy;
-          if backend_healthy {
-            info!(
-              "Client {} reports its backend is healthy again; back in routing",
-              client_id
-            );
-          } else {
+          // The service asked to be cached but the server's cache is
+          // off, so the opt-in silently does nothing, warn once so the
+          // operator can enable APERIO_CACHE (or the owner can drop the
+          // flag). Surfaced in the dashboard as a badge too.
+          if cache
+            && !state.config().cache_enabled
+            && !handle.service_at(service_index).cache_ignored_warned
+          {
+            handle.service_at_mut(service_index).cache_ignored_warned = true;
             warn!(
-              "Client {} reports its backend as unhealthy; excluded from routing (tunnel stays connected)",
+              "Client {} requested response caching (cache: true) but the server cache is disabled (APERIO_CACHE off); the opt-in is ignored",
               client_id
             );
           }
-        }
-        if handle.service_at(service_index).priority != priority {
-          info!(
-            "Client {} announced load-balancing priority {}",
-            client_id, priority
-          );
-          handle.service_at_mut(service_index).priority = priority;
-        }
-        // The self-reported instance ID is remembered (first value
-        // wins) so failover `wait` mode can recognize this client
-        // process when it reconnects under a new connection ID.
-        if handle.reported_instance_id.is_none() && !cid.is_empty() {
-          handle.reported_instance_id = Some(cid.clone());
-        }
-        // Announced link capacity feeds the writer task's shaper.
-        let announced_bw = bandwidth_bps.unwrap_or(0);
-        if handle
-          .service_at(service_index)
-          .bandwidth_bps
-          .swap(announced_bw, Ordering::Relaxed)
-          != announced_bw
-          && announced_bw > 0
-        {
-          info!(
-            "Client {} announced a bandwidth limit of {} bytes/s; pacing outgoing frames",
-            client_id, announced_bw
-          );
-        }
-        if let Some(v) = version {
-          handle.client_version = Some(v);
-        }
-        if service.is_some() {
-          handle.service_at_mut(service_index).service_name = service;
-          handle.service_at_mut(service_index).service_custom_name = service_custom_name;
-        }
-        // Public declaration: honored only when the token permits
-        // publishing public services.
-        let effective_public = public && handle.perms.allow_public;
-        if public
-          && !handle.perms.allow_public
-          && !handle.service_at(service_index).public_denied_warned
-        {
-          handle.service_at_mut(service_index).public_denied_warned = true;
-          warn!(
-            "Client {} declared itself public but its token does not permit publishing public services; keeping the visitor auth gate",
-            client_id
-          );
-        }
-        if handle.service_at(service_index).public != effective_public {
-          handle.service_at_mut(service_index).public = effective_public;
-          if effective_public {
+          if handle.service_at(service_index).max_request_body != max_request_body {
+            handle.service_at_mut(service_index).max_request_body = max_request_body;
+            if let Some(limit) = max_request_body {
+              info!(
+                "Client {} declared a request body cap of {} bytes; bigger uploads are rejected with 413 before dispatch",
+                client_id, limit
+              );
+            }
+          }
+          if handle.service_at(service_index).response_timeout != response_timeout {
+            handle.service_at_mut(service_index).response_timeout = response_timeout;
+            if let Some(secs) = response_timeout {
+              info!(
+                "Client {} declared a per-service response timeout of {}s (overrides the global gateway response timeout)",
+                client_id, secs
+              );
+            }
+          }
+          // Denied-redirect declaration: only well-formed absolute
+          // http(s) URLs are honored; anything else stays stealth.
+          let denied = denied
+            .filter(|u| u.starts_with("http://") || u.starts_with("https://"))
+            .filter(|u| url::Url::parse(u).is_ok());
+          if handle.service_at(service_index).denied != denied {
+            if let Some(url) = &denied {
+              info!(
+                "Client {} declares a denied-visitor redirect: {}",
+                client_id, url
+              );
+            }
+            handle.service_at_mut(service_index).denied = denied;
+          }
+          // Parallel-connection count and the client's own record of
+          // what it resolved differently: display-only, for the
+          // dashboard's per-connection config view.
+          handle.service_at_mut(service_index).connections = connections;
+          handle.service_at_mut(service_index).connections_min = connections_min;
+          handle.service_at_mut(service_index).connections_max = connections_max;
+          handle.service_at_mut(service_index).capture = !no_capture;
+          // The declared id is `<base>-<service>` for the first
+          // connection and `<base>-<service>-c<N>` for the rest, so it
+          // names both the service and this connection's place in its
+          // fan. Recorded here rather than trusted for anything else:
+          // it is what lets the ceiling below be about *one service*
+          // instead of the whole process.
+          handle.declared_client_id = Some(cid.clone());
+          // Counted after this block: `handle` is a mutable borrow of
+          // the map the count has to walk.
+          ceiling_ctx = Some((
+            handle.instance_group.clone(),
+            handle.perms.connection_ceiling(server_max_connections),
+          ));
+          if handle.service_at(service_index).config_notes != config_notes {
+            handle.service_at_mut(service_index).config_notes = config_notes;
+          }
+          // Sanitized on arrival rather than on the way out: a series, once
+          // scraped, is in the metrics backend whatever the server does later.
+          let metrics_labels = crate::metrics_labels::sanitize(&metrics_labels);
+          if handle.service_at(service_index).metrics_labels != metrics_labels {
+            handle.service_at_mut(service_index).metrics_labels = metrics_labels;
+          }
+          handle.drain_secs = drain_secs;
+          if handle.service_at(service_index).webhook_inbox != webhook_inbox {
+            handle.service_at_mut(service_index).webhook_inbox = webhook_inbox;
+            if webhook_inbox {
+              info!(
+                "Client {} opted into the webhook inbox: inbound POSTs are persisted for re-firing",
+                client_id
+              );
+            }
+          }
+          if handle.service_at(service_index).resilience != resilience {
+            handle.service_at_mut(service_index).resilience = resilience;
+            if resilience {
+              info!(
+                "Client {} asked for serve-stale resilience: cached responses outlive its disconnects",
+                client_id
+              );
+            }
+          }
+          if handle.service_at(service_index).tunnels != tunnels {
             info!(
-              "Client {} serves public traffic: the visitor auth gate is skipped for its routes",
+              "Client {} declares {} bindable tunnel(s)",
+              client_id,
+              tunnels.len()
+            );
+            handle.service_at_mut(service_index).tunnels = tunnels;
+          }
+          // Log backend health transitions reported by the client's
+          // own probe; the eligibility filter honours the flag.
+          handle.service_at_mut(service_index).backend_probed = backend_probed;
+          // Self-reported client health. Stored as sent, including absences: a
+          // client that stops reporting a figure (an older build, or a platform
+          // where it cannot be read) should show nothing rather than the last
+          // value it happened to send, which would age silently.
+          handle.cpu_percent = cpu_percent;
+          handle.rss_bytes = rss_bytes;
+          handle.rtt_ms = rtt_ms;
+          handle.jitter_ms = jitter_ms;
+          handle.reconnects = reconnects;
+          if handle.service_at(service_index).backend_healthy != backend_healthy {
+            handle.service_at_mut(service_index).backend_healthy = backend_healthy;
+            if backend_healthy {
+              info!(
+                "Client {} reports its backend is healthy again; back in routing",
+                client_id
+              );
+            } else {
+              warn!(
+                "Client {} reports its backend as unhealthy; excluded from routing (tunnel stays connected)",
+                client_id
+              );
+            }
+          }
+          if handle.service_at(service_index).priority != priority {
+            info!(
+              "Client {} announced load-balancing priority {}",
+              client_id, priority
+            );
+            handle.service_at_mut(service_index).priority = priority;
+          }
+          // The self-reported instance ID is remembered (first value
+          // wins) so failover `wait` mode can recognize this client
+          // process when it reconnects under a new connection ID.
+          if handle.reported_instance_id.is_none() && !cid.is_empty() {
+            handle.reported_instance_id = Some(cid.clone());
+          }
+          // Announced link capacity feeds the writer task's shaper.
+          let announced_bw = bandwidth_bps.unwrap_or(0);
+          if handle
+            .service_at(service_index)
+            .bandwidth_bps
+            .swap(announced_bw, Ordering::Relaxed)
+            != announced_bw
+            && announced_bw > 0
+          {
+            info!(
+              "Client {} announced a bandwidth limit of {} bytes/s; pacing outgoing frames",
+              client_id, announced_bw
+            );
+          }
+          // The client's build, which belongs to the connection rather than
+          // to any service, so it is read rather than consumed here.
+          if let Some(v) = version.as_ref() {
+            handle.client_version = Some(v.clone());
+          }
+          if service.is_some() {
+            handle.service_at_mut(service_index).service_name = service;
+            handle.service_at_mut(service_index).service_custom_name = service_custom_name;
+          }
+          // Public declaration: honored only when the token permits
+          // publishing public services.
+          let effective_public = public && handle.perms.allow_public;
+          if public
+            && !handle.perms.allow_public
+            && !handle.service_at(service_index).public_denied_warned
+          {
+            handle.service_at_mut(service_index).public_denied_warned = true;
+            warn!(
+              "Client {} declared itself public but its token does not permit publishing public services; keeping the visitor auth gate",
               client_id
             );
           }
-        }
-        // Client-declared visitor password override: honored only
-        // when the token may control the visitor gate (same
-        // permission as `public`) and the value is a well-formed
-        // "user:password". None/empty clears any previous override.
-        let requested_auth = visitor_auth
-          .as_deref()
-          .map(str::trim)
-          .filter(|s| !s.is_empty())
-          .map(str::to_string);
-        let effective_auth = match requested_auth {
-          Some(_) if !handle.perms.allow_public => {
-            if !handle.service_at(service_index).visitor_auth_denied_warned {
-              handle
-                .service_at_mut(service_index)
-                .visitor_auth_denied_warned = true;
-              warn!(
-                "Client {} declared a visitor password but its token does not permit controlling the visitor gate; ignoring it",
+          if handle.service_at(service_index).public != effective_public {
+            handle.service_at_mut(service_index).public = effective_public;
+            if effective_public {
+              info!(
+                "Client {} serves public traffic: the visitor auth gate is skipped for its routes",
                 client_id
               );
             }
-            None
           }
-          Some(ref creds) if !crate::routing::valid_visitor_creds(creds) => {
-            if !handle.service_at(service_index).visitor_auth_denied_warned {
-              handle
-                .service_at_mut(service_index)
-                .visitor_auth_denied_warned = true;
-              warn!(
-                "Client {} declared an invalid visitor password (expected user:password); ignoring it",
-                client_id
-              );
+          // Client-declared visitor password override: honored only
+          // when the token may control the visitor gate (same
+          // permission as `public`) and the value is a well-formed
+          // "user:password". None/empty clears any previous override.
+          let requested_auth = visitor_auth
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+          let effective_auth = match requested_auth {
+            Some(_) if !handle.perms.allow_public => {
+              if !handle.service_at(service_index).visitor_auth_denied_warned {
+                handle
+                  .service_at_mut(service_index)
+                  .visitor_auth_denied_warned = true;
+                warn!(
+                  "Client {} declared a visitor password but its token does not permit controlling the visitor gate; ignoring it",
+                  client_id
+                );
+              }
+              None
             }
-            None
-          }
-          other => other,
-        };
-        // The full policy, when the client sent one. Same permission as the
-        // scalar and as `public`, and the same silent-drop rule: a method
-        // this build does not know, or one a client has no business
-        // declaring, is dropped rather than guessed at, and the methods
-        // beside it stay in force.
-        let declared_policy = visitor_auth_methods.as_ref().and_then(|specs| {
+            Some(ref creds) if !crate::routing::valid_visitor_creds(creds) => {
+              if !handle.service_at(service_index).visitor_auth_denied_warned {
+                handle
+                  .service_at_mut(service_index)
+                  .visitor_auth_denied_warned = true;
+                warn!(
+                  "Client {} declared an invalid visitor password (expected user:password); ignoring it",
+                  client_id
+                );
+              }
+              None
+            }
+            other => other,
+          };
+          // The full policy, when the client sent one. Same permission as the
+          // scalar and as `public`, and the same silent-drop rule: a method
+          // this build does not know, or one a client has no business
+          // declaring, is dropped rather than guessed at, and the methods
+          // beside it stay in force.
+          let declared_policy = visitor_auth_methods.as_ref().and_then(|specs| {
           if !handle.perms.allow_public {
             // Said out loud, like the scalar case beside it. The handshake
             // already refused this connection the right to declare a gate (it
@@ -1744,123 +1771,124 @@ impl ConnCtx {
             })
             .filter(|p| p.gates() || p.admits_everyone())
         });
-        if handle.service_at(service_index).visitor_auth_policy != declared_policy {
-          if let Some(ref p) = declared_policy {
-            info!(
-              "Client {} gates its service with method(s): {}",
-              client_id,
-              p.method_names().join(", ")
-            );
+          if handle.service_at(service_index).visitor_auth_policy != declared_policy {
+            if let Some(ref p) = declared_policy {
+              info!(
+                "Client {} gates its service with method(s): {}",
+                client_id,
+                p.method_names().join(", ")
+              );
+            }
+            handle.service_at_mut(service_index).visitor_auth_policy = declared_policy;
           }
-          handle.service_at_mut(service_index).visitor_auth_policy = declared_policy;
-        }
-        if handle.service_at(service_index).visitor_auth != effective_auth {
-          let now_set = effective_auth.is_some();
-          handle.service_at_mut(service_index).visitor_auth = effective_auth;
-          if now_set {
-            info!(
-              "Client {} gates its service behind a client-set visitor login",
-              client_id
-            );
+          if handle.service_at(service_index).visitor_auth != effective_auth {
+            let now_set = effective_auth.is_some();
+            handle.service_at_mut(service_index).visitor_auth = effective_auth;
+            if now_set {
+              info!(
+                "Client {} gates its service behind a client-set visitor login",
+                client_id
+              );
+            }
           }
-        }
-        // The service nothing gates. Said once per connection, and only
-        // while the server is still open by default, because that is the
-        // configuration where an ungated service is reachable by anyone and
-        // nothing in the file says so: it is open because nothing closed it.
-        // Under `default_access: deny` this is not a warning but the stated
-        // policy, and the route is simply refused (planned_features #108).
-        if !handle.service_at(service_index).ungated_warned
-          && handle.service_at(service_index).visitor_auth.is_none()
-          && handle
-            .service_at(service_index)
-            .visitor_auth_policy
-            .is_none()
-          && !handle.service_at(service_index).public
-          && !state.config().visitor_auth.gates()
-          && state.oidc.is_none()
-        {
-          handle.service_at_mut(service_index).ungated_warned = true;
-          if state.config().default_access == crate::settings::DefaultAccess::Deny {
-            // The one message that turns "the site went dark after we
-            // upgraded" from an afternoon into a minute. It fires where the
-            // cause is, on the connection whose service is being refused,
-            // and it names the line to write rather than the state it found.
-            warn!(
-              "Client {} declares no gate and is not declared open, so its traffic is refused (`default_access` is `deny`). Write `public: true` on the service if it is meant to be reachable by anyone, or give it an `auth:`.",
-              client_id
-            );
-          } else {
-            warn!(
-              "Client {} serves traffic that nothing gates: this server has no `auth:` and the service declares neither a gate nor `public: true`, so it is reachable by anyone. Declare it (`auth:` / `public: true`), or set `default_access: deny` to refuse what nothing declares.",
-              client_id
-            );
-          }
-        }
-        // Client-declared visitor IP allowlist. Purely restrictive
-        // (it can only narrow who reaches the client), so no token
-        // permission is required; invalid entries are dropped so a
-        // typo can never widen access.
-        let mut effective_ips: Vec<String> = allowed_ips
-          .iter()
-          .map(|s| s.trim().to_string())
-          .filter(|s| !s.is_empty())
-          .collect();
-        let before = effective_ips.len();
-        effective_ips.retain(|e| crate::auth::valid_ip_entry(e));
-        if effective_ips.len() != before
-          && !handle.service_at(service_index).allowed_ips_invalid_warned
-        {
-          handle
-            .service_at_mut(service_index)
-            .allowed_ips_invalid_warned = true;
-          warn!(
-            "Client {} declared allowed_ips with invalid entries; dropping them",
-            client_id
-          );
-        }
-        if handle.service_at(service_index).allowed_ips != effective_ips {
-          if !effective_ips.is_empty() {
-            info!(
-              "Client {} restricts visitors to {:?}",
-              client_id, effective_ips
-            );
-          }
-          handle.service_at_mut(service_index).allowed_ips = effective_ips;
-        }
-        // Warn once per change, not on every heartbeat.
-        if protocol.is_some() && handle.client_protocol != protocol {
-          handle.client_protocol = protocol;
-          if let Some(p) = protocol
-            && p != PROTOCOL_VERSION
+          // The service nothing gates. Said once per connection, and only
+          // while the server is still open by default, because that is the
+          // configuration where an ungated service is reachable by anyone and
+          // nothing in the file says so: it is open because nothing closed it.
+          // Under `default_access: deny` this is not a warning but the stated
+          // policy, and the route is simply refused (planned_features #108).
+          if !handle.service_at(service_index).ungated_warned
+            && handle.service_at(service_index).visitor_auth.is_none()
+            && handle
+              .service_at(service_index)
+              .visitor_auth_policy
+              .is_none()
+            && !handle.service_at(service_index).public
+            && !state.config().visitor_auth.gates()
+            && state.oidc.is_none()
           {
+            handle.service_at_mut(service_index).ungated_warned = true;
+            if state.config().default_access == crate::settings::DefaultAccess::Deny {
+              // The one message that turns "the site went dark after we
+              // upgraded" from an afternoon into a minute. It fires where the
+              // cause is, on the connection whose service is being refused,
+              // and it names the line to write rather than the state it found.
+              warn!(
+                "Client {} declares no gate and is not declared open, so its traffic is refused (`default_access` is `deny`). Write `public: true` on the service if it is meant to be reachable by anyone, or give it an `auth:`.",
+                client_id
+              );
+            } else {
+              warn!(
+                "Client {} serves traffic that nothing gates: this server has no `auth:` and the service declares neither a gate nor `public: true`, so it is reachable by anyone. Declare it (`auth:` / `public: true`), or set `default_access: deny` to refuse what nothing declares.",
+                client_id
+              );
+            }
+          }
+          // Client-declared visitor IP allowlist. Purely restrictive
+          // (it can only narrow who reaches the client), so no token
+          // permission is required; invalid entries are dropped so a
+          // typo can never widen access.
+          let mut effective_ips: Vec<String> = allowed_ips
+            .iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+          let before = effective_ips.len();
+          effective_ips.retain(|e| crate::auth::valid_ip_entry(e));
+          if effective_ips.len() != before
+            && !handle.service_at(service_index).allowed_ips_invalid_warned
+          {
+            handle
+              .service_at_mut(service_index)
+              .allowed_ips_invalid_warned = true;
             warn!(
-              "Client {} speaks tunnel protocol v{} but this server speaks v{}; \
-                         update the older side to avoid subtle incompatibilities",
-              client_id, p, PROTOCOL_VERSION
+              "Client {} declared allowed_ips with invalid entries; dropping them",
+              client_id
             );
           }
-        }
-        handle.last_ping_at = Some(Instant::now());
-        // Dynamic-token clients are subject to token pinning.
-        if let Some(id) = handle.perms.token_id.clone() {
-          pin_ctx = Some((
-            id,
-            handle.perms.token_name.clone().unwrap_or_default(),
-            handle.perms.org_id.clone(),
-          ));
-        }
-        if scaling.is_some() {
-          scaling_ctx = Some((
-            handle
-              .effective_hostnames()
-              .into_iter()
-              .cloned()
-              .collect::<Vec<String>>(),
-            handle.effective_path_bind().cloned(),
-            handle.perms.org_id.clone(),
-            handle.perms.token_id.clone(),
-          ));
+          if handle.service_at(service_index).allowed_ips != effective_ips {
+            if !effective_ips.is_empty() {
+              info!(
+                "Client {} restricts visitors to {:?}",
+                client_id, effective_ips
+              );
+            }
+            handle.service_at_mut(service_index).allowed_ips = effective_ips;
+          }
+          // Warn once per change, not on every heartbeat.
+          if protocol.is_some() && handle.client_protocol != protocol {
+            handle.client_protocol = protocol;
+            if let Some(p) = protocol
+              && p != PROTOCOL_VERSION
+            {
+              warn!(
+                "Client {} speaks tunnel protocol v{} but this server speaks v{}; \
+                         update the older side to avoid subtle incompatibilities",
+                client_id, p, PROTOCOL_VERSION
+              );
+            }
+          }
+          handle.last_ping_at = Some(Instant::now());
+          // Dynamic-token clients are subject to token pinning.
+          if let Some(id) = handle.perms.token_id.clone() {
+            pin_ctx = Some((
+              id,
+              handle.perms.token_name.clone().unwrap_or_default(),
+              handle.perms.org_id.clone(),
+            ));
+          }
+          if scaling.is_some() {
+            scaling_ctx = Some((
+              handle
+                .effective_hostnames()
+                .into_iter()
+                .cloned()
+                .collect::<Vec<String>>(),
+              handle.effective_path_bind().cloned(),
+              handle.perms.org_id.clone(),
+              handle.perms.token_id.clone(),
+            ));
+          }
         }
       }
       if let Some((group, ceiling)) = ceiling_ctx {
@@ -1969,7 +1997,10 @@ impl ConnCtx {
     // the store dedupes by a hash of the declaration.
     if let (true, Some(decl), Some((hostnames, path, org, token_id))) = (
       state.config().scaling_enabled,
-      scaling.as_ref(),
+      // The declaration's own, now that the singular locals have been folded
+      // into the list. One entry today, which is the one `scaling_ctx` was
+      // captured for.
+      declarations.first().and_then(|d| d.scaling.as_ref()),
       scaling_ctx,
     ) {
       for hostname in hostnames {
