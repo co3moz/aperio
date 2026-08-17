@@ -19,6 +19,43 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
+- [ ] **#129 The two survivors `#127` left on the table, one of which is worth
+  a test and one of which probably is not.** The first shard the new mutation
+  job was pointed at examined twenty mutants in `auth.rs` and left three alive.
+  One, `auth_page_handler` replaceable by `Response::default()`, was fixed with
+  `#127` itself. These are the other two, written down rather than fixed in the
+  same breath, because deciding what a survivor means is the part that needs
+  judgement and the part `#127` says the output is *for*.
+
+  **`OIDC_MAX_ANSWER_BYTES`: `256 * 1024` survives becoming `256 + 1024`.**
+  That is the cap on how much an OIDC token or userinfo endpoint can make one
+  login cost, and the mutant drops it from 256 KiB to 1280 bytes. A real token
+  response is comfortably over 1280 bytes, so the mutant breaks OIDC login
+  outright and every test stayed green. `read_bounded` itself is covered
+  (`forward_auth_tests.rs`), with the limit passed in, so what is missing is
+  narrower and more specific: nothing checks that the OIDC path passes a limit
+  a real answer fits under. A stand-in endpoint returning a normal-sized token
+  response, asserted to be accepted, closes it.
+
+  Note which direction the mutant moves: it makes the cap *tighter*, so the
+  hole is in availability rather than in the memory bound. Worth saying because
+  it decides what the test asserts, that a legitimate answer is accepted, not
+  that an enormous one is refused.
+
+  **`LockoutTracker::locked`: `until > now` survives becoming `until >= now`,
+  and this one may be an equivalent mutant.** The two differ only when `until`
+  is exactly `now`: `>` calls the lockout served, `>=` reports it as locked
+  with `Duration::ZERO` remaining. One call, at one instant, and the very next
+  call agrees again. `locked()` does take `now` as an argument, so unlike most
+  timing boundaries this *is* deterministically testable, which is why it is
+  recorded rather than dismissed.
+
+  The judgement to make is whether "a lockout that has just expired lets you
+  in" is a rule worth pinning or a tautology dressed as one. If it is not, the
+  honest close is to say so here and leave the mutant alive, because a test
+  written only to kill a mutant is how a suite fills up with assertions nobody
+  believes.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
