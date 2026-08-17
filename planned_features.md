@@ -28,21 +28,23 @@ readable without scrolling past what is already done.
   work.
 
   **One function, moved whole rather than cut.** `run_service` (1519),
-  `proxy_http_request` (1652), `on_ping` (1066), `resolve_settings` (491). Each
-  holds state that every one of its many exits has to release, or applies a
-  declaration field by field where a half-applied version is worse than a long
-  function. Splitting these is a *behaviour* change wearing a refactor's
-  clothes: it means inventing a struct to carry what the single scope carries
-  for free.
+  `proxy_http_request` (1652), `resolve_settings` (491). Each holds state that
+  every one of its many exits has to release, so splitting them means inventing
+  a struct to carry what the single scope carries for free. **Neither of these
+  three has had the count run on it**, which is the only thing that would
+  settle it, and the two that have were both wrong.
 
-  `build_state` was on this list and came off it on 2026-08-17, and how is the
-  useful part. The claim was that it ends in one struct literal; it contains
-  two, and the second one reads `config` rather than the locals, so the seam
-  was there all along. It was found by *measuring* rather than re-reading:
-  count the locals bound before the first literal that are still referenced
-  after it. Eight, out of eighty-eight. Worth doing to the four above before
-  believing any of them, since the objection is about how many values cross a
-  cut, and that is a number rather than an impression.
+  `build_state` and `on_ping` were both on this list and both came off it on
+  2026-08-17, and how is the useful part. The objection is about how many
+  values cross a cut, which is a number, and in both cases nobody had counted
+  it. `build_state`: eight of eighty-eight, because the first of its *two*
+  struct literals absorbs the rest. `on_ping`: one, because the loop body
+  re-binds every field from its own `ServiceDecl` and shadows the outer ones.
+
+  The count is also worth running for what it turns up on the way. Doing it to
+  `on_ping` found seven connection-level fields being written inside the
+  per-service loop, once per declaration with the same value each time, which
+  is both why the body would not lift and a thing worth fixing on its own.
 
   **Close enough to the line that splitting costs more than it buys.** The four
   test files left in the 1000-1400 band: `proxy_tests.rs` (1381),
