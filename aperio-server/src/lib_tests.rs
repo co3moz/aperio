@@ -3,7 +3,6 @@
 //! client-IP extraction with and without a trusted proxy, and that each store opens
 //! where it is told to.
 
-use super::{SHUTDOWN_DRAIN_AUTO_CAP, shutdown_drain_budget};
 use crate::access_log::sanitize_uri;
 use crate::auth::{extract_and_verify_token, ip_allowed, safe_redirect_path, valid_ip_entry};
 use crate::protocol::TunnelMessage;
@@ -27,10 +26,8 @@ use crate::state::{
 };
 use crate::store::audit::AuditLog;
 use crate::store::stats::StatsStore;
-use crate::store::tokens::TokenSpec;
 use crate::store::tokens::TokenStore;
 use crate::store::webhooks::WebhookStore;
-use crate::test_support::test_state;
 use axum::{
   body::Body,
   extract::{ConnectInfo, State, ws::Message},
@@ -45,7 +42,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, mpsc, watch};
 
 #[test]
-fn test_token_authentication() {
+pub(crate) fn test_token_authentication() {
   let mut headers = HeaderMap::new();
   assert!(!extract_and_verify_token(&headers, "secret"));
 
@@ -60,7 +57,7 @@ fn test_token_authentication() {
 }
 
 #[tokio::test]
-async fn test_rate_limiting() {
+pub(crate) async fn test_rate_limiting() {
   let config = ServerConfig {
     token: "test".to_string(),
     gateway_timeout: Duration::from_secs(1),
@@ -242,7 +239,7 @@ async fn test_rate_limiting() {
 }
 
 #[tokio::test]
-async fn test_proxy_handler_gateway_timeout_offline() {
+pub(crate) async fn test_proxy_handler_gateway_timeout_offline() {
   let config = ServerConfig {
     token: "test".to_string(),
     gateway_timeout: Duration::from_millis(100),
@@ -446,7 +443,7 @@ async fn test_proxy_handler_gateway_timeout_offline() {
 }
 
 #[tokio::test]
-async fn test_proxy_handler_success() {
+pub(crate) async fn test_proxy_handler_success() {
   let config = ServerConfig {
     token: "test".to_string(),
     gateway_timeout: Duration::from_millis(200),
@@ -733,7 +730,7 @@ async fn test_proxy_handler_success() {
 }
 
 #[test]
-fn test_path_matches_bind_segment_boundary() {
+pub(crate) fn test_path_matches_bind_segment_boundary() {
   // Exact match
   assert!(path_matches_bind("/api", "/api"));
   // Segment boundary: trailing slash should match
@@ -746,7 +743,7 @@ fn test_path_matches_bind_segment_boundary() {
 }
 
 #[test]
-fn test_normalize_path_bind() {
+pub(crate) fn test_normalize_path_bind() {
   // Empty / root → None
   assert_eq!(normalize_path_bind(""), None);
   assert_eq!(normalize_path_bind("/"), None);
@@ -774,7 +771,7 @@ fn test_normalize_path_bind() {
 }
 
 #[test]
-fn test_sanitize_uri_strips_query() {
+pub(crate) fn test_sanitize_uri_strips_query() {
   assert_eq!(sanitize_uri("/api/users?id=42&token=secret"), "/api/users");
   assert_eq!(sanitize_uri("/api"), "/api");
   assert_eq!(sanitize_uri("/api?"), "/api");
@@ -783,7 +780,7 @@ fn test_sanitize_uri_strips_query() {
 }
 
 #[test]
-fn test_extract_client_ip_trusted() {
+pub(crate) fn test_extract_client_ip_trusted() {
   let direct = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 5));
 
   // No headers → fallback to socket address
@@ -842,7 +839,7 @@ fn test_extract_client_ip_trusted() {
 }
 
 #[test]
-fn test_extract_client_ip_untrusted_ignores_headers() {
+pub(crate) fn test_extract_client_ip_untrusted_ignores_headers() {
   let direct = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 5));
 
   // When trust_proxy is false, spoofed X-Forwarded-For must be ignored.
@@ -872,58 +869,58 @@ fn test_extract_client_ip_untrusted_ignores_headers() {
 /// Generous health threshold so mock clients (no pings) stay eligible.
 const TEST_THRESHOLD: Duration = Duration::from_secs(3600);
 
-fn test_user_store() -> crate::store::users::UserStore {
+pub(crate) fn test_user_store() -> crate::store::users::UserStore {
   let dir = crate::test_support::test_temp_root().join(format!("users-{}", uuid::Uuid::new_v4()));
   crate::store::users::UserStore::load(&dir.to_string_lossy())
 }
 
-fn test_inbox_store() -> crate::store::inbox::InboxStore {
+pub(crate) fn test_inbox_store() -> crate::store::inbox::InboxStore {
   let dir =
     crate::test_support::test_temp_root().join(format!("test-inbox-{}", uuid::Uuid::new_v4()));
   crate::store::inbox::InboxStore::load(&dir.to_string_lossy())
 }
 
-fn test_token_store() -> TokenStore {
+pub(crate) fn test_token_store() -> TokenStore {
   let dir =
     crate::test_support::test_temp_root().join(format!("test-store-{}", uuid::Uuid::new_v4()));
   TokenStore::load(&dir.to_string_lossy())
 }
 
-fn test_admin_key_store() -> crate::store::admin_keys::AdminKeyStore {
+pub(crate) fn test_admin_key_store() -> crate::store::admin_keys::AdminKeyStore {
   let dir =
     crate::test_support::test_temp_root().join(format!("test-adminkeys-{}", uuid::Uuid::new_v4()));
   crate::store::admin_keys::AdminKeyStore::load(&dir.to_string_lossy())
 }
 
-fn test_audit_log() -> AuditLog {
+pub(crate) fn test_audit_log() -> AuditLog {
   let dir =
     crate::test_support::test_temp_root().join(format!("test-audit-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   AuditLog::load(&dir.to_string_lossy(), 10 * 1024 * 1024, 3)
 }
 
-fn test_stats_store() -> StatsStore {
+pub(crate) fn test_stats_store() -> StatsStore {
   let dir =
     crate::test_support::test_temp_root().join(format!("test-stats-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   StatsStore::load(&dir.to_string_lossy())
 }
 
-fn test_webhook_store() -> WebhookStore {
+pub(crate) fn test_webhook_store() -> WebhookStore {
   let dir =
     crate::test_support::test_temp_root().join(format!("test-hooks-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   WebhookStore::load(&dir.to_string_lossy())
 }
 
-fn test_org_store() -> crate::store::orgs::OrgStore {
+pub(crate) fn test_org_store() -> crate::store::orgs::OrgStore {
   let dir =
     crate::test_support::test_temp_root().join(format!("test-orgs-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   crate::store::orgs::OrgStore::load(&dir.to_string_lossy())
 }
 
-fn test_delivery_log() -> std::sync::Arc<Mutex<crate::store::webhooks::DeliveryLog>> {
+pub(crate) fn test_delivery_log() -> std::sync::Arc<Mutex<crate::store::webhooks::DeliveryLog>> {
   let dir =
     crate::test_support::test_temp_root().join(format!("test-deliveries-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
@@ -932,21 +929,21 @@ fn test_delivery_log() -> std::sync::Arc<Mutex<crate::store::webhooks::DeliveryL
   )))
 }
 
-fn test_session_store() -> crate::store::sessions::SessionStore {
+pub(crate) fn test_session_store() -> crate::store::sessions::SessionStore {
   let dir =
     crate::test_support::test_temp_root().join(format!("test-sessions-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   crate::store::sessions::SessionStore::load(&dir.to_string_lossy())
 }
 
-fn test_uptime_store() -> crate::store::uptime::UptimeStore {
+pub(crate) fn test_uptime_store() -> crate::store::uptime::UptimeStore {
   let dir =
     crate::test_support::test_temp_root().join(format!("test-uptime-{}", uuid::Uuid::new_v4()));
   let _ = std::fs::create_dir_all(&dir);
   crate::store::uptime::UptimeStore::load(&dir.to_string_lossy())
 }
 
-fn mock_client(
+pub(crate) fn mock_client(
   hostname_bind: Option<&str>,
   path_bind: Option<&str>,
   override_hostname: Option<&str>,
@@ -1027,7 +1024,7 @@ fn mock_client(
 }
 
 #[test]
-fn test_share_token_roundtrip() {
+pub(crate) fn test_share_token_roundtrip() {
   let key = share_signing_key("master-token");
   let now = std::time::SystemTime::now()
     .duration_since(std::time::UNIX_EPOCH)
@@ -1108,7 +1105,7 @@ fn test_share_token_roundtrip() {
 }
 
 #[test]
-fn test_apply_settings_overrides() {
+pub(crate) fn test_apply_settings_overrides() {
   let base = ServerConfig {
     token: "t".to_string(),
     gateway_timeout: Duration::from_secs(10),
@@ -1240,7 +1237,7 @@ fn test_apply_settings_overrides() {
 }
 
 #[test]
-fn test_normalize_random_subdomain_pattern() {
+pub(crate) fn test_normalize_random_subdomain_pattern() {
   // Bare domain gets the implicit leading wildcard label.
   assert_eq!(
     normalize_random_subdomain_pattern("example.com").as_deref(),
@@ -1279,7 +1276,7 @@ fn test_normalize_random_subdomain_pattern() {
 }
 
 #[test]
-fn test_find_affinity_match() {
+pub(crate) fn test_find_affinity_match() {
   let mut clients = HashMap::new();
   let mut a = mock_client(None, None, None, None);
   a.reported_instance_id = Some("instance-a".to_string());
@@ -1307,7 +1304,7 @@ fn test_find_affinity_match() {
 }
 
 #[test]
-fn test_method_retryable() {
+pub(crate) fn test_method_retryable() {
   // Idempotent methods may always fail over.
   for m in ["GET", "HEAD", "OPTIONS", "PUT", "DELETE", "TRACE"] {
     assert!(method_retryable(m, false), "{m} must be retryable");
@@ -1320,7 +1317,7 @@ fn test_method_retryable() {
 }
 
 #[test]
-fn test_apply_lb_strategy_primary_standby() {
+pub(crate) fn test_apply_lb_strategy_primary_standby() {
   let mut clients = HashMap::new();
   let primary = mock_client(None, None, None, None);
   let mut standby = mock_client(None, None, None, None);
@@ -1355,7 +1352,7 @@ fn test_apply_lb_strategy_primary_standby() {
 }
 
 #[test]
-fn test_select_client_pool_excludes_unhealthy() {
+pub(crate) fn test_select_client_pool_excludes_unhealthy() {
   let mut clients = HashMap::new();
   let mut stale = mock_client(None, None, None, None);
   // Last heartbeat far in the past -> down
@@ -1379,7 +1376,7 @@ fn test_select_client_pool_excludes_unhealthy() {
 }
 
 #[test]
-fn test_ip_allowed() {
+pub(crate) fn test_ip_allowed() {
   let ip = |s: &str| s.parse::<IpAddr>().unwrap();
 
   // Empty list or wildcards allow everything
@@ -1429,7 +1426,7 @@ fn test_ip_allowed() {
 }
 
 #[test]
-fn test_normalize_hostname_bind() {
+pub(crate) fn test_normalize_hostname_bind() {
   assert_eq!(
     normalize_hostname_bind("a.example.com"),
     Some("a.example.com".to_string())
@@ -1459,7 +1456,7 @@ fn test_normalize_hostname_bind() {
 }
 
 #[test]
-fn test_extract_request_host() {
+pub(crate) fn test_extract_request_host() {
   let mut headers = HeaderMap::new();
   assert_eq!(extract_request_host(&headers), None);
 
@@ -1474,7 +1471,7 @@ fn test_extract_request_host() {
 }
 
 #[test]
-fn test_select_client_pool_hostname_routing() {
+pub(crate) fn test_select_client_pool_hostname_routing() {
   let mut clients = HashMap::new();
   clients.insert(
     "a".to_string(),
@@ -1509,7 +1506,7 @@ fn test_select_client_pool_hostname_routing() {
 }
 
 #[test]
-fn test_select_client_pool_hostname_and_path_combined() {
+pub(crate) fn test_select_client_pool_hostname_and_path_combined() {
   let mut clients = HashMap::new();
   clients.insert(
     "host-api".to_string(),
@@ -1548,7 +1545,7 @@ fn test_select_client_pool_hostname_and_path_combined() {
 }
 
 #[test]
-fn test_select_client_pool_override_wins() {
+pub(crate) fn test_select_client_pool_override_wins() {
   let mut clients = HashMap::new();
   // Client reported no hostname, dashboard overruled it to a.example.com
   clients.insert(
@@ -1567,7 +1564,7 @@ fn test_select_client_pool_override_wins() {
 }
 
 #[test]
-fn test_select_client_pool_longest_path_bind_wins() {
+pub(crate) fn test_select_client_pool_longest_path_bind_wins() {
   let mut clients = HashMap::new();
   clients.insert(
     "short".to_string(),
@@ -1588,7 +1585,7 @@ fn test_select_client_pool_longest_path_bind_wins() {
 }
 
 #[test]
-fn test_safe_redirect_path() {
+pub(crate) fn test_safe_redirect_path() {
   // Normal relative paths should pass through
   assert_eq!(safe_redirect_path("/"), "/");
   assert_eq!(safe_redirect_path("/dashboard"), "/dashboard");
@@ -1612,7 +1609,7 @@ fn test_safe_redirect_path() {
 }
 
 #[test]
-fn test_effective_body_limit() {
+pub(crate) fn test_effective_body_limit() {
   use crate::proxy::effective_body_limit;
   // No declared cap: the global limit applies.
   assert_eq!(effective_body_limit(1024, None), 1024);
@@ -1623,7 +1620,7 @@ fn test_effective_body_limit() {
 }
 
 #[test]
-fn test_route_trends_minute_buckets() {
+pub(crate) fn test_route_trends_minute_buckets() {
   use crate::state::RouteTrends;
   let mut trends = RouteTrends::default();
   let t0 = 6000u64; // minute 100
@@ -1656,82 +1653,11 @@ fn test_route_trends_minute_buckets() {
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
-// required_role, minimum dashboard role per route
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_required_role_self_service_routes() {
-  use crate::required_role;
-  use crate::store::users::Role;
-  use axum::http::Method;
-  // Self-service /api/me/* is open to any signed-in role, even for mutations.
-  assert_eq!(
-    required_role("/api/me/totp/setup", &Method::POST),
-    Role::Viewer
-  );
-  assert_eq!(required_role("/api/me/totp", &Method::DELETE), Role::Viewer);
-  assert_eq!(
-    required_role("/api/me/passkeys", &Method::GET),
-    Role::Viewer
-  );
-}
-
-#[test]
-fn test_required_role_admin_only_routes() {
-  use crate::required_role;
-  use crate::store::users::Role;
-  use axum::http::Method;
-  // Routes that can change who controls the server are admin-only, including
-  // their GETs.
-  for (path, method) in [
-    ("/api/users", Method::GET),
-    ("/api/users", Method::POST),
-    ("/api/users/123", Method::PUT),
-    ("/api/settings", Method::GET),
-    ("/api/settings", Method::PUT),
-    ("/api/export", Method::GET),
-    ("/api/import", Method::POST),
-    ("/api/sessions", Method::GET),
-    ("/api/sessions/abc", Method::DELETE),
-    ("/api/orgs", Method::GET),
-    ("/api/orgs/o1/quota", Method::PUT),
-    ("/api/admin-keys", Method::GET),
-    ("/api/admin-keys/k1", Method::DELETE),
-  ] {
-    assert_eq!(
-      required_role(path, &method),
-      Role::Admin,
-      "{path} {method} must be admin-only"
-    );
-  }
-}
-
-#[test]
-fn test_required_role_reads_vs_mutations() {
-  use crate::required_role;
-  use crate::store::users::Role;
-  use axum::http::Method;
-  // Generic reads are open to viewers...
-  assert_eq!(required_role("/api/stats", &Method::GET), Role::Viewer);
-  assert_eq!(required_role("/api/logs", &Method::HEAD), Role::Viewer);
-  // ...and generic mutations require operator.
-  assert_eq!(required_role("/api/purge", &Method::POST), Role::Operator);
-  assert_eq!(
-    required_role("/api/tokens/t1", &Method::DELETE),
-    Role::Operator
-  );
-  assert_eq!(
-    required_role("/api/clients/c1/enabled", &Method::POST),
-    Role::Operator
-  );
-}
-
-// ---------------------------------------------------------------------------
 // observe_service_availability, per-entity uptime snapshot
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_observe_service_availability_states() {
+pub(crate) async fn test_observe_service_availability_states() {
   use crate::observe_service_availability;
   use crate::store::uptime::Availability;
 
@@ -1782,7 +1708,7 @@ async fn test_observe_service_availability_states() {
 }
 
 #[tokio::test]
-async fn test_observe_service_availability_down_and_best_state_wins() {
+pub(crate) async fn test_observe_service_availability_down_and_best_state_wins() {
   use crate::observe_service_availability;
   use crate::store::uptime::Availability;
 
@@ -1818,510 +1744,6 @@ async fn test_observe_service_availability_down_and_best_state_wins() {
   state.clients.write().await.remove("c-healthy");
   let snap = observe_service_availability(&state).await;
   assert_eq!(snap.get("svc").unwrap().0, Availability::Down);
-}
-
-// ---------------------------------------------------------------------------
-// bind_listener, plain and SO_REUSEPORT TCP binding
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn test_bind_listener_plain_and_reuseport() {
-  use crate::bind_listener;
-
-  // Plain listener on an ephemeral port.
-  let l = bind_listener("127.0.0.1", 0, false)
-    .await
-    .expect("plain bind");
-  assert!(l.local_addr().unwrap().port() > 0);
-
-  // SO_REUSEPORT path over IPv4 (Domain::IPV4 branch).
-  let l = bind_listener("127.0.0.1", 0, true)
-    .await
-    .expect("reuseport v4 bind");
-  assert!(l.local_addr().unwrap().ip().is_ipv4());
-
-  // SO_REUSEPORT path over IPv6 (Domain::IPV6 branch). Skipped gracefully on
-  // hosts without a loopback ::1.
-  if let Ok(l) = bind_listener("::1", 0, true).await {
-    assert!(l.local_addr().unwrap().ip().is_ipv6());
-  }
-
-  // An unresolvable host returns an error instead of panicking.
-  assert!(
-    bind_listener("no.such.host.invalid.", 0, true)
-      .await
-      .is_err()
-  );
-}
-
-// ---------------------------------------------------------------------------
-// verify_audit, the --verify-audit CLI over the audit hash chain
-// ---------------------------------------------------------------------------
-
-/// Serializes the tests below that read/write the process-global
-/// APERIO_DATA_DIR environment variable.
-static AUDIT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn restore_data_dir(prev: Option<String>) {
-  match prev {
-    Some(v) => unsafe { std::env::set_var("APERIO_DATA_DIR", v) },
-    None => unsafe { std::env::remove_var("APERIO_DATA_DIR") },
-  }
-}
-
-#[test]
-fn test_verify_audit_intact_and_missing() {
-  use crate::verify_audit;
-  let _lock = AUDIT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let prev = std::env::var("APERIO_DATA_DIR").ok();
-
-  // A freshly written, well-formed audit log verifies intact → exit 0.
-  let dir =
-    crate::test_support::test_temp_root().join(format!("verify-ok-{}", uuid::Uuid::new_v4()));
-  std::fs::create_dir_all(&dir).unwrap();
-  {
-    let mut log = AuditLog::load(&dir.to_string_lossy(), 10 * 1024 * 1024, 3);
-    log.record("login", "admin", "127.0.0.1", None, "ok");
-    log.record("logout", "admin", "127.0.0.1", None, "bye");
-  }
-  unsafe { std::env::set_var("APERIO_DATA_DIR", &dir) };
-  assert_eq!(verify_audit(), 0);
-
-  // A directory with no audit log → nothing to verify → exit 0.
-  let empty =
-    crate::test_support::test_temp_root().join(format!("verify-empty-{}", uuid::Uuid::new_v4()));
-  std::fs::create_dir_all(&empty).unwrap();
-  unsafe { std::env::set_var("APERIO_DATA_DIR", &empty) };
-  assert_eq!(verify_audit(), 0);
-
-  restore_data_dir(prev);
-}
-
-#[test]
-fn test_verify_audit_detects_tampering_across_generations() {
-  use crate::verify_audit;
-  let _lock = AUDIT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let prev = std::env::var("APERIO_DATA_DIR").ok();
-
-  let dir =
-    crate::test_support::test_temp_root().join(format!("verify-bad-{}", uuid::Uuid::new_v4()));
-  std::fs::create_dir_all(&dir).unwrap();
-  {
-    let mut log = AuditLog::load(&dir.to_string_lossy(), 10 * 1024 * 1024, 3);
-    log.record("login", "admin", "127.0.0.1", None, "a");
-    log.record("login", "admin", "127.0.0.1", None, "b");
-  }
-  // Keep an intact rotated generation, then tamper the active file so the
-  // verifier walks both files and reports exactly one broken chain → exit 1.
-  std::fs::copy(dir.join("audit.jsonl"), dir.join("audit.jsonl.1")).unwrap();
-  std::fs::write(
-    dir.join("audit.jsonl"),
-    "{\"not\":\"a valid chained audit line\"}\n",
-  )
-  .unwrap();
-  unsafe { std::env::set_var("APERIO_DATA_DIR", &dir) };
-  assert_eq!(verify_audit(), 1);
-
-  restore_data_dir(prev);
-}
-
-#[test]
-fn test_verify_audit_reports_unreadable_file() {
-  use crate::verify_audit;
-  let _lock = AUDIT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let prev = std::env::var("APERIO_DATA_DIR").ok();
-
-  // An audit.jsonl that is actually a directory cannot be read as a file, so
-  // the verifier reports it as unreadable (the `Err` arm) → exit 1.
-  let dir =
-    crate::test_support::test_temp_root().join(format!("verify-unread-{}", uuid::Uuid::new_v4()));
-  std::fs::create_dir_all(dir.join("audit.jsonl")).unwrap();
-  unsafe { std::env::set_var("APERIO_DATA_DIR", &dir) };
-  assert_eq!(verify_audit(), 1);
-
-  restore_data_dir(prev);
-}
-
-// ---------------------------------------------------------------------------
-// build_state + build_router: the composed app, driven in-process.
-// ---------------------------------------------------------------------------
-
-use crate::state::AppState as ComposedState;
-use crate::{build_router, build_state};
-use axum::Router;
-use axum::body::Body as ComposedBody;
-use axum::response::Response as ComposedResponse;
-
-/// Boots the real startup path (env -> stores -> state -> router) inside the
-/// test process, under the shared config lock, with a throwaway data dir.
-fn composed_app<T>(
-  f: impl FnOnce(std::sync::Arc<ComposedState>, Router, &tokio::runtime::Runtime) -> T,
-) -> T {
-  let _lock = crate::test_support::config_lock();
-  let dir = crate::test_support::test_temp_root().join(format!("boot-{}", uuid::Uuid::new_v4()));
-  std::fs::create_dir_all(&dir).unwrap();
-  let vars = [
-    ("APERIO_SERVER_TOKEN", "0123456789abcdef0123456789abcdef"),
-    ("APERIO_DATA_DIR", dir.to_str().unwrap()),
-    ("APERIO_METRICS", "1"),
-  ];
-  for (k, v) in vars {
-    unsafe { std::env::set_var(k, v) };
-  }
-  let rt = tokio::runtime::Builder::new_current_thread()
-    .enable_all()
-    .build()
-    .unwrap();
-  let (state, app) = rt.block_on(async {
-    let bundle = build_state().await.expect("a clean env must build");
-    let app = build_router(bundle.state.clone(), bundle.metrics_enabled);
-    (bundle.state, app)
-  });
-  let out = f(state, app, &rt);
-  for (k, _) in vars {
-    unsafe { std::env::remove_var(k) };
-  }
-  out
-}
-
-/// One in-process request against the composed router. The connect-info the
-/// serve loop would attach per socket is injected as an extension, since no
-/// socket exists here.
-async fn drive(app: &Router, mut request: axum::http::Request<ComposedBody>) -> ComposedResponse {
-  use tower::ServiceExt;
-  request
-    .extensions_mut()
-    .insert(axum::extract::connect_info::ConnectInfo(
-      std::net::SocketAddr::from(([127, 0, 0, 1], 40000)),
-    ));
-  app.clone().oneshot(request).await.unwrap()
-}
-
-fn get_req(path: &str) -> axum::http::Request<ComposedBody> {
-  axum::http::Request::builder()
-    .uri(path)
-    .body(ComposedBody::empty())
-    .unwrap()
-}
-
-#[test]
-fn the_composed_router_answers_its_own_surface() {
-  composed_app(|state, app, rt| {
-    rt.block_on(async {
-      // Liveness needs no credential; monitors depend on that.
-      let resp = drive(&app, get_req("/aperio/health")).await;
-      assert_eq!(resp.status(), StatusCode::OK);
-
-      // The container probes, also uncredentialed.
-      let resp = drive(&app, get_req("/aperio/healthz")).await;
-      assert_eq!(resp.status(), StatusCode::OK);
-      let resp = drive(&app, get_req("/aperio/readyz")).await;
-      assert_eq!(resp.status(), StatusCode::OK);
-
-      // Readiness is the one that turns on a shutdown signal, so a load
-      // balancer stops sending traffic while the process is still serving what
-      // it already has. Liveness must not: restarting here would kill the
-      // drain it is meant to protect.
-      // send_replace, not send: with no subscriber a plain send fails and
-      // leaves the value untouched, which would make this pass for the wrong
-      // reason.
-      state.shutdown.send_replace(true);
-      let resp = drive(&app, get_req("/aperio/readyz")).await;
-      assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
-      let resp = drive(&app, get_req("/aperio/healthz")).await;
-      assert_eq!(resp.status(), StatusCode::OK);
-      state.shutdown.send_replace(false);
-
-      // The admin 404 fence: a path matching nothing in the namespace is a
-      // 404, never proxied to a tunnel client.
-      let resp = drive(&app, get_req("/aperio/api/definitely-not-a-route")).await;
-      assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-
-      // The trailing-slash redirect keeps the query string.
-      let resp = drive(&app, get_req("/aperio/?tab=tokens")).await;
-      assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT);
-      assert_eq!(
-        resp.headers().get("location").unwrap(),
-        "/aperio?tab=tokens"
-      );
-
-      // The dashboard API without a session is refused, not served.
-      let resp = drive(&app, get_req("/aperio/api/stats")).await;
-      assert!(
-        resp.status() == StatusCode::UNAUTHORIZED || resp.status().is_redirection(),
-        "unauthenticated admin API answered {}",
-        resp.status()
-      );
-
-      // The metrics endpoint exists (APERIO_METRICS=1) and is gated by its
-      // token rather than open.
-      let resp = drive(&app, get_req("/aperio/metrics")).await;
-      assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
-
-      // A request through the proxy fallback is answered by the composed
-      // stack; what it answers is routing's business, the assertion is that
-      // it answered and that no handler panicked (the catch-panic layer
-      // would turn that into a 500).
-      let resp = drive(&app, get_req("/")).await;
-      assert_ne!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
-
-      // The state the router serves is the one build_state assembled.
-      assert!(state.dashboard_enabled);
-      assert!(state.config().metrics_token.is_some());
-    });
-  });
-}
-
-#[test]
-fn build_state_refuses_a_partial_trust_configuration() {
-  let _lock = crate::test_support::config_lock();
-  let dir = crate::test_support::test_temp_root().join(format!("boot-{}", uuid::Uuid::new_v4()));
-  std::fs::create_dir_all(&dir).unwrap();
-  unsafe {
-    std::env::set_var("APERIO_SERVER_TOKEN", "0123456789abcdef0123456789abcdef");
-    std::env::set_var("APERIO_DATA_DIR", dir.to_str().unwrap());
-    std::env::set_var("APERIO_TRUSTED_PROXIES", "not-an-ip-range");
-  }
-  let rt = tokio::runtime::Builder::new_current_thread()
-    .enable_all()
-    .build()
-    .unwrap();
-  let refused = rt.block_on(build_state());
-  unsafe {
-    std::env::remove_var("APERIO_TRUSTED_PROXIES");
-    std::env::remove_var("APERIO_SERVER_TOKEN");
-    std::env::remove_var("APERIO_DATA_DIR");
-  }
-  assert!(
-    refused.is_none(),
-    "a partial trusted-proxy list must refuse startup"
-  );
-}
-
-// ---------------------------------------------------------------------------
-// The background loops, one beat at a time.
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn one_uptime_tick_observes_and_accrues() {
-  use crate::{flush_stats_once, uptime_tick_once};
-  let state = std::sync::Arc::new(test_state());
-  state.clients.write().await.insert(
-    "c1".to_string(),
-    crate::test_support::mock_client(Some("up.example.com"), None, None, None),
-  );
-  uptime_tick_once(&state).await;
-  let snap = state.uptime.lock().await.snapshot();
-  // The entity key is the service name / instance id / connection id, in
-  // that order of preference; the mock declares none, so its connection id.
-  let entity = snap.get("c1").expect("the tick recorded the live service");
-  assert_eq!(entity.status, crate::store::uptime::Availability::Up);
-  // And the flush beat writes it out without complaint.
-  flush_stats_once(&state).await;
-}
-
-#[tokio::test]
-async fn one_expiry_tick_warns_once_and_rearms_on_refresh() {
-  use crate::token_expiry_tick_once;
-  let state = std::sync::Arc::new(test_state());
-  let now = crate::store::tokens::now_secs();
-  let (expiring_soon, _) = {
-    let mut store = state.token_store.lock().await;
-    store
-      .create(TokenSpec {
-        name: "expiring".into(),
-        // Expires in half an hour, inside the 24h window.
-        ttl_seconds: Some(1800),
-        ..Default::default()
-      })
-      .expect("the test store can be written to")
-  };
-  {
-    let mut store = state.token_store.lock().await;
-    store
-      .create(TokenSpec {
-        name: "fresh".into(),
-        // A week out, outside the window.
-        ttl_seconds: Some(7 * 24 * 3600),
-        ..Default::default()
-      })
-      .expect("the test store can be written to");
-  }
-
-  let mut warned = std::collections::HashSet::new();
-  token_expiry_tick_once(&state, 24 * 3600, now, &mut warned).await;
-  assert_eq!(warned.len(), 1, "only the token inside the window");
-
-  let events = state.audit.lock().await.recent();
-  let expiring_events = events
-    .iter()
-    .filter(|e| e.event == "token_expiring")
-    .count();
-  assert_eq!(expiring_events, 1);
-  assert!(
-    events
-      .iter()
-      .any(|e| e.event == "token_expiring" && e.details.contains("name=expiring")),
-    "the warning names the token"
-  );
-
-  // A second beat with the same set warns nobody again.
-  token_expiry_tick_once(&state, 24 * 3600, now, &mut warned).await;
-  let events = state.audit.lock().await.recent();
-  assert_eq!(
-    events
-      .iter()
-      .filter(|e| e.event == "token_expiring")
-      .count(),
-    1,
-    "once per token per expiry"
-  );
-
-  // A refresh moves expires_at, which re-arms the warning: the old entry is
-  // swept the beat after the recorded expiry passes.
-  let past_old_expiry = now + 3600;
-  token_expiry_tick_once(&state, 24 * 3600, past_old_expiry, &mut warned).await;
-  assert!(
-    warned.is_empty(),
-    "a passed expiry is forgotten so a refreshed token can warn again"
-  );
-  let _ = expiring_soon;
-}
-
-#[test]
-fn one_hot_reload_tick_applies_a_changed_file_and_audits_it() {
-  use crate::hot_reload_tick_once;
-  let _lock = crate::test_support::config_lock();
-  struct Cleanup;
-  impl Drop for Cleanup {
-    fn drop(&mut self) {
-      unsafe { std::env::remove_var("APERIO_SERVER_CONFIG") };
-      let _ = crate::config_file::reload();
-    }
-  }
-  let _cleanup = Cleanup;
-  let file =
-    crate::test_support::test_temp_root().join(format!("hotreload-{}.yaml", uuid::Uuid::new_v4()));
-  std::fs::write(&file, "gateway_timeout: 10\n").unwrap();
-  unsafe { std::env::set_var("APERIO_SERVER_CONFIG", file.to_str().unwrap()) };
-  crate::config_file::load();
-
-  let rt = tokio::runtime::Builder::new_current_thread()
-    .enable_all()
-    .build()
-    .unwrap();
-  rt.block_on(async {
-    let state = std::sync::Arc::new(test_state());
-    let mtime = std::fs::metadata(&file)
-      .ok()
-      .and_then(|m| m.modified().ok());
-
-    // Nothing moved: the beat is a no-op and keeps the mtime.
-    let same = hot_reload_tick_once(&state, &file, mtime).await;
-    assert_eq!(same, mtime);
-    assert!(
-      state
-        .audit
-        .lock()
-        .await
-        .recent()
-        .iter()
-        .all(|e| e.event != "config_reloaded"),
-      "an unchanged file reloads nothing"
-    );
-
-    // The file changes: the beat re-applies it, the live setting moves, and
-    // the audit trail says which key. `None` as the remembered mtime stands
-    // in for "it moved": filesystem mtime granularity is up to a second, and
-    // a test must not sleep its way across it.
-    std::fs::write(&file, "gateway_timeout: 42\n").unwrap();
-    let next = hot_reload_tick_once(&state, &file, None).await;
-    assert!(
-      next.is_some(),
-      "the new mtime is what the next beat compares to"
-    );
-    assert_eq!(state.config().gateway_timeout, Duration::from_secs(42));
-    let events = state.audit.lock().await.recent();
-    let entry = events
-      .iter()
-      .find(|e| e.event == "config_reloaded")
-      .expect("the reload is audited");
-    assert!(
-      entry.details.contains("gateway_timeout"),
-      "{}",
-      entry.details
-    );
-  });
-}
-
-#[tokio::test]
-async fn bind_listener_binds_plain_reuseport_and_reports_a_taken_port() {
-  use crate::bind_listener;
-  // Plain bind on an ephemeral port.
-  let plain = bind_listener("127.0.0.1", 0, false).await.unwrap();
-  let taken = plain.local_addr().unwrap().port();
-
-  // The SO_REUSEPORT path builds its socket by hand; prove it yields a
-  // working listener too.
-  let shared = bind_listener("127.0.0.1", 0, true).await.unwrap();
-  assert!(shared.local_addr().unwrap().port() > 0);
-
-  // A port someone plainly holds is refused for a plain second bind: this is
-  // the branch serve_until_shutdown turns into its startup error.
-  assert!(bind_listener("127.0.0.1", taken, false).await.is_err());
-
-  // And a hostname that resolves to nothing is an error, not a hang.
-  assert!(
-    bind_listener("definitely-not-a-host.invalid", 0, true)
-      .await
-      .is_err()
-  );
-}
-
-// ---------------------------------------------------------------------------
-// shutdown_drain_budget (planned_features #58)
-// ---------------------------------------------------------------------------
-
-#[test]
-fn shutdown_drain_defaults_to_not_waiting() {
-  // Unset is the behavior the server has always had: notify, flush, close.
-  // Waiting is something an operator asks for, not something a version bump
-  // starts doing to their deploys.
-  assert_eq!(
-    shutdown_drain_budget(None, false, []),
-    std::time::Duration::ZERO
-  );
-}
-
-#[test]
-fn shutdown_drain_uses_the_configured_number_over_anything_announced() {
-  // The operator's number wins even when clients ask for more: this is the
-  // one place the platform's SIGKILL timer is known, and it is not known here.
-  assert_eq!(
-    shutdown_drain_budget(Some(5), true, [60, 90]),
-    std::time::Duration::from_secs(5)
-  );
-}
-
-#[test]
-fn shutdown_drain_auto_takes_the_longest_client_and_caps_it() {
-  // The longest, not the average: the drain is over when the slowest client
-  // has finished, and an average cuts short exactly the one that needed time.
-  assert_eq!(
-    shutdown_drain_budget(None, true, [3, 12, 7]),
-    std::time::Duration::from_secs(12)
-  );
-  // A client is not the operator, so what it announces cannot hold the
-  // process past what the platform will wait before SIGKILL.
-  assert_eq!(
-    shutdown_drain_budget(None, true, [3600]),
-    std::time::Duration::from_secs(SHUTDOWN_DRAIN_AUTO_CAP)
-  );
-  // `auto` with nothing connected has nothing to size itself from.
-  assert_eq!(
-    shutdown_drain_budget(None, true, []),
-    std::time::Duration::ZERO
-  );
 }
 
 /// A routed pool as connection ids, which is what these assertions were
