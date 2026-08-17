@@ -1,3 +1,8 @@
+//! The wire itself: every frame shape round-trips, a malformed one is refused
+//! rather than misread, decoding never panics on bytes a peer chose, and the
+//! client's copy of the protocol still describes the same wire and version as this
+//! one.
+
 use super::*;
 
 #[test]

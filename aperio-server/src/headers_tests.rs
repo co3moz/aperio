@@ -1,3 +1,6 @@
+//! The server's own header rules: both directions applied, an add replacing
+//! case-insensitively, and an absent or malformed section leaving the default.
+
 use super::{HeaderRules, HeaderTransform, HeaderTransforms, from_config_file};
 
 /// Serializes tests that touch the process-global config document / default

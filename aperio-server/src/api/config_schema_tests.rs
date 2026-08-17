@@ -1,3 +1,6 @@
+//! That the schema endpoint serves both documents and nothing else, so an editor
+//! pointed at it cannot be handed something that is not a schema.
+
 use super::*;
 use axum::body::to_bytes;
 

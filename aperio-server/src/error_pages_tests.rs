@@ -1,3 +1,6 @@
+//! The per-hostname error pages: lookup, and every way a section can be wrong
+//! without costing the operator the feature or the start.
+
 use super::*;
 
 fn pages_with(rules: Vec<CompiledRule>) -> ErrorPages {

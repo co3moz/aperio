@@ -1,3 +1,7 @@
+//! How a `--bind-tunnels` selection resolves: which peer's tunnels a key reaches,
+//! what a short-form entry means, which port is chosen, and that one entry that
+//! cannot resolve does not take its siblings down with it.
+
 use super::*;
 use aperio_config::{BindTunnelEntry, BindTunnelValue};
 use std::sync::Arc;

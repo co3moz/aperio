@@ -1,3 +1,7 @@
+//! The same request path over a unix socket: which targets it claims, how the
+//! origin URI and Host are built, and that bodies, streaming and non-2xx responses
+//! behave as they do over TCP.
+
 use super::*;
 
 use crate::proxy::http::HeaderTransform;

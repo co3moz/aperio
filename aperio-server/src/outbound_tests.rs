@@ -1,3 +1,8 @@
+//! The outbound fence every server-initiated call goes through: what the pattern
+//! grammar accepts, that private and link-local destinations are refused by literal
+//! and by resolved name, and that a proxy in the environment is not a way around
+//! any of it.
+
 use super::*;
 
 #[test]

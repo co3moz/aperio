@@ -1,3 +1,7 @@
+//! The runtime settings surface: every field an override can reach, the clamps and
+//! the values it declines, secrets masked in the reload diff, the file winning over
+//! a stored override, and that every setting can say how it is written in a file.
+
 use super::*;
 
 /// A fully-populated baseline config (there is no `Default` for `ServerConfig`).

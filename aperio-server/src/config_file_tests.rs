@@ -1,3 +1,7 @@
+//! How a yaml file becomes the environment the rest of the server reads: the
+//! naming standard, grouped blocks flattening into their children, the block
+//! winning over the flat spelling, and what a malformed or absent document does.
+
 use super::*;
 
 #[test]

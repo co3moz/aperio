@@ -1,3 +1,7 @@
+//! The UDP relay's best-effort contract: datagrams both ways, an unreachable
+//! target, idle expiry, and every way a session can end without leaking the task
+//! relaying it.
+
 use super::*;
 use base64::prelude::*;
 use tokio::net::{TcpListener, UdpSocket};

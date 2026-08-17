@@ -1,3 +1,7 @@
+//! That the binary frames survive the trip: each shape round-trips, a truncated
+//! or over-long one is refused rather than silently misread, and the deflated
+//! siblings decode to the same bytes.
+
 use super::*;
 
 #[test]

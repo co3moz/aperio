@@ -1,3 +1,7 @@
+//! That sessions survive a restart hashed rather than in the clear, that removal
+//! and retention reach the disk, and that an expired or unparseable row is dropped
+//! at load rather than resurrected.
+
 use super::*;
 use crate::store::users::Role;
 

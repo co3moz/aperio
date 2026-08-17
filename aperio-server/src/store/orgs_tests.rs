@@ -1,3 +1,7 @@
+//! Organizations as a tenant boundary: quotas and OIDC round-trip, and the
+//! hostname allowlist, its patterns, what covers a subtree, and the names a visitor
+//! can send that must not slip through it.
+
 use super::*;
 
 fn temp_dir() -> String {

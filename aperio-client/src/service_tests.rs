@@ -1,3 +1,7 @@
+//! The service task as a whole, driven against a loopback WebSocket server: the
+//! reconnect schedule, what a heartbeat declares, how a dispatch finds its service,
+//! and the refusals that keep a connection from coming up wrong.
+
 use super::*;
 use futures_util::SinkExt;
 

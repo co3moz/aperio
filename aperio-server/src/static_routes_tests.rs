@@ -1,3 +1,7 @@
+//! Server-side routes that answer without a client: redirect and respond actions,
+//! first-match ordering, the policy-only form that never answers, canary weights,
+//! and the compile-time refusals that keep an ambiguous rule out of the table.
+
 use super::{RouteRule, StaticRoutes};
 
 fn compile(yaml: &str) -> StaticRoutes {

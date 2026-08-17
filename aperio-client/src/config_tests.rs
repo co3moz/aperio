@@ -1,3 +1,7 @@
+//! What the layered configuration resolves to: the value spellings people write
+//! (bandwidth, targets, the `server:` forms), grouped blocks folding into the flat
+//! fields they stand for, and `include:` (precedence, relative paths, cycles).
+
 use super::*;
 
 #[test]

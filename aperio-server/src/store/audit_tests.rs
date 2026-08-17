@@ -1,3 +1,7 @@
+//! The audit log's tamper-evidence: the hash chain links, detects an edit, and
+//! survives rotation and pruning, so a verified log stays verifiable after the
+//! housekeeping that keeps it small.
+
 use super::*;
 
 fn temp_dir() -> (PathBuf, String) {

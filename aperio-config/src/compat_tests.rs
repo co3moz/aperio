@@ -1,3 +1,7 @@
+//! The upgrade notices a config file gets: which entries a version range selects,
+//! which of them a given file actually uses, that a `Security` change refuses the
+//! start, and that the shipped table itself is well formed.
+
 use super::*;
 
 /// A stand-in history, so the tests exercise the mechanism rather than

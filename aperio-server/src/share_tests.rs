@@ -1,3 +1,7 @@
+//! Share links as a credential: signing is deterministic and scoped to the token,
+//! a tampered or expired one is refused, what a claim actually covers (host, path,
+//! traversal), and how the query form becomes a cookie.
+
 use super::*;
 use crate::test_support::*;
 use axum::extract::{ConnectInfo, State};

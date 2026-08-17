@@ -1,3 +1,7 @@
+//! The static file server, mostly its refusals: traversal out of the root, percent
+//! decoding, SPA fallback only for navigations, the custom 404, and Range parsing
+//! at its edges.
+
 use super::{RangeOutcome, ServeOptions, options, parse_range, percent_decode, resolve, start};
 
 fn setup() -> std::path::PathBuf {

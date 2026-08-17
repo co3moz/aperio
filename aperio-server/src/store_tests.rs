@@ -1,3 +1,8 @@
+//! The storage layer under things going wrong: unparseable rows and missing tables
+//! are skipped rather than fatal, a corrupt database is backed up and recreated,
+//! and a data directory that is a file falls back to memory instead of refusing to
+//! start.
+
 use super::*;
 
 /// A unique, freshly-created temp directory returned as (PathBuf, String).

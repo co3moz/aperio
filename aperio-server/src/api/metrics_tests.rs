@@ -1,3 +1,7 @@
+//! The metrics endpoint's own contract: which families it renders, that the token
+//! is required and accepted in both spellings, and that every list-shaped answer is
+//! an array and stays inside the caller's organization.
+
 use super::*;
 
 use crate::settings::{FailoverMode, LbStrategy, ServerConfig, SettingsOverrides};

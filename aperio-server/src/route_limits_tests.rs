@@ -1,3 +1,8 @@
+//! Per-route rate limits: which rule a request matches, how burst and rps default
+//! against each other, that a method filter scopes a rule and gives it its own
+//! bucket, and that an unusable rule is dropped rather than taking the section
+//! down.
+
 use super::*;
 
 /// Serializes tests that touch the process-global config document / default

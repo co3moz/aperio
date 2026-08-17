@@ -1,3 +1,7 @@
+//! The request firewall: what a deny rule matches on (path, method, header, body
+//! over a limit), that a non-UTF-8 header value cannot match a regex, and that bad
+//! rules are counted and dropped rather than disabling the section.
+
 use super::*;
 
 /// Serializes tests that touch the process-global config document / default

@@ -1,3 +1,6 @@
+//! Hostname fallbacks: which rule wins, what a redirect preserves, and that one
+//! bad entry is dropped rather than disabling the rest.
+
 use super::*;
 
 /// Serializes tests that touch the process-global config document / default

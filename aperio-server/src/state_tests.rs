@@ -1,3 +1,8 @@
+//! What a token may do and what a connection is: permission gating and the
+//! organization fence over it, the request timeline and its per-stage statistics,
+//! and the bounded structures that keep a long-lived server from growing without
+//! end.
+
 use super::*;
 use crate::store::tokens::TokenSpec;
 

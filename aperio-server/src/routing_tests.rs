@@ -1,3 +1,7 @@
+//! How a request finds a service: bind normalization and the refusals that go with
+//! it, path matching at segment boundaries, traversal detection in both literal and
+//! encoded form, hostname extraction, and client-IP trust.
+
 use super::*;
 use crate::state::ClientPerms;
 use axum::http::HeaderMap;

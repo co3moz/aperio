@@ -1435,3 +1435,58 @@ fn a_jwt_gate_needs_exactly_one_way_of_knowing_who_signed_a_token() {
     validate_auth_setting(&auth_of(yaml)).expect_err(&format!("{why} should be refused: {yaml}"));
   }
 }
+
+#[test]
+fn every_sibling_test_file_says_what_it_pins_down() {
+  // Project rule: a module's tests live in a sibling `<file>_tests.rs` that
+  // opens with a `//!` saying what about that module they hold down. The rule
+  // exists because a test file is the one place a reader can find out what a
+  // module is *supposed* to guarantee, and a file that starts straight into
+  // `use super::*` makes them read four hundred assertions to find out.
+  //
+  // Checked here, beside the other cross-crate source walks, because it is
+  // exactly the kind of thing that is true when written and quietly stops
+  // being true one new file at a time.
+  fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+      return;
+    };
+    for entry in entries.flatten() {
+      let path = entry.path();
+      if path.is_dir() {
+        walk(&path, out);
+      } else if path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.ends_with("_tests.rs"))
+      {
+        out.push(path);
+      }
+    }
+  }
+
+  let mut files = Vec::new();
+  for crate_dir in ["../aperio-server/src", "../aperio-client/src", "src"] {
+    walk(std::path::Path::new(crate_dir), &mut files);
+  }
+  assert!(
+    files.len() > 50,
+    "the walk found only {} test files, so it is looking in the wrong place",
+    files.len()
+  );
+
+  let missing: Vec<String> = files
+    .iter()
+    .filter(|p| {
+      std::fs::read_to_string(p)
+        .map(|t| !t.trim_start().starts_with("//!"))
+        .unwrap_or(false)
+    })
+    .map(|p| p.display().to_string())
+    .collect();
+  assert!(
+    missing.is_empty(),
+    "these test files do not open with a `//!` saying what they pin down:\n  {}",
+    missing.join("\n  ")
+  );
+}

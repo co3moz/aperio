@@ -1,3 +1,7 @@
+//! That a paused stream really stops and really restarts: a resume that lands
+//! before the wait is not lost, and an id nothing registered is a no-op rather
+//! than an error.
+
 use super::*;
 
 #[tokio::test]

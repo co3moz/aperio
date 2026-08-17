@@ -1,3 +1,7 @@
+//! Proxied WebSocket upgrades against a real backend: text and binary frames both
+//! ways, a backend close becoming `WsClose`, and the targets that are refused
+//! rather than dialed.
+
 use super::*;
 use base64::prelude::*;
 

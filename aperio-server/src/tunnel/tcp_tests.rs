@@ -1,3 +1,7 @@
+//! The raw TCP tunnel endpoint as an access-control surface: who may bind whose
+//! tunnel, what an unauthorized or rate-limited consumer gets, and the answers for
+//! a client that is absent or declares no target.
+
 use super::*;
 
 use crate::protocol::TunnelDecl;

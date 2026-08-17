@@ -1,3 +1,8 @@
+//! What reaches the backend and what comes back: header rules in both directions,
+//! the redirect policy (same-site followed, cross-site passed through), path-bind
+//! trimming at segment boundaries, streaming past the buffer threshold, and the
+//! answers a visitor gets when the backend is unreachable.
+
 use super::*;
 
 /// Tunnel sender whose receiver is drained in the background, for tests

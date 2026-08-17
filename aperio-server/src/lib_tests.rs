@@ -1,3 +1,8 @@
+//! The server assembled: token authentication, rate limiting, the proxy handler's
+//! answers with and without a client, path-bind matching at segment boundaries,
+//! client-IP extraction with and without a trusted proxy, and that each store opens
+//! where it is told to.
+
 use super::{SHUTDOWN_DRAIN_AUTO_CAP, shutdown_drain_budget};
 use crate::access_log::sanitize_uri;
 use crate::auth::{extract_and_verify_token, ip_allowed, safe_redirect_path, valid_ip_entry};

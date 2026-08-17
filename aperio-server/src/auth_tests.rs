@@ -1,3 +1,8 @@
+//! Every way in, and mostly every way not in: the session cookie and the prefix
+//! that keeps a neighbour from displacing it, token extraction and its
+//! constant-time comparison, IP allowlists, TOTP, and the lockout that makes
+//! guessing expensive.
+
 use super::*;
 use crate::store::tokens::TokenSpec;
 use crate::test_support::*;

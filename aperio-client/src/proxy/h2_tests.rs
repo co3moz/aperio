@@ -1,3 +1,7 @@
+//! The HTTP/2 backend path against a real h2c server: which targets it claims,
+//! buffered and streamed bodies in both directions, trailers, non-2xx pass-through,
+//! and the gRPC health probe.
+
 use super::*;
 
 use crate::proxy::http::HeaderTransform;

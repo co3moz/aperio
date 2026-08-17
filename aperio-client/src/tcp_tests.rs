@@ -1,3 +1,6 @@
+//! The raw TCP relay end to end: plaintext and encrypted sessions, a backend that
+//! refuses the connection, a failed handshake, and the bridge side a peer binds.
+
 use super::*;
 use base64::prelude::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
