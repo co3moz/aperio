@@ -19,32 +19,30 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#126 The four config surfaces are kept in step by discipline alone, and
-  it has drifted once.** Rules 15 to 17 say a setting reaches yaml, an env
-  read, the table in `docs/configuration.md` and the reference table in
-  `docs/book/aperio.tex`, all in one commit. Nothing checks it.
+- [ ] **#128 Nothing checks rule 16, and `depends_on` is already through the
+  gap.** `#126` built the check for rule 17, that a setting reaches both
+  documentation tables. Rule 16 is the other half: an environment variable
+  should exist wherever the value can be expressed as one, because env is what
+  containers and secret injection have, and the only legitimate exception is a
+  list of mappings such as `routes:` or `headers:`.
 
-  Measured 2026-08-18 over `FileConfig` and `ServerFileConfig`, 214 fields
-  between them: **one** genuine gap, `depends_on`, documented in
-  `configuration.md` and missing from the book. That is a weak bug report and a
-  strong trend. One miss in 214 says the discipline works; the field count only
-  goes up, and the miss is invisible by eye.
+  Found while building `#126`: `depends_on` is a list of scalars, which rule 16
+  says is not an exception, and there is no `APERIO_DEPENDS_ON`. A client in a
+  container cannot express it at all. That is one known miss out of 214 keys
+  and nobody has looked at the other 213.
 
-  **Two things a checker has to be told rather than deduce**, both found by the
-  same measurement. `error_page_504` and `error_page_503` are documented as
-  `504_page` and `503_page`, a rename that exists only in somebody's head.
-  `alert_rules` and `maintenance_windows` are documented on their own pages
-  rather than in the table, because they are lists of mappings, which rule 16
-  exempts. So the check needs a small declared table of exceptions, and writing
-  that table is half the value: an implicit rename becomes an explicit one.
+  **The check is not the same shape as `#126`'s and should not be bolted onto
+  it.** Its exception list is different (a list of mappings is exempt here and
+  not there), and what it reads is different: rule 16 is about an `env::var`
+  call existing, which is a fact about the source rather than about a document.
+  `docs/configuration.md` already names the variable for every setting that has
+  one, so the table is a usable index, but the check should confirm the read
+  exists rather than trust the doc, or it verifies the wrong thing.
 
-  **Normalize before comparing, or this reports a hundred failures and gets
-  deleted in a week.** Three passes of this measurement were wrong before it
-  was right: LaTeX escapes underscores (`request\_id\_header`), the docs spell
-  grouped keys with a dot (`request_id.header`) and env vars in upper case
-  (`APERIO_REQUEST_ID_HEADER`), and `bind_tunnels` is written `bind-tunnels`
-  everywhere a human sees it. The naive substring check reported 105 missing
-  fields and every one of them was a false positive.
+  Fixing what it finds is the larger half and can be done key by key. Adding
+  one env read is small; deciding a key genuinely cannot have one is the part
+  that needs a sentence, which is what `surfaces.rs` is already the pattern
+  for.
 
 - [ ] **#127 Mutation testing where a green suite proves the least.** `#124`
   deleted three tests, and the only thing that made it safe was breaking four
@@ -412,6 +410,72 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#126 The four config surfaces are kept in step by discipline alone, and
+  it has drifted once.** Rules 15 to 17 say a setting reaches yaml, an env
+  read, the table in `docs/configuration.md` and the reference table in
+  `docs/book/aperio.tex`, all in one commit. Nothing checks it.
+
+  Measured 2026-08-18 over `FileConfig` and `ServerFileConfig`, 214 fields
+  between them: **one** genuine gap, `depends_on`, documented in
+  `configuration.md` and missing from the book. That is a weak bug report and a
+  strong trend. One miss in 214 says the discipline works; the field count only
+  goes up, and the miss is invisible by eye.
+
+  **Two things a checker has to be told rather than deduce**, both found by the
+  same measurement. `error_page_504` and `error_page_503` are documented as
+  `504_page` and `503_page`, a rename that exists only in somebody's head.
+  `alert_rules` and `maintenance_windows` are documented on their own pages
+  rather than in the table, because they are lists of mappings, which rule 16
+  exempts. So the check needs a small declared table of exceptions, and writing
+  that table is half the value: an implicit rename becomes an explicit one.
+
+  **Normalize before comparing, or this reports a hundred failures and gets
+  deleted in a week.** Three passes of this measurement were wrong before it
+  was right: LaTeX escapes underscores (`request\_id\_header`), the docs spell
+  grouped keys with a dot (`request_id.header`) and env vars in upper case
+  (`APERIO_REQUEST_ID_HEADER`), and `bind_tunnels` is written `bind-tunnels`
+  everywhere a human sees it. The naive substring check reported 105 missing
+  fields and every one of them was a false positive.
+
+  Shipped 2026-08-18 as `aperio-config/src/surfaces.rs` and its tests. Two
+  assertions, one per table, plus a third holding the exemption list itself
+  honest.
+
+  **It works off the JSON Schema, not the Rust structs, and that turned out to
+  matter more than expected.** The schema carries the yaml spelling after
+  serde's renames, so keys are compared as an operator writes them. That alone
+  removed two of the three false-positive classes: the field is
+  `error_page_504` and the key is `504_page`; the field is `bind_tunnels` and
+  the key is `bind-tunnels`. The earlier measurement in this entry called both
+  of those gaps, and both were the measurement's fault rather than the docs'.
+  Only the LaTeX underscore escape and the dotted spelling of a grouped key
+  still need folding, which `fold()` does.
+
+  So the real tally was smaller than this entry claimed: **one** genuine gap,
+  `depends_on`, absent from the book since the key existed. Fixed here, with
+  the two things its `configuration.md` example does not say (the wait is
+  bounded at 60 seconds and then proceeds, and it is yaml only).
+
+  **The exemption list is production code with a `why` on every entry, not
+  test data.** Two entries, `alert_rules` and `maintenance_windows`, both
+  lists of mappings written up where they can be shown as yaml rather than
+  squeezed into a table cell. A third test asserts each exemption names a key
+  that still exists and gives a reason, because both halves rot on their own:
+  a renamed key leaves an exemption excusing nothing while the real key goes
+  unchecked, and a reasonless exemption is indistinguishable from somebody
+  having deleted a failing assertion.
+
+  Both mutations checked: deleting a book row turns it red naming the key,
+  and misspelling an exemption turns the third test red.
+
+  **One thing this does not cover, found while doing it.** `depends_on` has no
+  environment variable, and rule 16 says a list of scalars should have one.
+  That is a rule-16 check with a different exception list (a list of mappings
+  is legitimately exempt there), and adding the env read is a code change
+  rather than a documentation one, so neither belongs in this entry. It is
+  `#128`.
+
 
 - [x] **#125 `/api/explain` is a second implementation of the request path, and
   nothing holds the two together.** The endpoint walks the proxy's decisions on

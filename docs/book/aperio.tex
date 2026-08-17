@@ -3648,6 +3648,8 @@ settings are required: the token, the server URL, and the target.
 \rowsep
 \code{APERIO\_STARTUP\_DELAY} &  & \code{startup\_delay} & Seconds a service waits before opening its tunnel, \code{0} by default, for a backend that starts alongside the client. Only the first connection of a parallel pool waits. \\
 \rowsep
+ &  & \code{depends\_on} & Services this one waits for before opening its tunnel, by name. The wait is bounded: after 60 seconds it proceeds anyway and logs what it gave up on, because a dependency that never arrives must not keep a service that could be serving traffic off the air. yaml only, and on a multiplexed connection a dependency on one of its own members is dropped, since both open together. \\
+\rowsep
 \code{APERIO\_PID\_FILE} &  & \code{pid\_file} & Path to write the process id to at startup, removed on a clean exit. Unset by default. A pid file that cannot be written is a warning, not a refusal to start. \\
 \rowsep
 \code{APERIO\_ADAPTIVE\_CONCURRENCY} &  & \code{adaptive\_concurrency} & Off by default. Moves the announced \code{max\_concurrent} with backend pressure: halves it while requests queue waiting for a local permit, climbs back one at a time when they stop. Needs \code{max\_concurrent} set, and never leaves the band \code{1..=max\_concurrent}. \\

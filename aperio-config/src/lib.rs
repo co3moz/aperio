@@ -35,6 +35,7 @@ pub mod groups;
 pub mod rules;
 pub mod server;
 pub mod settings;
+pub mod surfaces;
 
 pub use auth::*;
 pub use client::*;
