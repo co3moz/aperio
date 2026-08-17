@@ -41,13 +41,20 @@ readable without scrolling past what is already done.
   test files in the 1000-1400 band. A 1100-line file with one clear subject
   reads fine; cutting it produces two files that have to be read together.
 
-  **The one that is actually work.** `aperio-server/src/lib_tests.rs` is 1766
-  for a `lib.rs` that is now 485, and that mismatch is the signal: most of what
-  is in it tests `routing` and `proxy` rather than the crate root. It was left
-  because the obvious homes, `routing_tests.rs` (1071) and `proxy_tests.rs`
-  (1381), are themselves in the band above, so moving tests there trades one
-  oversized file for another. Doing it properly means splitting `routing.rs`
-  first and letting its tests follow, which is the same sweep one level down.
+  **The one that was actually work, and is done.** `aperio-server/src/lib_tests.rs`
+  was 1766 for a `lib.rs` of 485, and the mismatch was the signal: most of it
+  tested `routing` and `proxy` rather than the crate root. Done 2026-08-17 in
+  the order this entry predicted, `routing.rs` (1139 → 26) first so its tests
+  had somewhere to go, then twenty-one tests out of `lib_tests.rs` (1766 → 375)
+  to the modules they actually cover. The three `proxy_handler` drives went to
+  a new `proxy/handler_tests.rs` rather than onto `proxy_tests.rs`, which is
+  itself in the band above. What is left in `lib_tests.rs` is what belongs to
+  the crate rather than to a module: the store fixtures and `mock_client` every
+  other test file builds from.
+
+  So the open part of this entry is now the first two groups only, and neither
+  is work: they are decisions, recorded so they are not re-litigated. It stays
+  open as the place that answers "why is this file still 1200 lines".
 
 ## Withdrawn
 
