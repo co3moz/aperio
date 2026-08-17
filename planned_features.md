@@ -27,28 +27,42 @@ readable without scrolling past what is already done.
   1552 → 447). What is left falls into three groups, and only one of them is
   work.
 
-  **One function, moved whole rather than cut.** `run_service` (1519),
-  `proxy_http_request` (1652), `resolve_settings` (491). Each holds state that
-  every one of its many exits has to release, so splitting them means inventing
-  a struct to carry what the single scope carries for free. **Neither of these
-  three has had the count run on it**, which is the only thing that would
-  settle it, and the two that have were both wrong.
+  **One function, moved whole rather than cut.** `proxy_http_request` (1652)
+  and `resolve_settings` (491). Each holds state that every one of its many
+  exits has to release, so splitting them means inventing a struct to carry
+  what the single scope carries for free. **Neither has had the count run on
+  it**, which is the only thing that would settle it, and every one that has
+  was wrong.
 
-  `build_state` and `on_ping` were both on this list and both came off it on
-  2026-08-17, and how is the useful part. The objection is about how many
-  values cross a cut, which is a number, and in both cases nobody had counted
-  it. `build_state`: eight of eighty-eight, because the first of its *two*
-  struct literals absorbs the rest. `on_ping`: one, because the loop body
-  re-binds every field from its own `ServiceDecl` and shadows the outer ones.
+  `build_state`, `on_ping` and `run_service` were all on this list and all
+  three came off it, and how is the useful part. The objection is about how
+  many values cross a cut, which is a number, and in no case had anybody
+  counted it. `build_state`: eight of eighty-eight, because the first of its
+  *two* struct literals absorbs the rest. `on_ping`: one, because the loop
+  body re-binds every field from its own `ServiceDecl` and shadows the outer
+  ones. `run_service`: twenty-one, the highest count anything in this codebase
+  has produced, and it still came apart, because nineteen of the twenty-one
+  were the same thing said nineteen ways. They were the live state of one
+  socket, so they became one struct with a name, `Dispatch`, and only two
+  values genuinely travelled back out.
 
   The count is also worth running for what it turns up on the way. Doing it to
   `on_ping` found seven connection-level fields being written inside the
   per-service loop, once per declaration with the same value each time, which
   is both why the body would not lift and a thing worth fixing on its own.
+  Doing it to `run_service` found the two parallel `Vec`s the caller had to
+  keep the same length by hand, which became `ServiceRuntime` and took three
+  crossers off the count before the cut was even attempted.
+
+  `service.rs` went 1726 → 962 that way, with `run_service` itself 1522 → 828:
+  first the read loop to `dispatch.rs` (the frame handling), then the write
+  task to `writer.rs` (its mirror), then the four gates a connection passes
+  before its first dial to `startup.rs`. A high crosser count turned out to be
+  a description of a missing type, not a verdict on the function.
 
   **Close enough to the line that splitting costs more than it buys.** The four
-  test files left in the 1000-1400 band: `proxy_tests.rs` (1381),
-  `service_tests.rs` (1345), the client's `lib_tests.rs` (1151) and
+  test files left in the 1000-1400 band: `service_tests.rs` (1386),
+  `proxy_tests.rs` (1381), the client's `lib_tests.rs` (1151) and
   `proxy/gate_tests.rs` (1064). Each is one subject's tests beside one subject's
   code, which is what rule 22 asks for, and cutting them produces two files a
   reader has to hold open together.
@@ -72,7 +86,9 @@ readable without scrolling past what is already done.
 
   So the open part of this entry is now the first two groups only, and neither
   is work: they are decisions, recorded so they are not re-litigated. It stays
-  open as the place that answers "why is this file still 1200 lines".
+  open as the place that answers "why is this file still 1200 lines". The
+  first group's honest answer is still "because nobody ran the count", and it
+  is now 0 for 3.
 
 ## Withdrawn
 
