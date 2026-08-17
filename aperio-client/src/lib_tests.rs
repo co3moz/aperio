@@ -1684,3 +1684,69 @@ fn a_service_left_on_its_own_connection_keeps_its_pool() {
       .all(|n| n.field != "connections")
   );
 }
+
+#[test]
+fn a_multiplexed_group_announces_the_budget_it_actually_gets_paced_at() {
+  // The server shapes the socket, not the service: every service on a
+  // connection announces into one token bucket and the last one wins. A share
+  // per service is right when each has a connection of its own and wrong when
+  // they share one, and the wrongness is silent and large: four services
+  // splitting an 8mbit budget announced 2mbit each, the cell held 2mbit, and a
+  // link sized at 8 ran at 2. At forty services it is a fortieth.
+  let mut settings = base_settings();
+  settings.multiplex = true;
+  settings.bandwidth = Some("8mbit".to_string());
+  settings.services = multiplexed_services(4);
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  let budget = parse_bandwidth("8mbit").unwrap();
+  for spec in &specs {
+    assert_eq!(spec.bandwidth_bps, Some(budget));
+  }
+  // Said out loud, since what a service announces is no longer its own share.
+  let note = specs[0]
+    .config_notes
+    .iter()
+    .find(|n| n.field == "bandwidth")
+    .expect("a note about bandwidth");
+  assert!(
+    note.reason.contains("share one shaped connection"),
+    "{note:?}"
+  );
+}
+
+#[test]
+fn one_uncapped_service_uncaps_the_connection_it_shares_and_says_so() {
+  // The server reads an absent limit as zero and zero as unlimited, so a
+  // member without one wipes the cell whatever its neighbours declared. The
+  // cap was already not being enforced; the only question was whether anything
+  // said so. Capping the socket at the declared ones instead would throttle a
+  // service the file never limited.
+  let mut settings = base_settings();
+  settings.multiplex = true;
+  settings.services = multiplexed_services(3);
+  settings.services[0].bandwidth = Some("4mbit".to_string());
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  for spec in &specs {
+    assert_eq!(spec.bandwidth_bps, None);
+  }
+  let note = specs[0]
+    .config_notes
+    .iter()
+    .find(|n| n.field == "bandwidth")
+    .expect("a note about bandwidth");
+  assert_eq!(note.effective, "unlimited");
+  assert!(note.reason.contains("declares no limit"), "{note:?}");
+}
+
+#[test]
+fn a_service_on_its_own_connection_still_splits_its_bandwidth_per_connection() {
+  // The fix is the group's, not the flag's: an ordinary service keeps the
+  // per-connection division, which is right because the server shapes each of
+  // its connections separately.
+  let mut settings = base_settings();
+  settings.bandwidth = Some("8mbit".to_string());
+  settings.connections = Some(aperio_config::Connections::Fixed(4));
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  let budget = parse_bandwidth("8mbit").unwrap();
+  assert_eq!(specs[0].bandwidth_bps, Some(budget / 4));
+}

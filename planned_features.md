@@ -19,7 +19,65 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-Nothing open. The next idea takes the next free id, which is `#121`.
+- [ ] **#121 `adaptive_concurrency` never reaches the server, so two thirds of
+  what it is for does not happen.** (triage 60) Found by measurement, not by
+  reading: a server told `max_concurrent: 8` and then `4` on the very next
+  heartbeat still holds `max_concurrent = Some(8)` and eight permits. The
+  limiter is created under an `is_none()` guard on the first Ping that
+  announces a limit (`aperio-server/src/tunnel/ws.rs`, "the limit is fixed for
+  the connection") and nothing ever resizes it or rewrites the number beside
+  it.
+
+  **What still works, so the bug is invisible from the client.** `Adaptive`
+  forgets permits from the *local* semaphore in step with the announcement, on
+  purpose, "so a server that ignores the number cannot push past it either".
+  So a struggling client really does take less work, and every client-side
+  test of #65 passes. What changes is only where the excess waits.
+
+  **What does not work is everything the feature is actually for.** The module
+  doc for `aperio-client/src/adaptive.rs` names three server-side responses and
+  says the server "needs no new code to honour" the moving number. It needs
+  code for all three. The server keeps dispatching up to the original limit, so
+  requests queue on the struggling client instead of being held; the load
+  balancer cannot hand one to a healthier client in the pool, because nothing
+  told it this one shrank; and `measure` in `scaling.rs` computes
+  `inflight / sum max_concurrent` from the latched pair, so the autoscaler's
+  utilization does not rise. That last one is stated as a positive in the same
+  doc, "lowering the announced number *raises* the utilization the server's
+  autoscaler measures", and it is the opposite of what happens.
+
+  **The fix is a resize, and it is not a one-liner.** Growing and shrinking a
+  live `Semaphore` correctly is what the client's `forgotten` counter exists
+  for: `forget_permits` removes at most what is available, so a shrink under
+  load takes fewer than it asked and giving the difference back later would
+  hand out more permits than were ever configured. The server needs the same
+  bookkeeping, plus a decision about whether a client may raise its own
+  announced ceiling back above what it first said (the client's own rule is
+  that it never exceeds the configured number, which is the answer to copy).
+  Also fix the display: `ClientDetail.max_concurrent` is the latched number, so
+  the dashboard shows a client at 8 while it is taking 1.
+
+- [ ] **#122 The 35 `sole()` call sites are live now, not dormant.** (triage 45)
+  `HandleState::sole()` is documented as "the remaining work of #46", a
+  deliberate marker whose count `grep sole` reports, and it takes the *first*
+  service of a connection on the assumption there is only one. That assumption
+  held for as long as no client could produce a connection with two. `#120`
+  shipped one, so every remaining call is now a place where a multiplexed
+  connection's second and later services are silently not considered.
+
+  Not all 35 matter equally, and the entry exists so the triage happens once
+  rather than per bug report. The ones worth looking at first, by what a wrong
+  answer does: `scaling.rs` (5) decides autoscaling from one service's
+  capacity, so a multiplexed pool is measured on a fraction of itself;
+  `api/metrics.rs` (2) attributes a connection's series to one service;
+  `tunnel/registry.rs` (4) and `tunnel/tcp.rs` (3) are the raw-tunnel path
+  `#46` already marked as keying on the connection; `api/settings.rs` (4) and
+  `api/explain.rs` (2) answer operator questions about "this client" with one
+  service's answer.
+
+  The honest short-term answer for anything not worth converting is to say so
+  where it is read, the way the raw `tunnels:` path already does, rather than
+  leaving a caller that looks correct.
 
 ## Withdrawn
 

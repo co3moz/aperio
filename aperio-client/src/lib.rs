@@ -1488,7 +1488,92 @@ fn build_specs(
   validate_tls_floors(&specs)?;
   group_multiplexed(&mut specs)?;
   allocate_bandwidth(&mut specs, budget_bps);
+  settle_multiplexed_bandwidth(&mut specs);
   Ok(specs)
+}
+
+/// Makes a multiplexed group's announced bandwidth mean what the server will
+/// actually do with it.
+///
+/// The server shapes the *socket*: a connection has one writer and one token
+/// bucket, and every service on it announces into that same cell, last one
+/// winning. `allocate_bandwidth` above has just divided the budget into a share
+/// per service, which is exactly right when each service has a connection of
+/// its own and exactly wrong when they share one. Four services splitting an
+/// 8mbit budget announce 2mbit each, the cell ends up holding 2mbit, and a link
+/// the operator sized at 8 is paced at 2. At forty services it is a fortieth.
+///
+/// So the group announces one number, the same on every member, and it is the
+/// sum: that is the capacity the operator allocated to these services, and the
+/// socket is where it is enforced. Each member reporting the connection's cap
+/// is also the truthful thing to show, since on a shared socket there is no
+/// per-service cap to show instead.
+///
+/// **A member with no cap uncaps the group**, and that is not a shortcut. The
+/// server reads an absent value as zero and zero as unlimited, so such a member
+/// wipes the cell whatever the others declared: the cap was already not being
+/// enforced, silently, and the only question is whether the client says so.
+/// Capping the socket at the sum of the declared ones instead would throttle a
+/// service nobody limited, which is a constraint the file does not contain.
+fn settle_multiplexed_bandwidth(specs: &mut [ServiceSpec]) {
+  let groups: Vec<usize> = {
+    let mut seen: Vec<usize> = specs.iter().filter_map(|s| s.multiplex_group).collect();
+    seen.sort_unstable();
+    seen.dedup();
+    seen
+  };
+  for group in groups {
+    let members: Vec<usize> = (0..specs.len())
+      .filter(|&i| specs[i].multiplex_group == Some(group))
+      .collect();
+    let declared: Vec<Option<u64>> = members.iter().map(|&i| specs[i].bandwidth_bps).collect();
+    if declared.iter().all(Option::is_none) {
+      continue;
+    }
+    let uncapped: Vec<String> = members
+      .iter()
+      .filter(|&&i| specs[i].bandwidth_bps.is_none())
+      .map(|&i| specs[i].label())
+      .collect();
+    let total: Option<u64> = if uncapped.is_empty() {
+      Some(declared.iter().flatten().sum())
+    } else {
+      warn!(
+        "bandwidth: {} share(s) a connection with {} which declare(s) no limit, so nothing on it is paced. The server shapes the socket, not the service, and a service without a limit lifts it for the whole connection. Give every service in the group a bandwidth:, or take one out with multiplex: false.",
+        members
+          .iter()
+          .filter(|&&i| specs[i].bandwidth_bps.is_some())
+          .map(|&i| specs[i].label())
+          .collect::<Vec<_>>()
+          .join(", "),
+        uncapped.join(", ")
+      );
+      None
+    };
+    for &i in &members {
+      let before = specs[i].bandwidth_bps;
+      specs[i].bandwidth_bps = total;
+      if before == total {
+        continue;
+      }
+      // Replaces the note `allocate_bandwidth` just wrote: it explains a split
+      // that no longer describes what is announced.
+      specs[i].config_notes.retain(|n| n.field != "bandwidth");
+      specs[i].config_notes.push(ConfigNote {
+        field: "bandwidth".to_string(),
+        declared: before
+          .map(format_bandwidth)
+          .unwrap_or_else(|| "unlimited".to_string()),
+        effective: total
+          .map(format_bandwidth)
+          .unwrap_or_else(|| "unlimited".to_string()),
+        reason: match total {
+          Some(_) => "multiplexed services share one shaped connection, so the group's limits are announced as one".to_string(),
+          None => "a service sharing this connection declares no limit, and the server shapes the connection rather than the service".to_string(),
+        },
+      });
+    }
+  }
 }
 
 /// Settles which services actually share a connection, and what that costs
