@@ -19,6 +19,85 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
+- [ ] **#125 `/api/explain` is a second implementation of the request path, and
+  nothing holds the two together.** The endpoint walks the proxy's decisions on
+  a request nobody sends and reports which one decides. Its own doc comment
+  says it walks "the same decisions in the same order", which is a promise
+  about two files staying in step, and there is no test that would notice when
+  they stop.
+
+  They have already stopped. Checked 2026-08-18 against the request path, the
+  explainer has no stage for the per-IP token bucket, the admission slot
+  (`max_concurrent_requests`), `max_body_size`, `denied_ips`, a service's
+  `allowed_ips`, the token and organization quotas, the canary split, or the
+  cache. Its `rate_limits` stage is the `rate_limits:` route block, not the
+  per-IP limit, which is easy to misread as coverage.
+
+  Several of those decide the answer outright: a visitor in `denied_ips` is
+  refused, an over-quota token gets a 429, and a cache hit is served without a
+  tunnel at all. So the explainer can report a route as reachable when the real
+  request would be refused, which is worse than not having an explainer,
+  because the operator now has a confident wrong answer instead of a log grep.
+
+  **The repo already knows how to enforce this kind of promise.**
+  `state/client_tests.rs` reads `protocol.rs` and asserts every `ServiceDecl`
+  field appears on `ServiceState`; `protocol_profile_tests.rs` reads
+  `docs/embedded-profile.md`. The same shape fits here: name the refusal sites
+  once, and assert each maps to a stage. Adding the missing stages is the
+  smaller half; the test is what stops it happening again.
+
+  `#123` is the warning. Splitting `forward.rs` moved most of these decisions
+  into `attempt.rs` and nothing anywhere had to change to match, which is
+  exactly how two files drift without anybody deciding to let them.
+
+- [ ] **#126 The four config surfaces are kept in step by discipline alone, and
+  it has drifted once.** Rules 15 to 17 say a setting reaches yaml, an env
+  read, the table in `docs/configuration.md` and the reference table in
+  `docs/book/aperio.tex`, all in one commit. Nothing checks it.
+
+  Measured 2026-08-18 over `FileConfig` and `ServerFileConfig`, 214 fields
+  between them: **one** genuine gap, `depends_on`, documented in
+  `configuration.md` and missing from the book. That is a weak bug report and a
+  strong trend. One miss in 214 says the discipline works; the field count only
+  goes up, and the miss is invisible by eye.
+
+  **Two things a checker has to be told rather than deduce**, both found by the
+  same measurement. `error_page_504` and `error_page_503` are documented as
+  `504_page` and `503_page`, a rename that exists only in somebody's head.
+  `alert_rules` and `maintenance_windows` are documented on their own pages
+  rather than in the table, because they are lists of mappings, which rule 16
+  exempts. So the check needs a small declared table of exceptions, and writing
+  that table is half the value: an implicit rename becomes an explicit one.
+
+  **Normalize before comparing, or this reports a hundred failures and gets
+  deleted in a week.** Three passes of this measurement were wrong before it
+  was right: LaTeX escapes underscores (`request\_id\_header`), the docs spell
+  grouped keys with a dot (`request_id.header`) and env vars in upper case
+  (`APERIO_REQUEST_ID_HEADER`), and `bind_tunnels` is written `bind-tunnels`
+  everywhere a human sees it. The naive substring check reported 105 missing
+  fields and every one of them was a false positive.
+
+- [ ] **#127 Mutation testing where a green suite proves the least.** `#124`
+  deleted three tests, and the only thing that made it safe was breaking four
+  behaviors by hand and watching the inheriting test go red each time. That is
+  a check nobody runs by default, and this repo has two reasons to distrust the
+  alternative: the `#123` sweep found four tests that had silently lost their
+  `#[test]` attribute while the suite stayed green, and `#124` found a test
+  whose comment described a mechanism (`server_start_time` driving the proxy
+  path) that does not exist.
+
+  **Scope it to where a wrong answer is a security answer**, not the whole
+  workspace: `visitor_auth.rs`, `proxy/gate.rs`, `state/admission.rs`,
+  `auth.rs`, `redact.rs`. A surviving mutant in any of those is a rule the
+  tests do not actually hold anyone to.
+
+  **Not on every push.** A mutation run is long and CPU-heavy, which is the
+  thing rule 21 is about and the thing rule 13 says not to spend CI on. On
+  demand, or periodic, with the result written down somewhere a person reads.
+  The output that matters is not a score, it is the list of survivors, and a
+  survivor is either a missing assertion or a line that does nothing, both of
+  which are worth knowing.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
