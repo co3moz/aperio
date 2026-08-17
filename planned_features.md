@@ -19,44 +19,6 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#121 `adaptive_concurrency` never reaches the server, so two thirds of
-  what it is for does not happen.** (triage 60) Found by measurement, not by
-  reading: a server told `max_concurrent: 8` and then `4` on the very next
-  heartbeat still holds `max_concurrent = Some(8)` and eight permits. The
-  limiter is created under an `is_none()` guard on the first Ping that
-  announces a limit (`aperio-server/src/tunnel/ws.rs`, "the limit is fixed for
-  the connection") and nothing ever resizes it or rewrites the number beside
-  it.
-
-  **What still works, so the bug is invisible from the client.** `Adaptive`
-  forgets permits from the *local* semaphore in step with the announcement, on
-  purpose, "so a server that ignores the number cannot push past it either".
-  So a struggling client really does take less work, and every client-side
-  test of #65 passes. What changes is only where the excess waits.
-
-  **What does not work is everything the feature is actually for.** The module
-  doc for `aperio-client/src/adaptive.rs` names three server-side responses and
-  says the server "needs no new code to honour" the moving number. It needs
-  code for all three. The server keeps dispatching up to the original limit, so
-  requests queue on the struggling client instead of being held; the load
-  balancer cannot hand one to a healthier client in the pool, because nothing
-  told it this one shrank; and `measure` in `scaling.rs` computes
-  `inflight / sum max_concurrent` from the latched pair, so the autoscaler's
-  utilization does not rise. That last one is stated as a positive in the same
-  doc, "lowering the announced number *raises* the utilization the server's
-  autoscaler measures", and it is the opposite of what happens.
-
-  **The fix is a resize, and it is not a one-liner.** Growing and shrinking a
-  live `Semaphore` correctly is what the client's `forgotten` counter exists
-  for: `forget_permits` removes at most what is available, so a shrink under
-  load takes fewer than it asked and giving the difference back later would
-  hand out more permits than were ever configured. The server needs the same
-  bookkeeping, plus a decision about whether a client may raise its own
-  announced ceiling back above what it first said (the client's own rule is
-  that it never exceeds the configured number, which is the answer to copy).
-  Also fix the display: `ClientDetail.max_concurrent` is the latched number, so
-  the dashboard shows a client at 8 while it is taking 1.
-
 - [ ] **#122 The 35 `sole()` call sites are live now, not dormant.** (triage 45)
   `HandleState::sole()` is documented as "the remaining work of #46", a
   deliberate marker whose count `grep sole` reports, and it takes the *first*
@@ -424,6 +386,72 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#121 `adaptive_concurrency` never reaches the server, so two thirds of
+  what it is for does not happen.** (triage 60) Found by measurement, not by
+  reading: a server told `max_concurrent: 8` and then `4` on the very next
+  heartbeat still holds `max_concurrent = Some(8)` and eight permits. The
+  limiter is created under an `is_none()` guard on the first Ping that
+  announces a limit (`aperio-server/src/tunnel/ws.rs`, "the limit is fixed for
+  the connection") and nothing ever resizes it or rewrites the number beside
+  it.
+
+  **What still works, so the bug is invisible from the client.** `Adaptive`
+  forgets permits from the *local* semaphore in step with the announcement, on
+  purpose, "so a server that ignores the number cannot push past it either".
+  So a struggling client really does take less work, and every client-side
+  test of #65 passes. What changes is only where the excess waits.
+
+  **What does not work is everything the feature is actually for.** The module
+  doc for `aperio-client/src/adaptive.rs` names three server-side responses and
+  says the server "needs no new code to honour" the moving number. It needs
+  code for all three. The server keeps dispatching up to the original limit, so
+  requests queue on the struggling client instead of being held; the load
+  balancer cannot hand one to a healthier client in the pool, because nothing
+  told it this one shrank; and `measure` in `scaling.rs` computes
+  `inflight / sum max_concurrent` from the latched pair, so the autoscaler's
+  utilization does not rise. That last one is stated as a positive in the same
+  doc, "lowering the announced number *raises* the utilization the server's
+  autoscaler measures", and it is the opposite of what happens.
+
+  **The fix is a resize, and it is not a one-liner.** Growing and shrinking a
+  live `Semaphore` correctly is what the client's `forgotten` counter exists
+  for: `forget_permits` removes at most what is available, so a shrink under
+  load takes fewer than it asked and giving the difference back later would
+  hand out more permits than were ever configured. The server needs the same
+  bookkeeping, plus a decision about whether a client may raise its own
+  announced ceiling back above what it first said (the client's own rule is
+  that it never exceeds the configured number, which is the answer to copy).
+  Also fix the display: `ClientDetail.max_concurrent` is the latched number, so
+  the dashboard shows a client at 8 while it is taking 1.
+
+  **shipped: 2026-08-17.** The server resizes its dispatch limiter as the
+  announced number moves, so all three answers are available: it holds past the
+  lowered number, the load balancer sees a client that shrank, and `measure`
+  reads a capacity that fell, which is what raises utilization and attracts
+  capacity.
+
+  Two rules, both copied from the client rather than invented: the band is the
+  connection's, so a client climbs back to what it first announced and no
+  further (a config change that genuinely raises the number respawns the
+  connection, which is where a new ceiling comes from), and a shrink reports
+  what `forget_permits` could actually take rather than what it asked for, so
+  `max_concurrent` is always the number the semaphore is enforcing. That second
+  one is why `max_concurrent`'s doc changed from "for display" to "what is
+  enforced, which is also what is displayed": the dashboard and the autoscaler
+  read the same field, and a display-only number would have put a client at 1
+  on screen while the dispatcher still sent it 4.
+
+  Where it differed from the plan: no third counter. The entry expected the
+  client's `forgotten` bookkeeping to be copied, but the server already stores
+  the enforced number, so the ceiling beside it says everything a `forgotten`
+  counter would (`forgotten == ceiling - enforced`).
+
+  The client's own `adaptive.rs` module doc said the server "needs no new code
+  to honour it", which is how this survived: it read as a design note rather
+  than as a claim nobody had checked. It now says what was actually true and
+  when it stopped being true.
+
 
 - [x] **#120 The client half of one WebSocket for several services
   (`multiplex: true`).** (triage 40) Split from `#46`, which shipped the

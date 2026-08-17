@@ -249,6 +249,7 @@ fn mock_client() -> ClientHandle {
       connections_max: None,
       config_notes: Vec::new(),
       max_concurrent: None,
+      max_concurrent_ceiling: None,
       inflight_limiter: None,
       admin_enabled: true,
       tcp_enabled: false,

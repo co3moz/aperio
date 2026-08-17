@@ -1096,6 +1096,11 @@ pub(crate) const SERVICE_SCOPED_DERIVED: &[&str] = &[
   "override_path_bind",
   "override_hostname_binds",
   "inflight_limiter",
+  // The band `adaptive_concurrency` moves the limiter inside, which is one
+  // service's band: two services on a connection announce their own numbers
+  // and their backends fall behind independently, so a ceiling shared between
+  // them would let one service's recovery raise the other's limit.
+  "max_concurrent_ceiling",
   "recent_failures",
   "ejected_until",
   "admin_enabled",
@@ -1267,6 +1272,7 @@ impl ServiceState {
       config_notes: Vec::new(),
       metrics_labels: Vec::new(),
       max_concurrent: None,
+      max_concurrent_ceiling: None,
       inflight_limiter: None,
       admin_enabled: true,
       tcp_enabled: false,
@@ -1435,8 +1441,25 @@ pub(crate) struct ServiceState {
   /// the random subdomain the server handed it (or the other way round). Not
   /// persisted: lost when the client reconnects or the server restarts.
   pub(crate) override_hostname_binds: Vec<String>,
-  /// Announced concurrency limit of the client (from Ping), for display.
+  /// The concurrency limit currently *enforced* for this service, which is
+  /// also what is displayed.
+  ///
+  /// Not simply the last number the client announced. A shrink can only take
+  /// the permits that are free, so under load it takes fewer than it asked
+  /// for; this holds what the limiter actually ended up with, so the figure on
+  /// screen and the figure on the semaphore can never disagree.
   pub(crate) max_concurrent: Option<u32>,
+  /// The highest this service's limit may be moved back up to: the first
+  /// number it announced on this connection.
+  ///
+  /// `adaptive_concurrency` lowers a ceiling under pressure and climbs back
+  /// towards it; it never raises one the operator set. The client enforces
+  /// that on its own limiter and the server keeps the same band, so a client
+  /// announcing an ever-growing number cannot talk its way into more
+  /// concurrency than its config asked for. A config reload that genuinely
+  /// raises the number respawns the connection, which is where a new ceiling
+  /// comes from.
+  pub(crate) max_concurrent_ceiling: Option<u32>,
   /// Semaphore enforcing the client's announced concurrency limit. Requests
   /// beyond the limit wait here (bounded by the gateway timeout) instead of
   /// being dispatched, so the server never floods the client's backend.

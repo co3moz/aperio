@@ -1908,6 +1908,135 @@ fn alternates_are_capped() {
 }
 
 // ---------------------------------------------------------------------------
+// The concurrency limit follows the client that announces it (#65, #121)
+// ---------------------------------------------------------------------------
+
+/// A Ping declaring `n` as this connection's concurrency limit.
+fn ping_with_concurrency(n: u32) -> TunnelMessage {
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut max_concurrent,
+    ..
+  } = ping
+  {
+    *max_concurrent = Some(n);
+  }
+  ping
+}
+
+/// (enforced limit, permits the semaphore is handing out) for the sole service.
+async fn concurrency_of(state: &AppState, cid: &str) -> (Option<u32>, Option<usize>) {
+  let clients = state.clients.write().await;
+  let service = clients.get(cid).unwrap().sole();
+  (
+    service.max_concurrent,
+    service
+      .inflight_limiter
+      .as_ref()
+      .map(|l| l.available_permits()),
+  )
+}
+
+#[tokio::test]
+async fn a_lowered_concurrency_limit_reaches_the_dispatcher() {
+  // `adaptive_concurrency` exists so a client whose backend has fallen behind
+  // stops being sent work it cannot do, and the three answers that buys, the
+  // server holding the request, handing it to a healthier client, or asking
+  // for capacity, are all the server's to make. It could make none of them:
+  // the limiter was built on the first Ping that named a number and never
+  // moved again, so a client announcing 8 and then 4 was still dispatched 8.
+  // The excess queued on the struggling client instead, which is the one place
+  // the feature's own documentation says is the wrong place for it.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  let cid = wait_client_id(&state).await;
+
+  send(&mut ws, &ping_with_concurrency(8)).await;
+  read_until_pong(&mut ws).await;
+  assert_eq!(concurrency_of(&state, &cid).await, (Some(8), Some(8)));
+
+  send(&mut ws, &ping_with_concurrency(4)).await;
+  read_until_pong(&mut ws).await;
+  assert_eq!(concurrency_of(&state, &cid).await, (Some(4), Some(4)));
+
+  // And back up when the backend recovers, one step at a time, the way the
+  // client's own additive increase moves it.
+  send(&mut ws, &ping_with_concurrency(5)).await;
+  read_until_pong(&mut ws).await;
+  assert_eq!(concurrency_of(&state, &cid).await, (Some(5), Some(5)));
+
+  ws.close(None).await.unwrap();
+  wait_no_clients(&state).await;
+}
+
+#[tokio::test]
+async fn a_client_cannot_climb_above_the_limit_it_first_announced() {
+  // The band is the operator's: this lowers a ceiling under pressure, it does
+  // not raise one. Without the clamp a peer could announce an ever-growing
+  // number and talk its way into more concurrency than its config asked for,
+  // and a legitimate raise already arrives the right way, a config reload
+  // respawns the connection and the new number becomes the new ceiling.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  let cid = wait_client_id(&state).await;
+
+  send(&mut ws, &ping_with_concurrency(4)).await;
+  read_until_pong(&mut ws).await;
+  send(&mut ws, &ping_with_concurrency(9999)).await;
+  read_until_pong(&mut ws).await;
+  assert_eq!(concurrency_of(&state, &cid).await, (Some(4), Some(4)));
+
+  ws.close(None).await.unwrap();
+  wait_no_clients(&state).await;
+}
+
+#[tokio::test]
+async fn a_shrink_under_load_reports_what_it_could_actually_take() {
+  // Forgetting permits takes at most what is free, so a shrink while requests
+  // are in flight takes fewer than it asked for. What matters is that the
+  // number on screen is the one the semaphore is enforcing: the alternative
+  // puts a client at 1 in the dashboard while the dispatcher still sends it 4,
+  // and the autoscaler reads that same pair to decide whether to add capacity.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  let cid = wait_client_id(&state).await;
+
+  send(&mut ws, &ping_with_concurrency(4)).await;
+  read_until_pong(&mut ws).await;
+
+  // Three of the four permits are out with in-flight requests.
+  let limiter = {
+    let clients = state.clients.write().await;
+    clients
+      .get(&cid)
+      .unwrap()
+      .sole()
+      .inflight_limiter
+      .clone()
+      .unwrap()
+  };
+  let held = limiter.clone().acquire_many_owned(3).await.unwrap();
+
+  // The client asks to drop to 1, so it wants three permits gone; only one is
+  // free to take.
+  send(&mut ws, &ping_with_concurrency(1)).await;
+  read_until_pong(&mut ws).await;
+  assert_eq!(concurrency_of(&state, &cid).await, (Some(3), Some(0)));
+
+  // The requests finish, and the next heartbeat takes the rest.
+  drop(held);
+  send(&mut ws, &ping_with_concurrency(1)).await;
+  read_until_pong(&mut ws).await;
+  assert_eq!(concurrency_of(&state, &cid).await, (Some(1), Some(1)));
+
+  ws.close(None).await.unwrap();
+  wait_no_clients(&state).await;
+}
+
+// ---------------------------------------------------------------------------
 // The protocol version announced on the handshake (#120)
 // ---------------------------------------------------------------------------
 

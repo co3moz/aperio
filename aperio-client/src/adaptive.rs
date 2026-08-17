@@ -27,10 +27,19 @@
 //! become slow keeps advertising the capacity it had at startup.
 //!
 //! This makes that number move. When requests queue locally the client
-//! announces less, and the server, which needs no new code to honour it, holds
-//! the request, hands it to another client in the pool, or asks for capacity
-//! through autoscaling. All three are better answers than a refusal, and all
-//! three are decisions the server can make and the client cannot.
+//! announces less, and the server holds the request, hands it to another
+//! client in the pool, or asks for capacity through autoscaling. All three are
+//! better answers than a refusal, and all three are decisions the server can
+//! make and the client cannot.
+//!
+//! The server does need code to honour it, and this said for a while that it
+//! did not (`planned_features.md` #121). It built the dispatch limiter on the
+//! first Ping that named a number and never moved it again, so all three
+//! answers above were unavailable and the excess simply queued on the
+//! struggling client, which is the one place this file argues is the wrong
+//! place for it. Every client-side test still passed, because the local half
+//! below works on its own. The server now resizes in step, inside the same
+//! band, with the same "only give back what was actually taken" rule.
 //!
 //! ## AIMD, for the reason TCP uses it
 //!

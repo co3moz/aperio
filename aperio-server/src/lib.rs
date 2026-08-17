@@ -2782,6 +2782,7 @@ pub mod testkit {
           config_notes: Vec::new(),
           metrics_labels: Vec::new(),
           max_concurrent: None,
+          max_concurrent_ceiling: None,
           inflight_limiter: None,
           admin_enabled: true,
           tcp_enabled: false,

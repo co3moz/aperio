@@ -1528,23 +1528,74 @@ impl ConnCtx {
             }
             handle.service_at_mut(service_index).declared_hostnames = admitted;
           }
-          // Create the concurrency limiter on the first Ping that
-          // announces a limit; the limit is fixed for the connection.
-          if handle.service_at(service_index).inflight_limiter.is_none()
-            && let Some(n) = max_concurrent
+          // The concurrency limit, which moves: `adaptive_concurrency` (#65)
+          // lowers the announced number when the client's backend falls behind
+          // and climbs back when it recovers, and the whole point of
+          // announcing it is that the server acts on it.
+          if let Some(n) = max_concurrent
             && n > 0
           {
-            handle.service_at_mut(service_index).max_concurrent = Some(n);
-            // Clamp to the semaphore's permit ceiling: a client
-            // announcing an absurd limit must not panic Semaphore::new
-            // (its max is below u32::MAX on 32-bit targets).
-            let permits = (n as usize).min(Semaphore::MAX_PERMITS);
-            handle.service_at_mut(service_index).inflight_limiter =
-              Some(Arc::new(Semaphore::new(permits)));
-            info!(
-              "Client {} announced concurrency limit: {}, excess requests will be queued",
-              client_id, n
-            );
+            let service = handle.service_at_mut(service_index);
+            match (
+              service.inflight_limiter.clone(),
+              service.max_concurrent_ceiling,
+            ) {
+              // First announcement on this connection: it is both the limit
+              // and the ceiling the client may climb back to.
+              (None, _) => {
+                // Clamp to the semaphore's permit ceiling: a client
+                // announcing an absurd limit must not panic Semaphore::new
+                // (its max is below u32::MAX on 32-bit targets).
+                let permits = (n as usize).min(Semaphore::MAX_PERMITS);
+                service.max_concurrent = Some(permits as u32);
+                service.max_concurrent_ceiling = Some(permits as u32);
+                service.inflight_limiter = Some(Arc::new(Semaphore::new(permits)));
+                info!(
+                  "Client {} announced concurrency limit: {}, excess requests will be queued",
+                  client_id, n
+                );
+              }
+              (Some(limiter), Some(ceiling)) => {
+                let enforced = service.max_concurrent.unwrap_or(ceiling);
+                // Never above what this connection first asked for. The client
+                // lowers a ceiling under pressure and climbs back towards it;
+                // it does not raise one, and a peer that says otherwise is not
+                // running the feature this is here to serve.
+                let want = n.min(ceiling);
+                let now = match want.cmp(&enforced) {
+                  std::cmp::Ordering::Equal => enforced,
+                  std::cmp::Ordering::Less => {
+                    // Forgetting takes at most what is free, so a shrink under
+                    // load takes fewer than it asked for. What it actually
+                    // took is the new limit: claiming the target would put a
+                    // number on screen the semaphore is not enforcing, and the
+                    // rest is taken next heartbeat, when requests have
+                    // finished and there are permits to take.
+                    let taken = limiter.forget_permits((enforced - want) as usize) as u32;
+                    enforced - taken
+                  }
+                  std::cmp::Ordering::Greater => {
+                    // Only ever handing back what was forgotten, which is what
+                    // keeps the limiter from ending up above the ceiling.
+                    limiter.add_permits((want - enforced) as usize);
+                    want
+                  }
+                };
+                if now != enforced {
+                  service.max_concurrent = Some(now);
+                  info!(
+                    "Client {} moved its concurrency limit from {} to {} (adaptive concurrency); \
+                     dispatch follows it",
+                    client_id, enforced, now
+                  );
+                }
+              }
+              // A limiter with no ceiling beside it is not a state anything
+              // builds: both are written together above. Left alone rather
+              // than guessed at, since inventing a ceiling here would be
+              // inventing a limit the client never announced.
+              (Some(_), None) => {}
+            }
           }
           handle.service_at_mut(service_index).tcp_enabled = tcp;
           if handle.service_at(service_index).cache != cache {
@@ -2716,6 +2767,7 @@ pub(crate) async fn handle_socket(
           config_notes: Vec::new(),
           metrics_labels: Vec::new(),
           max_concurrent: None,
+          max_concurrent_ceiling: None,
           inflight_limiter: None,
           admin_enabled: true,
           tcp_enabled: false,
