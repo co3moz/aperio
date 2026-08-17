@@ -413,3 +413,7 @@ mod retry_tests {
     assert!(!retry_covers(true, &[502, 503, 504], 500));
   }
 }
+
+#[cfg(test)]
+#[path = "proxy/handler_tests.rs"]
+mod handler_tests;

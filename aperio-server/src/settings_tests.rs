@@ -3,6 +3,10 @@
 //! a stored override, and that every setting can say how it is written in a file.
 
 use super::*;
+use crate::settings::{
+  FailoverMode, LbStrategy, ServerConfig, SettingsOverrides, apply_settings_overrides,
+  override_keys,
+};
 
 /// A fully-populated baseline config (there is no `Default` for `ServerConfig`).
 fn base_config() -> ServerConfig {
@@ -545,4 +549,136 @@ fn the_default_access_posture_is_parsed_from_the_words_an_operator_writes() {
   for raw in ["off", "false", "no", "1", "strict"] {
     assert_eq!(parse_default_access(raw), None, "{raw:?}");
   }
+}
+
+#[test]
+pub(crate) fn test_apply_settings_overrides() {
+  let base = ServerConfig {
+    token: "t".to_string(),
+    gateway_timeout: Duration::from_secs(10),
+    gateway_response_timeout: Duration::from_secs(30),
+    max_body_size: 10 * 1024 * 1024,
+    max_tunnels: 10,
+    max_connections_per_service: 16,
+    inspector: true,
+    access_events: true,
+    ip_limit_max: 100.0,
+    ip_limit_refill: 5.0,
+    visitor_auth_block: None,
+    visitor_auth: crate::visitor_auth::Policy::default(),
+    trust_proxy: false,
+    ignore_client_auth: false,
+    real_ip_header: None,
+    trusted_proxies: Vec::new(),
+    admin_allowed_ips: Vec::new(),
+    secure_cookies: false,
+    require_hostname_bind: false,
+    default_access: crate::settings::DefaultAccess::Allow,
+    metrics_token: None,
+    scaling_enabled: false,
+    scaling_allow_http: false,
+    scaling_allow_private: false,
+    scaling_record_ttl: Duration::from_secs(3600),
+    edge_token: None,
+    edge_service_url: None,
+    edge_entrypoints: Vec::new(),
+    edge_cert_resolver: None,
+    edge_include_offline: false,
+    random_subdomain_suffix: None,
+    client_down_threshold: Duration::from_secs(15),
+    tunnel_compression: false,
+    custom_504_page: None,
+    custom_503_page: None,
+    lb_strategy: LbStrategy::RoundRobin,
+    failover_mode: FailoverMode::Fail,
+    failover_max_jumps: 2,
+    failover_window: Duration::from_secs(15),
+    failover_all_methods: false,
+    retry_on_5xx: false,
+    retry_statuses: Vec::new(),
+    outlier_ejection: false,
+    outlier_max_failures: 5,
+    outlier_window: Duration::from_secs(30),
+    outlier_eject: Duration::from_secs(30),
+    cache_enabled: false,
+    max_concurrent_requests: 100,
+    max_ws_connections: 10_000,
+    login_lockout_threshold: 5,
+    login_lockout_secs: 60,
+    audit_max_size: 10 * 1024 * 1024,
+    audit_max_files: 3,
+    ui_language: "en".to_string(),
+    header_rules: Default::default(),
+    static_routes: Default::default(),
+    error_pages: Default::default(),
+    route_limits: Default::default(),
+    fallbacks: Default::default(),
+    waf: Default::default(),
+    maintenance_windows: Default::default(),
+    alert_rules: Default::default(),
+    denied_ips: Default::default(),
+    identity_headers: false,
+    visitor_identity_headers: false,
+    access_log_sample_rate: 1.0,
+    alternate_servers: Vec::new(),
+    max_streams_per_ip: 0,
+    otel_bridge: false,
+    shutdown_drain: None,
+    shutdown_drain_auto: false,
+    shutdown_timeout: 10,
+    request_id_enabled: true,
+    request_id_header: "x-request-id".to_string(),
+    request_id_trust_inbound: false,
+    token_pinning: false,
+    preview_noindex: false,
+    cache_max_bytes: 64 * 1024 * 1024,
+    cache_max_stale: 3600,
+    stream_min_throughput: 0,
+    stream_pause_bytes: 2 * 1024 * 1024,
+    stream_resume_bytes: 512 * 1024,
+    stream_backlog_limit: 16 * 1024 * 1024,
+    outbound_policy: Default::default(),
+  };
+
+  let overrides = SettingsOverrides {
+    gateway_timeout_secs: Some(20),
+    lb_strategy: Some("sticky".to_string()),
+    failover_mode: Some("retry-wait".to_string()),
+    random_subdomain_suffix: Some("*.e2e.local".to_string()),
+    custom_504_page: Some("<h1>down</h1>".to_string()),
+    auth_credentials: Some("user:pass".to_string()),
+    ..Default::default()
+  };
+  let c = apply_settings_overrides(&base, &overrides);
+  assert_eq!(c.gateway_timeout, Duration::from_secs(20));
+  assert_eq!(c.lb_strategy, LbStrategy::Sticky);
+  assert_eq!(c.failover_mode, FailoverMode::RetryWait);
+  assert_eq!(c.random_subdomain_suffix.as_deref(), Some("*.e2e.local"));
+  assert_eq!(c.custom_504_page.as_deref(), Some("<h1>down</h1>"));
+  assert_eq!(c.visitor_auth.as_single_credential(), Some("user:pass"));
+  // Untouched fields keep the base values; the token never changes.
+  assert_eq!(c.max_body_size, base.max_body_size);
+  assert_eq!(c.token, "t");
+
+  // Empty strings clear optional values; invalid enum values are skipped.
+  let clearing = SettingsOverrides {
+    auth_credentials: Some(String::new()),
+    lb_strategy: Some("bogus".to_string()),
+    ..Default::default()
+  };
+  let c2 = apply_settings_overrides(&c, &clearing);
+  assert!(!c2.visitor_auth.gates(), "an emptied credential is no gate");
+  assert_eq!(c2.lb_strategy, c.lb_strategy);
+
+  assert_eq!(
+    override_keys(&overrides),
+    vec![
+      "auth_credentials",
+      "custom_504_page",
+      "failover_mode",
+      "gateway_timeout_secs",
+      "lb_strategy",
+      "random_subdomain_suffix",
+    ]
+  );
 }

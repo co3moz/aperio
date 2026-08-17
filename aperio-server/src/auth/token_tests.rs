@@ -4,8 +4,10 @@
 
 use super::super::tests::*;
 use super::*;
+use crate::auth::extract_and_verify_token;
 use crate::store::tokens::TokenSpec;
 use crate::test_support::*;
+use axum::http::{HeaderMap, HeaderValue};
 
 // --- token extraction -------------------------------------------------------
 
@@ -121,4 +123,19 @@ async fn authorize_tunnel_canary_trips_alert() {
       .await
       .is_some()
   );
+}
+
+#[test]
+pub(crate) fn test_token_authentication() {
+  let mut headers = HeaderMap::new();
+  assert!(!extract_and_verify_token(&headers, "secret"));
+
+  headers.insert("authorization", HeaderValue::from_static("Bearer secret"));
+  assert!(extract_and_verify_token(&headers, "secret"));
+  assert!(!extract_and_verify_token(&headers, "wrong_secret"));
+
+  headers.clear();
+  headers.insert("x-auth-token", HeaderValue::from_static("secret"));
+  assert!(extract_and_verify_token(&headers, "secret"));
+  assert!(!extract_and_verify_token(&headers, "wrong_secret"));
 }

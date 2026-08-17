@@ -4,6 +4,8 @@
 
 use super::super::tests::*;
 use super::*;
+use crate::auth::{ip_allowed, valid_ip_entry};
+use std::net::IpAddr;
 
 // --- ip_allowed / cidr ------------------------------------------------------
 
@@ -62,4 +64,54 @@ fn constant_time_eq_str_semantics() {
   // Length differences are handled (both sides are hashed first).
   assert!(!constant_time_eq_str("short", "a-much-longer-secret"));
   assert!(constant_time_eq_str("", ""));
+}
+
+#[test]
+pub(crate) fn test_ip_allowed() {
+  let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+
+  // Empty list or wildcards allow everything
+  assert!(ip_allowed(ip("1.2.3.4"), &[]));
+  assert!(ip_allowed(ip("1.2.3.4"), &["*".to_string()]));
+  assert!(ip_allowed(ip("1.2.3.4"), &["0.0.0.0/0".to_string()]));
+  assert!(ip_allowed(ip("::1"), &["::/0".to_string()]));
+
+  // Exact IP match
+  assert!(ip_allowed(ip("1.2.3.4"), &["1.2.3.4".to_string()]));
+  assert!(!ip_allowed(ip("1.2.3.5"), &["1.2.3.4".to_string()]));
+
+  // CIDR ranges
+  assert!(ip_allowed(ip("10.1.2.3"), &["10.0.0.0/8".to_string()]));
+  assert!(!ip_allowed(ip("11.1.2.3"), &["10.0.0.0/8".to_string()]));
+  assert!(ip_allowed(
+    ip("192.168.1.77"),
+    &["192.168.1.0/24".to_string()]
+  ));
+  assert!(!ip_allowed(
+    ip("192.168.2.77"),
+    &["192.168.1.0/24".to_string()]
+  ));
+
+  // Multiple entries: any match wins
+  assert!(ip_allowed(
+    ip("203.0.113.9"),
+    &["10.0.0.0/8".to_string(), "203.0.113.0/24".to_string()]
+  ));
+
+  // IPv6 CIDR
+  assert!(ip_allowed(ip("fd00::1"), &["fd00::/8".to_string()]));
+  assert!(!ip_allowed(ip("2001:db8::1"), &["fd00::/8".to_string()]));
+  // Family mismatch never matches
+  assert!(!ip_allowed(ip("1.2.3.4"), &["fd00::/8".to_string()]));
+
+  // Malformed entries are ignored (do not match)
+  assert!(!ip_allowed(ip("1.2.3.4"), &["not-an-ip".to_string()]));
+
+  // Validation helper
+  assert!(valid_ip_entry("10.0.0.0/8"));
+  assert!(valid_ip_entry("1.2.3.4"));
+  assert!(valid_ip_entry("::1"));
+  assert!(valid_ip_entry("*"));
+  assert!(!valid_ip_entry("10.0.0.0/33"));
+  assert!(!valid_ip_entry("banana"));
 }

@@ -3,9 +3,16 @@
 //! traversal), and how the query form becomes a cookie.
 
 use super::*;
+use crate::share::{
+  ShareClaims, share_claims_cover, share_signing_key, sign_share_claims, verify_share_token,
+};
+use crate::state::AppState;
 use crate::test_support::*;
-use axum::extract::{ConnectInfo, State};
 use axum::http::Uri;
+use axum::{
+  extract::{ConnectInfo, State},
+  http::{HeaderMap, StatusCode},
+};
 
 fn key() -> [u8; 32] {
   share_signing_key("test")
@@ -458,4 +465,85 @@ async fn share_create_refuses_a_hostname_another_organization_serves() {
   )
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[test]
+pub(crate) fn test_share_token_roundtrip() {
+  let key = share_signing_key("master-token");
+  let now = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap()
+    .as_secs();
+  let claims = ShareClaims {
+    host: "app.example.com".to_string(),
+    path: Some("/docs".to_string()),
+    exp: Some(now + 60),
+    id: "abc12345".to_string(),
+  };
+  let token = sign_share_claims(&claims, &key);
+
+  // Valid token verifies and covers its scope.
+  let verified = verify_share_token(&token, &key).expect("token must verify");
+  assert_eq!(verified.host, "app.example.com");
+  assert!(share_claims_cover(
+    &verified,
+    Some("app.example.com"),
+    "/docs/intro"
+  ));
+  // Different host or out-of-scope path is not covered.
+  assert!(!share_claims_cover(
+    &verified,
+    Some("other.example.com"),
+    "/docs"
+  ));
+  assert!(!share_claims_cover(
+    &verified,
+    Some("app.example.com"),
+    "/admin"
+  ));
+  // Segment boundary: /docsX must not match the /docs prefix.
+  assert!(!share_claims_cover(
+    &verified,
+    Some("app.example.com"),
+    "/docsecret"
+  ));
+
+  // Tampered signature and wrong key are rejected.
+  assert!(verify_share_token(&format!("{}x", token), &key).is_none());
+  assert!(verify_share_token(&token, &share_signing_key("other-token")).is_none());
+
+  // Expired token is rejected.
+  let expired = ShareClaims {
+    host: "app.example.com".to_string(),
+    path: None,
+    exp: Some(now - 1),
+    id: "expired1".to_string(),
+  };
+  let expired_token = sign_share_claims(&expired, &key);
+  assert!(verify_share_token(&expired_token, &key).is_none());
+
+  // A pathless token covers the whole host.
+  let whole = ShareClaims {
+    host: "app.example.com".to_string(),
+    path: None,
+    exp: Some(now + 60),
+    id: "whole1234".to_string(),
+  };
+  let whole_token = sign_share_claims(&whole, &key);
+  let verified = verify_share_token(&whole_token, &key).unwrap();
+  assert!(share_claims_cover(
+    &verified,
+    Some("app.example.com"),
+    "/anything"
+  ));
+
+  // exp: None = the link never expires.
+  let forever = ShareClaims {
+    host: "app.example.com".to_string(),
+    path: None,
+    exp: None,
+    id: "forever12".to_string(),
+  };
+  let forever_token = sign_share_claims(&forever, &key);
+  assert!(verify_share_token(&forever_token, &key).is_some());
 }
