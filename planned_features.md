@@ -31,11 +31,21 @@ readable without scrolling past what is already done.
   That is the cap on how much an OIDC token or userinfo endpoint can make one
   login cost, and the mutant drops it from 256 KiB to 1280 bytes. A real token
   response is comfortably over 1280 bytes, so the mutant breaks OIDC login
-  outright and every test stayed green. `read_bounded` itself is covered
-  (`forward_auth_tests.rs`), with the limit passed in, so what is missing is
-  narrower and more specific: nothing checks that the OIDC path passes a limit
-  a real answer fits under. A stand-in endpoint returning a normal-sized token
-  response, asserted to be accepted, closes it.
+  outright and every test stayed green.
+
+  **The full mutant list says exactly where the hole is, and it is smaller than
+  "untested".** `256 / 1024` *is* caught, because integer division makes the
+  cap zero and every answer is refused. So the path is driven: `mock_oidc_server`
+  in `auth/oidc_flow_tests.rs` stands up a real endpoint and the callback reads
+  from it. What it serves is a handful of `&'static str` literals, all far
+  under 1280 bytes, so a cap of 1280 still passes them. The fixture is the
+  gap, not the coverage.
+
+  That makes the fix cheap and specific: one case whose token body is the size
+  a real one is, an ID token being a JWT of several kilobytes, asserted to be
+  accepted. `read_bounded` itself is separately covered in
+  `forward_auth_tests.rs` with the limit passed in, so this is only ever about
+  the constant the OIDC path chooses.
 
   Note which direction the mutant moves: it makes the cap *tighter*, so the
   hole is in availability rather than in the memory bound. Worth saying because
@@ -49,6 +59,12 @@ readable without scrolling past what is already done.
   call agrees again. `locked()` does take `now` as an argument, so unlike most
   timing boundaries this *is* deterministically testable, which is why it is
   recorded rather than dismissed.
+
+  The rest of the run supports the equivalent reading rather than the buggy
+  one. Every other mutation of that same comparison is caught: `> ` to `==`,
+  to `<`, and the whole guard forced to `true` and to `false`. Only the one
+  that moves the boundary by a single instant survives, which is what an
+  equivalent mutant looks like from the outside.
 
   The judgement to make is whether "a lockout that has just expired lets you
   in" is a rule worth pinning or a tautology dressed as one. If it is not, the
