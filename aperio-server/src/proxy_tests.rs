@@ -217,6 +217,21 @@ pub(crate) fn frame_from_body_item_variants() {
 }
 
 #[test]
+fn retry_covers_respects_switch_and_status_set() {
+  // Off: never retries.
+  assert!(!retry_covers(false, &[], 500));
+  // On, no explicit set: every 5xx, but not 4xx/2xx.
+  assert!(retry_covers(true, &[], 500));
+  assert!(retry_covers(true, &[], 503));
+  assert!(retry_covers(true, &[], 599));
+  assert!(!retry_covers(true, &[], 404));
+  assert!(!retry_covers(true, &[], 200));
+  // On, explicit set: only the listed codes.
+  assert!(retry_covers(true, &[502, 503, 504], 503));
+  assert!(!retry_covers(true, &[502, 503, 504], 500));
+}
+
+#[test]
 pub(crate) fn record_outlier_helpers() {
   // retry_covers is exercised in the sibling retry_tests module; here we only
   // assert effective_body_limit's saturating behavior on a zero global.

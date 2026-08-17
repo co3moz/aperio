@@ -19,29 +19,6 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#124 `proxy/handler_tests.rs` is three tests written before the
-  fixtures existed.** (triage 4) 697 lines for three tests, roughly 230 lines
-  each, every one building its `AppState`, its client, its pending-request
-  plumbing and its response by hand. Forty-seven tests in `proxy_tests.rs`
-  drive the same handler in ten to twenty-five lines each, because they use
-  `connected`, `mark_connected`, `insert_live_client`, `answer_with` and
-  `text_response`.
-
-  The three are not worse tests, they are older ones: they came out of
-  `aperio-server/src/lib_tests.rs` during `#123` and were moved verbatim,
-  which was the right call for a move whose whole safety argument was that it
-  changed nothing. Rewriting them onto the fixtures is a separate change with
-  a separate risk, because a hand-built `AppState` and a fixture-built one are
-  not guaranteed to be the same `AppState`, and a test that starts passing for
-  a new reason is worse than a long test.
-
-  So: rewrite them one at a time, and for each one confirm it still fails when
-  the behavior it names is broken, not just that it still passes. If a fixture
-  turns out not to cover what the long-hand setup did, that gap is the
-  finding, and it belongs in the fixture rather than back in the test. Two
-  files claiming "the proxy handler driven end to end" is the wart worth
-  removing; the line count is incidental.
-
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
@@ -387,6 +364,52 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#124 `proxy/handler_tests.rs` is three tests written before the
+  fixtures existed.** (triage 4) 697 lines for three tests, roughly 230 lines
+  each, every one building its `AppState`, its client, its pending-request
+  plumbing and its response by hand. Forty-seven tests in `proxy_tests.rs`
+  drive the same handler in ten to twenty-five lines each, because they use
+  `connected`, `mark_connected`, `insert_live_client`, `answer_with` and
+  `text_response`.
+
+  Shipped 2026-08-18, and it was not the rewrite it was written up as. All
+  three were already covered, so the change is a deletion: 697 lines out, no
+  test rewritten, no coverage lost.
+
+  - `test_rate_limiting` never called the handler at all. It built an
+    `AppState` by hand for 180 lines and then asserted `check_rate_limit`
+    three times with a burst of two, which is `state_tests.rs`'s
+    `test_ip_rate_limit_exhausts` down to the same two constants, sitting
+    beside the `state/admission.rs` the function actually lives in.
+  - `test_proxy_handler_success` was `handler_success_round_trip_returns_200`
+    with a different content-type string.
+  - `test_proxy_handler_gateway_timeout_offline` looked like the one with real
+    extra coverage, because it aged `server_start_time` by two minutes with a
+    comment saying that triggers the immediate timeout. A fixture was written
+    for that and then thrown away: `server_start_time` is read by the uptime
+    reporters in `api.rs`, `api/metrics.rs`, `api/observe.rs` and
+    `api/clients/numbers.rs`, and by nothing in the proxy path. What actually
+    causes the immediate refusal is `last_disconnect: None`, which
+    `test_state_with` already gives. The comment described a mechanism that
+    does not exist, and its two assertions were `handler_fresh_install_redirects_root`
+    and `handler_offline_reconnect_wait_times_out`.
+
+  **Each deletion was checked by breaking the behavior, not by watching the
+  suite stay green.** Four mutations, each run against the test that inherits
+  the coverage: make `check_rate_limit` always allow, disable the bare-root
+  redirect, answer the offline path 200, and stop copying response headers
+  through. All four turned the inheriting test red, which is the thing a
+  passing suite cannot tell you.
+
+  Two more things fell out of it. Eleven store fixtures in `lib_tests.rs`
+  (`test_token_store`, `test_audit_log`, `test_session_store` and the rest)
+  were duplicates of `test_support.rs`'s own, and the three hand-built states
+  were their only caller between them, so `lib_tests.rs` went 375 → 297 and
+  `#123`'s description of them as "the fixtures every other test file builds
+  from" was wrong about which file they were in. And `proxy.rs` held an inline
+  `mod retry_tests`, which rule 22 says never to have; its one test moved to
+  `proxy_tests.rs` beside the other pure-helper tests.
 
 - [x] **#123 The files still over a thousand lines, and why each one is still
   there.** (triage 15) The 2026-08-17 sweep took the ten biggest modules apart

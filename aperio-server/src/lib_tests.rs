@@ -7,16 +7,12 @@ use crate::access_log::sanitize_uri;
 use crate::auth::safe_redirect_path;
 use crate::routing::select_client_pool;
 use crate::state::{ClientHandle, ClientPerms};
-use crate::store::audit::AuditLog;
-use crate::store::stats::StatsStore;
-use crate::store::tokens::TokenStore;
-use crate::store::webhooks::WebhookStore;
 use axum::extract::ws::Message;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 
 #[test]
 pub(crate) fn test_sanitize_uri_strips_query() {
@@ -29,80 +25,6 @@ pub(crate) fn test_sanitize_uri_strips_query() {
 
 /// Generous health threshold so mock clients (no pings) stay eligible.
 pub(crate) const TEST_THRESHOLD: Duration = Duration::from_secs(3600);
-
-pub(crate) fn test_user_store() -> crate::store::users::UserStore {
-  let dir = crate::test_support::test_temp_root().join(format!("users-{}", uuid::Uuid::new_v4()));
-  crate::store::users::UserStore::load(&dir.to_string_lossy())
-}
-
-pub(crate) fn test_inbox_store() -> crate::store::inbox::InboxStore {
-  let dir =
-    crate::test_support::test_temp_root().join(format!("test-inbox-{}", uuid::Uuid::new_v4()));
-  crate::store::inbox::InboxStore::load(&dir.to_string_lossy())
-}
-
-pub(crate) fn test_token_store() -> TokenStore {
-  let dir =
-    crate::test_support::test_temp_root().join(format!("test-store-{}", uuid::Uuid::new_v4()));
-  TokenStore::load(&dir.to_string_lossy())
-}
-
-pub(crate) fn test_admin_key_store() -> crate::store::admin_keys::AdminKeyStore {
-  let dir =
-    crate::test_support::test_temp_root().join(format!("test-adminkeys-{}", uuid::Uuid::new_v4()));
-  crate::store::admin_keys::AdminKeyStore::load(&dir.to_string_lossy())
-}
-
-pub(crate) fn test_audit_log() -> AuditLog {
-  let dir =
-    crate::test_support::test_temp_root().join(format!("test-audit-{}", uuid::Uuid::new_v4()));
-  let _ = std::fs::create_dir_all(&dir);
-  AuditLog::load(&dir.to_string_lossy(), 10 * 1024 * 1024, 3)
-}
-
-pub(crate) fn test_stats_store() -> StatsStore {
-  let dir =
-    crate::test_support::test_temp_root().join(format!("test-stats-{}", uuid::Uuid::new_v4()));
-  let _ = std::fs::create_dir_all(&dir);
-  StatsStore::load(&dir.to_string_lossy())
-}
-
-pub(crate) fn test_webhook_store() -> WebhookStore {
-  let dir =
-    crate::test_support::test_temp_root().join(format!("test-hooks-{}", uuid::Uuid::new_v4()));
-  let _ = std::fs::create_dir_all(&dir);
-  WebhookStore::load(&dir.to_string_lossy())
-}
-
-pub(crate) fn test_org_store() -> crate::store::orgs::OrgStore {
-  let dir =
-    crate::test_support::test_temp_root().join(format!("test-orgs-{}", uuid::Uuid::new_v4()));
-  let _ = std::fs::create_dir_all(&dir);
-  crate::store::orgs::OrgStore::load(&dir.to_string_lossy())
-}
-
-pub(crate) fn test_delivery_log() -> std::sync::Arc<Mutex<crate::store::webhooks::DeliveryLog>> {
-  let dir =
-    crate::test_support::test_temp_root().join(format!("test-deliveries-{}", uuid::Uuid::new_v4()));
-  let _ = std::fs::create_dir_all(&dir);
-  std::sync::Arc::new(Mutex::new(crate::store::webhooks::DeliveryLog::load(
-    &dir.to_string_lossy(),
-  )))
-}
-
-pub(crate) fn test_session_store() -> crate::store::sessions::SessionStore {
-  let dir =
-    crate::test_support::test_temp_root().join(format!("test-sessions-{}", uuid::Uuid::new_v4()));
-  let _ = std::fs::create_dir_all(&dir);
-  crate::store::sessions::SessionStore::load(&dir.to_string_lossy())
-}
-
-pub(crate) fn test_uptime_store() -> crate::store::uptime::UptimeStore {
-  let dir =
-    crate::test_support::test_temp_root().join(format!("test-uptime-{}", uuid::Uuid::new_v4()));
-  let _ = std::fs::create_dir_all(&dir);
-  crate::store::uptime::UptimeStore::load(&dir.to_string_lossy())
-}
 
 pub(crate) fn mock_client(
   hostname_bind: Option<&str>,

@@ -393,27 +393,3 @@ fn trailer_header_map(trailers: &[(String, String)]) -> axum::http::HeaderMap {
 #[cfg(test)]
 #[path = "proxy_tests.rs"]
 mod proxy_tests;
-
-#[cfg(test)]
-mod retry_tests {
-  use super::retry_covers;
-
-  #[test]
-  fn retry_covers_respects_switch_and_status_set() {
-    // Off: never retries.
-    assert!(!retry_covers(false, &[], 500));
-    // On, no explicit set: every 5xx, but not 4xx/2xx.
-    assert!(retry_covers(true, &[], 500));
-    assert!(retry_covers(true, &[], 503));
-    assert!(retry_covers(true, &[], 599));
-    assert!(!retry_covers(true, &[], 404));
-    assert!(!retry_covers(true, &[], 200));
-    // On, explicit set: only the listed codes.
-    assert!(retry_covers(true, &[502, 503, 504], 503));
-    assert!(!retry_covers(true, &[502, 503, 504], 500));
-  }
-}
-
-#[cfg(test)]
-#[path = "proxy/handler_tests.rs"]
-mod handler_tests;
