@@ -1,0 +1,121 @@
+name: Mutants
+
+# Mutation testing on the modules where a wrong answer is a security answer
+# (planned_features #127).
+#
+# A passing suite says the tests ran, not that they check anything. This repo
+# has three reasons to take that literally: the #123 sweep found four tests
+# that had silently lost their `#[test]` attribute while the suite stayed
+# green, #124 found a test whose comment described a mechanism that does not
+# exist, and #128 found a check that passed on a variable which was documented
+# and never read. All three were caught by breaking the behaviour and looking,
+# which is what this does mechanically.
+#
+# Never on push. One full test suite per mutant is the cost, and 300-odd
+# mutants against a suite that takes a minute is hours of runner time; on every
+# pull request it would be turned off within a week. Monthly, and on demand
+# when somebody has changed one of these modules and wants to know.
+#
+# It reports **survivors**, not a score. A survivor is either an assertion
+# nobody wrote or a line that does nothing, and both are worth a look; a
+# percentage is worth nothing and invites gaming.
+on:
+  schedule:
+    # First of the month, early, well clear of the weekly soak run.
+    - cron: "41 4 1 * *"
+  workflow_dispatch:
+    inputs:
+      files:
+        description: "Restrict to these files (glob, default: the scoped set in .cargo/mutants.toml)"
+        default: ""
+  push:
+    paths:
+      - ".cargo/mutants.toml"
+      - ".github/workflows/mutants.yml"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  mutants:
+    name: "Shard ${{ matrix.shard }} of 8"
+    runs-on: ubuntu-latest
+    # A shard that finds survivors must not stop the others: the whole output
+    # is the union of the lists, and half a list is worse than none because it
+    # reads like a complete one.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants
+
+      # The unmutated tree first. If the suite is already failing, every
+      # mutant below is "caught" for a reason that has nothing to do with the
+      # mutation, and the run would report a clean sweep it did not earn.
+      - name: Baseline
+        run: cargo test --workspace --no-fail-fast
+
+      - name: Mutate
+        run: |
+          cargo mutants \
+            --shard ${{ matrix.shard }}/8 \
+            --baseline skip \
+            --in-place \
+            ${{ inputs.files && format('--file {0}', inputs.files) || '' }} \
+            --output mutants-out-${{ matrix.shard }}
+
+      # Runs whether or not survivors were found, because the list is the
+      # product of this job and a failed step that uploads nothing leaves
+      # somebody reading raw logs.
+      - name: Report survivors
+        if: always()
+        run: |
+          out="mutants-out-${{ matrix.shard }}"
+          missed="$out/missed.txt"
+          {
+            echo "## Shard ${{ matrix.shard }}"
+            if [ -s "$missed" ]; then
+              echo
+              echo "Survivors, each an assertion nobody wrote or a line that does nothing:"
+              echo
+              echo '```'
+              cat "$missed"
+              echo '```'
+            else
+              echo
+              echo "No survivors in this shard."
+            fi
+            if [ -s "$out/timeout.txt" ]; then
+              echo
+              echo "Timed out (unproven either way, not caught):"
+              echo
+              echo '```'
+              cat "$out/timeout.txt"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutants-shard-${{ matrix.shard }}
+          path: mutants-out-${{ matrix.shard }}
+          if-no-files-found: warn

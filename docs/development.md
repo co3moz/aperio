@@ -53,6 +53,20 @@ cargo llvm-cov --workspace --open   # line-by-line HTML report in the browser
 
 CI goes further and merges the E2E integration run into the same report (instrumented binaries driven by `tests/e2e`), publishing it as a `coverage-report` artifact on every run, that merged number is the real one, since the tunnel/proxy runtime paths are mostly exercised end-to-end rather than by unit tests. Note that the e2e merge relies on graceful SIGTERM handling to flush profile data, so it only works on Unix (CI/WSL); a local Windows run reports the unit-test-only number.
 
+### Mutation testing
+
+Coverage says a line ran. It does not say anything checked what the line did, and this repo has been caught by that difference three times: a sweep found four tests that had silently lost their `#[test]` attribute while the suite stayed green, a test turned out to describe a mechanism that does not exist, and a check passed on a configuration variable that was documented and never read. All three were found by breaking the behaviour and looking, which [cargo-mutants](https://mutants.rs) does mechanically.
+
+```bash
+cargo install cargo-mutants
+cargo mutants                                   # the scoped set below
+cargo mutants -f 'aperio-server/src/auth.rs'    # one module
+```
+
+[`.cargo/mutants.toml`](../.cargo/mutants.toml) scopes it to the five modules where a wrong answer is a security answer: `visitor_auth.rs`, `proxy/gate.rs` and `auth.rs` (who is let in), `state/admission.rs` (what is refused) and `redact.rs` (what is kept out of the logs). That is roughly 315 mutants, and the cost is one full test suite per mutant, so the whole set is hours rather than minutes. It is deliberately not on the pull-request path: a monthly workflow shards it eight ways, and `workflow_dispatch` takes a glob for when you have just changed one of these modules and want to know.
+
+**Read the survivors, not the score.** A surviving mutant is a change to the code that no test objected to, which is either an assertion nobody wrote or a line that does nothing; both are worth a look. A percentage is worth nothing and invites gaming. The workflow puts the list in the job summary and the whole run in an artifact. A mutant that *timed out* is unproven rather than caught, and is listed separately for the same reason.
+
 ## Releases
 
 Tagging a version (`git tag v0.2.0 && git push --tags`) triggers the release workflow: static binaries for Linux (x86_64/aarch64, musl), macOS (Intel/Apple Silicon), and Windows are built, checksummed, and attached to a GitHub Release, [install.sh](../install.sh) always picks up the latest. `aperio-client --version` / `aperio-server --version` print the installed version. The versioned `aperio.yaml` and `aperio-server.yaml` JSON Schemas (`aperio-client.<tag>.json`, `aperio-server.<tag>.json`) are attached to the release too, along with [The Complete Guide](book/aperio.tex) as a PDF (`aperio-guide.<tag>.pdf`, plus a stable `aperio-guide.pdf` for `releases/latest/download`).

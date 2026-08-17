@@ -1,0 +1,25 @@
+# Mutation testing, scoped to the modules where a wrong answer is a security
+# answer (planned_features #127).
+#
+# Not the whole workspace, and deliberately so. A mutation run is one full test
+# suite per mutant, so scope is what decides whether this is a job somebody
+# runs or a job somebody disables. These five are where a surviving mutant
+# means a rule the tests do not actually hold anyone to: who is let in
+# (`visitor_auth`, `proxy/gate`, `auth`), what is refused (`state/admission`)
+# and what is kept out of the logs (`redact`).
+#
+# Run it with `cargo mutants`, or let the scheduled workflow do it. The output
+# that matters is the list of survivors, never the score: a survivor is either
+# a missing assertion or a line that does nothing, and both are worth knowing.
+examine_globs = [
+  "aperio-server/src/visitor_auth.rs",
+  "aperio-server/src/proxy/gate.rs",
+  "aperio-server/src/state/admission.rs",
+  "aperio-server/src/auth.rs",
+  "aperio-server/src/redact.rs",
+]
+
+# Several of these paths wait on a timeout by design (a gateway timeout, a
+# lockout window), and a mutant that removes a bound turns a test into a hang.
+# Generous enough not to call a slow machine a caught mutant.
+timeout_multiplier = 5.0

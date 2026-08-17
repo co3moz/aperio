@@ -206,8 +206,26 @@ async fn session_handler_unknown_token_defaults() {
 
 #[tokio::test]
 async fn auth_page_handler_serves() {
+  // The embedded asset is present in a full build and absent in a bare one,
+  // so this cannot assert a status outright. It used to assert nothing at all
+  // instead, discarding the status with a `let _`, and a mutation run caught
+  // it: replacing the whole handler with `Response::default()`, a bare 200
+  // with no headers and no body, changed nothing any test objected to.
+  //
+  // Both shapes are assertable. A page that is served carries the headers
+  // that make it safe to serve, which for a login page is the point: `DENY`
+  // is what stops it being framed by a site that then reads what is typed
+  // into it. A page that is absent is a 404, not an empty 200.
   let resp = auth_page_handler().await;
-  // Embedded asset may be present (200) or absent in a bare build; either way
-  // the handler returns a response without panicking.
-  let _ = resp.status();
+  match resp.status() {
+    StatusCode::NOT_FOUND => {}
+    StatusCode::OK => {
+      let h = resp.headers();
+      assert_eq!(h["content-type"], "text/html", "the login page is HTML");
+      assert_eq!(h["x-frame-options"], "DENY", "the login page is not framed");
+      assert_eq!(h["x-content-type-options"], "nosniff");
+      assert!(h.contains_key("content-security-policy"));
+    }
+    other => panic!("the login page is served or missing, never {other}"),
+  }
 }

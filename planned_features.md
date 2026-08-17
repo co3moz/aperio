@@ -19,27 +19,6 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#127 Mutation testing where a green suite proves the least.** `#124`
-  deleted three tests, and the only thing that made it safe was breaking four
-  behaviors by hand and watching the inheriting test go red each time. That is
-  a check nobody runs by default, and this repo has two reasons to distrust the
-  alternative: the `#123` sweep found four tests that had silently lost their
-  `#[test]` attribute while the suite stayed green, and `#124` found a test
-  whose comment described a mechanism (`server_start_time` driving the proxy
-  path) that does not exist.
-
-  **Scope it to where a wrong answer is a security answer**, not the whole
-  workspace: `visitor_auth.rs`, `proxy/gate.rs`, `state/admission.rs`,
-  `auth.rs`, `redact.rs`. A surviving mutant in any of those is a rule the
-  tests do not actually hold anyone to.
-
-  **Not on every push.** A mutation run is long and CPU-heavy, which is the
-  thing rule 21 is about and the thing rule 13 says not to spend CI on. On
-  demand, or periodic, with the result written down somewhere a person reads.
-  The output that matters is not a score, it is the list of survivors, and a
-  survivor is either a missing assertion or a line that does nothing, both of
-  which are worth knowing.
-
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
@@ -385,6 +364,59 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#127 Mutation testing where a green suite proves the least.** `#124`
+  deleted three tests, and the only thing that made it safe was breaking four
+  behaviors by hand and watching the inheriting test go red each time. That is
+  a check nobody runs by default, and this repo has two reasons to distrust the
+  alternative: the `#123` sweep found four tests that had silently lost their
+  `#[test]` attribute while the suite stayed green, and `#124` found a test
+  whose comment described a mechanism (`server_start_time` driving the proxy
+  path) that does not exist.
+
+  **Scope it to where a wrong answer is a security answer**, not the whole
+  workspace: `visitor_auth.rs`, `proxy/gate.rs`, `state/admission.rs`,
+  `auth.rs`, `redact.rs`. A surviving mutant in any of those is a rule the
+  tests do not actually hold anyone to.
+
+  **Not on every push.** A mutation run is long and CPU-heavy, which is the
+  thing rule 21 is about and the thing rule 13 says not to spend CI on. On
+  demand, or periodic, with the result written down somewhere a person reads.
+  The output that matters is not a score, it is the list of survivors, and a
+  survivor is either a missing assertion or a line that does nothing, both of
+  which are worth knowing.
+
+  Shipped 2026-08-18: `.cargo/mutants.toml` scopes it to the five modules,
+  `.github/workflows/mutants.yml` runs it monthly and on demand across eight
+  shards, and `docs/development.md` says how to read the output.
+
+  **315 mutants over the scoped set**, which at one full test suite each is
+  hours rather than minutes, and is the whole reason it is not on the
+  pull-request path. `workflow_dispatch` takes a glob for the case that
+  actually matters: somebody has just changed one of these five and wants to
+  know before merging.
+
+  **It found something on the first shard it was pointed at**, which settles
+  whether it was worth adding. `auth_page_handler` could be replaced wholesale
+  by `Response::default()`, a bare 200 with no headers and no body, and no test
+  objected. The test covering it called the handler and threw the status away
+  with a `let _`, for a stated reason that was true: the embedded asset is
+  present in a full build and absent in a bare one, so it cannot assert a
+  status outright.
+
+  It can assert everything else, though, and what it was not asserting is the
+  point: a login page that is served carries `X-Frame-Options: DENY` and a CSP,
+  and `DENY` is what stops it being framed by a site that then reads what is
+  typed into it. A page that is absent is a 404, not an empty 200. Both shapes
+  are now pinned, the mutant is caught, and the fix was confirmed by re-running
+  that exact mutant rather than by assuming.
+
+  **The baseline runs before the mutants, in its own step.** If the unmutated
+  suite is already failing, every mutant after it is "caught" for a reason that
+  has nothing to do with the mutation, and the run reports a clean sweep it did
+  not earn. Shards use `continue-on-error` for the mirror-image reason: a shard
+  that finds survivors must not cancel the others, because half a survivor list
+  reads exactly like a complete one.
 
 - [x] **#128 Nothing checks rule 16, and `depends_on` is already through the
   gap.** `#126` built the check for rule 17, that a setting reaches both
