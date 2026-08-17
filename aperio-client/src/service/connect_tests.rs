@@ -154,7 +154,7 @@ fn the_announcement_is_read_forgivingly_but_never_widened() {
 /// Two named services that would share one connection. Local to this file: the
 /// socket-driven version beside `run_service` needs live ports, and these tests
 /// only need two specs to look up between.
-fn two_multiplexed(ws_url: &str) -> Vec<ServiceSpec> {
+fn two_multiplexed(ws_url: &str) -> Vec<ServiceRuntime> {
   let mut web = crate::service::tests::test_spec(ws_url, "http://127.0.0.1:9");
   web.name = Some("web".to_string());
   web.multiplex = true;
@@ -162,18 +162,24 @@ fn two_multiplexed(ws_url: &str) -> Vec<ServiceSpec> {
   api.name = Some("api".to_string());
   api.multiplex = true;
   vec![web, api]
+    .into_iter()
+    .map(|s| {
+      let health = BackendHealth::for_spec(&s);
+      ServiceRuntime::new(s, health)
+    })
+    .collect()
 }
 
 #[test]
 fn a_named_dispatch_finds_its_own_service_and_an_unknown_one_falls_back() {
-  let specs = two_multiplexed("ws://127.0.0.1:1/");
+  let services = two_multiplexed("ws://127.0.0.1:1/");
   let announced = vec![0usize, 1];
-  assert_eq!(service_for(&specs, &announced, &Some("web".into())), 0);
-  assert_eq!(service_for(&specs, &announced, &Some("api".into())), 1);
+  assert_eq!(service_for(&services, &announced, &Some("web".into())), 0);
+  assert_eq!(service_for(&services, &announced, &Some("api".into())), 1);
   // A name this connection does not carry, and the pre-v8 spelling: both fall
   // back rather than dropping a request the server has committed to.
-  assert_eq!(service_for(&specs, &announced, &Some("gone".into())), 0);
-  assert_eq!(service_for(&specs, &announced, &None), 0);
+  assert_eq!(service_for(&services, &announced, &Some("gone".into())), 0);
+  assert_eq!(service_for(&services, &announced, &None), 0);
 }
 
 #[test]
@@ -181,9 +187,9 @@ fn a_withheld_service_is_never_dispatched_to() {
   // `web` could not be announced (its gate was refused), so a frame naming it,
   // and a frame naming nothing, must land on a service this connection does
   // offer rather than on the backend it deliberately held back.
-  let specs = two_multiplexed("ws://127.0.0.1:1/");
+  let services = two_multiplexed("ws://127.0.0.1:1/");
   let announced = vec![1usize];
-  assert_eq!(service_for(&specs, &announced, &Some("web".into())), 1);
-  assert_eq!(service_for(&specs, &announced, &None), 1);
-  assert_eq!(service_for(&specs, &announced, &Some("api".into())), 1);
+  assert_eq!(service_for(&services, &announced, &Some("web".into())), 1);
+  assert_eq!(service_for(&services, &announced, &None), 1);
+  assert_eq!(service_for(&services, &announced, &Some("api".into())), 1);
 }

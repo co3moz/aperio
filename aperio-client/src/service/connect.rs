@@ -264,15 +264,15 @@ pub(crate) fn negotiate_visitor_gate(
 /// `None` is every client before v8 and every connection carrying one service,
 /// where there is nothing to choose.
 pub(crate) fn service_for(
-  specs: &[ServiceSpec],
+  services: &[ServiceRuntime],
   announced: &[usize],
   named: &Option<String>,
 ) -> usize {
   let fallback = announced.first().copied().unwrap_or(0);
   match named {
-    Some(name) => specs
+    Some(name) => services
       .iter()
-      .position(|s| s.name.as_deref() == Some(name.as_str()))
+      .position(|s| s.spec.name.as_deref() == Some(name.as_str()))
       .filter(|i| announced.contains(i))
       .unwrap_or(fallback),
     None => fallback,

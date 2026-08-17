@@ -36,7 +36,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, Semaphore, mpsc, watch};
+use tokio::sync::{Mutex, mpsc, watch};
 use tokio_tungstenite::tungstenite::{
   client::IntoClientRequest,
   http::HeaderValue,
@@ -134,19 +134,18 @@ pub(crate) async fn run_writer<S>(
   let _ = sink.flush().await;
 }
 
-/// Runs one tunnel connection, carrying every service in `specs`, until the
+/// Runs one tunnel connection, carrying every service in `services`, until the
 /// process shuts down or `cancel` fires.
 ///
-/// `specs` is one service in the ordinary shape and several under `multiplex:
-/// true`; `healths` is that same list's backend-health state, index for index,
-/// created by the supervisor so a service's parallel connections share it.
+/// `services` is one entry in the ordinary shape and several under `multiplex:
+/// true`. Each carries its own backend health, which the supervisor created so
+/// a service's parallel connections share it.
 /// `run_probe` is true only for the connection that owns those probes, the
 /// others just report what they write.
 pub(crate) async fn run_service(
-  specs: Vec<ServiceSpec>,
+  services: Vec<ServiceRuntime>,
   shared: Shared,
   mut cancel: watch::Receiver<bool>,
-  healths: Vec<BackendHealth>,
   run_probe: bool,
   connection_index: u32,
   ceiling: ConnectionCeiling,
@@ -156,27 +155,21 @@ pub(crate) async fn run_service(
   // carrying several is still one connection and one of its services has to
   // stand for it. What a *request* is about is resolved per request, from the
   // service the server names in the frame.
-  // The two lists are one list written as two arguments, and every index below
-  // reads them together. Checked once at the door, because the alternative is
-  // an out-of-range panic six hundred lines in, at whichever index happens to
-  // be reached first, with nothing at the crash site saying what the caller
-  // got wrong.
-  if specs.is_empty() || healths.len() != specs.len() {
-    error!(
-      "Refusing to open a connection: it was given {} service(s) and {} health state(s), which have to be the same non-empty list",
-      specs.len(),
-      healths.len()
-    );
+  // A connection with nothing to serve is not a connection. The *other* half
+  // of what this used to check, that the specs and their health states were
+  // the same length, is now [`ServiceRuntime`]'s job and cannot be got wrong.
+  if services.is_empty() {
+    error!("Refusing to open a connection: it was given no services to serve");
     return;
   }
-  let spec = specs[0].clone();
+  let spec = services[0].spec.clone();
   // A connection carrying several services is labelled by how many, not by the
   // first of them: every line about the connection would otherwise read as
   // being about one service, and the other services' own lines already carry
   // their own labels.
-  let multiplexed = specs.len() > 1;
+  let multiplexed = services.len() > 1;
   let label = if multiplexed {
-    format!("{} services", specs.len())
+    format!("{} services", services.len())
   } else {
     spec.label()
   };
@@ -193,17 +186,28 @@ pub(crate) async fn run_service(
   // one, and `startup_delay` is taken as the longest rather than the sum.
   if connection_index == 1 {
     let depends_on: Vec<String> = {
-      let mut all: Vec<String> = specs.iter().flat_map(|s| s.depends_on.clone()).collect();
+      let mut all: Vec<String> = services
+        .iter()
+        .flat_map(|s| s.spec.depends_on.clone())
+        .collect();
       // A service of this connection cannot wait for a service of this
       // connection: nothing would ever come up. Dropped rather than refused,
       // because the file is not wrong, it is describing an order that
       // multiplexing has made moot by putting both on one socket.
-      all.retain(|d| !specs.iter().any(|s| s.name.as_deref() == Some(d.as_str())));
+      all.retain(|d| {
+        !services
+          .iter()
+          .any(|s| s.spec.name.as_deref() == Some(d.as_str()))
+      });
       all.sort();
       all.dedup();
       all
     };
-    let startup_delay = specs.iter().map(|s| s.startup_delay).max().unwrap_or(0);
+    let startup_delay = services
+      .iter()
+      .map(|s| s.spec.startup_delay)
+      .max()
+      .unwrap_or(0);
     if !depends_on.is_empty() {
       let missing = await_dependencies(&shared, &depends_on).await;
       if !missing.is_empty() {
@@ -240,62 +244,24 @@ pub(crate) async fn run_service(
     );
     return;
   }
-
   // Backend health is per service and shared across a service's parallel
   // connections (created once by the supervisor, one per spec). This connection
   // reports every one of them in its heartbeat and, when it owns the probes,
   // drives the probe/gate that updates each.
   let probe_tasks: Vec<tokio::task::JoinHandle<()>> = if run_probe {
-    specs
+    services
       .iter()
-      .zip(&healths)
-      .flat_map(|(s, h)| [spawn_health_probe(s, h), spawn_backend_wait(s, h)])
+      .flat_map(|s| {
+        [
+          spawn_health_probe(&s.spec, &s.health),
+          spawn_backend_wait(&s.spec, &s.health),
+        ]
+      })
       .flatten()
       .collect()
   } else {
     Vec::new()
   };
-  // Local concurrency guard, one per service and shared across reconnects.
-  //
-  // Per service rather than per connection because `max_concurrent:` is what a
-  // *backend* will take: a connection carrying several would otherwise make one
-  // service's slow backend hold up permits another service's requests are
-  // waiting for, which is neither what the file says nor a number the server
-  // can be told.
-  let local_limiters: Vec<Option<Arc<Semaphore>>> = specs
-    .iter()
-    .map(|s| {
-      s.max_concurrent
-        .map(|n| Arc::new(Semaphore::new(n as usize)))
-    })
-    .collect();
-
-  // Adaptive concurrency (#65): the announced number follows backend
-  // pressure. It needs the local limiter, because the evidence is how long
-  // requests wait for one of its permits, and it is that number being moved.
-  // One per service for the same reason the limiter is: the evidence is one
-  // backend's, and the number it moves is announced for one service.
-  let adaptives: Vec<Option<Arc<crate::adaptive::Adaptive>>> = specs
-    .iter()
-    .zip(&local_limiters)
-    .map(
-      |(s, limiter)| match (s.adaptive_concurrency, limiter, s.max_concurrent) {
-        (true, Some(limiter), Some(configured)) => {
-          let adaptive = Arc::new(crate::adaptive::Adaptive::new(configured, limiter.clone()));
-          crate::adaptive::spawn(adaptive.clone(), s.label());
-          Some(adaptive)
-        }
-        (true, _, _) => {
-          warn!(
-            "[{}] adaptive_concurrency needs max_concurrent to be set; there is no number to move",
-            s.label()
-          );
-          None
-        }
-        _ => None,
-      },
-    )
-    .collect();
 
   // Reconnection Loop. Retries use exponential backoff with jitter so that a
   // fleet of clients does not stampede the server after a restart; the
@@ -312,15 +278,6 @@ pub(crate) async fn run_service(
   // grows at runtime and a config reload rebuilds the spec, which is the right
   // moment to forget what was learned.
   let mut ws_urls: Vec<String> = spec.ws_urls.clone();
-  // Cloned once for the whole reconnect loop: the policy is what the file
-  // said, and each connection decides separately whether this server accepts
-  // it (planned_features #111). One per service, because two services on one
-  // connection can be written with different gates and a single negotiation
-  // would run one of them under a policy nobody wrote for it.
-  let visitor_auth_policies: Vec<Option<aperio_config::AuthSetting>> = specs
-    .iter()
-    .map(|s| s.visitor_auth_policy.clone())
-    .collect();
   // Self-reported health for this connection: the ping task fills it in, the
   // read loop times the pongs, and the reconnect counter lives across
   // attempts, which is the point of it.
@@ -441,9 +398,9 @@ pub(crate) async fn run_service(
                   announced
                     .map(|p| p.to_string())
                     .unwrap_or_else(|| "an older version".to_string()),
-                  specs.len(),
+                  services.len(),
                   MIN_MULTIPLEX_PROTOCOL,
-                  specs.len()
+                  services.len()
                 );
                 break 'connection;
               }
@@ -489,10 +446,13 @@ pub(crate) async fn run_service(
               .and_then(|v| v.to_str().ok());
             let mut withheld: Vec<usize> = Vec::new();
             let mut negotiated_gates: Vec<Option<Vec<aperio_config::AuthMethodSpec>>> =
-              Vec::with_capacity(specs.len());
-            for (i, policy) in visitor_auth_policies.iter().enumerate() {
-              let service_label = specs[i].label();
-              let gate = match negotiate_visitor_gate(announced_methods, policy.as_ref()) {
+              Vec::with_capacity(services.len());
+            for (i, service) in services.iter().enumerate() {
+              let service_label = services[i].spec.label();
+              let gate = match negotiate_visitor_gate(
+                announced_methods,
+                service.visitor_auth_policy.as_ref(),
+              ) {
                 GateNegotiation::Scalar => None,
                 GateNegotiation::Methods(methods) => Some(methods),
                 GateNegotiation::Unsupported { wanted, accepted } => {
@@ -540,21 +500,22 @@ pub(crate) async fn run_service(
             // Retried rather than abandoned, for the reason each refusal above
             // gives: every one of them is about what *this* server accepts, and
             // the next reconnect may reach a different one.
-            if withheld.len() == specs.len() {
+            if withheld.len() == services.len() {
               warn!(
                 "[{}] No service on this connection can be served by this server. Retrying.",
                 label
               );
               break 'connection;
             }
-            let announced_services: Vec<usize> =
-              (0..specs.len()).filter(|i| !withheld.contains(i)).collect();
+            let announced_services: Vec<usize> = (0..services.len())
+              .filter(|i| !withheld.contains(i))
+              .collect();
             if !withheld.is_empty() {
               warn!(
                 "[{}] Serving {} of this connection's {} services; the rest are held back for the reasons above",
                 label,
                 announced_services.len(),
-                specs.len()
+                services.len()
               );
             }
             if let Some(learned) = response
@@ -579,9 +540,9 @@ pub(crate) async fn run_service(
             // first one to connect is enough; a connection carrying several
             // announces each, since a service that is up is up whether it has
             // a socket to itself or shares one.
-            let announced_ready: Vec<String> = specs
+            let announced_ready: Vec<String> = services
               .iter()
-              .filter_map(|s| s.name.clone())
+              .filter_map(|s| s.spec.name.clone())
               .inspect(|name| {
                 shared.ready_services.send_modify(|live| {
                   *live.entry(name.clone()).or_insert(0) += 1;
@@ -685,9 +646,9 @@ pub(crate) async fn run_service(
             // shorter number would kill in-flight requests the file promised
             // to let finish, and the drain is bounded by what is actually in
             // flight rather than by running out the clock.
-            let drain_secs = specs
+            let drain_secs = services
               .iter()
-              .map(|s| s.reload_drain_secs)
+              .map(|s| s.spec.reload_drain_secs)
               .max()
               .unwrap_or_default();
             let reload_drain_ping = Duration::from_secs(drain_secs);
@@ -705,7 +666,7 @@ pub(crate) async fn run_service(
             let decl_templates: Vec<crate::protocol::ServiceDecl> = announced_services
               .iter()
               .map(|&i| {
-                let s = &specs[i];
+                let s = &services[i].spec;
                 crate::protocol::ServiceDecl {
                   service: s.name.clone(),
                   service_custom_name: s.custom_name.clone(),
@@ -757,17 +718,17 @@ pub(crate) async fn run_service(
             let live_ping: Vec<LiveDecl> = announced_services
               .iter()
               .map(|&i| LiveDecl {
-                health: healths[i].clone(),
-                adaptive: adaptives[i].clone(),
-                pool: specs[i].pool_load.clone(),
-                connections_configured: specs[i].connections,
+                health: services[i].health.clone(),
+                adaptive: services[i].adaptive.clone(),
+                pool: services[i].spec.pool_load.clone(),
+                connections_configured: services[i].spec.connections,
               })
               .collect();
             // Any service's health flipping is worth a heartbeat now rather
             // than up to 5s later, so the wait below listens to all of them.
             let health_changed_ping: Vec<Arc<tokio::sync::Notify>> = announced_services
               .iter()
-              .map(|&i| healths[i].changed.clone())
+              .map(|&i| services[i].health.changed.clone())
               .collect();
 
             let ping_task = tokio::spawn(async move {
@@ -929,9 +890,9 @@ pub(crate) async fn run_service(
             // breaker, so a connection carrying several needs one each: built
             // once for the connection, every service on it would have been
             // proxied to the first one's backend under the first one's rules.
-            let forward_ctxs: Vec<Arc<ForwardContext>> = specs
+            let forward_ctxs: Vec<Arc<ForwardContext>> = services
               .iter()
-              .map(|s| Arc::new(forward_context(s, &tx_write, &stream_pauses)))
+              .map(|s| Arc::new(forward_context(&s.spec, &tx_write, &stream_pauses)))
               .collect();
 
             // Protocol version the server announced via Pong; v2 enables
@@ -1054,10 +1015,10 @@ pub(crate) async fn run_service(
                                               body,
                                           } => {
                                               // The service the server named. With one, this is that one.
-                                              let service_index = service_for(&specs, &announced_services, &_service);
-                                              let spec = &specs[service_index];
+                                              let service_index = service_for(&services, &announced_services, &_service);
+                                              let spec = &services[service_index].spec;
                                               let ctx = forward_ctxs[service_index].clone();
-                                              let limiter = local_limiters[service_index].clone();
+                                              let limiter = services[service_index].limiter.clone();
                                               let inflight = shared.inflight_requests.clone();
                                               let proto = server_protocol.clone();
                                               let raw_body = frame_body.take();
@@ -1067,7 +1028,7 @@ pub(crate) async fn run_service(
                                               shared.mark_request_activity();
 
                                               // Handle incoming request concurrently
-                                              let adaptive_for_task = adaptives[service_index].clone();
+                                              let adaptive_for_task = services[service_index].adaptive.clone();
                                               tokio::spawn(async move {
                                                   // Local concurrency guard: even a misbehaving server
                                                   // cannot push more parallel work onto the backend.
@@ -1117,8 +1078,8 @@ pub(crate) async fn run_service(
                                               headers,
                                           } => {
                                               // The service the server named. With one, this is that one.
-                                              let service_index = service_for(&specs, &announced_services, &_service);
-                                              let spec = &specs[service_index];
+                                              let service_index = service_for(&services, &announced_services, &_service);
+                                              let spec = &services[service_index].spec;
                                               shared.mark_request_activity();
                                               // Streamed request body (protocol v2): the backend
                                               // request starts immediately and is fed chunk-by-chunk
@@ -1127,14 +1088,14 @@ pub(crate) async fn run_service(
                                                   mpsc::channel::<Result<bytes::Bytes, std::io::Error>>(32);
                                               active_request_streams.lock().await.insert(id.clone(), body_tx);
                                               let ctx = forward_ctxs[service_index].clone();
-                                              let limiter = local_limiters[service_index].clone();
+                                              let limiter = services[service_index].limiter.clone();
                                               let inflight = shared.inflight_requests.clone();
                                               let streams = active_request_streams.clone();
                                               let proto = server_protocol.clone();
                                               let pool = spec.pool_load.clone();
                                               inflight.fetch_add(1, Ordering::SeqCst);
                                               pool.enter();
-                                              let adaptive_for_task = adaptives[service_index].clone();
+                                              let adaptive_for_task = services[service_index].adaptive.clone();
                                               tokio::spawn(async move {
                                                   let waiting = Instant::now();
                                                   let _permit = match limiter {
@@ -1201,8 +1162,8 @@ pub(crate) async fn run_service(
                                               headers,
                                           } => {
                                               // The service the server named. With one, this is that one.
-                                              let service_index = service_for(&specs, &announced_services, &_service);
-                                              let spec = &specs[service_index];
+                                              let service_index = service_for(&services, &announced_services, &_service);
+                                              let spec = &services[service_index].spec;
                                               shared.mark_request_activity();
                                               let tx_resp = tx_write.clone();
                                               let target_url = spec.target.clone();
@@ -1276,8 +1237,8 @@ pub(crate) async fn run_service(
                                           }
                                           TunnelMessage::TcpOpen { stream_id, target, visitor, service: _service } => {
                                               // The service the server named. With one, this is that one.
-                                              let service_index = service_for(&specs, &announced_services, &_service);
-                                              let spec = &specs[service_index];
+                                              let service_index = service_for(&services, &announced_services, &_service);
+                                              let spec = &services[service_index].spec;
                                               shared.mark_request_activity();
                                               // SSRF guard: only addresses this client itself
                                               // declared are ever dialed, a named target must be
@@ -1335,8 +1296,8 @@ pub(crate) async fn run_service(
                                           }
                                           TunnelMessage::UdpOpen { stream_id, target, service: _service } => {
                                               // The service the server named. With one, this is that one.
-                                              let service_index = service_for(&specs, &announced_services, &_service);
-                                              let spec = &specs[service_index];
+                                              let service_index = service_for(&services, &announced_services, &_service);
+                                              let spec = &services[service_index].spec;
                                               shared.mark_request_activity();
                                               // SSRF guard: only declared protocol: udp targets
                                               // are ever dialed, mirroring TcpOpen.

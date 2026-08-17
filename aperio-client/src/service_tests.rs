@@ -341,10 +341,12 @@ async fn test_run_service_message_loop() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    vec![spec.clone()],
+    vec![ServiceRuntime::new(
+      spec.clone(),
+      BackendHealth::for_spec(&spec),
+    )],
     shared,
     cancel_rx,
-    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -630,10 +632,12 @@ async fn test_run_service_cancel_while_connected() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    vec![spec.clone()],
+    vec![ServiceRuntime::new(
+      spec.clone(),
+      BackendHealth::for_spec(&spec),
+    )],
     shared,
     cancel_rx,
-    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -668,10 +672,12 @@ async fn test_run_service_invalid_token_header() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    vec![spec.clone()],
+    vec![ServiceRuntime::new(
+      spec.clone(),
+      BackendHealth::for_spec(&spec),
+    )],
     shared,
     cancel_rx,
-    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -695,10 +701,12 @@ async fn test_run_service_server_shutdown_fast_reconnect() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    vec![spec.clone()],
+    vec![ServiceRuntime::new(
+      spec.clone(),
+      BackendHealth::for_spec(&spec),
+    )],
     shared,
     cancel_rx,
-    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -740,10 +748,12 @@ async fn test_run_service_connection_refused_failover() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    vec![spec.clone()],
+    vec![ServiceRuntime::new(
+      spec.clone(),
+      BackendHealth::for_spec(&spec),
+    )],
     shared,
     cancel_rx,
-    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -778,10 +788,12 @@ async fn test_run_service_http_401_rejection() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    vec![spec.clone()],
+    vec![ServiceRuntime::new(
+      spec.clone(),
+      BackendHealth::for_spec(&spec),
+    )],
     shared,
     cancel_rx,
-    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -818,10 +830,12 @@ async fn test_run_service_http_500_rejection() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    vec![spec.clone()],
+    vec![ServiceRuntime::new(
+      spec.clone(),
+      BackendHealth::for_spec(&spec),
+    )],
     shared,
     cancel_rx,
-    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -870,10 +884,12 @@ async fn test_run_service_health_probe_flap() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    vec![spec.clone()],
+    vec![ServiceRuntime::new(
+      spec.clone(),
+      BackendHealth::for_spec(&spec),
+    )],
     shared,
     cancel_rx,
-    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -899,10 +915,12 @@ async fn test_run_service_health_probe_healthy() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    vec![spec.clone()],
+    vec![ServiceRuntime::new(
+      spec.clone(),
+      BackendHealth::for_spec(&spec),
+    )],
     shared,
     cancel_rx,
-    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -968,10 +986,12 @@ async fn test_run_service_health_probe_absolute_url_unhealthy() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    vec![spec.clone()],
+    vec![ServiceRuntime::new(
+      spec.clone(),
+      BackendHealth::for_spec(&spec),
+    )],
     shared,
     cancel_rx,
-    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -1003,10 +1023,12 @@ async fn test_run_service_wait_for_backend() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    vec![spec.clone()],
+    vec![ServiceRuntime::new(
+      spec.clone(),
+      BackendHealth::for_spec(&spec),
+    )],
     shared,
     cancel_rx,
-    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -1030,10 +1052,12 @@ async fn test_run_service_wait_for_backend_implied_by_health() {
   let shared = test_shared();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    vec![spec.clone()],
+    vec![ServiceRuntime::new(
+      spec.clone(),
+      BackendHealth::for_spec(&spec),
+    )],
     shared,
     cancel_rx,
-    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -1172,13 +1196,18 @@ async fn next_ping(ws: &mut WebSocketStream<TcpStream>) -> Option<TunnelMessage>
 async fn a_multiplexed_connection_declares_every_service_in_one_ping() {
   let (listener, ws_url) = loopback_ws().await;
   let specs = two_multiplexed(&ws_url);
-  let healths: Vec<BackendHealth> = specs.iter().map(BackendHealth::for_spec).collect();
+  let services: Vec<ServiceRuntime> = specs
+    .into_iter()
+    .map(|s| {
+      let health = BackendHealth::for_spec(&s);
+      ServiceRuntime::new(s, health)
+    })
+    .collect();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    specs,
+    services,
     test_shared(),
     cancel_rx,
-    healths,
     true,
     1,
     ConnectionCeiling::new(),
@@ -1236,10 +1265,12 @@ async fn a_connection_carrying_one_service_still_sends_no_list() {
   let spec = test_spec(&ws_url, "http://127.0.0.1:9");
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    vec![spec.clone()],
+    vec![ServiceRuntime::new(
+      spec.clone(),
+      BackendHealth::for_spec(&spec),
+    )],
     test_shared(),
     cancel_rx,
-    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -1266,13 +1297,18 @@ async fn a_server_that_cannot_serve_a_list_is_not_sent_one() {
   // handshake instead, before anything has been declared.
   let (listener, ws_url) = loopback_ws().await;
   let specs = two_multiplexed(&ws_url);
-  let healths: Vec<BackendHealth> = specs.iter().map(BackendHealth::for_spec).collect();
+  let services: Vec<ServiceRuntime> = specs
+    .into_iter()
+    .map(|s| {
+      let health = BackendHealth::for_spec(&s);
+      ServiceRuntime::new(s, health)
+    })
+    .collect();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    specs,
+    services,
     test_shared(),
     cancel_rx,
-    healths,
     true,
     1,
     ConnectionCeiling::new(),
@@ -1312,13 +1348,18 @@ async fn a_refused_connection_backs_off_instead_of_redialing_flat_out() {
   // to set up, but the path is shared with the visitor-gate refusals.
   let (listener, ws_url) = loopback_ws().await;
   let specs = two_multiplexed(&ws_url);
-  let healths: Vec<BackendHealth> = specs.iter().map(BackendHealth::for_spec).collect();
+  let services: Vec<ServiceRuntime> = specs
+    .into_iter()
+    .map(|s| {
+      let health = BackendHealth::for_spec(&s);
+      ServiceRuntime::new(s, health)
+    })
+    .collect();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let svc = tokio::spawn(run_service(
-    specs,
+    services,
     test_shared(),
     cancel_rx,
-    healths,
     true,
     1,
     ConnectionCeiling::new(),

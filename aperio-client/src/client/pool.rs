@@ -81,6 +81,11 @@ pub(crate) fn spawn_services(
 ///
 /// `group` is one service in the ordinary shape and several under `multiplex:
 /// true`; `healths` is that list's backend-health state, index for index.
+///
+/// The two are paired into [`service::ServiceRuntime`] here, which is the last
+/// point at which they are two lists. Everything downstream takes the paired
+/// form, so a caller cannot hand the connection a health state belonging to a
+/// different service than the spec beside it.
 pub(crate) fn spawn_connection(
   group: &[ServiceSpec],
   shared: &Shared,
@@ -95,12 +100,16 @@ pub(crate) fn spawn_connection(
     // 1 and never reaches this.
     group[0].client_id = format!("{}-c{}", group[0].client_id, conn);
   }
+  let services: Vec<service::ServiceRuntime> = group
+    .into_iter()
+    .zip(healths.iter().cloned())
+    .map(|(spec, health)| service::ServiceRuntime::new(spec, health))
+    .collect();
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let handle = tokio::spawn(run_service(
-    group,
+    services,
     shared.clone(),
     cancel_rx,
-    healths.to_vec(),
     conn == 1,
     conn,
     ceiling.clone(),

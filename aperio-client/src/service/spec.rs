@@ -459,3 +459,67 @@ pub(crate) enum AbortReason {
 #[cfg(test)]
 #[path = "spec_tests.rs"]
 mod tests;
+
+/// One service, and everything this connection needs to serve it.
+///
+/// These were five `Vec`s walked in lockstep by the same service index:
+/// `specs`, `healths`, `local_limiters`, `adaptives` and
+/// `visitor_auth_policies`. Nothing said they were the same length, so
+/// `run_service` opened with a runtime check that they were, and a caller that
+/// got it wrong would otherwise have surfaced as an out-of-range panic six
+/// hundred lines in.
+///
+/// One list of one struct says it instead, and says it to the compiler. The
+/// three derived fields are built here from the spec, so they cannot be built
+/// for a different service than the one they end up beside.
+pub(crate) struct ServiceRuntime {
+  pub(crate) spec: ServiceSpec,
+  /// Shared with this service's other parallel connections: the backend is
+  /// probed once per service, not once per connection.
+  pub(crate) health: BackendHealth,
+  /// Per service rather than per connection, because `max_concurrent:` is what
+  /// a *backend* will take: one service's slow backend must not hold up
+  /// permits another service's requests are waiting for.
+  pub(crate) limiter: Option<std::sync::Arc<tokio::sync::Semaphore>>,
+  /// The controller that moves `limiter` with backend pressure, when this
+  /// service asked for one (#65).
+  pub(crate) adaptive: Option<std::sync::Arc<crate::adaptive::Adaptive>>,
+  /// The `auth:` this service was written with, negotiated against each server
+  /// separately on every connect (#111).
+  pub(crate) visitor_auth_policy: Option<aperio_config::AuthSetting>,
+}
+
+impl ServiceRuntime {
+  /// Builds the derived state for one service. `health` comes from the
+  /// supervisor rather than from here, because it is shared across the
+  /// service's parallel connections and this is called once per connection.
+  pub(crate) fn new(spec: ServiceSpec, health: BackendHealth) -> Self {
+    let limiter = spec
+      .max_concurrent
+      .map(|n| std::sync::Arc::new(tokio::sync::Semaphore::new(n as usize)));
+    let adaptive = match (spec.adaptive_concurrency, &limiter, spec.max_concurrent) {
+      (true, Some(limiter), Some(configured)) => {
+        let adaptive =
+          std::sync::Arc::new(crate::adaptive::Adaptive::new(configured, limiter.clone()));
+        crate::adaptive::spawn(adaptive.clone(), spec.label());
+        Some(adaptive)
+      }
+      (true, _, _) => {
+        warn!(
+          "[{}] adaptive_concurrency needs max_concurrent to be set; there is no number to move",
+          spec.label()
+        );
+        None
+      }
+      _ => None,
+    };
+    let visitor_auth_policy = spec.visitor_auth_policy.clone();
+    Self {
+      spec,
+      health,
+      limiter,
+      adaptive,
+      visitor_auth_policy,
+    }
+  }
+}
