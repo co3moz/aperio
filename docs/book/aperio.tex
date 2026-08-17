@@ -3857,9 +3857,20 @@ protocol tunnelled over TCP with \code{tunnel\_compression} on now
 sends more bytes for less CPU than it did before v7. v8 adds an
 optional \code{services} list to the Ping: each entry carries what the
 top-level per-service fields carry one at a time, and when the list is
-present it is authoritative and those fields are ignored. This server
-accepts a list of exactly one, the shape it already served, and refuses
-a longer one at the Ping rather than serving part of it.
+present it is authoritative and those fields are ignored. A list of
+several is served as several, each routed by its own binds, gated by
+its own \code{auth:}, ejected on its own backend failures and shown
+separately in the dashboard, which is what \code{multiplex: true} on
+the client produces; identity across heartbeats is by the name the
+client gives a service, so a multiplexed one needs a \code{name:}. An
+empty list is refused, since a client that serves nothing is a
+disconnect written the long way. Whether a list may be sent at all is
+negotiated rather than assumed: the server announces its protocol
+version in an \code{x-aperio-protocol} header on the upgrade response,
+which is the only point early enough, and a client asked to multiplex
+against a server below v8 holds those services back and says which
+side has to move, rather than letting the server read the singular
+fields and quietly serve the first of them.
 
 \begin{longtable}{@{}R{0.24}R{0.12}R{0.58}@{}}
 \toprule

@@ -93,6 +93,13 @@ to the `cache_max_stale` (env `APERIO_CACHE_MAX_STALE`) window past their lifeti
 a client reconnects, normal proxying takes over. See
 [Client Resilience](client-resilience.md).
 
+This holds under the closed posture too. With `default_access: deny` a route
+whose client has gone is normally refused before anything consults the cache,
+which is the one condition serve-stale exists for; a resilient entry is
+answered with instead. It cannot disclose a route the posture hides, because
+only a client that asked for serve-stale leaves an entry behind, and a route
+with no resilient entry still gets the refusal.
+
 ## Knobs
 
 Every setting is shown by its yaml key (env var in parentheses). Server keys go

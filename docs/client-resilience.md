@@ -36,6 +36,16 @@ Two knobs keep a client from being overwhelmed:
 - `APERIO_BANDWIDTH`, declare the link capacity (`8mbit`, `500kbit`, `2MB`, or plain bytes/second) and the server paces outgoing tunnel frames with a token bucket (1 s burst) so the client is never pushed faster than its network can drain.
 - **Per-stream pause/resume** (tunnel protocol v3), which needs no configuration on the client at all. When a visitor reads more slowly than the backend produces, the server asks this client to pause that one stream, and the client stops reading its source, the backend response body, the backend WebSocket, or the TCP socket, so ordinary TCP backpressure reaches the backend. It resumes when the server says so, and after 30 s on its own if that message is ever lost. See [Tunnel Protocol](tunnel-protocol.md).
 
+## Adaptive concurrency
+
+`APERIO_MAX_CONCURRENT` is what a healthy backend can take. A backend that has fallen behind can take less, and nothing in the numbers above notices. Set `APERIO_ADAPTIVE_CONCURRENCY=1` (yaml `adaptive_concurrency`) and the announced number follows the backend instead of staying at whatever the config said at startup.
+
+The evidence is already here: how long a request waits for one of the local `max_concurrent` permits, before the backend has even been asked. Queueing there means the backend is behind, whatever the host's CPU says, and it catches the case CPU cannot, a client sitting at 3% in front of a backend that has fallen over. Every 10 s the client takes the mean wait over the window and moves: above 250 ms it **halves** the number, below 50 ms it climbs back **one at a time**, and it never leaves the band `1..=max_concurrent`. Additive increase and multiplicative decrease, for the reason TCP uses them, being too high costs every visitor in the queue while being too low costs some throughput, and those are not symmetric. A window with no requests in it holds rather than climbs: an idle service has produced no evidence its backend recovered.
+
+The client lowers its own limiter in step, so nothing can push past the number even if it is ignored, and the server acts on it too: it queues rather than dispatching past the announced figure, its load balancer can hand the request to a healthier client in the pool, and the [autoscaler](autoscaling.md) sees utilization rise, because a client that shrank is a client with less capacity. All three beat refusing the request, and all three are decisions the server can make and the client cannot, which is why this announces rather than sheds.
+
+Two things worth knowing. It needs `max_concurrent` set, since that is the number being moved; without it the client says so and does nothing. And the band belongs to the connection: the client climbs back to what it first announced and no further, so raising the limit for real means editing the config, which reconnects and sets a new ceiling.
+
 ## Idle retirement
 
 With `idle_timeout` set, a client that has stopped being used retires itself and exits after the usual graceful drain, which is the scale-in half of [autoscaling](autoscaling.md): the server never kills a client, it only ever asks for more capacity.

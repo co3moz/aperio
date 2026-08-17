@@ -70,19 +70,26 @@ Related: [In-Flight Failover](failover.md) covers what happens when the chosen c
 
 ## Passive outlier ejection
 
-Active health probing (`APERIO_TARGET_HEALTH`) pulls a client from
+Active health probing (`APERIO_TARGET_HEALTH`) pulls a service from
 rotation when its own `/health` check fails. Passive outlier ejection is the
-complement: it reacts to how a client behaves under **real traffic**. When
-`APERIO_OUTLIER_EJECTION=1`, a client that returns too many server errors,
+complement: it reacts to how a service behaves under **real traffic**. When
+`APERIO_OUTLIER_EJECTION=1`, a service that returns too many server errors,
 times out, or drops connections in a short window is temporarily removed from
 the routing pool, even while its `/health` probe still reports green.
+
+Ejection is per **service**, not per connection, and the difference is visible
+once a client carries more than one with
+[`multiplex: true`](configuration.md#one-connection-for-several-services): a
+failing backend takes its own service out of rotation and leaves the services
+sharing its connection serving. For a client running one service per
+connection, which is the ordinary shape, the two are the same thing.
 
 | Variable | Meaning | Default |
 | --- | --- | --- |
 | `outlier_ejection` (env `APERIO_OUTLIER_EJECTION`) | Enable passive ejection. | off |
 | `outlier_max_failures` (env `APERIO_OUTLIER_MAX_FAILURES`) | Failures within the window that trigger an ejection. | `5` |
 | `outlier_window` (env `APERIO_OUTLIER_WINDOW`) | Seconds the failures are counted over. | `30` |
-| `outlier_eject_secs` (env `APERIO_OUTLIER_EJECT_SECS`) | How long an ejected client stays out before automatic re-admission. | `30` |
+| `outlier_eject_secs` (env `APERIO_OUTLIER_EJECT_SECS`) | How long an ejected service stays out before automatic re-admission. | `30` |
 
 Ejection is **per-route fail-open**: if every candidate for a route is ejected,
 the route keeps serving from the struggling pool rather than returning no route
