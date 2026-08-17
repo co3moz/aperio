@@ -20,31 +20,44 @@ readable without scrolling past what is already done.
 ## Future ideas
 
 - [ ] **#123 The files still over a thousand lines, and why each one is still
-  there.** (triage 15) The 2026-08-17 sweep took the eight biggest modules apart
+  there.** (triage 15) The 2026-08-17 sweep took the ten biggest modules apart
   (`state.rs` 3840 → 941, `aperio-config/lib.rs` 3687 → 163, `tunnel/ws.rs`
   2986 → 850, `proxy.rs` 2910 → 412, `server/lib.rs` 2908 → 485,
-  `client/lib.rs` 2413 → 539, `client/config.rs` 1738 → 730, `auth.rs`
-  1552 → 447). What is left falls into three groups, and only one of them is
-  work.
+  `client/lib.rs` 2413 → 539, `client/config.rs` 1738 → 730, `service.rs`
+  1726 → 962, `proxy/forward.rs` 1667 → 901, `auth.rs` 1552 → 447). What is
+  left falls into three groups, and only one of them is work. No production
+  module is over a thousand lines any more; everything still on this list is a
+  test file or a function nobody has counted.
 
-  **One function, moved whole rather than cut.** `proxy_http_request` (1652)
-  and `resolve_settings` (491). Each holds state that every one of its many
-  exits has to release, so splitting them means inventing a struct to carry
-  what the single scope carries for free. **Neither has had the count run on
-  it**, which is the only thing that would settle it, and every one that has
-  was wrong.
+  **One function, moved whole rather than cut.** `resolve_settings` (491), and
+  it is the last one. It holds state that every one of its many exits has to
+  release, so splitting it means inventing a struct to carry what the single
+  scope carries for free. **It has not had the count run on it**, which is the
+  only thing that would settle it, and every function that has was wrong.
 
-  `build_state`, `on_ping` and `run_service` were all on this list and all
-  three came off it, and how is the useful part. The objection is about how
-  many values cross a cut, which is a number, and in no case had anybody
-  counted it. `build_state`: eight of eighty-eight, because the first of its
-  *two* struct literals absorbs the rest. `on_ping`: one, because the loop
-  body re-binds every field from its own `ServiceDecl` and shadows the outer
-  ones. `run_service`: twenty-one, the highest count anything in this codebase
-  has produced, and it still came apart, because nineteen of the twenty-one
-  were the same thing said nineteen ways. They were the live state of one
-  socket, so they became one struct with a name, `Dispatch`, and only two
-  values genuinely travelled back out.
+  `build_state`, `on_ping`, `run_service` and `proxy_http_request` were all on
+  this list and all four came off it, and how is the useful part. The
+  objection is about how many values cross a cut, which is a number, and in no
+  case had anybody counted it. `build_state`: eight of eighty-eight, because
+  the first of its *two* struct literals absorbs the rest. `on_ping`: one,
+  because the loop body re-binds every field from its own `ServiceDecl` and
+  shadows the outer ones. `run_service`: twenty-one, and it still came apart,
+  because nineteen of the twenty-one were the same thing said nineteen ways.
+  They were the live state of one socket, so they became one struct with a
+  name, `Dispatch`. `proxy_http_request`: twenty-seven, which did *not*
+  collapse to one, they were eight groups, and the split is honest about that
+  by naming the three worth naming (`Marks`, `Capture`, `RequestIdPolicy`) and
+  leaving the rest as separate fields rather than inventing a relationship the
+  code does not have.
+
+  Counting is fiddly enough to be worth doing carefully. A first pass over
+  `proxy_http_request` said thirty-nine, and fourteen of those were words in
+  comments, struct-literal keys (`status: tunnel_res.status`), field accesses
+  (`.response`) and inner bindings that shadow (a `permit` from a match arm, an
+  `rx` from a closure parameter). Strip comments and strings, exclude anything
+  followed by `:`, and the number is twenty-seven. The compiler settled the
+  last two: `uri` and `headers` were carried into the new struct out of caution
+  and it reported both as never read.
 
   The count is also worth running for what it turns up on the way. Doing it to
   `on_ping` found seven connection-level fields being written inside the
@@ -52,13 +65,20 @@ readable without scrolling past what is already done.
   is both why the body would not lift and a thing worth fixing on its own.
   Doing it to `run_service` found the two parallel `Vec`s the caller had to
   keep the same length by hand, which became `ServiceRuntime` and took three
-  crossers off the count before the cut was even attempted.
+  crossers off the count before the cut was even attempted. Doing it to
+  `proxy_http_request` found that its stated reason for being whole was not
+  true: the dispatch slot and the pending-response registration it said had to
+  be released on every exit are both RAII guards, released by the same `Drop`
+  the file already relied on. The permit still stays in the caller, which is
+  all the single scope ever actually bought.
 
-  `service.rs` went 1726 → 962 that way, with `run_service` itself 1522 → 828:
-  first the read loop to `dispatch.rs` (the frame handling), then the write
-  task to `writer.rs` (its mirror), then the four gates a connection passes
-  before its first dial to `startup.rs`. A high crosser count turned out to be
-  a description of a missing type, not a verdict on the function.
+  `service.rs` went 1726 → 962, with `run_service` itself 1522 → 828: first
+  the read loop to `dispatch.rs`, then the write task to `writer.rs` (its
+  mirror), then the four gates a connection passes before its first dial to
+  `startup.rs`. `forward.rs` went 1667 → 901 by the same measurement, cut where
+  the function already changes subject, five gates and a body read here, then
+  `attempt.rs` for the dispatch-and-failover loop. A high crosser count turned
+  out to be a description of missing types, not a verdict on the function.
 
   **Close enough to the line that splitting costs more than it buys.** The four
   test files left in the 1000-1400 band: `service_tests.rs` (1386),
