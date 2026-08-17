@@ -19,7 +19,35 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-Nothing open. The next idea takes the next free id, which is `#123`.
+- [ ] **#123 The files still over a thousand lines, and why each one is still
+  there.** (triage 15) The 2026-08-17 sweep took the eight biggest modules apart
+  (`state.rs` 3840 → 941, `aperio-config/lib.rs` 3687 → 163, `tunnel/ws.rs`
+  2986 → 850, `proxy.rs` 2910 → 412, `server/lib.rs` 2908 → 485,
+  `client/lib.rs` 2413 → 539, `client/config.rs` 1738 → 730, `auth.rs`
+  1552 → 447). What is left falls into three groups, and only one of them is
+  work.
+
+  **One function, moved whole rather than cut.** `run_service` (1519),
+  `proxy_http_request` (1652), `on_ping` (1066), `build_state` (1064),
+  `resolve_settings` (491). Each holds state that every one of its many exits
+  has to release, or applies a declaration field by field where a half-applied
+  version is worse than a long function. Splitting these is a *behaviour*
+  change wearing a refactor's clothes: it means inventing a struct to carry
+  what the single scope carries for free. Not work; a decision, recorded so it
+  is not re-litigated.
+
+  **Close enough to the line that splitting costs more than it buys.**
+  `routing.rs` (1139), `api/clients.rs` (1134), `proxy/http.rs` (1131) and the
+  test files in the 1000-1400 band. A 1100-line file with one clear subject
+  reads fine; cutting it produces two files that have to be read together.
+
+  **The one that is actually work.** `aperio-server/src/lib_tests.rs` is 1766
+  for a `lib.rs` that is now 485, and that mismatch is the signal: most of what
+  is in it tests `routing` and `proxy` rather than the crate root. It was left
+  because the obvious homes, `routing_tests.rs` (1071) and `proxy_tests.rs`
+  (1381), are themselves in the band above, so moving tests there trades one
+  oversized file for another. Doing it properly means splitting `routing.rs`
+  first and letting its tests follow, which is the same sweep one level down.
 
 ## Withdrawn
 
