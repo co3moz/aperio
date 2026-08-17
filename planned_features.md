@@ -37,9 +37,12 @@ readable without scrolling past what is already done.
   is not re-litigated.
 
   **Close enough to the line that splitting costs more than it buys.**
-  `routing.rs` (1139), `api/clients.rs` (1134), `proxy/http.rs` (1131) and the
-  test files in the 1000-1400 band. A 1100-line file with one clear subject
-  reads fine; cutting it produces two files that have to be read together.
+  `proxy/http.rs` (1131) and the test files in the 1000-1400 band. A 1100-line
+  file with one clear subject reads fine; cutting it produces two files that
+  have to be read together. `routing.rs` and `api/clients.rs` were on this list
+  and came off it, both split on 2026-08-17: the line is a heuristic, not a
+  rule, and a file that turns out to have four distinct subjects belongs on the
+  other side of it however long it is.
 
   **The one that was actually work, and is done.** `aperio-server/src/lib_tests.rs`
   was 1766 for a `lib.rs` of 485, and the mismatch was the signal: most of it
