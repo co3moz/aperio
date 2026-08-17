@@ -4,6 +4,18 @@ All notable changes to Aperio are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project follows semantic versioning per release tag.
 
+## [Unreleased]
+
+### Added
+
+- **One WebSocket can now carry several services (`multiplex: true`).** The server learned to serve a connection that declares a list of services in 0.10.0; this is the client half, and the two together are what make the feature reachable. A file that sets `multiplex: true`, at the top level or on a `services:` entry, carries every service that asked for it on one socket: one TLS session, one reader, one writer and one heartbeat for the group, rather than that many of each on both ends. For a client with forty services that is the difference between forty of everything and one of everything, on both the client and the server.
+
+  **Each service is still its own service everywhere it matters.** It is routed by its own binds, gated by its own `auth:` and `allowed_ips:`, ejected on its own backend failures without touching its neighbours, and shown and controlled separately in the dashboard. On the client, four things that used to belong to the connection now belong to the service: its backend health probe, its visitor-gate negotiation, its concurrency limiter with the adaptive controller that moves it, and the whole of how a request is forwarded, which is its backend URL, TLS floor, timeouts, path bind, header rules and circuit breaker. Any one of those left per-connection would have been a second service proxied to the first one's backend, or announced as ungated, unprobed or unlimited.
+
+  **It is opt-in, and it costs something.** The services share a link: a large response occupies the writer the others send through, and the connection dropping takes all of them out of routing together. `multiplex: false` on a single entry keeps that one service on a connection of its own in a file that multiplexes everything else. Every multiplexed service needs a `name:`, which is what the server keeps its routing, ejection and statistics under; `connections:` is not honored for one, since one connection is what multiplexing means, and the client reports that in the dashboard's config view rather than dropping it silently.
+
+  **Negotiated at the handshake, never assumed.** The server now announces its tunnel protocol version on the upgrade response, where a client reads it before declaring anything. A client whose config asks for multiplexing against a server too old to serve a list holds those services back and says which side has to move, instead of connecting and having the server bring up the first service and silently drop the rest. Purely additive on the wire: an older server simply does not send the header, an older client ignores it, and a client carrying one service sends exactly the Ping it always did.
+
 ## [0.10.0] - 2026-08-17
 
 ### Security

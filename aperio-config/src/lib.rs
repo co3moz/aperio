@@ -804,6 +804,13 @@ pub struct ServiceEntry {
   /// back when they stop. Default: `1`.
   #[schemars(extend("examples" = [2, {"min": 1, "max": 8}]))]
   pub connections: Option<Connections>,
+  /// Carry this service on a WebSocket it shares with the other services that
+  /// set it, instead of opening one of its own. Overrides the top-level
+  /// `multiplex:`, so a file that turns it on for everything can still keep a
+  /// single service on a connection of its own with `multiplex: false`.
+  /// Default: the top-level `multiplex:`.
+  #[schemars(extend("examples" = [true]))]
+  pub multiplex: Option<bool>,
   /// Static Prometheus labels attached to this client's own metric series,
   /// e.g. `{env: prod, region: eu-west}`, so one Prometheus can serve several
   /// environments without relabelling rules. At most 8 labels; names must be
@@ -1153,6 +1160,29 @@ pub struct FileConfig {
   /// back when they stop. Default: `1`.
   #[schemars(extend("examples" = [2, {"min": 1, "max": 8}]))]
   pub connections: Option<Connections>,
+  /// Carry every service that sets this on one WebSocket, instead of opening a
+  /// connection per service. The default for the whole file, so forty services
+  /// turn it on once; an entry may still say `multiplex: false` to keep a
+  /// connection of its own.
+  ///
+  /// What it saves is per service and it is the whole cost of a connection: one
+  /// socket, one TLS session, one reader, one writer and one heartbeat, rather
+  /// than that many of each on both ends. What it costs is that the services
+  /// then share a link, so a large response occupies the writer the others send
+  /// through, and a dropped connection takes all of them down together.
+  ///
+  /// Two services are needed for it to do anything, and they must agree on
+  /// `server:` and `token:`, since a connection carries one of each. Every
+  /// multiplexed service needs a `name:`, which is what the server keeps its
+  /// routing, ejection and statistics under and what addresses it in the
+  /// dashboard. Needs a server speaking tunnel protocol 8 or newer (Aperio
+  /// 0.10.0); against an older one the services are held back and the client
+  /// says so, rather than being quietly served one at a time. `connections:` is
+  /// not honored for a multiplexed service, one connection is what multiplexing
+  /// means, and the client reports the difference in the dashboard's config
+  /// view. Default: `false` (env: APERIO_MULTIPLEX).
+  #[schemars(extend("examples" = [true]))]
+  pub multiplex: Option<bool>,
   /// Static Prometheus labels attached to this client's own metric series,
   /// e.g. `{env: prod, region: eu-west}`, so one Prometheus can serve several
   /// environments without relabelling rules. At most 8 labels; names must be

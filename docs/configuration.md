@@ -131,6 +131,7 @@ Only three settings are required, `APERIO_SERVER_TOKEN`, `APERIO_SERVER_URL`, an
 | `APERIO_BANDWIDTH` |  | `bandwidth` | Link capacity of this client's network, e.g. `8mbit`, `500kbit`, `2MB`, or plain bytes/second. The server paces outgoing tunnel frames (token bucket, 1 s burst) so this client is never pushed faster than its network can drain. It is a **budget for the whole client process**, not a per-service default: it is divided across the `services:` entries and each entry's parallel `connections`, so the total never exceeds it. See [Sharing the bandwidth budget](#sharing-the-bandwidth-budget). | unlimited |
 | `APERIO_MAX_CONCURRENT` | `--max-concurrent` | `max_concurrent` | Max concurrent requests; announced to the server, which queues the excess instead of flooding the backend. Also enforced locally. | unlimited |
 | `APERIO_CONNECTIONS` |  | `connections` | Parallel tunnel connections per service; the server load-balances across them like separate clients. The ceiling is the server's `max_connections_per_service` (default 16), announced on connect and lowerable per token. More is not automatically faster, each connection costs CPU on both ends; see the note under [Multiple services](#multiple-services). | `1` |
+| `APERIO_MULTIPLEX` |  | `multiplex` | Carry every service that sets this on one WebSocket instead of opening a connection each: one socket, one TLS session, one reader, one writer and one heartbeat for all of them, rather than that many of each on both ends. Settable per `services:` entry, so a file can turn it on once and still keep one service on a connection of its own with `multiplex: false`. Needs two services, a `name:` on each, and a server speaking tunnel protocol 8 or newer (Aperio 0.10.0). `connections:` is not honored for a multiplexed service. See [One connection for several services](#one-connection-for-several-services). | `false` |
 | `APERIO_OTEL_BRIDGE_LISTEN` |  | `otel_bridge.listen` | Address for the client's OTLP/HTTP receiver. Anything on the edge host exports to it with one environment variable and no SDK change. | `127.0.0.1:4318` |
 | `APERIO_OTEL_BRIDGE_LISTEN_GRPC` |  | `otel_bridge.listen_grpc` | Address for the OTLP/gRPC receiver, for an SDK pinned to that transport. Unset = no gRPC listener. |  |
 | `APERIO_OTEL_BRIDGE_TRANSPORT` |  | `otel_bridge.transport` | How exports reach the server: `tunnel` sends them on the WebSocket the client already holds, which is what preserves the "one outbound connection" property; `https` posts them to the server's endpoint instead, for telemetry bursty enough that it should stay off the tunnel. | `tunnel` |
@@ -368,6 +369,37 @@ The client logs each decision with the numbers behind it, and the dashboard's co
 Environment: `APERIO_CONNECTIONS_MIN` / `APERIO_CONNECTIONS_MAX`. The server's `max_connections_per_service` still wins over `max`, and the `bandwidth:` share is divided by `max` (never by the current size), so growing the pool cannot exceed the budget the file declares. The dashboard shows the connections a service actually has open, not its ceiling.
 
 A range is opt-in for a reason: as the note above says, more connections is not automatically faster, and on a host where client and server share CPU the curve has a peak. `connections: N` keeps behaving exactly as it always did.
+
+### One connection for several services
+
+`connections:` is about giving one service several sockets. `multiplex: true` is the opposite question, and it is the one an operator with forty services asks: can several services share one socket?
+
+```yaml
+multiplex: true          # the file-wide default
+services:
+  - name: web
+    target: http://localhost:3000
+    hostname: web.example.com
+  - name: api
+    target: http://localhost:4000
+    hostname: api.example.com
+  - name: bulk
+    target: http://localhost:5000
+    hostname: files.example.com
+    multiplex: false     # large responses, keep a connection of its own
+```
+
+`web` and `api` are carried on one WebSocket; `bulk` opens its own. What that saves is per service and it is the whole cost of a connection: one socket, one TLS session, one reader task, one writer task and one heartbeat for the group, rather than that many of each on both ends. Forty services on one client is forty of everything today, and it is the same forty on the server.
+
+What it costs is that the services share a link. They send through one writer, so a large response occupies it while the others wait their turn, and they share a fate: the connection dropping takes all of them out of routing together, and brings all of them back together. That is why it is opt-in and why `multiplex: false` on the one service whose responses are large is worth writing.
+
+Each service is still its own service everywhere it matters. The server routes to it by its own binds, gates it with its own `auth:` and `allowed_ips:`, ejects it on its own backend failures without touching its neighbours, and shows and controls it separately in the dashboard. On the client, each keeps its own backend, header rules, timeouts, circuit breaker, health probe and `max_concurrent:`.
+
+Three things to know before turning it on:
+
+- **Every multiplexed service needs a `name:`.** It is what the server keeps that service's routing, ejection and statistics under, and what addresses it in the dashboard. Two unnamed services on one connection would be told apart only by their position in a list, so the client refuses the config rather than guessing.
+- **`connections:` is not honored for a multiplexed service.** One connection is what multiplexing means. The client reports the difference in the dashboard's config view rather than dropping it silently, so a `connections: 4` that stopped applying is visible.
+- **The server must speak tunnel protocol 8 or newer** (Aperio 0.10.0). It announces this on the handshake, before the client has declared anything. Against an older server the client holds the services back and says so in its log, instead of connecting and having the server serve only the first of them.
 
 ### Sharing the bandwidth budget
 

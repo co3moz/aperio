@@ -23,6 +23,17 @@ use tracing::warn;
 /// are ignored, when absent nothing changes. Additive in both directions.
 pub(crate) const PROTOCOL_VERSION: u32 = 8;
 
+/// Handshake response header carrying the server's tunnel protocol version.
+///
+/// The Ping already carries the client's, and the Pong the server's, but both
+/// arrive after the client has declared what it serves. A capability that
+/// changes *what the first Ping may say* has to be known before that Ping goes
+/// out, which is what this header is for: it is read off the upgrade response,
+/// with nothing declared yet, exactly like the visitor-gate announcement beside
+/// it. A server too old to send it is a server too old to have the capability,
+/// so absent reads as "no", never as "assume yes".
+pub(crate) const PROTOCOL_HEADER: &str = "x-aperio-protocol";
+
 // --- Protocol v2 binary frames: [tag][id_len][id bytes][payload] ---
 // Data-heavy chunk messages skip the base64+JSON encoding entirely. The tag
 // byte never collides with zlib-compressed JSON frames, which start with

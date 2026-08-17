@@ -1908,6 +1908,34 @@ fn alternates_are_capped() {
 }
 
 // ---------------------------------------------------------------------------
+// The protocol version announced on the handshake (#120)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn the_handshake_says_what_protocol_this_server_speaks() {
+  // Read by a client before it has declared anything, which is what makes a
+  // capability that changes the *first Ping* negotiable at all: multiplexing
+  // is decided from this number, and a server too old to send it is a server
+  // too old to serve a list.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let (token, _) = make_dynamic_token(&state, true).await;
+
+  let (_ws, resp) = tokio_tungstenite::connect_async(client_request(&url, &token))
+    .await
+    .expect("the handshake");
+  let announced = resp
+    .headers()
+    .get(PROTOCOL_HEADER)
+    .expect("the announcement")
+    .to_str()
+    .unwrap()
+    .parse::<u32>()
+    .expect("a number");
+  assert_eq!(announced, PROTOCOL_VERSION);
+}
+
+// ---------------------------------------------------------------------------
 // What a connection may declare, announced on the handshake (#111)
 // ---------------------------------------------------------------------------
 

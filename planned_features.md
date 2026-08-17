@@ -19,51 +19,7 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#120 The client half of one WebSocket for several services
-  (`multiplex: true`).** (triage 40) Split from `#46`, which shipped the
-  server half: a Ping declaring several services is served as that many, each
-  routed by its own binds, ejected on its own failures, and shown and
-  controlled separately in the dashboard. No released client produces such a
-  Ping, so nothing in the field uses it yet, and this entry is what makes it
-  reachable.
-
-  **What already landed on the client.** `run_service` takes a list of specs
-  rather than one, the first standing for the connection, and each dispatch
-  resolves its own service from the name the server puts in the opening
-  frame by shadowing `spec` at the top of the arm. That is why the 31 reads
-  in those arm bodies do not have to be rewritten.
-
-  **The four things still per-connection, and why they are one piece of work
-  rather than four.** Each is small on its own; none is observable on its
-  own, because the only surface any of them reports through is the Ping's
-  `services` list, and that list cannot be built correctly until all four
-  are. Built with a field missing, it announces a second service as
-  ungated, unprobed or unlimited, which is exactly the class of quiet defect
-  the server half spent three fixes on.
-  - **Backend health.** `BackendHealth` is per service and its probe runs on
-    one connection of the pool; six sites, and the probe body captures only
-    `label` and `spec`, so extracting it is clean. It does not need the
-    connection at all, which means the natural home is the caller, where
-    `lib.rs` already builds one `BackendHealth::for_spec` per service.
-  - **Gate negotiation.** `visitor_auth_methods` comes from a
-    connection-level `GateNegotiation` computed for one gate. Services with
-    different gates each need their own, or one runs under a gate that was
-    not written for it.
-  - **Adaptive concurrency and the connection pool**, 19 sites between them.
-    A multiplexed connection is one connection, so per-service
-    `connections:` stops meaning what it means today. This is `#48` arriving
-    in person.
-  - **`multiplex: true` itself**, on all four surfaces (rule 17), plus the
-    handshake negotiation. A client must not send a list to a server that
-    cannot serve one, and must say so rather than discover it by being
-    disconnected. `>= 8` is a sound gate: 0.9.0 shipped protocol 7, so no
-    released server announces 8, and the first that does is the one that
-    serves several.
-
-  **One measurement to save repeating.** `run_service` is 1533 lines with 95
-  `spec.` accesses: 26 in setup and dial, which are the connection's and take
-  the first spec; 38 in the Ping, which become the list; 31 in request
-  handling, already covered by the shadowing above.
+Nothing open. The next idea takes the next free id, which is `#121`.
 
 ## Withdrawn
 
@@ -410,6 +366,89 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#120 The client half of one WebSocket for several services
+  (`multiplex: true`).** (triage 40) Split from `#46`, which shipped the
+  server half: a Ping declaring several services is served as that many, each
+  routed by its own binds, ejected on its own failures, and shown and
+  controlled separately in the dashboard. No released client produces such a
+  Ping, so nothing in the field uses it yet, and this entry is what makes it
+  reachable.
+
+  **What already landed on the client.** `run_service` takes a list of specs
+  rather than one, the first standing for the connection, and each dispatch
+  resolves its own service from the name the server puts in the opening
+  frame by shadowing `spec` at the top of the arm. That is why the 31 reads
+  in those arm bodies do not have to be rewritten.
+
+  **The four things still per-connection, and why they are one piece of work
+  rather than four.** Each is small on its own; none is observable on its
+  own, because the only surface any of them reports through is the Ping's
+  `services` list, and that list cannot be built correctly until all four
+  are. Built with a field missing, it announces a second service as
+  ungated, unprobed or unlimited, which is exactly the class of quiet defect
+  the server half spent three fixes on.
+  - **Backend health.** `BackendHealth` is per service and its probe runs on
+    one connection of the pool; six sites, and the probe body captures only
+    `label` and `spec`, so extracting it is clean. It does not need the
+    connection at all, which means the natural home is the caller, where
+    `lib.rs` already builds one `BackendHealth::for_spec` per service.
+  - **Gate negotiation.** `visitor_auth_methods` comes from a
+    connection-level `GateNegotiation` computed for one gate. Services with
+    different gates each need their own, or one runs under a gate that was
+    not written for it.
+  - **Adaptive concurrency and the connection pool**, 19 sites between them.
+    A multiplexed connection is one connection, so per-service
+    `connections:` stops meaning what it means today. This is `#48` arriving
+    in person.
+  - **`multiplex: true` itself**, on all four surfaces (rule 17), plus the
+    handshake negotiation. A client must not send a list to a server that
+    cannot serve one, and must say so rather than discover it by being
+    disconnected. `>= 8` is a sound gate: 0.9.0 shipped protocol 7, so no
+    released server announces 8, and the first that does is the one that
+    serves several.
+
+  **One measurement to save repeating.** `run_service` is 1533 lines with 95
+  `spec.` accesses: 26 in setup and dial, which are the connection's and take
+  the first spec; 38 in the Ping, which become the list; 31 in request
+  handling, already covered by the shadowing above.
+
+  **shipped: the client half, 2026-08-17.** `multiplex: true` on the file or on
+  a `services:` entry puts every service that asked for it on one WebSocket. A
+  group of one is left as an ordinary connection rather than sent as a
+  one-entry list, since that list would say nothing the singular fields do not
+  and would only narrow which servers can read the Ping.
+
+  All four per-connection things moved onto the service, and a fifth that the
+  entry above missed. Backend health became one probe per service, lifted out
+  of the connect loop into `spawn_health_probe`/`spawn_backend_wait`; the gate
+  is negotiated per service, and one whose gate this server cannot carry is
+  withheld while its siblings are served, rather than the connection being
+  retried; the concurrency limiter and its adaptive controller are per service;
+  `connections:` is clamped to 1 for a multiplexed service with a `ConfigNote`
+  saying so, which is `#48` answered rather than deferred; and `multiplex:` has
+  its yaml key, env var, docs table and book row.
+
+  **The fifth was `ForwardContext`, and it was the one that mattered.** Built
+  once per connection from the first spec, it holds the backend URL, the TLS
+  floor, the timeouts, the path bind, the header rules and the circuit
+  breaker: every service on a shared connection would have been proxied to the
+  first one's backend under the first one's rules. Nothing in the entry above
+  points at it, because it is not announced in the Ping and so is invisible to
+  the "only surface any of them reports through" test that found the other
+  four. It is one per service now.
+
+  Where it differed from the plan: the gate is `x-aperio-protocol` on the
+  handshake response, a new header, rather than a version the client already
+  had. The Pong carries the server's protocol, but it arrives after the first
+  Ping has gone out, and multiplexing is the first capability that changes
+  what that Ping may say. Also settled here: a multiplexed service must have a
+  `name:`, since two unnamed ones on a connection are told apart only by their
+  position in a list; the connection's drain window is the longest any of its
+  services asked for; and every service on it announces itself for
+  `depends_on`, not just the first. Raw `tunnels:` opens still key on the
+  connection, as the server half left them.
+
 
 - [x] **#46 One WebSocket for several services of the same client process,
   as an opt-in mode.** (triage 40) Each service opens its own tunnel

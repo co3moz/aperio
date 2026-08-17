@@ -378,6 +378,21 @@ pub(crate) struct ServiceSpec {
   /// for a fixed pool; lower for an elastic one, where the supervisor opens
   /// this many and grows towards `connections` under load.
   pub(crate) connections_min: u32,
+  /// This service asked to share a connection with the others that did
+  /// (`multiplex: true`). What it asked for, not what it got: whether it
+  /// actually shares one is `multiplex_group`, since sharing needs somebody to
+  /// share with.
+  pub(crate) multiplex: bool,
+  /// The group of services this one is carried on a single connection with,
+  /// settled by `build_specs` because that is the only place that sees every
+  /// service at once.
+  ///
+  /// `None` covers both a service that never asked and one that asked and is
+  /// alone in what it asked for, and those two collapse on purpose: a group of
+  /// one is a connection carrying one service, which is what the ordinary
+  /// shape already is. Announcing a one-entry list instead would change
+  /// nothing on the wire except which servers can read it.
+  pub(crate) multiplex_group: Option<usize>,
   /// Static Prometheus labels announced for this service's metric series.
   pub(crate) metrics_labels: std::collections::BTreeMap<String, String>,
   /// Seconds this service waits before opening its tunnel.
@@ -824,10 +839,6 @@ impl BackendHealth {
   }
 }
 
-/// Runs one tunnel service until the process shuts down or `cancel` fires
-/// (config reload → the supervisor respawns with a fresh spec). `health` is the
-/// service's shared backend-health state; `run_probe` is true only for the one
-/// connection that owns the health probe/gate (the others just report it).
 /// What the server said this token may open for one service, shared across a
 /// service's parallel connections.
 ///
@@ -870,6 +881,35 @@ impl ConnectionCeiling {
     *self.rx.borrow()
   }
 }
+
+/// The parts of a service's heartbeat declaration that move while the
+/// connection is up, so the loop that sends it knows exactly what to re-read.
+///
+/// Everything else a `ServiceDecl` carries is settled by the config, and a
+/// config change respawns the connection rather than editing it underneath.
+/// Keeping the three that do move in one value beside the templates is what
+/// stops a heartbeat mixing a fresh reading of one with a stale one of another.
+struct LiveDecl {
+  /// Written by this service's backend probe, read as a pair.
+  health: BackendHealth,
+  /// The number adaptive concurrency has arrived at, when it is running.
+  adaptive: Option<Arc<crate::adaptive::Adaptive>>,
+  /// How deep this service's connection pool is right now.
+  pool: std::sync::Arc<PoolLoad>,
+  /// What the file asked for, which is what a pool with no supervisor reports.
+  connections_configured: u32,
+}
+
+/// Lowest tunnel protocol version that can carry several services on one
+/// connection.
+///
+/// v8 is where the Ping's `services` list became something a server reads and
+/// acts on; 0.9.0 shipped protocol 7, so no released server before 0.10.0
+/// announces it. Compared against what the server announces on the handshake
+/// rather than against a release number, because it is the wire format that has
+/// to agree, and a fork or a pre-release is honest about its protocol in a way
+/// its version string need not be.
+pub(crate) const MIN_MULTIPLEX_PROTOCOL: u32 = 8;
 
 /// Ceiling on a service's candidate server list, configured plus learned.
 ///
@@ -983,33 +1023,333 @@ pub(crate) fn negotiate_visitor_gate(
   GateNegotiation::Methods(specs)
 }
 
-/// The service a server-named dispatch is for.
+/// The service a server-named dispatch is for, as an index into `specs`.
+///
+/// An index rather than the spec itself because the spec is only one of the
+/// things a request needs from its service: the concurrency limiter it waits
+/// on, the adaptive controller that reads that wait, and the pool counter it
+/// is counted in are all kept in lists beside `specs`, and one lookup that
+/// answers for all of them cannot disagree with itself.
 ///
 /// The server matched a route to a service and put its name in the frame, so
 /// this is a lookup rather than a decision. A name this client does not carry
-/// falls back to the first service, which is the only answer that keeps a
-/// connection serving: the alternative is dropping a request the server has
-/// already committed to, and the pairing that could produce it (a server
-/// naming a service the client withdrew in the same instant) resolves itself
-/// on the next heartbeat.
+/// falls back to the first service it *announced*, which is the only answer
+/// that keeps a connection serving: the alternative is dropping a request the
+/// server has already committed to, and the pairing that could produce it (a
+/// server naming a service the client withdrew in the same instant) resolves
+/// itself on the next heartbeat.
 ///
-/// `None` is every client before v8 and every connection carrying one, where
-/// there is nothing to choose.
-fn service_for<'a>(specs: &'a [ServiceSpec], named: &Option<String>) -> &'a ServiceSpec {
+/// Announced, not simply first, because the two differ: a service whose visitor
+/// gate this server could not carry is held back, and falling back onto it
+/// would forward a request to a backend this connection deliberately did not
+/// offer.
+///
+/// `None` is every client before v8 and every connection carrying one service,
+/// where there is nothing to choose.
+fn service_for(specs: &[ServiceSpec], announced: &[usize], named: &Option<String>) -> usize {
+  let fallback = announced.first().copied().unwrap_or(0);
   match named {
     Some(name) => specs
       .iter()
-      .find(|s| s.name.as_deref() == Some(name.as_str()))
-      .unwrap_or(&specs[0]),
-    None => &specs[0],
+      .position(|s| s.name.as_deref() == Some(name.as_str()))
+      .filter(|i| announced.contains(i))
+      .unwrap_or(fallback),
+    None => fallback,
   }
 }
 
+/// Everything one service needs to forward a request to its backend.
+///
+/// Built per service and per connection: per service because every value in it
+/// comes from that service's own config, and per connection because the
+/// circuit breaker inside it is state, and a breaker that outlived the socket
+/// would carry one connection's failures into the next.
+fn forward_context(
+  spec: &ServiceSpec,
+  tunnel_tx: &mpsc::Sender<Message>,
+  stream_pauses: &crate::flow::PauseRegistry,
+) -> ForwardContext {
+  // Reqwest Client to make local forwarding requests. Same-site backend
+  // redirects (http→https, same root domain) are followed transparently;
+  // everything else passes through to the visitor.
+  let mut builder = crate::proxy::http::backend_client_builder()
+    .redirect(crate::proxy::http::redirect_policy(spec.max_redirects))
+    .timeout(Duration::from_secs(spec.timeout_secs));
+  // Connect and whole-request budgets are different questions: one is "is this
+  // host reachable", the other "is this backend slow". Unset leaves the single
+  // budget covering both, which is what this always did.
+  if let Some(secs) = spec.connect_timeout {
+    builder = builder.connect_timeout(Duration::from_secs(secs));
+  }
+  // Validated by `build_specs` before any service is spawned, on the first
+  // load and on every reload, so an unusable value never reaches here. If one
+  // somehow does, the floor is dropped rather than the process: killing every
+  // other service of this client over one field is the failure a reload is
+  // meant to prevent.
+  match crate::proxy::http::tls_floor(spec.min_tls_version.as_deref()) {
+    Ok(Some(floor)) => builder = builder.min_tls_version(floor),
+    Ok(None) => {}
+    Err(e) => error!("{e}; continuing without a TLS floor for this backend"),
+  }
+  let client = builder
+    // Same reasoning as the tunnel socket: these are request and response
+    // messages on a loopback or LAN hop, and holding one back for Nagle is
+    // latency on a request a visitor is waiting for.
+    .tcp_nodelay(true)
+    .build()
+    .unwrap_or_else(|e| {
+      error!("Failed to build the forwarding HTTP client: {e}; using a client without a timeout");
+      crate::proxy::http::backend_client_fallback()
+    });
+  if crate::proxy::h2::is_h2_target(&spec.target) && spec.pass_hostname {
+    warn!(
+      "[{}] pass_hostname is ignored for HTTP/2 targets ({}): the backend sees the target authority",
+      spec.label(),
+      spec.target
+    );
+  }
+  ForwardContext {
+    client,
+    stream_pauses: stream_pauses.clone(),
+    h2_client: crate::proxy::h2::build_h2_client(&spec.target, spec.min_tls_version.as_deref())
+      .map(Arc::new),
+    unix_socket: crate::proxy::unix::unix_socket_path(&spec.target),
+    timeout_secs: spec.timeout_secs,
+    // One breaker per service per connection, shared by every request it
+    // serves: a breaker that could not see the other requests' failures would
+    // never trip, and one shared across services would trip a healthy backend
+    // over a broken neighbour's failures.
+    resilience: crate::proxy::http::BackendResilience::new(
+      spec.retry_attempts,
+      spec.retry_backoff_ms,
+      spec.retry_all_methods,
+      spec.breaker_failures,
+      spec.breaker_open_for_secs,
+    ),
+    target: spec.target.clone(),
+    // Parsed once here rather than per request. `None` keeps the answer the
+    // request path used to give for a target that is not a URL: 502, a
+    // configuration error, not the visitor's fault.
+    target_url: url::Url::parse(&spec.target).ok(),
+    pass_hostname: spec.pass_hostname,
+    path_bind: spec.path.clone(),
+    trim_bind: spec.trim_bind,
+    max_response_body_size: spec.max_response_body,
+    tunnel_tx: tunnel_tx.clone(),
+    request_headers: HeaderTransform::compile(
+      spec.headers.as_ref().and_then(|h| h.request.as_ref()),
+    ),
+    response_headers: HeaderTransform::compile(
+      spec.headers.as_ref().and_then(|h| h.response.as_ref()),
+    ),
+  }
+}
+
+/// Starts the backend health probe for one service, when it configured one.
+///
+/// A function rather than a block inside `run_service` because the probe is a
+/// property of the *service* and of nothing else: it reads the spec, writes the
+/// service's shared health state, and never touches the socket. That is what
+/// lets a connection carrying several services start one of these per service.
+/// The ownership rule is unchanged, only the connection that owns a service's
+/// probes runs them, and the rest of that service's parallel connections report
+/// what these write.
+fn spawn_health_probe(
+  spec: &ServiceSpec,
+  health: &BackendHealth,
+) -> Option<tokio::task::JoinHandle<()>> {
+  let health_path = spec.target_health.as_ref()?;
+  let label = spec.label();
+  let health_changed = health.changed.clone();
+  let probed = health.probed.clone();
+  let flag = health.healthy.clone();
+  let absolute = health_path.starts_with("http://") || health_path.starts_with("https://");
+  // An h2c/h2 target speaks HTTP/2 with prior knowledge and routes by gRPC
+  // method name, so the plain GET below cannot reach it: the probe uses the
+  // standard `grpc.health.v1.Health/Check` RPC instead, and the configured
+  // value names the gRPC service to ask about (`/` = the server as a
+  // whole). An absolute URL still means "probe this over ordinary HTTP",
+  // which is the escape hatch for a backend exposing a health endpoint on a
+  // separate port.
+  let grpc_service = (!absolute && crate::proxy::h2::is_h2_target(&spec.target))
+    .then(|| health_path.trim_matches('/').to_string());
+  let health_url = if absolute {
+    health_path.clone()
+  } else {
+    let base = spec
+      .target
+      .replacen("h2c://", "http://", 1)
+      .replacen("h2://", "https://", 1);
+    format!(
+      "{}/{}",
+      base.trim_end_matches('/'),
+      health_path.trim_start_matches('/')
+    )
+  };
+  // Built once, outside the loop, like the HTTP probe client.
+  let grpc_client = grpc_service
+    .is_some()
+    .then(|| crate::proxy::h2::build_h2_client(&spec.target, spec.min_tls_version.as_deref()))
+    .flatten();
+  let grpc_target = spec.target.clone();
+  // Health checks never follow redirects: a 3xx to some other page must
+  // not let a broken backend look healthy via the redirect target.
+  let probe_client = crate::proxy::http::backend_client_builder()
+    .tcp_nodelay(true)
+    .timeout(Duration::from_secs(spec.health_timeout))
+    .redirect(reqwest::redirect::Policy::none())
+    .build()
+    .unwrap_or_else(|e| {
+      error!("Failed to build the health-probe HTTP client: {e}; using a client without a timeout");
+      crate::proxy::http::backend_client_fallback()
+    });
+  let (interval, threshold) = (spec.health_interval, spec.health_threshold);
+  let probe_timeout = Duration::from_secs(spec.health_timeout);
+  let what = match grpc_service.as_deref() {
+    Some("") => format!("gRPC health of {} (whole server)", grpc_target),
+    Some(svc) => format!("gRPC health of {} service {}", grpc_target, svc),
+    None => health_url.clone(),
+  };
+  info!(
+    "[{}] Backend health check: {} (every {}s, timeout {}s, threshold {})",
+    label, what, interval, spec.health_timeout, threshold
+  );
+  let health_url_log = what;
+  Some(tokio::spawn(async move {
+    let mut consecutive_failures: u32 = 0;
+    let mut first_result = true;
+    // Probe immediately, then on the interval: a backend that is already
+    // down when the client starts is reported after threshold probes
+    // instead of sitting falsely healthy for a full extra interval. The
+    // client also starts out-of-routing (unhealthy) until this first probe
+    // lands, so the very first success is what makes the backend routable.
+    loop {
+      let ok = match (&grpc_client, &grpc_service) {
+        (Some(client), Some(service)) => {
+          crate::proxy::h2::grpc_health_check(client, &grpc_target, service, probe_timeout).await
+        }
+        // An h2 target whose client could not be built cannot be probed;
+        // reporting it healthy would route traffic at a backend nothing has
+        // checked, so it stays unhealthy and says so through the log line
+        // the failure branch already writes.
+        (None, Some(_)) => false,
+        _ => matches!(
+          probe_client.get(&health_url).send().await,
+          Ok(resp) if resp.status().is_success()
+        ),
+      };
+      // Before anything is announced. The heartbeat reads both flags
+      // together, and the healthy-transition notify below wakes it: with
+      // the store left until after, that heartbeat carried "healthy, never
+      // probed", a pair that describes nothing, and the one the dashboard
+      // renders as CHECKING for a backend already probed and up. It
+      // corrected itself on the next notify, which is exactly why it took a
+      // one-in-many e2e run to see it.
+      if first_result {
+        probed.store(true, Ordering::SeqCst);
+      }
+      if ok {
+        consecutive_failures = 0;
+        if !flag.swap(true, Ordering::SeqCst) {
+          health_changed.notify_waiters();
+          if first_result {
+            info!(
+              "[{}] Backend healthy: {}, now routable",
+              label, health_url_log
+            );
+          } else {
+            info!("[{}] Backend health restored: {}", label, health_url_log);
+          }
+        }
+      } else {
+        consecutive_failures = consecutive_failures.saturating_add(1);
+        if consecutive_failures >= threshold && flag.swap(false, Ordering::SeqCst) {
+          health_changed.notify_waiters();
+          warn!(
+            "[{}] Backend health check failed {} consecutive time(s): {}, reporting unhealthy to the server (tunnel stays connected)",
+            label, consecutive_failures, health_url_log
+          );
+        } else if first_result {
+          // Started unhealthy and the first probe also failed: make it clear
+          // why the backend is not yet routable (the threshold warning above
+          // only fires on a healthy→unhealthy transition).
+          info!(
+            "[{}] Backend not healthy yet: {}, staying out of routing until a probe passes",
+            label, health_url_log
+          );
+        }
+      }
+      if first_result {
+        health_changed.notify_waiters();
+      }
+      first_result = false;
+      tokio::time::sleep(Duration::from_secs(interval)).await;
+    }
+  }))
+}
+
+/// Starts one service's wait-for-backend startup gate (`wait_for_backend:
+/// true`), when it asked for one and has no health check doing the job already.
+///
+/// Without a configured health check the service normally claims a healthy
+/// backend immediately, which yields connection-refused errors while a slow dev
+/// server is still booting. The gate starts the service out of routing and a
+/// lightweight connect-probe loop marks it routable the first time the backend
+/// accepts a connection; after that the gate never re-engages (`target_health`
+/// is the tool for continuous health tracking, and it supersedes this gate
+/// entirely when configured).
+fn spawn_backend_wait(
+  spec: &ServiceSpec,
+  health: &BackendHealth,
+) -> Option<tokio::task::JoinHandle<()>> {
+  let label = spec.label();
+  if !spec.wait_for_backend || spec.target.is_empty() {
+    return None;
+  }
+  if spec.target_health.is_some() {
+    info!(
+      "[{}] wait_for_backend is implied by target_health; the health check already gates startup",
+      label
+    );
+    return None;
+  }
+  health.healthy.store(false, Ordering::SeqCst);
+  health.probed.store(false, Ordering::SeqCst);
+  let flag = health.healthy.clone();
+  let probed = health.probed.clone();
+  let health_changed = health.changed.clone();
+  let target = spec.target.clone();
+  info!(
+    "[{}] Waiting for the backend to accept connections before joining routing ({})",
+    label, target
+  );
+  Some(tokio::spawn(async move {
+    loop {
+      if backend_accepts_connections(&target).await {
+        flag.store(true, Ordering::SeqCst);
+        probed.store(true, Ordering::SeqCst);
+        health_changed.notify_waiters();
+        info!("[{}] Backend is up ({}), now routable", label, target);
+        break;
+      }
+      tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+  }))
+}
+
+/// Runs one tunnel connection, carrying every service in `specs`, until the
+/// process shuts down or `cancel` fires.
+///
+/// `specs` is one service in the ordinary shape and several under `multiplex:
+/// true`; `healths` is that same list's backend-health state, index for index,
+/// created by the supervisor so a service's parallel connections share it.
+/// `run_probe` is true only for the connection that owns those probes, the
+/// others just report what they write.
 pub(crate) async fn run_service(
   specs: Vec<ServiceSpec>,
   shared: Shared,
   mut cancel: watch::Receiver<bool>,
-  health: BackendHealth,
+  healths: Vec<BackendHealth>,
   run_probe: bool,
   connection_index: u32,
   ceiling: ConnectionCeiling,
@@ -1020,15 +1360,42 @@ pub(crate) async fn run_service(
   // stand for it. What a *request* is about is resolved per request, from the
   // service the server names in the frame.
   let spec = specs[0].clone();
-  let label = spec.label();
+  // A connection carrying several services is labelled by how many, not by the
+  // first of them: every line about the connection would otherwise read as
+  // being about one service, and the other services' own lines already carry
+  // their own labels.
+  let multiplexed = specs.len() > 1;
+  let label = if multiplexed {
+    format!("{} services", specs.len())
+  } else {
+    spec.label()
+  };
 
   // Lifecycle gates, before anything is dialed. Only the first connection of a
   // pool waits: the others are the same service, and making each of them sit
   // through the same delay would turn a five-second stagger into a
   // five-second-per-connection one.
+  //
+  // A multiplexed connection waits for every one of its services: they are
+  // opening one socket together, so the last one that is ready is when it can
+  // open. The waits run in sequence and the delays do not add up in a way that
+  // matters, `depends_on` is a shared grace period rather than a per-service
+  // one, and `startup_delay` is taken as the longest rather than the sum.
   if connection_index == 1 {
-    if !spec.depends_on.is_empty() {
-      let missing = await_dependencies(&shared, &spec.depends_on).await;
+    let depends_on: Vec<String> = {
+      let mut all: Vec<String> = specs.iter().flat_map(|s| s.depends_on.clone()).collect();
+      // A service of this connection cannot wait for a service of this
+      // connection: nothing would ever come up. Dropped rather than refused,
+      // because the file is not wrong, it is describing an order that
+      // multiplexing has made moot by putting both on one socket.
+      all.retain(|d| !specs.iter().any(|s| s.name.as_deref() == Some(d.as_str())));
+      all.sort();
+      all.dedup();
+      all
+    };
+    let startup_delay = specs.iter().map(|s| s.startup_delay).max().unwrap_or(0);
+    if !depends_on.is_empty() {
+      let missing = await_dependencies(&shared, &depends_on).await;
       if !missing.is_empty() {
         warn!(
           "[{}] depends_on: {} did not come up within {}s; starting anyway",
@@ -1038,12 +1405,12 @@ pub(crate) async fn run_service(
         );
       }
     }
-    if spec.startup_delay > 0 {
+    if startup_delay > 0 {
       info!(
         "[{}] startup_delay: waiting {}s before opening the tunnel",
-        label, spec.startup_delay
+        label, startup_delay
       );
-      tokio::time::sleep(Duration::from_secs(spec.startup_delay)).await;
+      tokio::time::sleep(Duration::from_secs(startup_delay)).await;
     }
   }
 
@@ -1064,217 +1431,61 @@ pub(crate) async fn run_service(
     return;
   }
 
-  // Backend health is shared across the service's parallel connections (created
-  // once by the supervisor). This connection reports it in every heartbeat and,
-  // when it owns the probe, drives the probe/gate that updates it.
-  let BackendHealth {
-    healthy: backend_healthy,
-    probed: backend_probed,
-    changed: health_changed,
-  } = health;
-  let probe_task = if run_probe {
-    spec.target_health.as_ref().map(|health_path| {
-    let health_changed = health_changed.clone();
-    let probed = backend_probed.clone();
-    let absolute = health_path.starts_with("http://") || health_path.starts_with("https://");
-    // An h2c/h2 target speaks HTTP/2 with prior knowledge and routes by gRPC
-    // method name, so the plain GET below cannot reach it: the probe uses the
-    // standard `grpc.health.v1.Health/Check` RPC instead, and the configured
-    // value names the gRPC service to ask about (`/` = the server as a
-    // whole). An absolute URL still means "probe this over ordinary HTTP",
-    // which is the escape hatch for a backend exposing a health endpoint on a
-    // separate port.
-    let grpc_service = (!absolute && crate::proxy::h2::is_h2_target(&spec.target))
-      .then(|| health_path.trim_matches('/').to_string());
-    let health_url = if absolute {
-      health_path.clone()
-    } else {
-      let base = spec
-        .target
-        .replacen("h2c://", "http://", 1)
-        .replacen("h2://", "https://", 1);
-      format!(
-        "{}/{}",
-        base.trim_end_matches('/'),
-        health_path.trim_start_matches('/')
-      )
-    };
-    // Built once, outside the loop, like the HTTP probe client.
-    let grpc_client = grpc_service
-      .is_some()
-      .then(|| crate::proxy::h2::build_h2_client(&spec.target, spec.min_tls_version.as_deref()))
-      .flatten();
-    let grpc_target = spec.target.clone();
-    let flag = backend_healthy.clone();
-    // Health checks never follow redirects: a 3xx to some other page must
-    // not let a broken backend look healthy via the redirect target.
-    let probe_client = crate::proxy::http::backend_client_builder()
-      .tcp_nodelay(true)
-      .timeout(Duration::from_secs(spec.health_timeout))
-      .redirect(reqwest::redirect::Policy::none())
-      .build()
-      .unwrap_or_else(|e| {
-        error!("Failed to build the health-probe HTTP client: {e}; using a client without a timeout");
-        crate::proxy::http::backend_client_fallback()
-      });
-    let (interval, threshold) = (spec.health_interval, spec.health_threshold);
-    let probe_timeout = Duration::from_secs(spec.health_timeout);
-    let what = match grpc_service.as_deref() {
-      Some("") => format!("gRPC health of {} (whole server)", grpc_target),
-      Some(svc) => format!("gRPC health of {} service {}", grpc_target, svc),
-      None => health_url.clone(),
-    };
-    info!(
-      "[{}] Backend health check: {} (every {}s, timeout {}s, threshold {})",
-      label, what, interval, spec.health_timeout, threshold
-    );
-    let health_url_log = what;
-    tokio::spawn(async move {
-      let mut consecutive_failures: u32 = 0;
-      let mut first_result = true;
-      // Probe immediately, then on the interval: a backend that is already
-      // down when the client starts is reported after threshold probes
-      // instead of sitting falsely healthy for a full extra interval. The
-      // client also starts out-of-routing (unhealthy) until this first probe
-      // lands, so the very first success is what makes the backend routable.
-      loop {
-        let ok = match (&grpc_client, &grpc_service) {
-          (Some(client), Some(service)) => {
-            crate::proxy::h2::grpc_health_check(client, &grpc_target, service, probe_timeout).await
-          }
-          // An h2 target whose client could not be built cannot be probed;
-          // reporting it healthy would route traffic at a backend nothing has
-          // checked, so it stays unhealthy and says so through the log line
-          // the failure branch already writes.
-          (None, Some(_)) => false,
-          _ => matches!(
-            probe_client.get(&health_url).send().await,
-            Ok(resp) if resp.status().is_success()
-          ),
-        };
-        // Before anything is announced. The heartbeat reads both flags
-        // together, and the healthy-transition notify below wakes it: with
-        // the store left until after, that heartbeat carried "healthy, never
-        // probed", a pair that describes nothing, and the one the dashboard
-        // renders as CHECKING for a backend already probed and up. It
-        // corrected itself on the next notify, which is exactly why it took a
-        // one-in-many e2e run to see it.
-        if first_result {
-          probed.store(true, Ordering::SeqCst);
-        }
-        if ok {
-          consecutive_failures = 0;
-          if !flag.swap(true, Ordering::SeqCst) {
-            health_changed.notify_waiters();
-            if first_result {
-              info!("Backend healthy: {}, now routable", health_url_log);
-            } else {
-              info!("Backend health restored: {}", health_url_log);
-            }
-          }
-        } else {
-          consecutive_failures = consecutive_failures.saturating_add(1);
-          if consecutive_failures >= threshold && flag.swap(false, Ordering::SeqCst) {
-            health_changed.notify_waiters();
-            warn!(
-              "Backend health check failed {} consecutive time(s): {}, reporting unhealthy to the server (tunnel stays connected)",
-              consecutive_failures, health_url_log
-            );
-          } else if first_result {
-            // Started unhealthy and the first probe also failed: make it clear
-            // why the backend is not yet routable (the threshold warning above
-            // only fires on a healthy→unhealthy transition).
-            info!(
-              "Backend not healthy yet: {}, staying out of routing until a probe passes",
-              health_url_log
-            );
-          }
-        }
-        if first_result {
-          health_changed.notify_waiters();
-        }
-        first_result = false;
-        tokio::time::sleep(Duration::from_secs(interval)).await;
-      }
+  // Backend health is per service and shared across a service's parallel
+  // connections (created once by the supervisor, one per spec). This connection
+  // reports every one of them in its heartbeat and, when it owns the probes,
+  // drives the probe/gate that updates each.
+  let probe_tasks: Vec<tokio::task::JoinHandle<()>> = if run_probe {
+    specs
+      .iter()
+      .zip(&healths)
+      .flat_map(|(s, h)| [spawn_health_probe(s, h), spawn_backend_wait(s, h)])
+      .flatten()
+      .collect()
+  } else {
+    Vec::new()
+  };
+  // Local concurrency guard, one per service and shared across reconnects.
+  //
+  // Per service rather than per connection because `max_concurrent:` is what a
+  // *backend* will take: a connection carrying several would otherwise make one
+  // service's slow backend hold up permits another service's requests are
+  // waiting for, which is neither what the file says nor a number the server
+  // can be told.
+  let local_limiters: Vec<Option<Arc<Semaphore>>> = specs
+    .iter()
+    .map(|s| {
+      s.max_concurrent
+        .map(|n| Arc::new(Semaphore::new(n as usize)))
     })
-  })
-  } else {
-    None
-  };
-
-  // Wait-for-backend startup gate (`wait_for_backend: true`): without a
-  // configured health check the service normally claims a healthy backend
-  // immediately, which yields connection-refused errors while a slow dev
-  // server is still booting. The gate starts the service out of routing and
-  // a lightweight connect-probe loop marks it routable the first time the
-  // backend accepts a connection; after that the gate never re-engages
-  // (`target_health` is the tool for continuous health tracking, and it
-  // supersedes this gate entirely when configured).
-  let wait_task = if run_probe
-    && spec.wait_for_backend
-    && spec.target_health.is_none()
-    && !spec.target.is_empty()
-  {
-    backend_healthy.store(false, Ordering::SeqCst);
-    backend_probed.store(false, Ordering::SeqCst);
-    let flag = backend_healthy.clone();
-    let probed = backend_probed.clone();
-    let health_changed = health_changed.clone();
-    let target = spec.target.clone();
-    let label = label.clone();
-    info!(
-      "[{}] Waiting for the backend to accept connections before joining routing ({})",
-      label, target
-    );
-    Some(tokio::spawn(async move {
-      loop {
-        if backend_accepts_connections(&target).await {
-          flag.store(true, Ordering::SeqCst);
-          probed.store(true, Ordering::SeqCst);
-          health_changed.notify_waiters();
-          info!("[{}] Backend is up ({}), now routable", label, target);
-          break;
-        }
-        tokio::time::sleep(Duration::from_secs(1)).await;
-      }
-    }))
-  } else {
-    if spec.wait_for_backend && spec.target_health.is_some() {
-      info!(
-        "[{}] wait_for_backend is implied by target_health; the health check already gates startup",
-        label
-      );
-    }
-    None
-  };
-
-  // Local concurrency guard, shared across reconnects of this service.
-  let local_limiter: Option<Arc<Semaphore>> = spec
-    .max_concurrent
-    .map(|n| Arc::new(Semaphore::new(n as usize)));
+    .collect();
 
   // Adaptive concurrency (#65): the announced number follows backend
   // pressure. It needs the local limiter, because the evidence is how long
   // requests wait for one of its permits, and it is that number being moved.
-  let adaptive = match (
-    spec.adaptive_concurrency,
-    &local_limiter,
-    spec.max_concurrent,
-  ) {
-    (true, Some(limiter), Some(configured)) => {
-      let adaptive = Arc::new(crate::adaptive::Adaptive::new(configured, limiter.clone()));
-      crate::adaptive::spawn(adaptive.clone(), label.clone());
-      Some(adaptive)
-    }
-    (true, _, _) => {
-      warn!(
-        "[{}] adaptive_concurrency needs max_concurrent to be set; there is no number to move",
-        label
-      );
-      None
-    }
-    _ => None,
-  };
+  // One per service for the same reason the limiter is: the evidence is one
+  // backend's, and the number it moves is announced for one service.
+  let adaptives: Vec<Option<Arc<crate::adaptive::Adaptive>>> = specs
+    .iter()
+    .zip(&local_limiters)
+    .map(
+      |(s, limiter)| match (s.adaptive_concurrency, limiter, s.max_concurrent) {
+        (true, Some(limiter), Some(configured)) => {
+          let adaptive = Arc::new(crate::adaptive::Adaptive::new(configured, limiter.clone()));
+          crate::adaptive::spawn(adaptive.clone(), s.label());
+          Some(adaptive)
+        }
+        (true, _, _) => {
+          warn!(
+            "[{}] adaptive_concurrency needs max_concurrent to be set; there is no number to move",
+            s.label()
+          );
+          None
+        }
+        _ => None,
+      },
+    )
+    .collect();
 
   // Reconnection Loop. Retries use exponential backoff with jitter so that a
   // fleet of clients does not stampede the server after a restart; the
@@ -1293,8 +1504,13 @@ pub(crate) async fn run_service(
   let mut ws_urls: Vec<String> = spec.ws_urls.clone();
   // Cloned once for the whole reconnect loop: the policy is what the file
   // said, and each connection decides separately whether this server accepts
-  // it (planned_features #111).
-  let visitor_auth_policy_ping = spec.visitor_auth_policy.clone();
+  // it (planned_features #111). One per service, because two services on one
+  // connection can be written with different gates and a single negotiation
+  // would run one of them under a policy nobody wrote for it.
+  let visitor_auth_policies: Vec<Option<aperio_config::AuthSetting>> = specs
+    .iter()
+    .map(|s| s.visitor_auth_policy.clone())
+    .collect();
   // Self-reported health for this connection: the ping task fills it in, the
   // read loop times the pongs, and the reconnect counter lives across
   // attempts, which is the point of it.
@@ -1384,6 +1600,38 @@ pub(crate) async fn run_service(
               error!("[{}] Refusing to serve: {}", label, refused.message());
               break 'outer;
             }
+            // Multiplexing is negotiated, not assumed. A server too old to
+            // serve a list of services would read the Ping's singular fields
+            // instead, bring up the first service and silently drop the rest:
+            // a connection that establishes and then serves less than it was
+            // told to, which is the failure the connect-time gate exists to
+            // prevent. So the services are held back until a server that says
+            // it can carry them answers, and the log line says which side has
+            // to move.
+            //
+            // Absent means old. The header was added with the ability, so a
+            // server that does not send it cannot have it, and reading silence
+            // as consent is the one mistake that produces the quiet half-serve.
+            if multiplexed {
+              let announced = response
+                .headers()
+                .get(crate::protocol::PROTOCOL_HEADER)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.trim().parse::<u32>().ok());
+              if announced.is_none_or(|p| p < MIN_MULTIPLEX_PROTOCOL) {
+                error!(
+                  "[{}] This server speaks tunnel protocol {}, and carrying {} services on one connection (multiplex: true) needs {}. Not serving these {} service(s): upgrade the server to 0.10.0 or newer, or set multiplex: false to give each its own connection. Retrying.",
+                  label,
+                  announced
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|| "an older version".to_string()),
+                  specs.len(),
+                  MIN_MULTIPLEX_PROTOCOL,
+                  specs.len()
+                );
+                continue;
+              }
+            }
             // The server announces what this token may open for one service.
             // Published for the siblings waiting on it above; refreshed on
             // every reconnect, so raising the number on the server reaches a
@@ -1412,57 +1660,87 @@ pub(crate) async fn run_service(
             // read from the handshake response because that is the only
             // moment where the answer is known and nothing has been declared
             // yet. The reasoning lives on `negotiate_visitor_gate`.
-            let negotiated = negotiate_visitor_gate(
-              response
-                .headers()
-                .get("x-aperio-visitor-auth-methods")
-                .and_then(|v| v.to_str().ok()),
-              visitor_auth_policy_ping.as_ref(),
-            );
-            let visitor_auth_methods_ping = match negotiated {
-              GateNegotiation::Scalar => None,
-              GateNegotiation::Methods(ref specs) => Some(specs.clone()),
-              GateNegotiation::Unsupported {
-                ref wanted,
-                ref accepted,
-              } => {
-                // Refusing the connection is the only safe answer: this client
-                // cannot serve the route under the gate that was written, and
-                // staying connected without one would be worse than being
-                // absent. Only this service stops; its siblings are untouched.
-                if accepted.is_empty() {
-                  // The server named no method at all, which it does for a
-                  // connection that may not declare a gate rather than for one
-                  // whose method it does not know. Its own log says which
-                  // token and why; from here the honest thing is to name the
-                  // usual cause without asserting it.
-                  error!(
-                    "[{}] This server accepts no client-declared visitor gate on this connection, which is what it answers when the token may not control the visitor gate. Not serving this service: grant the token that permission, or write the gate on the server. Retrying.",
-                    label
-                  );
-                } else {
-                  error!(
-                    "[{}] This server does not accept `{}` as a client-declared visitor gate (it accepts: {}). Not serving this service: upgrade the server, or write a gate it understands. Retrying.",
-                    label,
-                    wanted.join(", "),
-                    accepted.join(", ")
-                  );
+            //
+            // Asked once per service, because the answer depends on the policy
+            // each one was written with. A service whose gate this server
+            // cannot carry is withheld and the rest are served: on a connection
+            // of its own that means the connection is retried, which is what it
+            // always meant, and on a shared one it means the sibling services
+            // are not taken down over a gate that is not theirs.
+            let announced_methods = response
+              .headers()
+              .get("x-aperio-visitor-auth-methods")
+              .and_then(|v| v.to_str().ok());
+            let mut withheld: Vec<usize> = Vec::new();
+            let mut negotiated_gates: Vec<Option<Vec<aperio_config::AuthMethodSpec>>> =
+              Vec::with_capacity(specs.len());
+            for (i, policy) in visitor_auth_policies.iter().enumerate() {
+              let service_label = specs[i].label();
+              let gate = match negotiate_visitor_gate(announced_methods, policy.as_ref()) {
+                GateNegotiation::Scalar => None,
+                GateNegotiation::Methods(methods) => Some(methods),
+                GateNegotiation::Unsupported { wanted, accepted } => {
+                  // Withholding it is the only safe answer: this client cannot
+                  // serve the route under the gate that was written, and
+                  // serving it without one would be worse than being absent.
+                  if accepted.is_empty() {
+                    // The server named no method at all, which it does for a
+                    // connection that may not declare a gate rather than for one
+                    // whose method it does not know. Its own log says which
+                    // token and why; from here the honest thing is to name the
+                    // usual cause without asserting it.
+                    error!(
+                      "[{}] This server accepts no client-declared visitor gate on this connection, which is what it answers when the token may not control the visitor gate. Not serving this service: grant the token that permission, or write the gate on the server.",
+                      service_label
+                    );
+                  } else {
+                    error!(
+                      "[{}] This server does not accept `{}` as a client-declared visitor gate (it accepts: {}). Not serving this service: upgrade the server, or write a gate it understands.",
+                      service_label,
+                      wanted.join(", "),
+                      accepted.join(", ")
+                    );
+                  }
+                  withheld.push(i);
+                  None
                 }
-                continue;
-              }
-              GateNegotiation::TooOldForPolicy { ref wanted } => {
-                // Same refusal, different reason: the server is old enough
-                // that it never says what it accepts, and a gate of this shape
-                // can only be sent in a field it does not read. It would
-                // ignore that field, see no gate, and serve the route open.
-                error!(
-                  "[{}] This server is too old to be told an `auth:` of this shape (`{}`): it can only be given a single `user:password`. Not serving this service: upgrade the server, or write the gate as one credential. Retrying.",
-                  label,
-                  wanted.join(", ")
-                );
-                continue;
-              }
-            };
+                GateNegotiation::TooOldForPolicy { wanted } => {
+                  // Same refusal, different reason: the server is old enough
+                  // that it never says what it accepts, and a gate of this shape
+                  // can only be sent in a field it does not read. It would
+                  // ignore that field, see no gate, and serve the route open.
+                  error!(
+                    "[{}] This server is too old to be told an `auth:` of this shape (`{}`): it can only be given a single `user:password`. Not serving this service: upgrade the server, or write the gate as one credential.",
+                    service_label,
+                    wanted.join(", ")
+                  );
+                  withheld.push(i);
+                  None
+                }
+              };
+              negotiated_gates.push(gate);
+            }
+            // Nothing left to serve, so there is no connection to hold open.
+            // Retried rather than abandoned, for the reason each refusal above
+            // gives: every one of them is about what *this* server accepts, and
+            // the next reconnect may reach a different one.
+            if withheld.len() == specs.len() {
+              warn!(
+                "[{}] No service on this connection can be served by this server. Retrying.",
+                label
+              );
+              continue;
+            }
+            let announced_services: Vec<usize> =
+              (0..specs.len()).filter(|i| !withheld.contains(i)).collect();
+            if !withheld.is_empty() {
+              warn!(
+                "[{}] Serving {} of this connection's {} services; the rest are held back for the reasons above",
+                label,
+                announced_services.len(),
+                specs.len()
+              );
+            }
             if let Some(learned) = response
               .headers()
               .get("x-aperio-alternate-servers")
@@ -1479,17 +1757,21 @@ pub(crate) async fn run_service(
               }
             }
             let connected_at = Instant::now();
-            // Announce this service to anything waiting on it via
-            // `depends_on`. Keyed by service name, so every connection of a
-            // parallel pool announces the same name and the first one to
-            // connect is enough.
-            let mut announced_ready = false;
-            if let Some(name) = spec.name.as_deref() {
-              shared.ready_services.send_modify(|live| {
-                *live.entry(name.to_string()).or_insert(0) += 1;
-              });
-              announced_ready = true;
-            }
+            // Announce every service this connection carries to anything
+            // waiting on one via `depends_on`. Keyed by service name, so every
+            // connection of a parallel pool announces the same name and the
+            // first one to connect is enough; a connection carrying several
+            // announces each, since a service that is up is up whether it has
+            // a socket to itself or shares one.
+            let announced_ready: Vec<String> = specs
+              .iter()
+              .filter_map(|s| s.name.clone())
+              .inspect(|name| {
+                shared.ready_services.send_modify(|live| {
+                  *live.entry(name.clone()).or_insert(0) += 1;
+                });
+              })
+              .collect();
             // Every established connection after the first is a reconnect,
             // and the count is what tells a flapping link from a quiet one:
             // two clients both answering pings look identical otherwise.
@@ -1576,66 +1858,101 @@ pub(crate) async fn run_service(
               });
             }
             let tx_ping = tx_write.clone();
-            let tcp_enabled_ping = spec.tcp_target.is_some();
             let client_id_ping = spec.client_id.clone();
-            let path_bind_ping = spec.path.clone();
-            let hostnames_ping = spec.hostnames.clone();
-            let hostname_bind_ping = spec.hostnames.first().cloned();
             let last_pong_time_ping = last_pong_time.clone();
             let abort_tx_ping = abort_tx.clone();
-            let health_ping = BackendHealth {
-              healthy: backend_healthy.clone(),
-              probed: backend_probed.clone(),
-              changed: health_changed.clone(),
-            };
-            let health_changed_ping = health_changed.clone();
             let cancel_ping = cancel.clone();
             let self_health_ping = health_report.clone();
             let shared_ping = shared.clone();
-            let reload_drain_ping = Duration::from_secs(spec.reload_drain_secs);
-            let service_name_ping = spec.name.clone();
-            let service_custom_name_ping = spec.custom_name.clone();
-            let tunnels_ping = spec.tunnels.clone();
-            let visitor_auth_ping = spec.visitor_auth.clone();
-            let allowed_ips_ping = spec.allowed_ips.clone();
-            let no_capture = !spec.capture;
-            let (max_concurrent, priority, bandwidth_bps, public, cache, resilience) = (
-              spec.max_concurrent,
-              spec.priority,
-              spec.bandwidth_bps,
-              spec.public,
-              spec.cache,
-              spec.resilience,
-            );
-            let max_request_body_ping = spec.max_request_body;
-            let response_timeout_ping = spec.response_timeout;
+            // The connection drains once, so the window is the longest any of
+            // its services asked for: cutting one short to honour another's
+            // shorter number would kill in-flight requests the file promised
+            // to let finish, and the drain is bounded by what is actually in
+            // flight rather than by running out the clock.
+            let drain_secs = specs
+              .iter()
+              .map(|s| s.reload_drain_secs)
+              .max()
+              .unwrap_or_default();
+            let reload_drain_ping = Duration::from_secs(drain_secs);
             let client_key_ping = device_key();
-            let webhook_inbox_ping = spec.webhook_inbox;
-            let denied_ping = spec.denied.clone();
-            // What the pool is running right now, not what it may grow to: the
-            // dashboard reads this as "this service has N connections", and an
-            // elastic pool sitting at its floor would otherwise claim its
-            // ceiling and look like connections had gone missing. Read inside
-            // the heartbeat below, because an elastic pool moves: taking it
-            // once here reported the size the pool happened to be when this
-            // connection opened, for as long as the connection lived.
-            let pool_load_ping = spec.pool_load.clone();
-            let connections_configured = spec.connections;
-            // Only meaningful as a range; a fixed `connections: N` announces
-            // nothing rather than a min and max that are the same number.
-            let (connections_min_ping, connections_max_ping) =
-              if spec.connections_min < spec.connections {
-                (Some(spec.connections_min), Some(spec.connections))
-              } else {
-                (None, None)
-              };
-            let metrics_labels_ping = spec.metrics_labels.clone();
-            // What this service will actually take right now, which is the
-            // configured number until adaptive concurrency lowers it.
-            let adaptive_ping = adaptive.clone();
-            let drain_secs_ping = Some(spec.reload_drain_secs);
-            let config_notes_ping = spec.config_notes.clone();
-            let scaling_ping = spec.scaling.clone();
+            let drain_secs_ping = Some(drain_secs);
+            // Everything the heartbeat says about a service, built once per
+            // service and per connection: these are the values the config
+            // settled, and a config change respawns the connection rather than
+            // editing them underneath it.
+            //
+            // Built as `ServiceDecl` values rather than as loose locals because
+            // that is the shape the wire wants, and because there is now more
+            // than one of them. Only three fields move while the connection is
+            // up, and the loop below is the one place that patches them.
+            let decl_templates: Vec<crate::protocol::ServiceDecl> = announced_services
+              .iter()
+              .map(|&i| {
+                let s = &specs[i];
+                crate::protocol::ServiceDecl {
+                  service: s.name.clone(),
+                  service_custom_name: s.custom_name.clone(),
+                  path_bind: s.path.clone(),
+                  hostname_bind: s.hostnames.first().cloned(),
+                  hostname_binds: s.hostnames.clone(),
+                  // Patched per heartbeat from this service's adaptive
+                  // controller; the configured number is what it starts at.
+                  max_concurrent: s.max_concurrent,
+                  tcp: s.tcp_target.is_some(),
+                  // Patched per heartbeat: this is the pair the probe writes.
+                  backend_healthy: false,
+                  backend_probed: false,
+                  priority: s.priority,
+                  bandwidth_bps: s.bandwidth_bps,
+                  public: s.public,
+                  visitor_auth: s.visitor_auth.clone(),
+                  visitor_auth_methods: negotiated_gates[i].clone(),
+                  allowed_ips: s.allowed_ips.clone(),
+                  tunnels: s.tunnels.clone(),
+                  cache: s.cache,
+                  resilience: s.resilience,
+                  no_capture: !s.capture,
+                  max_request_body: s.max_request_body,
+                  response_timeout: s.response_timeout,
+                  webhook_inbox: s.webhook_inbox,
+                  denied: s.denied.clone(),
+                  scaling: s.scaling.clone(),
+                  // Patched per heartbeat: what the pool is running right now,
+                  // not what it may grow to. The dashboard reads this as "this
+                  // service has N connections", and an elastic pool sitting at
+                  // its floor would otherwise claim its ceiling and look like
+                  // connections had gone missing. Read inside the heartbeat
+                  // because an elastic pool moves: taken once here it would
+                  // report the size the pool happened to be when this
+                  // connection opened, for as long as the connection lived.
+                  connections: None,
+                  // Only meaningful as a range; a fixed `connections: N`
+                  // announces nothing rather than a min and max that are the
+                  // same number.
+                  connections_min: (s.connections_min < s.connections).then_some(s.connections_min),
+                  connections_max: (s.connections_min < s.connections).then_some(s.connections),
+                  config_notes: s.config_notes.clone(),
+                  metrics_labels: s.metrics_labels.clone(),
+                }
+              })
+              .collect();
+            // The moving parts, in the same order as the templates.
+            let live_ping: Vec<LiveDecl> = announced_services
+              .iter()
+              .map(|&i| LiveDecl {
+                health: healths[i].clone(),
+                adaptive: adaptives[i].clone(),
+                pool: specs[i].pool_load.clone(),
+                connections_configured: specs[i].connections,
+              })
+              .collect();
+            // Any service's health flipping is worth a heartbeat now rather
+            // than up to 5s later, so the wait below listens to all of them.
+            let health_changed_ping: Vec<Arc<tokio::sync::Notify>> = announced_services
+              .iter()
+              .map(|&i| healths[i].changed.clone())
+              .collect();
 
             let ping_task = tokio::spawn(async move {
               // The first Ping goes out immediately: it announces the binds,
@@ -1682,18 +1999,37 @@ pub(crate) async fn run_service(
                   break;
                 }
 
-                // One read, so the pair in this heartbeat is one observation.
-                let reported_health = health_ping.report();
+                // This heartbeat's description of every service on the
+                // connection: the settled values, with the three that move
+                // read now so everything in the frame describes one moment.
+                let mut decls = decl_templates.clone();
+                for (decl, live) in decls.iter_mut().zip(&live_ping) {
+                  // One read, so the pair in this heartbeat is one observation.
+                  let reported = live.health.report();
+                  decl.backend_healthy = reported.0;
+                  decl.backend_probed = reported.1;
+                  // Not the configured number: what this service will take
+                  // right now, which adaptive concurrency may have lowered.
+                  decl.max_concurrent = live
+                    .adaptive
+                    .as_ref()
+                    .map(|a| a.announced())
+                    .or(decl.max_concurrent);
+                  decl.connections = Some(live.pool.open().unwrap_or(live.connections_configured));
+                }
                 // Likewise for the self-reported figures: everything in this
                 // heartbeat describes the same moment.
                 let (rtt_ms, jitter_ms, reconnects) = self_health_ping.link();
+                // The first service stands for the connection in the singular
+                // fields, which is what it has always done and what every
+                // server before v8 reads. The list is sent alongside only when
+                // there is more than one service to describe, because a server
+                // that reads it treats it as authoritative and a one-entry list
+                // says nothing the singular fields do not: what it would
+                // change is which servers can read the Ping at all.
+                let first = &decls[0];
                 let ping_msg = TunnelMessage::Ping {
-                  // Not yet: this client still runs one service per
-                  // connection, and says so in the fields below. The list is
-                  // what a multiplexing client will fill in (#46), and until
-                  // one exists sending an empty shape would be describing a
-                  // capability nothing has.
-                  services: None,
+                  services: (decls.len() > 1).then(|| decls.clone()),
                   cpu_percent: self_health_ping.cpu_percent(),
                   rss_bytes: crate::health_report::rss_bytes(),
                   rtt_ms,
@@ -1704,44 +2040,39 @@ pub(crate) async fn run_service(
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs(),
-                  path_bind: path_bind_ping.clone(),
-                  hostname_bind: hostname_bind_ping.clone(),
-                  hostname_binds: hostnames_ping.clone(),
-                  // Not the configured number: what this service will take
-                  // right now, which adaptive concurrency may have lowered.
-                  max_concurrent: adaptive_ping
-                    .as_ref()
-                    .map(|a| a.announced())
-                    .or(max_concurrent),
-                  tcp: tcp_enabled_ping,
+                  path_bind: first.path_bind.clone(),
+                  hostname_bind: first.hostname_bind.clone(),
+                  hostname_binds: first.hostname_binds.clone(),
+                  max_concurrent: first.max_concurrent,
+                  tcp: first.tcp,
                   version: Some(env!("CARGO_PKG_VERSION").to_string()),
                   protocol: Some(PROTOCOL_VERSION),
-                  backend_healthy: reported_health.0,
-                  backend_probed: reported_health.1,
-                  priority,
-                  bandwidth_bps,
-                  service: service_name_ping.clone(),
-                  service_custom_name: service_custom_name_ping.clone(),
-                  public,
-                  visitor_auth: visitor_auth_ping.clone(),
-                  visitor_auth_methods: visitor_auth_methods_ping.clone(),
-                  allowed_ips: allowed_ips_ping.clone(),
-                  tunnels: tunnels_ping.clone(),
-                  cache,
-                  resilience,
-                  no_capture,
-                  max_request_body: max_request_body_ping,
-                  response_timeout: response_timeout_ping,
+                  backend_healthy: first.backend_healthy,
+                  backend_probed: first.backend_probed,
+                  priority: first.priority,
+                  bandwidth_bps: first.bandwidth_bps,
+                  service: first.service.clone(),
+                  service_custom_name: first.service_custom_name.clone(),
+                  public: first.public,
+                  visitor_auth: first.visitor_auth.clone(),
+                  visitor_auth_methods: first.visitor_auth_methods.clone(),
+                  allowed_ips: first.allowed_ips.clone(),
+                  tunnels: first.tunnels.clone(),
+                  cache: first.cache,
+                  resilience: first.resilience,
+                  no_capture: first.no_capture,
+                  max_request_body: first.max_request_body,
+                  response_timeout: first.response_timeout,
                   client_key: client_key_ping.clone(),
-                  webhook_inbox: webhook_inbox_ping,
-                  denied: denied_ping.clone(),
-                  scaling: scaling_ping.clone(),
-                  connections: Some(pool_load_ping.open().unwrap_or(connections_configured)),
-                  connections_min: connections_min_ping,
-                  connections_max: connections_max_ping,
-                  metrics_labels: metrics_labels_ping.clone(),
+                  webhook_inbox: first.webhook_inbox,
+                  denied: first.denied.clone(),
+                  scaling: first.scaling.clone(),
+                  connections: first.connections,
+                  connections_min: first.connections_min,
+                  connections_max: first.connections_max,
+                  metrics_labels: first.metrics_labels.clone(),
                   drain_secs: drain_secs_ping,
-                  config_notes: config_notes_ping.clone(),
+                  config_notes: first.config_notes.clone(),
                 };
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg) {
                   // Timed from the moment it is queued, which is the same
@@ -1753,99 +2084,39 @@ pub(crate) async fn run_service(
                     break;
                   }
                 }
-                // Wake early when the backend health verdict flips, so a
-                // change is reported at once rather than up to 5s later.
+                // Wake early when any service's backend health verdict flips,
+                // so a change is reported at once rather than up to 5s later.
+                // The futures are built together and raced as one, which is
+                // what makes a notify on the last service as prompt as one on
+                // the first.
+                let flipped = futures_util::future::select_all(
+                  health_changed_ping
+                    .iter()
+                    .map(|n| Box::pin(n.notified()))
+                    .collect::<Vec<_>>(),
+                );
                 tokio::select! {
                   _ = tokio::time::sleep(Duration::from_secs(5)) => {}
-                  _ = health_changed_ping.notified() => {}
+                  _ = flipped => {}
                 }
               }
             });
 
-            // Reqwest Client to make local forwarding requests. Same-site
-            // backend redirects (http→https, same root domain) are followed
-            // transparently; everything else passes through to the visitor.
-            let mut builder = crate::proxy::http::backend_client_builder()
-              .redirect(crate::proxy::http::redirect_policy(spec.max_redirects))
-              .timeout(Duration::from_secs(spec.timeout_secs));
-            // Connect and whole-request budgets are different questions: one
-            // is "is this host reachable", the other "is this backend slow".
-            // Unset leaves the single budget covering both, which is what this
-            // always did.
-            if let Some(secs) = spec.connect_timeout {
-              builder = builder.connect_timeout(Duration::from_secs(secs));
-            }
-            // Validated by `build_specs` before any service is spawned, on
-            // the first load and on every reload, so an unusable value never
-            // reaches here. If one somehow does, the floor is dropped rather
-            // than the process: killing every other service of this client
-            // over one field is the failure a reload is meant to prevent.
-            match crate::proxy::http::tls_floor(spec.min_tls_version.as_deref()) {
-              Ok(Some(floor)) => builder = builder.min_tls_version(floor),
-              Ok(None) => {}
-              Err(e) => error!("{e}; continuing without a TLS floor for this backend"),
-            }
-            let reqwest_client = builder
-              // Same reasoning as the tunnel socket: these are request and
-              // response messages on a loopback or LAN hop, and holding one
-              // back for Nagle is latency on a request a visitor is waiting
-              // for.
-              .tcp_nodelay(true)
-              .build()
-              .unwrap_or_else(|e| {
-                error!("Failed to build the forwarding HTTP client: {e}; using a client without a timeout");
-                crate::proxy::http::backend_client_fallback()
-              });
-
-            // Per-connection forwarding constants shared by all request tasks.
-            if crate::proxy::h2::is_h2_target(&spec.target) && spec.pass_hostname {
-              warn!(
-                "pass_hostname is ignored for HTTP/2 targets ({}): the backend sees the target authority",
-                spec.target
-              );
-            }
             // Pause switches for the streams this connection produces
             // (server flow control, protocol v3). Per connection: stream ids
             // do not survive a reconnect.
             let stream_pauses = crate::flow::PauseRegistry::default();
 
-            let forward_ctx = Arc::new(ForwardContext {
-              client: reqwest_client.clone(),
-              stream_pauses: stream_pauses.clone(),
-              h2_client: crate::proxy::h2::build_h2_client(
-                &spec.target,
-                spec.min_tls_version.as_deref(),
-              )
-              .map(Arc::new),
-              unix_socket: crate::proxy::unix::unix_socket_path(&spec.target),
-              timeout_secs: spec.timeout_secs,
-              // One breaker per service connection, shared by every request
-              // it serves: a breaker that could not see the other requests'
-              // failures would never trip.
-              resilience: crate::proxy::http::BackendResilience::new(
-                spec.retry_attempts,
-                spec.retry_backoff_ms,
-                spec.retry_all_methods,
-                spec.breaker_failures,
-                spec.breaker_open_for_secs,
-              ),
-              target: spec.target.clone(),
-              // Parsed once here rather than per request. `None` keeps the
-              // answer the request path used to give for a target that is not
-              // a URL: 502, a configuration error, not the visitor's fault.
-              target_url: url::Url::parse(&spec.target).ok(),
-              pass_hostname: spec.pass_hostname,
-              path_bind: spec.path.clone(),
-              trim_bind: spec.trim_bind,
-              max_response_body_size: spec.max_response_body,
-              tunnel_tx: tx_write.clone(),
-              request_headers: HeaderTransform::compile(
-                spec.headers.as_ref().and_then(|h| h.request.as_ref()),
-              ),
-              response_headers: HeaderTransform::compile(
-                spec.headers.as_ref().and_then(|h| h.response.as_ref()),
-              ),
-            });
+            // How a request is forwarded, one per service. Everything in it
+            // is the service's own, the backend URL and its TLS floor, the
+            // timeouts, the path bind, the header rules and the circuit
+            // breaker, so a connection carrying several needs one each: built
+            // once for the connection, every service on it would have been
+            // proxied to the first one's backend under the first one's rules.
+            let forward_ctxs: Vec<Arc<ForwardContext>> = specs
+              .iter()
+              .map(|s| Arc::new(forward_context(s, &tx_write, &stream_pauses)))
+              .collect();
 
             // Protocol version the server announced via Pong; v2 enables
             // binary chunk frames and streamed request bodies.
@@ -1956,8 +2227,9 @@ pub(crate) async fn run_service(
                               {
                                   match tunnel_msg {
                                           TunnelMessage::Request {
-                                              // Which service the server routed this to. Read once this client
-                                              // can carry several (#46); with one there is nothing to choose.
+                                              // Which service the server routed this to, by name.
+                                              // Absent on a connection carrying one, where there
+                                              // is nothing to choose.
                                               service: _service,
                                               id,
                                               method,
@@ -1966,9 +2238,10 @@ pub(crate) async fn run_service(
                                               body,
                                           } => {
                                               // The service the server named. With one, this is that one.
-                                              let spec = service_for(&specs, &_service);
-                                              let ctx = forward_ctx.clone();
-                                              let limiter = local_limiter.clone();
+                                              let service_index = service_for(&specs, &announced_services, &_service);
+                                              let spec = &specs[service_index];
+                                              let ctx = forward_ctxs[service_index].clone();
+                                              let limiter = local_limiters[service_index].clone();
                                               let inflight = shared.inflight_requests.clone();
                                               let proto = server_protocol.clone();
                                               let raw_body = frame_body.take();
@@ -1978,7 +2251,7 @@ pub(crate) async fn run_service(
                                               shared.mark_request_activity();
 
                                               // Handle incoming request concurrently
-                                              let adaptive_for_task = adaptive.clone();
+                                              let adaptive_for_task = adaptives[service_index].clone();
                                               tokio::spawn(async move {
                                                   // Local concurrency guard: even a misbehaving server
                                                   // cannot push more parallel work onto the backend.
@@ -2018,8 +2291,9 @@ pub(crate) async fn run_service(
                                               });
                                           }
                                           TunnelMessage::RequestStart {
-                                              // Which service the server routed this to. Read once this client
-                                              // can carry several (#46); with one there is nothing to choose.
+                                              // Which service the server routed this to, by name.
+                                              // Absent on a connection carrying one, where there
+                                              // is nothing to choose.
                                               service: _service,
                                               id,
                                               method,
@@ -2027,7 +2301,8 @@ pub(crate) async fn run_service(
                                               headers,
                                           } => {
                                               // The service the server named. With one, this is that one.
-                                              let spec = service_for(&specs, &_service);
+                                              let service_index = service_for(&specs, &announced_services, &_service);
+                                              let spec = &specs[service_index];
                                               shared.mark_request_activity();
                                               // Streamed request body (protocol v2): the backend
                                               // request starts immediately and is fed chunk-by-chunk
@@ -2035,15 +2310,15 @@ pub(crate) async fn run_service(
                                               let (body_tx, body_rx) =
                                                   mpsc::channel::<Result<bytes::Bytes, std::io::Error>>(32);
                                               active_request_streams.lock().await.insert(id.clone(), body_tx);
-                                              let ctx = forward_ctx.clone();
-                                              let limiter = local_limiter.clone();
+                                              let ctx = forward_ctxs[service_index].clone();
+                                              let limiter = local_limiters[service_index].clone();
                                               let inflight = shared.inflight_requests.clone();
                                               let streams = active_request_streams.clone();
                                               let proto = server_protocol.clone();
                                               let pool = spec.pool_load.clone();
                                               inflight.fetch_add(1, Ordering::SeqCst);
                                               pool.enter();
-                                              let adaptive_for_task = adaptive.clone();
+                                              let adaptive_for_task = adaptives[service_index].clone();
                                               tokio::spawn(async move {
                                                   let waiting = Instant::now();
                                                   let _permit = match limiter {
@@ -2100,8 +2375,9 @@ pub(crate) async fn run_service(
                                               active_request_streams.lock().await.remove(&id);
                                           }
                                           TunnelMessage::UpgradeRequest {
-                                              // Which service the server routed this to. Read once this client
-                                              // can carry several (#46); with one there is nothing to choose.
+                                              // Which service the server routed this to, by name.
+                                              // Absent on a connection carrying one, where there
+                                              // is nothing to choose.
                                               service: _service,
                                               id,
                                               method,
@@ -2109,7 +2385,8 @@ pub(crate) async fn run_service(
                                               headers,
                                           } => {
                                               // The service the server named. With one, this is that one.
-                                              let spec = service_for(&specs, &_service);
+                                              let service_index = service_for(&specs, &announced_services, &_service);
+                                              let spec = &specs[service_index];
                                               shared.mark_request_activity();
                                               let tx_resp = tx_write.clone();
                                               let target_url = spec.target.clone();
@@ -2183,7 +2460,8 @@ pub(crate) async fn run_service(
                                           }
                                           TunnelMessage::TcpOpen { stream_id, target, visitor, service: _service } => {
                                               // The service the server named. With one, this is that one.
-                                              let spec = service_for(&specs, &_service);
+                                              let service_index = service_for(&specs, &announced_services, &_service);
+                                              let spec = &specs[service_index];
                                               shared.mark_request_activity();
                                               // SSRF guard: only addresses this client itself
                                               // declared are ever dialed, a named target must be
@@ -2241,7 +2519,8 @@ pub(crate) async fn run_service(
                                           }
                                           TunnelMessage::UdpOpen { stream_id, target, service: _service } => {
                                               // The service the server named. With one, this is that one.
-                                              let spec = service_for(&specs, &_service);
+                                              let service_index = service_for(&specs, &announced_services, &_service);
+                                              let spec = &specs[service_index];
                                               shared.mark_request_activity();
                                               // SSRF guard: only declared protocol: udp targets
                                               // are ever dialed, mirroring TcpOpen.
@@ -2448,7 +2727,7 @@ pub(crate) async fn run_service(
             // out, which made `depends_on` a claim about the past: a service
             // that connected once and then went away was still reported ready
             // to anything that started later.
-            if announced_ready && let Some(name) = spec.name.as_deref() {
+            for name in &announced_ready {
               shared.ready_services.send_modify(|live| {
                 if let Some(count) = live.get_mut(name) {
                   *count -= 1;
@@ -2556,10 +2835,7 @@ pub(crate) async fn run_service(
     }
   }
 
-  if let Some(t) = probe_task {
-    t.abort();
-  }
-  if let Some(t) = wait_task {
+  for t in probe_tasks {
     t.abort();
   }
   info!("[{}] Service stopped.", label);

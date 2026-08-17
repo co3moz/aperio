@@ -528,60 +528,94 @@ pub async fn run() {
 /// first keeps the service's client id, extras derive `<id>-c2`, `<id>-c3`, …
 /// so every connection has a distinct instance id (no shared-id ambiguity for
 /// failover or `--bind-tunnels` lookups).
+///
+/// A multiplexed group is the other direction: its services are one connection
+/// between them, spawned once at the first member and skipped at the rest.
 fn spawn_services(
   specs: &[ServiceSpec],
   shared: &Shared,
 ) -> Vec<(watch::Sender<bool>, tokio::task::JoinHandle<()>)> {
-  specs
-    .iter()
-    .flat_map(|spec| {
-      // One shared backend-health state per service: the backend is probed
-      // once (by the first connection), not once per parallel connection.
-      let health = service::BackendHealth::for_spec(spec);
-      // One ceiling per service: the first connection learns what the server
-      // permits and the rest size themselves from it instead of each finding
-      // out by being closed.
-      let ceiling = service::ConnectionCeiling::new();
-      // An elastic pool runs as a single supervisor task that owns its own
-      // connections. That keeps the caller's contract intact, it still holds
-      // one cancel channel and one handle per entry, and it puts the decision
-      // to open or retire a connection next to the state it is made from.
-      if spec.connections_min < spec.connections {
-        let (cancel_tx, cancel_rx) = watch::channel(false);
-        let handle = tokio::spawn(run_elastic_pool(
-          spec.clone(),
-          shared.clone(),
-          cancel_rx,
-          health,
-          ceiling,
-        ));
-        return vec![(cancel_tx, handle)];
+  let mut out = Vec::new();
+  let mut started: Vec<usize> = Vec::new();
+  for spec in specs {
+    // One ceiling per connection: the first connection learns what the server
+    // permits and the rest size themselves from it instead of each finding
+    // out by being closed. A multiplexed group opens one connection, so it
+    // has nothing to size, but the parameter is the same shape.
+    let ceiling = service::ConnectionCeiling::new();
+    if let Some(group) = spec.multiplex_group {
+      if started.contains(&group) {
+        continue;
       }
-      (1..=spec.connections)
-        .map(|conn| spawn_connection(spec, shared, &health, &ceiling, conn))
-        .collect::<Vec<_>>()
-    })
-    .collect()
+      started.push(group);
+      let members: Vec<ServiceSpec> = specs
+        .iter()
+        .filter(|s| s.multiplex_group == Some(group))
+        .cloned()
+        .collect();
+      // Still one health state per service, which is the point: the list is
+      // what the heartbeat reports, and a service ejected for its own backend
+      // must not take the others off the connection with it.
+      let healths: Vec<service::BackendHealth> = members
+        .iter()
+        .map(service::BackendHealth::for_spec)
+        .collect();
+      out.push(spawn_connection(&members, shared, &healths, &ceiling, 1));
+      continue;
+    }
+    // One shared backend-health state per service: the backend is probed
+    // once (by the first connection), not once per parallel connection.
+    let health = service::BackendHealth::for_spec(spec);
+    // An elastic pool runs as a single supervisor task that owns its own
+    // connections. That keeps the caller's contract intact, it still holds
+    // one cancel channel and one handle per entry, and it puts the decision
+    // to open or retire a connection next to the state it is made from.
+    if spec.connections_min < spec.connections {
+      let (cancel_tx, cancel_rx) = watch::channel(false);
+      let handle = tokio::spawn(run_elastic_pool(
+        spec.clone(),
+        shared.clone(),
+        cancel_rx,
+        health,
+        ceiling,
+      ));
+      out.push((cancel_tx, handle));
+      continue;
+    }
+    let group = [spec.clone()];
+    let healths = [health];
+    out.extend(
+      (1..=spec.connections).map(|conn| spawn_connection(&group, shared, &healths, &ceiling, conn)),
+    );
+  }
+  out
 }
 
-/// Starts connection number `conn` of a service.
+/// Starts connection number `conn` of a service, or the single connection of a
+/// multiplexed group.
+///
+/// `group` is one service in the ordinary shape and several under `multiplex:
+/// true`; `healths` is that list's backend-health state, index for index.
 fn spawn_connection(
-  spec: &ServiceSpec,
+  group: &[ServiceSpec],
   shared: &Shared,
-  health: &service::BackendHealth,
+  healths: &[service::BackendHealth],
   ceiling: &service::ConnectionCeiling,
   conn: u32,
 ) -> (watch::Sender<bool>, tokio::task::JoinHandle<()>) {
-  let mut spec = spec.clone();
+  let mut group = group.to_vec();
   if conn > 1 {
-    spec.client_id = format!("{}-c{}", spec.client_id, conn);
+    // The connection's id is the first service's, so that is the one the
+    // per-connection suffix goes on. A multiplexed group is always connection
+    // 1 and never reaches this.
+    group[0].client_id = format!("{}-c{}", group[0].client_id, conn);
   }
   let (cancel_tx, cancel_rx) = watch::channel(false);
   let handle = tokio::spawn(run_service(
-    vec![spec],
+    group,
     shared.clone(),
     cancel_rx,
-    health.clone(),
+    healths.to_vec(),
     conn == 1,
     conn,
     ceiling.clone(),
@@ -647,7 +681,13 @@ async fn run_elastic_pool(
   // connection is already using.
   let mut pool: Vec<(u32, watch::Sender<bool>, tokio::task::JoinHandle<()>)> = Vec::new();
   for conn in 1..=spec.connections_min {
-    let (cancel_tx, handle) = spawn_connection(&spec, &shared, &health, &ceiling, conn);
+    let (cancel_tx, handle) = spawn_connection(
+      std::slice::from_ref(&spec),
+      &shared,
+      std::slice::from_ref(&health),
+      &ceiling,
+      conn,
+    );
     pool.push((conn, cancel_tx, handle));
   }
   spec.pool_load.set_open(spec.connections_min);
@@ -700,7 +740,7 @@ async fn run_elastic_pool(
             "[{}] {} request(s) in flight over {} connection(s); opening connection {}",
             spec.client_id, peak, open, conn
           );
-          let (cancel_tx, handle) = spawn_connection(&spec, &shared, &health, &ceiling, conn);
+          let (cancel_tx, handle) = spawn_connection(std::slice::from_ref(&spec), &shared, std::slice::from_ref(&health), &ceiling, conn);
           pool.push((conn, cancel_tx, handle));
           spec.pool_load.set_open(pool.len() as u32);
           grew_at = now;
@@ -1208,6 +1248,10 @@ fn build_specs(
       adaptive_concurrency: settings.adaptive_concurrency,
       connections,
       connections_min,
+      // A single service has nobody to share a connection with, so the flag
+      // has nothing to do here whichever way it is set.
+      multiplex: false,
+      multiplex_group: None,
       metrics_labels: settings.metrics_labels.clone(),
       startup_delay: settings.startup_delay.unwrap_or(0),
       // A single service has nothing in the same file to depend on.
@@ -1364,6 +1408,10 @@ fn build_specs(
           .unwrap_or(settings.adaptive_concurrency),
         connections,
         connections_min,
+        multiplex: entry.multiplex.unwrap_or(settings.multiplex),
+        // Settled below, once every entry has been built: whether this service
+        // shares a connection depends on what the others asked for.
+        multiplex_group: None,
         metrics_labels: entry
           .metrics_labels
           .clone()
@@ -1438,8 +1486,109 @@ fn build_specs(
     .collect::<Result<_, String>>()?;
   validate_depends_on(&specs)?;
   validate_tls_floors(&specs)?;
+  group_multiplexed(&mut specs)?;
   allocate_bandwidth(&mut specs, budget_bps);
   Ok(specs)
+}
+
+/// Settles which services actually share a connection, and what that costs
+/// them.
+///
+/// Done here, over the whole list, because it is not a per-entry question. A
+/// service asks to be multiplexed on its own, but sharing needs somebody to
+/// share with, and the somebody has to be reachable on the same socket: a
+/// connection carries one server URL and one token, so services that disagree
+/// about either cannot be on it however they are configured. Today that pair is
+/// the same for every entry, since `server:` and `token:` are file-wide, so
+/// this always finds a single group. It is keyed on the pair anyway because
+/// this is the line that would otherwise become silently wrong the day an entry
+/// may name its own server, and putting two servers' services on one socket is
+/// not a failure that announces itself.
+///
+/// A group of one is left ungrouped, which is the same connection it would have
+/// had anyway.
+fn group_multiplexed(specs: &mut [ServiceSpec]) -> Result<(), String> {
+  // Insertion-ordered, so the group ids follow the file rather than a hash.
+  let mut keys: Vec<(String, String)> = Vec::new();
+  let mut members: Vec<Vec<usize>> = Vec::new();
+  for (i, spec) in specs.iter().enumerate() {
+    if !spec.multiplex {
+      continue;
+    }
+    let key = (spec.token.clone(), spec.ws_url.clone());
+    match keys.iter().position(|k| *k == key) {
+      Some(g) => members[g].push(i),
+      None => {
+        keys.push(key);
+        members.push(vec![i]);
+      }
+    }
+  }
+  let mut group = 0usize;
+  for (key, indexes) in keys.iter().zip(members) {
+    if indexes.len() < 2 {
+      // Asked for, and nobody to share with. Said out loud rather than
+      // silently ignored: `multiplex: true` on one service reads as a setting
+      // that took effect, and the operator who wrote it is usually one entry
+      // away from meaning it.
+      if let Some(i) = indexes.first() {
+        info!(
+          "[{}] multiplex: no other service shares this server and token, so this one keeps its own connection",
+          specs[*i].label()
+        );
+      }
+      continue;
+    }
+    for i in &indexes {
+      // A name is what the server files this service's routing, ejection and
+      // statistics under, and what addresses it in the dashboard. On a
+      // connection of its own a service can do without one, because the
+      // connection is the address; sharing one, two unnamed services are told
+      // apart only by their position in a list, which is not something a
+      // config file promises to keep.
+      if specs[*i].name.is_none() {
+        return Err(format!(
+          "CRITICAL ERROR: every multiplexed service needs a name: (the service at {} shares a connection with {} other(s) and has none)!",
+          specs[*i].target,
+          indexes.len() - 1
+        ));
+      }
+    }
+    for i in indexes {
+      specs[i].multiplex_group = Some(group);
+      // One connection is what multiplexing means, so a pool is not something
+      // this service can also have. Reported rather than dropped: the
+      // dashboard's config view is where a value that did not survive its
+      // config is supposed to show up, and `connections:` is exactly the key
+      // an operator would otherwise believe was in force.
+      if specs[i].connections != 1 || specs[i].connections_min != 1 {
+        let declared = if specs[i].connections_min < specs[i].connections {
+          format!("{}-{}", specs[i].connections_min, specs[i].connections)
+        } else {
+          specs[i].connections.to_string()
+        };
+        specs[i].config_notes.retain(|n| n.field != "connections");
+        specs[i].config_notes.push(ConfigNote {
+          field: "connections".to_string(),
+          declared,
+          effective: "1".to_string(),
+          reason: "multiplexed services share one connection".to_string(),
+        });
+        specs[i].connections = 1;
+        specs[i].connections_min = 1;
+      }
+    }
+    info!(
+      "multiplex: {} services share one connection to {}",
+      specs
+        .iter()
+        .filter(|s| s.multiplex_group == Some(group))
+        .count(),
+      key.1
+    );
+    group += 1;
+  }
+  Ok(())
 }
 
 /// Rejects a `min_tls_version` this build cannot honour, here rather than

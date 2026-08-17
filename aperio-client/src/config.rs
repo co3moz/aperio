@@ -660,6 +660,10 @@ pub(crate) struct ClientSettings {
   /// `APERIO_CONNECTIONS` / `APERIO_CONNECTIONS_MIN` / `APERIO_CONNECTIONS_MAX`;
   /// 1 = default). A range makes the pool elastic.
   pub(crate) connections: Option<aperio_config::Connections>,
+  /// Carry every service that asks for it on one WebSocket instead of one each
+  /// (yaml `multiplex`, env `APERIO_MULTIPLEX`). The file-wide default; a
+  /// `services:` entry may override it either way.
+  pub(crate) multiplex: bool,
   pub(crate) priority: u32,
   pub(crate) bandwidth: Option<String>,
   pub(crate) max_message_size: usize,
@@ -1295,6 +1299,13 @@ pub(crate) fn resolve_settings(
     )
     .filter(|n| *n > 0),
     connections: resolve_connections(local, home),
+    multiplex: layered(
+      None,
+      local.multiplex,
+      env_bool("APERIO_MULTIPLEX"),
+      home.multiplex,
+    )
+    .unwrap_or(false),
     connect_timeout: layered(
       None,
       local.connect_timeout,

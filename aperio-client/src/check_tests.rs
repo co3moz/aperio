@@ -178,6 +178,7 @@ fn base_settings() -> ClientSettings {
   ClientSettings {
     metrics_labels: Default::default(),
     adaptive_concurrency: false,
+    multiplex: false,
     otel_bridge: None,
     startup_delay: None,
     pid_file: None,

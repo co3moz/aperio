@@ -75,6 +75,8 @@ fn test_spec(ws_url: &str, target: &str) -> ServiceSpec {
     max_concurrent: None,
     adaptive_concurrency: false,
     connections: 1,
+    multiplex: false,
+    multiplex_group: None,
     metrics_labels: Default::default(),
     startup_delay: 0,
     depends_on: Vec::new(),
@@ -405,7 +407,7 @@ async fn test_run_service_message_loop() {
     vec![spec.clone()],
     shared,
     cancel_rx,
-    BackendHealth::for_spec(&spec),
+    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -694,7 +696,7 @@ async fn test_run_service_cancel_while_connected() {
     vec![spec.clone()],
     shared,
     cancel_rx,
-    BackendHealth::for_spec(&spec),
+    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -732,7 +734,7 @@ async fn test_run_service_invalid_token_header() {
     vec![spec.clone()],
     shared,
     cancel_rx,
-    BackendHealth::for_spec(&spec),
+    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -759,7 +761,7 @@ async fn test_run_service_server_shutdown_fast_reconnect() {
     vec![spec.clone()],
     shared,
     cancel_rx,
-    BackendHealth::for_spec(&spec),
+    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -804,7 +806,7 @@ async fn test_run_service_connection_refused_failover() {
     vec![spec.clone()],
     shared,
     cancel_rx,
-    BackendHealth::for_spec(&spec),
+    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -842,7 +844,7 @@ async fn test_run_service_http_401_rejection() {
     vec![spec.clone()],
     shared,
     cancel_rx,
-    BackendHealth::for_spec(&spec),
+    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -882,7 +884,7 @@ async fn test_run_service_http_500_rejection() {
     vec![spec.clone()],
     shared,
     cancel_rx,
-    BackendHealth::for_spec(&spec),
+    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -934,7 +936,7 @@ async fn test_run_service_health_probe_flap() {
     vec![spec.clone()],
     shared,
     cancel_rx,
-    BackendHealth::for_spec(&spec),
+    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -963,7 +965,7 @@ async fn test_run_service_health_probe_healthy() {
     vec![spec.clone()],
     shared,
     cancel_rx,
-    BackendHealth::for_spec(&spec),
+    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -1032,7 +1034,7 @@ async fn test_run_service_health_probe_absolute_url_unhealthy() {
     vec![spec.clone()],
     shared,
     cancel_rx,
-    BackendHealth::for_spec(&spec),
+    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -1067,7 +1069,7 @@ async fn test_run_service_wait_for_backend() {
     vec![spec.clone()],
     shared,
     cancel_rx,
-    BackendHealth::for_spec(&spec),
+    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -1094,7 +1096,7 @@ async fn test_run_service_wait_for_backend_implied_by_health() {
     vec![spec.clone()],
     shared,
     cancel_rx,
-    BackendHealth::for_spec(&spec),
+    vec![BackendHealth::for_spec(&spec)],
     true,
     1,
     ConnectionCeiling::new(),
@@ -1613,4 +1615,214 @@ fn the_announcement_is_read_forgivingly_but_never_widened() {
     negotiate_visitor_gate(Some("   "), Some(&rich)),
     GateNegotiation::Unsupported { .. }
   ));
+}
+
+/// Accepts one connection on the mock server and announces `protocol` on the
+/// handshake response, the way a real server does.
+///
+/// `accept_async` answers with a bare 101, which is what a server too old to
+/// have the header looks like: the two spellings are what the multiplex gate
+/// is deciding between, so both are used below.
+// The error type is tungstenite's `Callback` contract, not ours, so its size is
+// not something this can box away.
+#[allow(clippy::result_large_err)]
+async fn accept_announcing(stream: TcpStream, protocol: u32) -> WebSocketStream<TcpStream> {
+  tokio_tungstenite::accept_hdr_async(
+    stream,
+    |_req: &tokio_tungstenite::tungstenite::handshake::server::Request,
+     mut resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
+      resp.headers_mut().insert(
+        crate::protocol::PROTOCOL_HEADER,
+        protocol.to_string().parse().unwrap(),
+      );
+      Ok(resp)
+    },
+  )
+  .await
+  .unwrap()
+}
+
+/// Two named services that would share one connection, pointed at unused
+/// backend ports (nothing here forwards a request).
+fn two_multiplexed(ws_url: &str) -> Vec<ServiceSpec> {
+  let mut web = test_spec(ws_url, "http://127.0.0.1:9");
+  web.name = Some("web".to_string());
+  web.hostnames = vec!["web.example.com".to_string()];
+  web.multiplex = true;
+  web.multiplex_group = Some(0);
+  let mut api = test_spec(ws_url, "http://127.0.0.1:10");
+  api.name = Some("api".to_string());
+  api.hostnames = vec!["api.example.com".to_string()];
+  api.max_concurrent = Some(4);
+  api.multiplex = true;
+  api.multiplex_group = Some(0);
+  vec![web, api]
+}
+
+/// Reads frames until one parses as a Ping, or gives up.
+async fn next_ping(ws: &mut WebSocketStream<TcpStream>) -> Option<TunnelMessage> {
+  let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+  loop {
+    let msg = tokio::time::timeout_at(deadline, ws.next()).await.ok()??;
+    let Ok(Message::Text(text)) = msg else {
+      continue;
+    };
+    match serde_json::from_str::<TunnelMessage>(&text) {
+      Ok(m @ TunnelMessage::Ping { .. }) => return Some(m),
+      _ => continue,
+    }
+  }
+}
+
+#[tokio::test]
+async fn a_multiplexed_connection_declares_every_service_in_one_ping() {
+  let (listener, ws_url) = loopback_ws().await;
+  let specs = two_multiplexed(&ws_url);
+  let healths: Vec<BackendHealth> = specs.iter().map(BackendHealth::for_spec).collect();
+  let (cancel_tx, cancel_rx) = watch::channel(false);
+  let svc = tokio::spawn(run_service(
+    specs,
+    test_shared(),
+    cancel_rx,
+    healths,
+    true,
+    1,
+    ConnectionCeiling::new(),
+  ));
+
+  let (stream, _) = listener.accept().await.unwrap();
+  let mut ws = accept_announcing(stream, crate::protocol::PROTOCOL_VERSION).await;
+  let ping = next_ping(&mut ws).await.expect("the first heartbeat");
+  let TunnelMessage::Ping {
+    services,
+    hostname_bind,
+    service,
+    max_concurrent,
+    ..
+  } = ping
+  else {
+    unreachable!("next_ping only returns Pings")
+  };
+
+  let services = services.expect("a connection carrying two services declares a list");
+  assert_eq!(
+    services
+      .iter()
+      .map(|d| d.service.clone())
+      .collect::<Vec<_>>(),
+    vec![Some("web".to_string()), Some("api".to_string())]
+  );
+  // Each entry describes its own service, which is the whole point: binds and
+  // limits taken from the connection would have been the first one's for all
+  // of them.
+  assert_eq!(services[0].hostname_binds, vec!["web.example.com"]);
+  assert_eq!(services[1].hostname_binds, vec!["api.example.com"]);
+  assert_eq!(services[0].max_concurrent, None);
+  assert_eq!(services[1].max_concurrent, Some(4));
+  // One connection, whatever the pool says, and every service reports that
+  // rather than a number of connections it does not have.
+  assert_eq!(services[0].connections, Some(1));
+  assert_eq!(services[1].connections, Some(1));
+  // The singular fields still describe the first service, so a server reading
+  // only them sees a consistent connection rather than a half-merged one.
+  assert_eq!(service, Some("web".to_string()));
+  assert_eq!(hostname_bind, Some("web.example.com".to_string()));
+  assert_eq!(max_concurrent, None);
+
+  cancel_tx.send(true).unwrap();
+  let _ = tokio::time::timeout(Duration::from_secs(5), svc).await;
+}
+
+#[tokio::test]
+async fn a_connection_carrying_one_service_still_sends_no_list() {
+  // The list is what narrows which servers can read a Ping, so it is sent only
+  // when there is more than one service to describe. A one-entry list would
+  // say nothing the singular fields do not.
+  let (listener, ws_url) = loopback_ws().await;
+  let spec = test_spec(&ws_url, "http://127.0.0.1:9");
+  let (cancel_tx, cancel_rx) = watch::channel(false);
+  let svc = tokio::spawn(run_service(
+    vec![spec.clone()],
+    test_shared(),
+    cancel_rx,
+    vec![BackendHealth::for_spec(&spec)],
+    true,
+    1,
+    ConnectionCeiling::new(),
+  ));
+
+  let (stream, _) = listener.accept().await.unwrap();
+  // Deliberately the bare handshake an old server sends: a single service
+  // must not be gated on an announcement it does not need.
+  let mut ws = accept_async(stream).await.unwrap();
+  let ping = next_ping(&mut ws).await.expect("the first heartbeat");
+  let TunnelMessage::Ping { services, .. } = ping else {
+    unreachable!("next_ping only returns Pings")
+  };
+  assert!(services.is_none());
+
+  cancel_tx.send(true).unwrap();
+  let _ = tokio::time::timeout(Duration::from_secs(5), svc).await;
+}
+
+#[tokio::test]
+async fn a_server_that_cannot_serve_a_list_is_not_sent_one() {
+  // The failure this prevents: an older server reads the singular fields,
+  // brings up the first service and silently drops the rest. Refused at the
+  // handshake instead, before anything has been declared.
+  let (listener, ws_url) = loopback_ws().await;
+  let specs = two_multiplexed(&ws_url);
+  let healths: Vec<BackendHealth> = specs.iter().map(BackendHealth::for_spec).collect();
+  let (cancel_tx, cancel_rx) = watch::channel(false);
+  let svc = tokio::spawn(run_service(
+    specs,
+    test_shared(),
+    cancel_rx,
+    healths,
+    true,
+    1,
+    ConnectionCeiling::new(),
+  ));
+
+  for announced in [None, Some(MIN_MULTIPLEX_PROTOCOL - 1)] {
+    let (stream, _) = listener.accept().await.unwrap();
+    let mut ws = match announced {
+      // No header at all is what every server before 0.10.0 answers with.
+      None => accept_async(stream).await.unwrap(),
+      Some(p) => accept_announcing(stream, p).await,
+    };
+    // Nothing is declared: the client leaves rather than announcing services
+    // this server would serve fewer of than it was told.
+    assert!(
+      next_ping(&mut ws).await.is_none(),
+      "a server announcing {announced:?} was sent a declaration"
+    );
+  }
+
+  cancel_tx.send(true).unwrap();
+  let _ = tokio::time::timeout(Duration::from_secs(5), svc).await;
+}
+
+#[test]
+fn a_named_dispatch_finds_its_own_service_and_an_unknown_one_falls_back() {
+  let specs = two_multiplexed("ws://127.0.0.1:1/");
+  let announced = vec![0usize, 1];
+  assert_eq!(service_for(&specs, &announced, &Some("web".into())), 0);
+  assert_eq!(service_for(&specs, &announced, &Some("api".into())), 1);
+  // A name this connection does not carry, and the pre-v8 spelling: both fall
+  // back rather than dropping a request the server has committed to.
+  assert_eq!(service_for(&specs, &announced, &Some("gone".into())), 0);
+  assert_eq!(service_for(&specs, &announced, &None), 0);
+}
+
+#[test]
+fn a_withheld_service_is_never_dispatched_to() {
+  // `web` could not be announced (its gate was refused), so a frame naming it,
+  // and a frame naming nothing, must land on a service this connection does
+  // offer rather than on the backend it deliberately held back.
+  let specs = two_multiplexed("ws://127.0.0.1:1/");
+  let announced = vec![1usize];
+  assert_eq!(service_for(&specs, &announced, &Some("web".into())), 1);
+  assert_eq!(service_for(&specs, &announced, &None), 1);
+  assert_eq!(service_for(&specs, &announced, &Some("api".into())), 1);
 }
