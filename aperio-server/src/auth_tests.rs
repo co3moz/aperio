@@ -4,11 +4,10 @@
 //! guessing expensive.
 
 use super::*;
-use crate::store::tokens::TokenSpec;
 use crate::test_support::*;
 use axum::http::HeaderMap;
 
-fn ip(s: &str) -> IpAddr {
+pub(super) fn ip(s: &str) -> IpAddr {
   s.parse().unwrap()
 }
 
@@ -16,7 +15,7 @@ fn ip(s: &str) -> IpAddr {
 
 /// Builds a `Basic` authorization header (and optional Host) from a raw
 /// `user:pass` credential string.
-fn basic_headers(creds: &str, host: Option<&str>) -> HeaderMap {
+pub(super) fn basic_headers(creds: &str, host: Option<&str>) -> HeaderMap {
   use base64::prelude::*;
   let mut h = HeaderMap::new();
   h.insert(
@@ -33,7 +32,7 @@ fn basic_headers(creds: &str, host: Option<&str>) -> HeaderMap {
 
 /// Computes the RFC 6238 TOTP code for a base32 secret at a step counter,
 /// mirroring the private `totp::code_at` so tests can forge valid codes.
-fn totp_code_at(secret_b32: &str, step: i64) -> String {
+pub(super) fn totp_code_at(secret_b32: &str, step: i64) -> String {
   use hmac::{Hmac, Mac};
   use sha1::Sha1;
   let secret = crate::totp::base32_decode(secret_b32).unwrap();
@@ -48,13 +47,13 @@ fn totp_code_at(secret_b32: &str, step: i64) -> String {
   format!("{:06}", bin % 1_000_000)
 }
 
-fn totp_code(secret: &str, now: u64) -> String {
+pub(super) fn totp_code(secret: &str, now: u64) -> String {
   totp_code_at(secret, (now / 30) as i64)
 }
 
 /// A 6-digit code guaranteed not to be valid for the current step or its
 /// neighbours (so the wrong-code login path is exercised deterministically).
-fn totp_wrong(secret: &str, now: u64) -> String {
+pub(super) fn totp_wrong(secret: &str, now: u64) -> String {
   let step = (now / 30) as i64;
   let valid: Vec<String> = (step - 2..=step + 2)
     .map(|s| totp_code_at(secret, s))
@@ -69,7 +68,7 @@ fn totp_wrong(secret: &str, now: u64) -> String {
 }
 
 /// Inserts a session with full control over its fields and returns the token.
-async fn seed_custom(
+pub(super) async fn seed_custom(
   state: &AppState,
   expires_at: u64,
   scope_host: Option<String>,
@@ -98,224 +97,10 @@ async fn seed_custom(
   token
 }
 
-// --- session cookie ---------------------------------------------------------
-
-#[test]
-fn session_cookie_parses_named_value_among_others() {
-  let mut h = HeaderMap::new();
-  h.insert(
-    "cookie",
-    "foo=1; aperio_session=abc-123; bar=2".parse().unwrap(),
-  );
-  assert_eq!(session_cookie(&h), Some("abc-123"));
-
-  // Only the aperio_session cookie is returned; other cookies are ignored.
-  let mut other = HeaderMap::new();
-  other.insert("cookie", "foo=1; bar=2".parse().unwrap());
-  assert_eq!(session_cookie(&other), None);
-
-  // A leading cookie without spaces is still matched after trimming.
-  let mut lead = HeaderMap::new();
-  lead.insert("cookie", "aperio_session=xyz".parse().unwrap());
-  assert_eq!(session_cookie(&lead), Some("xyz"));
-
-  assert_eq!(session_cookie(&HeaderMap::new()), None);
-}
-
-#[test]
-fn a_prefixed_session_cookie_cannot_be_displaced_by_a_neighbour() {
-  // The reason the prefix exists here. This server also serves other people's
-  // sites, so a tenant on a sibling hostname can set a cookie for the parent
-  // domain, but only an unprefixed one, since `__Host-` is host-only by the
-  // browser's own rule. The prefixed cookie therefore has to win, or the
-  // attacker's session would quietly replace the operator's.
-  let mut both = HeaderMap::new();
-  both.insert(
-    "cookie",
-    "aperio_session=attacker; __Host-aperio_session=mine"
-      .parse()
-      .unwrap(),
-  );
-  assert_eq!(session_cookie(&both), Some("mine"));
-
-  // Order on the wire is not a promise either.
-  let mut reversed = HeaderMap::new();
-  reversed.insert(
-    "cookie",
-    "__Host-aperio_session=mine; aperio_session=attacker"
-      .parse()
-      .unwrap(),
-  );
-  assert_eq!(session_cookie(&reversed), Some("mine"));
-
-  // On its own the old name still works: sessions issued before the prefix,
-  // and every deployment that cannot set `Secure`, keep logging in.
-  let mut legacy = HeaderMap::new();
-  legacy.insert("cookie", "aperio_session=legacy".parse().unwrap());
-  assert_eq!(session_cookie(&legacy), Some("legacy"));
-
-  assert_eq!(session_cookie_name(true), SESSION_COOKIE_SECURE);
-  assert_eq!(session_cookie_name(false), SESSION_COOKIE_PLAIN);
-}
-
-#[test]
-fn every_sign_in_path_issues_the_prefixed_cookie() {
-  // The prefix is the whole defence against a neighbouring tenant hostname:
-  // `__Host-` may only be set by the exact host, over https, so a cookie a
-  // tenant sets for the parent domain can never displace it. Password sign-in
-  // asked for the right name from the start; OIDC and both passkey paths
-  // wrote `aperio_session=` verbatim, which handed those users an unprefixed
-  // session on a deployment whose reader then could not tell it from one a
-  // neighbour set.
-  let secure = session_set_cookie(true, "tok");
-  assert!(secure.starts_with("__Host-aperio_session=tok;"), "{secure}");
-  assert!(secure.contains("; Secure"), "{secure}");
-  assert!(secure.contains("HttpOnly"), "{secure}");
-  assert!(secure.contains("Path=/"), "{secure}");
-  // Without https the prefix cannot be used at all: the browser would reject
-  // a `__Host-` cookie that is not `Secure`, so a plain deployment would lose
-  // its session entirely.
-  let plain = session_set_cookie(false, "tok");
-  assert!(plain.starts_with("aperio_session=tok;"), "{plain}");
-  assert!(!plain.contains("Secure"), "{plain}");
-}
-
-#[test]
-fn no_sign_in_path_spells_the_session_cookie_itself() {
-  // The parity check behind the test above: a fourth sign-in path added later
-  // would pass every functional test while quietly writing the name by hand
-  // again, which is exactly how this shipped. Nothing outside `auth.rs` may
-  // format a `Set-Cookie` for the session; there is one builder for it.
-  fn walk(dir: &std::path::Path, out: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-      return;
-    };
-    for entry in entries.flatten() {
-      let path = entry.path();
-      if path.is_dir() {
-        walk(&path, out);
-      } else if path.extension().is_some_and(|e| e == "rs")
-        && !path.to_string_lossy().contains("_tests")
-        && let Ok(text) = std::fs::read_to_string(&path)
-      {
-        if path.ends_with("auth.rs") {
-          continue;
-        }
-        // A literal that *issues* a cookie, told from the ones that merely
-        // name it (the constants, the reader, a request `Cookie:` header a
-        // test builds) by the attributes only a `Set-Cookie` carries.
-        for (i, _) in text.match_indices("aperio_session={") {
-          let tail = &text[i..(i + 160).min(text.len())];
-          if tail.contains("HttpOnly") {
-            let line = text[..i].matches('\n').count() + 1;
-            out.push(format!("{}:{}", path.display(), line));
-          }
-        }
-      }
-    }
-  }
-  let mut offenders = Vec::new();
-  walk(std::path::Path::new("src"), &mut offenders);
-  assert!(
-    offenders.is_empty(),
-    "these format a session cookie by hand instead of calling \
-     auth::session_set_cookie, so they cannot follow secure_cookies:\n  {}",
-    offenders.join("\n  ")
-  );
-}
-
-// --- token extraction -------------------------------------------------------
-
-#[test]
-fn extract_token_from_bearer_and_x_auth() {
-  let mut bearer = HeaderMap::new();
-  bearer.insert("authorization", "Bearer secret123".parse().unwrap());
-  assert_eq!(extract_token(&bearer), Some("secret123".to_string()));
-
-  let mut xauth = HeaderMap::new();
-  xauth.insert("x-auth-token", "tok".parse().unwrap());
-  assert_eq!(extract_token(&xauth), Some("tok".to_string()));
-
-  // Non-Bearer authorization schemes are ignored (no x-auth-token fallback hit).
-  let mut basic = HeaderMap::new();
-  basic.insert("authorization", "Basic abc".parse().unwrap());
-  assert_eq!(extract_token(&basic), None);
-
-  assert_eq!(extract_token(&HeaderMap::new()), None);
-}
-
-#[test]
-fn extract_and_verify_token_matches_constant_time() {
-  let mut h = HeaderMap::new();
-  h.insert("authorization", "Bearer right".parse().unwrap());
-  assert!(extract_and_verify_token(&h, "right"));
-  assert!(!extract_and_verify_token(&h, "wrong"));
-  assert!(!extract_and_verify_token(&HeaderMap::new(), "right"));
-}
-
-// --- ip_allowed / cidr ------------------------------------------------------
-
-#[test]
-fn ip_allowed_empty_and_wildcards() {
-  assert!(ip_allowed(ip("1.2.3.4"), &[]));
-  for w in ["*", "0.0.0.0/0", "::/0", "0.0.0.0"] {
-    assert!(ip_allowed(ip("9.9.9.9"), &[w.to_string()]));
-  }
-}
-
-#[test]
-fn ip_allowed_exact_and_cidr() {
-  let list = vec!["10.0.0.0/8".to_string(), "192.168.1.5".to_string()];
-  assert!(ip_allowed(ip("10.1.2.3"), &list)); // inside /8
-  assert!(ip_allowed(ip("192.168.1.5"), &list)); // exact
-  assert!(!ip_allowed(ip("192.168.1.6"), &list)); // no match
-  assert!(!ip_allowed(ip("11.0.0.1"), &list)); // outside /8
-}
-
-#[test]
-fn ip_allowed_ipv6_cidr_and_family_mismatch() {
-  let list = vec!["2001:db8::/32".to_string()];
-  assert!(ip_allowed(ip("2001:db8::1"), &list));
-  assert!(!ip_allowed(ip("2001:dead::1"), &list));
-  // A v4 address never matches a v6 CIDR.
-  assert!(!ip_allowed(ip("10.0.0.1"), &list));
-}
-
-#[test]
-fn ip_allowed_rejects_malformed_entries() {
-  assert!(!ip_allowed(ip("1.2.3.4"), &["not-an-ip".to_string()]));
-  assert!(!ip_allowed(ip("1.2.3.4"), &["1.2.3.4/notnum".to_string()]));
-  // Prefix out of range → the entry never matches.
-  assert!(!ip_allowed(ip("1.2.3.4"), &["1.2.3.4/40".to_string()]));
-}
-
-// --- valid_ip_entry ---------------------------------------------------------
-
-#[test]
-fn valid_ip_entry_accepts_and_rejects() {
-  for good in ["*", "1.2.3.4", "10.0.0.0/8", "2001:db8::/32", "::1"] {
-    assert!(valid_ip_entry(good), "{good} should be valid");
-  }
-  for bad in ["garbage", "1.2.3.4/33", "2001:db8::/129", "1.2.3.4/x", ""] {
-    assert!(!valid_ip_entry(bad), "{bad} should be invalid");
-  }
-}
-
-// --- constant_time_eq_str ---------------------------------------------------
-
-#[test]
-fn constant_time_eq_str_semantics() {
-  assert!(constant_time_eq_str("hunter2", "hunter2"));
-  assert!(!constant_time_eq_str("hunter2", "hunter3"));
-  // Length differences are handled (both sides are hashed first).
-  assert!(!constant_time_eq_str("short", "a-much-longer-secret"));
-  assert!(constant_time_eq_str("", ""));
-}
-
 // --- safe_redirect_path -----------------------------------------------------
 
 #[test]
-fn safe_redirect_path_blocks_open_redirects() {
+pub(super) fn safe_redirect_path_blocks_open_redirects() {
   assert_eq!(safe_redirect_path("/dashboard"), "/dashboard");
   assert_eq!(safe_redirect_path("/a/b?c=d"), "/a/b?c=d");
   // Protocol-relative and backslash bypasses collapse to root.
@@ -328,7 +113,7 @@ fn safe_redirect_path_blocks_open_redirects() {
 // --- LockoutTracker ----------------------------------------------------------
 
 #[test]
-fn lockout_triggers_after_threshold_and_escalates() {
+pub(super) fn lockout_triggers_after_threshold_and_escalates() {
   let mut t = LockoutTracker::new(3, Duration::from_secs(60));
   let ip: IpAddr = "203.0.113.5".parse().unwrap();
   let now = Instant::now();
@@ -353,7 +138,7 @@ fn lockout_triggers_after_threshold_and_escalates() {
 }
 
 #[test]
-fn lockout_cleared_on_success_and_isolated_per_ip() {
+pub(super) fn lockout_cleared_on_success_and_isolated_per_ip() {
   let mut t = LockoutTracker::new(2, Duration::from_secs(60));
   let a: IpAddr = "203.0.113.5".parse().unwrap();
   let b: IpAddr = "203.0.113.6".parse().unwrap();
@@ -371,7 +156,7 @@ fn lockout_cleared_on_success_and_isolated_per_ip() {
 }
 
 #[test]
-fn lockout_window_is_capped() {
+pub(super) fn lockout_window_is_capped() {
   let mut t = LockoutTracker::new(1, Duration::from_secs(3000));
   let ip: IpAddr = "203.0.113.7".parse().unwrap();
   let mut now = Instant::now();
@@ -386,7 +171,7 @@ fn lockout_window_is_capped() {
 // --- LockoutTracker: gc / set_policy ----------------------------------------
 
 #[test]
-fn lockout_gc_drops_stale_and_set_policy() {
+pub(super) fn lockout_gc_drops_stale_and_set_policy() {
   let mut t = LockoutTracker::new(2, Duration::from_secs(60));
   let now = Instant::now();
   // Fill past the gc trigger (1024) with stale entries, then a fresh failure
@@ -408,7 +193,7 @@ fn lockout_gc_drops_stale_and_set_policy() {
 
 // --- auth_login_handler -----------------------------------------------------
 
-fn login_query(redirect: Option<&str>) -> HashMap<String, String> {
+pub(super) fn login_query(redirect: Option<&str>) -> HashMap<String, String> {
   let mut q = HashMap::new();
   if let Some(r) = redirect {
     q.insert("redirect".to_string(), r.to_string());
@@ -416,7 +201,7 @@ fn login_query(redirect: Option<&str>) -> HashMap<String, String> {
   q
 }
 
-async fn call_login(
+pub(super) async fn call_login(
   state: Arc<AppState>,
   headers: HeaderMap,
   query: HashMap<String, String>,
@@ -431,7 +216,7 @@ async fn call_login(
 }
 
 #[tokio::test]
-async fn login_master_token_creates_global_session() {
+pub(super) async fn login_master_token_creates_global_session() {
   let state = Arc::new(test_state());
   // master bearer token is `test` -> Basic aperio:test grants full access.
   let res = call_login(
@@ -448,7 +233,7 @@ async fn login_master_token_creates_global_session() {
 }
 
 #[tokio::test]
-async fn login_rejects_the_removed_dashboard_password() {
+pub(super) async fn login_rejects_the_removed_dashboard_password() {
   // APERIO_DASHBOARD_AUTH was a second dashboard credential; it is gone, and
   // the server refuses to start while it is set. Should that guard ever be
   // bypassed, the value must not authenticate anything on its own.
@@ -469,7 +254,7 @@ async fn login_rejects_the_removed_dashboard_password() {
 }
 
 #[tokio::test]
-async fn login_named_user_without_totp() {
+pub(super) async fn login_named_user_without_totp() {
   let state = test_state();
   let org = state
     .org_store
@@ -499,7 +284,7 @@ async fn login_named_user_without_totp() {
 }
 
 #[tokio::test]
-async fn login_wrong_password_fails() {
+pub(super) async fn login_wrong_password_fails() {
   let state = test_state();
   state
     .users
@@ -518,7 +303,7 @@ async fn login_wrong_password_fails() {
   assert_eq!(err, StatusCode::UNAUTHORIZED);
 }
 
-async fn totp_user(state: &AppState, username: &str) -> (String, String) {
+pub(super) async fn totp_user(state: &AppState, username: &str) -> (String, String) {
   let uid = state
     .users
     .lock()
@@ -539,7 +324,7 @@ async fn totp_user(state: &AppState, username: &str) -> (String, String) {
 }
 
 #[tokio::test]
-async fn login_totp_required_when_code_missing() {
+pub(super) async fn login_totp_required_when_code_missing() {
   let state = test_state();
   totp_user(&state, "totpuser").await;
   let state = Arc::new(state);
@@ -565,7 +350,7 @@ async fn login_totp_required_when_code_missing() {
 }
 
 #[tokio::test]
-async fn login_totp_valid_code_succeeds() {
+pub(super) async fn login_totp_valid_code_succeeds() {
   let state = test_state();
   let (_uid, secret) = totp_user(&state, "totpuser").await;
   let state = Arc::new(state);
@@ -580,7 +365,7 @@ async fn login_totp_valid_code_succeeds() {
 }
 
 #[tokio::test]
-async fn login_totp_wrong_code_fails() {
+pub(super) async fn login_totp_wrong_code_fails() {
   let state = test_state();
   let (_uid, secret) = totp_user(&state, "totpuser").await;
   let state = Arc::new(state);
@@ -594,7 +379,7 @@ async fn login_totp_wrong_code_fails() {
 }
 
 #[tokio::test]
-async fn login_totp_recovery_code_consumed() {
+pub(super) async fn login_totp_recovery_code_consumed() {
   let state = test_state();
   let uid = state
     .users
@@ -630,7 +415,7 @@ async fn login_totp_recovery_code_consumed() {
 }
 
 #[tokio::test]
-async fn login_server_visitor_password_global() {
+pub(super) async fn login_server_visitor_password_global() {
   let mut cfg = test_config();
   cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("visitor:pass");
   let state = Arc::new(test_state_with(cfg));
@@ -648,7 +433,7 @@ async fn login_server_visitor_password_global() {
 }
 
 #[tokio::test]
-async fn login_visitor_credentials_host_scoped() {
+pub(super) async fn login_visitor_credentials_host_scoped() {
   let state = test_state();
   // A connected client bound to `site.test` sets a per-service visitor password.
   let mut client = mock_client(Some("site.test"), None, None, None);
@@ -669,7 +454,7 @@ async fn login_visitor_credentials_host_scoped() {
 }
 
 #[tokio::test]
-async fn login_admits_any_user_a_clients_policy_names() {
+pub(super) async fn login_admits_any_user_a_clients_policy_names() {
   // A `basic` method naming several users has no scalar spelling, so the
   // per-route lookup that reads the scalar found nothing and every credential
   // the policy listed was refused at this form, on a route the gate had sent
@@ -712,7 +497,7 @@ async fn login_admits_any_user_a_clients_policy_names() {
 }
 
 #[tokio::test]
-async fn login_invalid_credentials_and_lockout_audit() {
+pub(super) async fn login_invalid_credentials_and_lockout_audit() {
   let state = test_state();
   // A single failure trips the lockout so the lockout-audit branch runs.
   state
@@ -741,7 +526,7 @@ async fn login_invalid_credentials_and_lockout_audit() {
 }
 
 #[tokio::test]
-async fn login_rate_limited() {
+pub(super) async fn login_rate_limited() {
   let mut cfg = test_config();
   cfg.ip_limit_max = 0.0;
   cfg.ip_limit_refill = 0.0;
@@ -753,1073 +538,11 @@ async fn login_rate_limited() {
 }
 
 #[tokio::test]
-async fn login_no_auth_header_fails() {
+pub(super) async fn login_no_auth_header_fails() {
   let state = Arc::new(test_state());
   // No Authorization header at all -> straight to the failure path.
   let err = call_login(state, HeaderMap::new(), login_query(None))
     .await
     .unwrap_err();
   assert_eq!(err, StatusCode::UNAUTHORIZED);
-}
-
-// --- logout / session-status / page handlers --------------------------------
-
-#[tokio::test]
-async fn logout_clears_session_and_cookie() {
-  let mut cfg = test_config();
-  cfg.secure_cookies = true;
-  let state = Arc::new(test_state_with(cfg));
-  let token = seed_session(&state, Role::Admin, None, None).await;
-  let resp = auth_logout_handler(State(state.clone()), cookie_headers(&token)).await;
-  assert_eq!(resp.status(), StatusCode::OK);
-  let cookie = resp.headers().get("set-cookie").unwrap().to_str().unwrap();
-  assert!(cookie.contains("Max-Age=0"));
-  assert!(cookie.contains("Secure"));
-  // The session is gone from the store.
-  assert!(state.sessions.lock().await.get(&token).is_none());
-}
-
-#[tokio::test]
-async fn logout_without_cookie_still_ok() {
-  let state = Arc::new(test_state());
-  let resp = auth_logout_handler(State(state), HeaderMap::new()).await;
-  assert_eq!(resp.status(), StatusCode::OK);
-}
-
-#[tokio::test]
-async fn session_handler_reports_named_user_and_totp() {
-  let state = test_state();
-  let (_uid, _secret) = totp_user(&state, "sess").await;
-  let token = seed_session(&state, Role::Operator, Some("sess"), None).await;
-  let state = Arc::new(state);
-  let resp = auth_session_handler(State(state), cookie_headers(&token)).await;
-  let body = json_body(resp).await;
-  assert_eq!(body["username"], "sess");
-  assert_eq!(body["role"], "operator");
-  assert_eq!(body["totp"], true);
-  assert_eq!(body["master_admin"], false);
-}
-
-#[tokio::test]
-async fn session_handler_defaults_without_cookie() {
-  let state = Arc::new(test_state());
-  let resp = auth_session_handler(State(state), HeaderMap::new()).await;
-  let body = json_body(resp).await;
-  assert_eq!(body["username"], "aperio");
-  assert_eq!(body["expires_in_seconds"], 0);
-}
-
-#[tokio::test]
-async fn session_handler_master_admin_selected_org() {
-  let state = test_state();
-  let token = seed_session(&state, Role::Admin, None, Some("org-9".to_string())).await;
-  let state = Arc::new(state);
-  let resp = auth_session_handler(State(state), cookie_headers(&token)).await;
-  let body = json_body(resp).await;
-  assert_eq!(body["master_admin"], true);
-  assert_eq!(body["selected_org"], "org-9");
-}
-
-#[tokio::test]
-async fn session_handler_unknown_token_defaults() {
-  let state = Arc::new(test_state());
-  // A cookie whose token is not in the store -> zeroed defaults.
-  let resp = auth_session_handler(
-    State(state),
-    cookie_headers("11111111-1111-1111-1111-111111111111"),
-  )
-  .await;
-  let body = json_body(resp).await;
-  assert_eq!(body["expires_in_seconds"], 0);
-}
-
-#[tokio::test]
-async fn auth_page_handler_serves() {
-  let resp = auth_page_handler().await;
-  // Embedded asset may be present (200) or absent in a bare build; either way
-  // the handler returns a response without panicking.
-  let _ = resp.status();
-}
-
-// --- session helpers: validate / scope --------------------------------------
-
-#[tokio::test]
-async fn validate_session_variants() {
-  let state = test_state();
-  let now = crate::store::sessions::now_secs();
-  let global = seed_session(&state, Role::Admin, None, None).await;
-  let scoped = seed_custom(
-    &state,
-    now + 100,
-    Some("host.test".to_string()),
-    None,
-    Role::Admin,
-    None,
-    None,
-  )
-  .await;
-  let expired = seed_custom(
-    &state,
-    now.saturating_sub(10),
-    None,
-    None,
-    Role::Admin,
-    None,
-    None,
-  )
-  .await;
-
-  assert!(validate_session(&state, &cookie_headers(&global)).await);
-  // A host-scoped session is not a full/global session.
-  assert!(!validate_session(&state, &cookie_headers(&scoped)).await);
-  assert!(!validate_session(&state, &cookie_headers(&expired)).await);
-  assert!(!validate_session(&state, &HeaderMap::new()).await);
-  // A non-UUID cookie value is rejected without a store lookup.
-  assert!(!validate_session(&state, &cookie_headers("not-a-uuid")).await);
-}
-
-#[tokio::test]
-async fn validate_session_for_host_matches_scope() {
-  let state = test_state();
-  let now = crate::store::sessions::now_secs();
-  let global = seed_session(&state, Role::Admin, None, None).await;
-  let scoped = seed_custom(
-    &state,
-    now + 100,
-    Some("host.test".to_string()),
-    None,
-    Role::Admin,
-    None,
-    None,
-  )
-  .await;
-  // An unfenced (master) global session works for any host.
-  assert!(validate_session_for_host(&state, &cookie_headers(&global), Some("anything")).await);
-  // Scoped session only for its exact host.
-  assert!(validate_session_for_host(&state, &cookie_headers(&scoped), Some("host.test")).await);
-  assert!(!validate_session_for_host(&state, &cookie_headers(&scoped), Some("other")).await);
-  assert!(!validate_session_for_host(&state, &HeaderMap::new(), Some("host.test")).await);
-}
-
-#[tokio::test]
-async fn a_clients_own_gate_is_fenced_by_organization_too() {
-  // The gate a client declares for itself is checked before the server's own,
-  // and it asked only "is this a global session", which the fix for the
-  // server's gate had already established is the wrong question here: a
-  // session fixed to one organization reaches every hostname on the server.
-  // So a Viewer of org A could open org B's site whenever B's gate was B's
-  // own, which is the ordinary way a client gates itself.
-  let state = test_state();
-  let org = state
-    .org_store
-    .lock()
-    .await
-    .create("orga", vec!["a.example.com".to_string()], None)
-    .expect("an organization");
-  let now = crate::store::sessions::now_secs();
-  let fenced = seed_custom(
-    &state,
-    now + 100,
-    None,
-    None,
-    Role::Viewer,
-    None,
-    Some(org.id.clone()),
-  )
-  .await;
-  let headers = cookie_headers(&fenced);
-
-  // Real and global, or the refusal below would pass for the wrong reason.
-  assert!(validate_session(&state, &headers).await);
-  assert!(
-    validate_session_for_host(&state, &headers, Some("a.example.com")).await,
-    "its own organization's hostname is still reachable"
-  );
-  assert!(
-    !validate_session_for_host(&state, &headers, Some("b.example.com")).await,
-    "another organization's hostname is not"
-  );
-  assert!(
-    !validate_session_for_host(&state, &headers, None).await,
-    "nor is a request that names no hostname to fence against"
-  );
-}
-
-#[tokio::test]
-async fn session_scope_gc_prunes_expired() {
-  let state = test_state();
-  let now = crate::store::sessions::now_secs();
-  let expired = seed_custom(
-    &state,
-    now.saturating_sub(10),
-    None,
-    None,
-    Role::Admin,
-    None,
-    None,
-  )
-  .await;
-  let live = seed_session(&state, Role::Admin, None, None).await;
-  // An expired session grants nothing even before any sweep runs...
-  assert!(validate_session(&state, &cookie_headers(&live)).await);
-  assert!(!validate_session(&state, &cookie_headers(&expired)).await);
-  // ...and the background gc beat is what removes the row itself.
-  state.gc_tick_once(Instant::now()).await;
-  assert!(state.sessions.lock().await.get(&expired).is_none());
-  assert!(state.sessions.lock().await.get(&live).is_some());
-}
-
-// --- caller_org / is_master_admin / effective_org ---------------------------
-
-#[tokio::test]
-async fn caller_org_resolution() {
-  let state = test_state();
-  // Built-in master admin (no username) -> master (None).
-  let master = seed_session(&state, Role::Admin, None, None).await;
-  assert_eq!(caller_org(&state, &cookie_headers(&master)).await, None);
-
-  // Named user -> their own org.
-  let org = state
-    .org_store
-    .lock()
-    .await
-    .create("acme", Vec::new(), None)
-    .unwrap();
-  state
-    .users
-    .lock()
-    .await
-    .create("bob", "password1", Role::Operator, Some(org.id.clone()))
-    .unwrap();
-  let named = seed_session(&state, Role::Operator, Some("bob"), None).await;
-  assert_eq!(
-    caller_org(&state, &cookie_headers(&named)).await,
-    Some(org.id.clone())
-  );
-
-  // A bound-org (per-org OIDC) session is pinned to its org.
-  let now = crate::store::sessions::now_secs();
-  let bound = seed_custom(
-    &state,
-    now + 100,
-    None,
-    Some("someone@org"),
-    Role::Admin,
-    None,
-    Some("bound-1".to_string()),
-  )
-  .await;
-  assert_eq!(
-    caller_org(&state, &cookie_headers(&bound)).await,
-    Some("bound-1".to_string())
-  );
-}
-
-#[tokio::test]
-async fn caller_org_from_admin_key() {
-  let state = test_state();
-  let (_key, secret) = state
-    .admin_key_store
-    .lock()
-    .await
-    .create(
-      "k".to_string(),
-      Role::Admin,
-      Some("keyorg".to_string()),
-      None,
-    )
-    .expect("the test store can be written to");
-  let mut h = HeaderMap::new();
-  h.insert("authorization", format!("Bearer {secret}").parse().unwrap());
-  assert_eq!(caller_org(&state, &h).await, Some("keyorg".to_string()));
-}
-
-#[tokio::test]
-async fn is_master_admin_cases() {
-  let state = test_state();
-  let master = seed_session(&state, Role::Admin, None, None).await;
-  assert!(is_master_admin(&state, &cookie_headers(&master)).await);
-
-  // Non-admin role is never master.
-  let viewer = seed_session(&state, Role::Viewer, None, None).await;
-  assert!(!is_master_admin(&state, &cookie_headers(&viewer)).await);
-
-  // Admin but pinned to a child org is not the master super-admin.
-  let org = state
-    .org_store
-    .lock()
-    .await
-    .create("acme", Vec::new(), None)
-    .unwrap();
-  state
-    .users
-    .lock()
-    .await
-    .create("cara", "password1", Role::Admin, Some(org.id.clone()))
-    .unwrap();
-  let child_admin = seed_session(&state, Role::Admin, Some("cara"), None).await;
-  assert!(!is_master_admin(&state, &cookie_headers(&child_admin)).await);
-}
-
-#[tokio::test]
-async fn disabled_user_session_grants_nothing() {
-  let state = test_state();
-  let org = state
-    .org_store
-    .lock()
-    .await
-    .create("acme", Vec::new(), None)
-    .unwrap();
-  let user = state
-    .users
-    .lock()
-    .await
-    .create("cara", "password1", Role::Admin, Some(org.id.clone()))
-    .unwrap();
-  let token = seed_session(&state, Role::Admin, Some("cara"), None).await;
-  let headers = cookie_headers(&token);
-  assert!(!is_master_admin(&state, &headers).await);
-
-  // Disabling the account must revoke its live session outright. Before this
-  // guard the user's org lookup started failing, which read as "master org"
-  // and promoted the disabled sub-org admin to super-admin.
-  state
-    .users
-    .lock()
-    .await
-    .update(&user.id, None, Some(false), None)
-    .unwrap();
-  assert_eq!(dashboard_role(&state, &headers).await, None);
-  assert_eq!(dashboard_username(&state, &headers).await, None);
-  assert!(!validate_session(&state, &headers).await);
-  assert!(!is_master_admin(&state, &headers).await);
-}
-
-#[tokio::test]
-async fn effective_org_selection() {
-  let state = test_state();
-  // Master admin with a selected org sees that org.
-  let sel = seed_session(&state, Role::Admin, None, Some("org-x".to_string())).await;
-  assert_eq!(
-    effective_org(&state, &cookie_headers(&sel)).await,
-    Some("org-x".to_string())
-  );
-  // Master admin without a selection defaults to master (None).
-  let master = seed_session(&state, Role::Admin, None, None).await;
-  assert_eq!(effective_org(&state, &cookie_headers(&master)).await, None);
-
-  // Named user is pinned to their org regardless of any selection.
-  let org = state
-    .org_store
-    .lock()
-    .await
-    .create("acme", Vec::new(), None)
-    .unwrap();
-  state
-    .users
-    .lock()
-    .await
-    .create("dan", "password1", Role::Operator, Some(org.id.clone()))
-    .unwrap();
-  let named = seed_session(
-    &state,
-    Role::Operator,
-    Some("dan"),
-    Some("ignored".to_string()),
-  )
-  .await;
-  assert_eq!(
-    effective_org(&state, &cookie_headers(&named)).await,
-    Some(org.id)
-  );
-}
-
-// --- dashboard_role / dashboard_username / require_master_admin --------------
-
-#[tokio::test]
-async fn dashboard_role_and_username() {
-  let state = test_state();
-  let now = crate::store::sessions::now_secs();
-
-  let global = seed_session(&state, Role::Operator, Some("erin"), None).await;
-  assert_eq!(
-    dashboard_role(&state, &cookie_headers(&global)).await,
-    Some(Role::Operator)
-  );
-  assert_eq!(
-    dashboard_username(&state, &cookie_headers(&global)).await,
-    Some("erin".to_string())
-  );
-
-  // Host-scoped session: no dashboard role/username (falls through to keys).
-  let scoped = seed_custom(
-    &state,
-    now + 100,
-    Some("h.test".to_string()),
-    Some("erin"),
-    Role::Operator,
-    None,
-    None,
-  )
-  .await;
-  assert_eq!(dashboard_role(&state, &cookie_headers(&scoped)).await, None);
-  assert_eq!(
-    dashboard_username(&state, &cookie_headers(&scoped)).await,
-    None
-  );
-
-  // Expired session: none.
-  let expired = seed_custom(
-    &state,
-    now.saturating_sub(5),
-    None,
-    Some("erin"),
-    Role::Operator,
-    None,
-    None,
-  )
-  .await;
-  assert_eq!(
-    dashboard_role(&state, &cookie_headers(&expired)).await,
-    None
-  );
-  assert_eq!(
-    dashboard_username(&state, &cookie_headers(&expired)).await,
-    None
-  );
-
-  // Built-in admin session (no username) has no dashboard username.
-  let master = seed_session(&state, Role::Admin, None, None).await;
-  assert_eq!(
-    dashboard_username(&state, &cookie_headers(&master)).await,
-    None
-  );
-}
-
-#[tokio::test]
-async fn dashboard_role_from_admin_key() {
-  let state = test_state();
-  let (_key, secret) = state
-    .admin_key_store
-    .lock()
-    .await
-    .create("k".to_string(), Role::Viewer, None, None)
-    .expect("the test store can be written to");
-  let mut h = HeaderMap::new();
-  h.insert("authorization", format!("Bearer {secret}").parse().unwrap());
-  assert_eq!(dashboard_role(&state, &h).await, Some(Role::Viewer));
-  // admin_key_identity surfaces the key name/role/org.
-  let id = admin_key_identity(&state, &h).await.unwrap();
-  assert_eq!(id.0, Role::Viewer);
-  assert!(
-    admin_key_identity(&state, &HeaderMap::new())
-      .await
-      .is_none()
-  );
-}
-
-#[tokio::test]
-async fn require_master_admin_gate() {
-  let state = test_state();
-  // No session -> 401.
-  let err = require_master_admin(&state, &HeaderMap::new())
-    .await
-    .unwrap_err();
-  assert_eq!(err.status(), StatusCode::UNAUTHORIZED);
-
-  // Non-master admin -> 403.
-  let org = state
-    .org_store
-    .lock()
-    .await
-    .create("acme", Vec::new(), None)
-    .unwrap();
-  state
-    .users
-    .lock()
-    .await
-    .create("fred", "password1", Role::Admin, Some(org.id))
-    .unwrap();
-  let child = seed_session(&state, Role::Admin, Some("fred"), None).await;
-  let err = require_master_admin(&state, &cookie_headers(&child))
-    .await
-    .unwrap_err();
-  assert_eq!(err.status(), StatusCode::FORBIDDEN);
-
-  // Master admin -> Ok.
-  let master = seed_session(&state, Role::Admin, None, None).await;
-  assert!(
-    require_master_admin(&state, &cookie_headers(&master))
-      .await
-      .is_ok()
-  );
-}
-
-#[tokio::test]
-async fn session_token_reads_cookie() {
-  let mut h = HeaderMap::new();
-  h.insert("cookie", "aperio_session=tok-123".parse().unwrap());
-  assert_eq!(session_token(&h), Some("tok-123".to_string()));
-  assert_eq!(session_token(&HeaderMap::new()), None);
-}
-
-// --- authorize_tunnel_token -------------------------------------------------
-
-#[tokio::test]
-async fn authorize_tunnel_master_and_missing() {
-  let state = test_state();
-  // No token at all -> None.
-  assert!(
-    authorize_tunnel_token(&state, &HeaderMap::new(), ip("127.0.0.1"))
-      .await
-      .is_none()
-  );
-  // Master bearer token -> master perms.
-  let perms = authorize_tunnel_token(&state, &master_token_headers(), ip("127.0.0.1"))
-    .await
-    .unwrap();
-  assert!(perms.master);
-}
-
-#[tokio::test]
-async fn authorize_tunnel_store_token_ip_and_alerts() {
-  let state = test_state();
-  let (_t, secret) = state
-    .token_store
-    .lock()
-    .await
-    .create(TokenSpec {
-      name: "svc".to_string(),
-      hostnames: vec!["site.test".to_string()],
-      allowed_ips: vec!["10.0.0.0/8".to_string()],
-      org_id: Some("org-7".to_string()),
-      ..Default::default()
-    })
-    .expect("the test store can be written to");
-  let mut h = HeaderMap::new();
-  h.insert("authorization", format!("Bearer {secret}").parse().unwrap());
-
-  // Source IP outside the token's allowlist -> rejected.
-  assert!(
-    authorize_tunnel_token(&state, &h, ip("192.168.0.1"))
-      .await
-      .is_none()
-  );
-  // First allowed IP establishes the baseline silently.
-  let perms = authorize_tunnel_token(&state, &h, ip("10.1.2.3"))
-    .await
-    .unwrap();
-  assert!(!perms.master);
-  assert_eq!(perms.org_id.as_deref(), Some("org-7"));
-  // A new source IP trips the new-IP alert branch.
-  assert!(
-    authorize_tunnel_token(&state, &h, ip("10.9.9.9"))
-      .await
-      .is_some()
-  );
-  // An unknown secret is rejected.
-  let mut bad = HeaderMap::new();
-  bad.insert("authorization", "Bearer apr_deadbeef".parse().unwrap());
-  assert!(
-    authorize_tunnel_token(&state, &bad, ip("10.1.2.3"))
-      .await
-      .is_none()
-  );
-}
-
-#[tokio::test]
-async fn authorize_tunnel_canary_trips_alert() {
-  let state = test_state();
-  let (_t, secret) = state
-    .token_store
-    .lock()
-    .await
-    .create(TokenSpec {
-      name: "decoy".to_string(),
-      canary: true,
-      ..Default::default()
-    })
-    .expect("the test store can be written to");
-  let mut h = HeaderMap::new();
-  h.insert("authorization", format!("Bearer {secret}").parse().unwrap());
-  // Using a canary token authenticates but trips the breach alert path.
-  assert!(
-    authorize_tunnel_token(&state, &h, ip("203.0.113.1"))
-      .await
-      .is_some()
-  );
-}
-
-// --- OIDC helpers -----------------------------------------------------------
-
-/// Constructs an [`OidcRuntime`] pointing at `base`, with a fixed redirect
-/// override so the callback flow needs no Host header.
-fn oidc_runtime(base: &str, allowed: Vec<String>) -> crate::oidc::OidcRuntime {
-  crate::oidc::OidcRuntime {
-    authorization_endpoint: format!("{base}/authorize"),
-    token_endpoint: format!("{base}/token"),
-    userinfo_endpoint: format!("{base}/userinfo"),
-    client_id: "cid".to_string(),
-    client_secret: "secret".to_string(),
-    scopes: "openid email".to_string(),
-    allowed_emails: allowed,
-    redirect_url_override: Some("http://localhost/aperio/oidc/callback".to_string()),
-  }
-}
-
-/// A throwaway HTTP server: POST requests (the token exchange) get
-/// `token`, everything else (userinfo) gets `info`. Returns its base URL.
-async fn mock_oidc_server(
-  token_status: u16,
-  token_body: &'static str,
-  info_status: u16,
-  info_body: &'static str,
-) -> String {
-  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-  let addr = listener.local_addr().unwrap();
-  tokio::spawn(async move {
-    while let Ok((mut sock, _)) = listener.accept().await {
-      tokio::spawn(async move {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        let mut buf = [0u8; 8192];
-        let n = sock.read(&mut buf).await.unwrap_or(0);
-        if n == 0 {
-          return;
-        }
-        let is_token = buf.starts_with(b"POST");
-        let (status, body) = if is_token {
-          (token_status, token_body)
-        } else {
-          (info_status, info_body)
-        };
-        let resp = format!(
-          "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-          body.len()
-        );
-        let _ = sock.write_all(resp.as_bytes()).await;
-        let _ = sock.shutdown().await;
-      });
-    }
-  });
-  format!("http://{addr}")
-}
-
-async fn seed_oidc_state(state: &AppState, token: &str, bound: Option<String>) {
-  state.oidc_states.lock().await.insert(
-    token.to_string(),
-    (
-      "/after".to_string(),
-      bound,
-      "http://dash.test/aperio/oidc/callback".to_string(),
-      Instant::now() + Duration::from_secs(600),
-    ),
-  );
-}
-
-fn oidc_query(pairs: &[(&str, &str)]) -> HashMap<String, String> {
-  pairs
-    .iter()
-    .map(|(k, v)| (k.to_string(), v.to_string()))
-    .collect()
-}
-
-async fn call_oidc_callback(state: Arc<AppState>, query: HashMap<String, String>) -> Response {
-  oidc_callback_handler(
-    State(state),
-    axum::extract::Query(query),
-    ConnectInfo(test_peer()),
-    HeaderMap::new(),
-  )
-  .await
-}
-
-#[tokio::test]
-async fn oidc_callback_success_creates_session() {
-  let base = mock_oidc_server(
-    200,
-    "{\"access_token\":\"AT\"}",
-    200,
-    "{\"email\":\"user@allow.com\"}",
-  )
-  .await;
-  let mut state = test_state();
-  state.oidc = Some(oidc_runtime(&base, vec!["*".to_string()]));
-  let state = Arc::new(state);
-  seed_oidc_state(&state, "csrf1", None).await;
-  let resp = call_oidc_callback(
-    state.clone(),
-    oidc_query(&[("code", "c"), ("state", "csrf1")]),
-  )
-  .await;
-  assert_eq!(resp.status(), StatusCode::FOUND);
-  assert_eq!(resp.headers().get("location").unwrap(), "/after");
-  assert!(resp.headers().get("set-cookie").is_some());
-  assert_eq!(state.sessions.lock().await.len(), 1);
-}
-
-#[tokio::test]
-async fn oidc_callback_email_denied() {
-  let base = mock_oidc_server(
-    200,
-    "{\"access_token\":\"AT\"}",
-    200,
-    "{\"email\":\"bad@x.com\"}",
-  )
-  .await;
-  let mut state = test_state();
-  state.oidc = Some(oidc_runtime(&base, vec!["good@x.com".to_string()]));
-  let state = Arc::new(state);
-  seed_oidc_state(&state, "csrf1", None).await;
-  let resp = call_oidc_callback(state, oidc_query(&[("code", "c"), ("state", "csrf1")])).await;
-  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
-}
-
-#[tokio::test]
-async fn oidc_callback_token_rejected() {
-  let base = mock_oidc_server(400, "no", 200, "{}").await;
-  let mut state = test_state();
-  state.oidc = Some(oidc_runtime(&base, vec!["*".to_string()]));
-  let state = Arc::new(state);
-  seed_oidc_state(&state, "csrf1", None).await;
-  let resp = call_oidc_callback(state, oidc_query(&[("code", "c"), ("state", "csrf1")])).await;
-  assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
-}
-
-#[tokio::test]
-async fn oidc_callback_token_parse_error() {
-  let base = mock_oidc_server(200, "not-json", 200, "{}").await;
-  let mut state = test_state();
-  state.oidc = Some(oidc_runtime(&base, vec!["*".to_string()]));
-  let state = Arc::new(state);
-  seed_oidc_state(&state, "csrf1", None).await;
-  let resp = call_oidc_callback(state, oidc_query(&[("code", "c"), ("state", "csrf1")])).await;
-  assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
-}
-
-#[tokio::test]
-async fn oidc_callback_userinfo_error_and_parse() {
-  // userinfo non-success.
-  let base = mock_oidc_server(200, "{\"access_token\":\"AT\"}", 500, "boom").await;
-  let mut state = test_state();
-  state.oidc = Some(oidc_runtime(&base, vec!["*".to_string()]));
-  let state = Arc::new(state);
-  seed_oidc_state(&state, "csrf1", None).await;
-  let resp = call_oidc_callback(state, oidc_query(&[("code", "c"), ("state", "csrf1")])).await;
-  assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
-
-  // userinfo success but unparseable body.
-  let base2 = mock_oidc_server(200, "{\"access_token\":\"AT\"}", 200, "not-json").await;
-  let mut state2 = test_state();
-  state2.oidc = Some(oidc_runtime(&base2, vec!["*".to_string()]));
-  let state2 = Arc::new(state2);
-  seed_oidc_state(&state2, "csrf2", None).await;
-  let resp2 = call_oidc_callback(state2, oidc_query(&[("code", "c"), ("state", "csrf2")])).await;
-  assert_eq!(resp2.status(), StatusCode::BAD_GATEWAY);
-}
-
-#[tokio::test]
-async fn oidc_callback_token_connection_error() {
-  // Port 1 is not listening -> the token exchange request errors out.
-  let mut state = test_state();
-  state.oidc = Some(oidc_runtime("http://127.0.0.1:1", vec!["*".to_string()]));
-  let state = Arc::new(state);
-  seed_oidc_state(&state, "csrf1", None).await;
-  let resp = call_oidc_callback(state, oidc_query(&[("code", "c"), ("state", "csrf1")])).await;
-  assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
-}
-
-#[tokio::test]
-async fn oidc_callback_bad_requests() {
-  let mut state = test_state();
-  state.oidc = Some(oidc_runtime("http://127.0.0.1:1", vec!["*".to_string()]));
-  let state = Arc::new(state);
-  // Missing code/state.
-  let resp = call_oidc_callback(state.clone(), oidc_query(&[])).await;
-  assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-  // Unknown / expired CSRF state.
-  let resp = call_oidc_callback(state, oidc_query(&[("code", "c"), ("state", "nope")])).await;
-  assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-}
-
-#[tokio::test]
-async fn oidc_callback_rate_limited() {
-  let mut cfg = test_config();
-  cfg.ip_limit_max = 0.0;
-  cfg.ip_limit_refill = 0.0;
-  let mut state = test_state_with(cfg);
-  state.oidc = Some(oidc_runtime("http://127.0.0.1:1", vec!["*".to_string()]));
-  let state = Arc::new(state);
-  let resp = call_oidc_callback(state, oidc_query(&[("code", "c"), ("state", "x")])).await;
-  assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
-}
-
-#[tokio::test]
-async fn oidc_callback_bound_org_unresolvable() {
-  let mut state = test_state();
-  state.oidc = Some(oidc_runtime("http://127.0.0.1:1", vec!["*".to_string()]));
-  let state = Arc::new(state);
-  // CSRF state references an org with no OIDC config -> NOT_FOUND.
-  seed_oidc_state(&state, "csrf1", Some("ghost-org".to_string())).await;
-  let resp = call_oidc_callback(state, oidc_query(&[("code", "c"), ("state", "csrf1")])).await;
-  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-}
-
-// --- oidc_login_handler -----------------------------------------------------
-
-async fn call_oidc_login(
-  state: Arc<AppState>,
-  query: HashMap<String, String>,
-  headers: HeaderMap,
-) -> Response {
-  oidc_login_handler(
-    State(state),
-    axum::extract::Query(query),
-    ConnectInfo(test_peer()),
-    headers,
-  )
-  .await
-}
-
-#[tokio::test]
-async fn oidc_login_redirects_to_provider() {
-  let mut state = test_state();
-  // No redirect override -> the redirect URI is derived from the Host header.
-  let mut rt = oidc_runtime("http://idp.test", vec!["*".to_string()]);
-  rt.redirect_url_override = None;
-  state.oidc = Some(rt);
-  let state = Arc::new(state);
-  let mut headers = HeaderMap::new();
-  headers.insert("host", "dash.local".parse().unwrap());
-  let resp = call_oidc_login(state.clone(), oidc_query(&[("redirect", "/dash")]), headers).await;
-  assert_eq!(resp.status(), StatusCode::FOUND);
-  let loc = resp.headers().get("location").unwrap().to_str().unwrap();
-  assert!(loc.starts_with("http://idp.test/authorize"));
-  assert!(loc.contains("state="));
-  // A CSRF state was registered.
-  assert_eq!(state.oidc_states.lock().await.len(), 1);
-}
-
-#[tokio::test]
-async fn oidc_login_trust_proxy_proto() {
-  let mut cfg = test_config();
-  cfg.trust_proxy = true;
-  let mut state = test_state_with(cfg);
-  let mut rt = oidc_runtime("http://idp.test", vec!["*".to_string()]);
-  rt.redirect_url_override = None;
-  state.oidc = Some(rt);
-  let state = Arc::new(state);
-  let mut headers = HeaderMap::new();
-  headers.insert("host", "dash.local".parse().unwrap());
-  headers.insert("x-forwarded-proto", "https".parse().unwrap());
-  let resp = call_oidc_login(state, oidc_query(&[]), headers).await;
-  // The redirect_uri (https-derived) is embedded in the authorize URL.
-  let loc = resp.headers().get("location").unwrap().to_str().unwrap();
-  assert!(loc.contains("https%3A%2F%2Fdash.local"));
-}
-
-#[tokio::test]
-async fn oidc_login_missing_host() {
-  let mut state = test_state();
-  let mut rt = oidc_runtime("http://idp.test", vec!["*".to_string()]);
-  rt.redirect_url_override = None;
-  state.oidc = Some(rt);
-  let state = Arc::new(state);
-  // No Host header and no override -> cannot build the redirect URI.
-  let resp = call_oidc_login(state, oidc_query(&[]), HeaderMap::new()).await;
-  assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-}
-
-#[tokio::test]
-async fn oidc_login_not_configured() {
-  let state = Arc::new(test_state());
-  let resp = call_oidc_login(state, oidc_query(&[]), HeaderMap::new()).await;
-  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
-async fn oidc_login_rate_limited() {
-  let mut cfg = test_config();
-  cfg.ip_limit_max = 0.0;
-  cfg.ip_limit_refill = 0.0;
-  let mut state = test_state_with(cfg);
-  state.oidc = Some(oidc_runtime("http://idp.test", vec!["*".to_string()]));
-  let state = Arc::new(state);
-  let resp = call_oidc_login(state, oidc_query(&[]), HeaderMap::new()).await;
-  assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
-}
-
-#[tokio::test]
-async fn oidc_login_per_org() {
-  let mut state = test_state();
-  // The redirect URI is derived from the global runtime's override, so a
-  // per-org login still requires a global OIDC runtime to be present.
-  state.oidc = Some(oidc_runtime(
-    "http://global-idp.test",
-    vec!["*".to_string()],
-  ));
-  // A cached per-org runtime resolves the org path and binds the session.
-  state.org_oidc.lock().await.insert(
-    "org-1".to_string(),
-    oidc_runtime("http://org-idp.test", vec!["*".to_string()]),
-  );
-  let state = Arc::new(state);
-  let mut headers = HeaderMap::new();
-  headers.insert(
-    "host",
-    axum::http::HeaderValue::from_static("dash.example.com"),
-  );
-  let resp = call_oidc_login(state.clone(), oidc_query(&[("org", "org-1")]), headers).await;
-  assert_eq!(resp.status(), StatusCode::FOUND);
-  // The registered CSRF state carries the bound org.
-  let states = state.oidc_states.lock().await;
-  let (_, bound, _, _) = states.values().next().unwrap();
-  assert_eq!(bound.as_deref(), Some("org-1"));
-}
-
-#[tokio::test]
-async fn oidc_login_per_org_unconfigured() {
-  let state = Arc::new(test_state());
-  // `?org=` for an org with no OIDC -> NOT_FOUND (org-specific message).
-  let resp = call_oidc_login(state, oidc_query(&[("org", "ghost")]), HeaderMap::new()).await;
-  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-}
-
-// --- resolve_org_oidc -------------------------------------------------------
-
-#[tokio::test]
-async fn resolve_org_oidc_cache_and_misses() {
-  let state = test_state();
-  // Cached hit.
-  state
-    .org_oidc
-    .lock()
-    .await
-    .insert("org-1".to_string(), oidc_runtime("http://x", vec![]));
-  assert!(resolve_org_oidc(&state, "org-1").await.is_some());
-  // Unknown org -> None.
-  assert!(resolve_org_oidc(&state, "missing").await.is_none());
-  // Existing org without an OIDC override -> None.
-  let org = state
-    .org_store
-    .lock()
-    .await
-    .create("acme", Vec::new(), None)
-    .unwrap();
-  assert!(resolve_org_oidc(&state, &org.id).await.is_none());
-}
-
-#[tokio::test]
-async fn the_visitor_password_is_not_a_dashboard_credential() {
-  // `server_auth` is documented as a login form in front of proxied traffic:
-  // an operator hands it to whoever should see the *site*. If the session it
-  // creates also opens the dashboard, that value is an admin credential and
-  // nothing says so.
-  let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("visitor:pass");
-  let state = Arc::new(test_state_with(cfg));
-  let res = call_login(
-    state.clone(),
-    basic_headers("visitor:pass", Some("site.test")),
-    login_query(Some("/some/page")),
-  )
-  .await
-  .unwrap();
-  // From the `Set-Cookie`, since the store keys sessions by a hash of the
-  // token rather than by the token: reading the map would give a key no
-  // request could ever present, and the assertion below would then pass for
-  // the wrong reason.
-  let set_cookie = res
-    .headers()
-    .get("set-cookie")
-    .unwrap()
-    .to_str()
-    .unwrap()
-    .to_string();
-  let token = set_cookie
-    .split(';')
-    .next()
-    .and_then(|kv| kv.split_once('='))
-    .map(|(_, v)| v.to_string())
-    .expect("a session token in the cookie");
-  let headers = crate::test_support::cookie_headers(&token);
-
-  // First prove the cookie is real and found, or the assertion below would
-  // pass for the wrong reason: a session nobody can read opens nothing.
-  assert!(
-    crate::auth::validate_session(&state, &headers).await,
-    "the session cookie should be valid for a proxied request"
-  );
-  assert!(
-    crate::auth::dashboard_role(&state, &headers)
-      .await
-      .is_none(),
-    "the visitor password opened the dashboard"
-  );
-}
-
-#[tokio::test]
-async fn a_visitor_session_still_reaches_every_proxied_host() {
-  // The scope and the plane are different questions, and the fix must not
-  // answer the first one by accident: the server's gate is server-wide, so a
-  // visitor who signed in on one hostname should not be asked again on the
-  // next. Only the dashboard is closed to them.
-  let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("visitor:pass");
-  let state = Arc::new(test_state_with(cfg));
-  let res = call_login(
-    state.clone(),
-    basic_headers("visitor:pass", Some("one.example.com")),
-    login_query(Some("/some/page")),
-  )
-  .await
-  .unwrap();
-  let token = res
-    .headers()
-    .get("set-cookie")
-    .and_then(|v| v.to_str().ok())
-    .and_then(|c| c.split(';').next())
-    .and_then(|kv| kv.split_once('='))
-    .map(|(_, v)| v.to_string())
-    .expect("a session token");
-  let headers = crate::test_support::cookie_headers(&token);
-
-  for host in ["one.example.com", "two.example.com"] {
-    assert!(
-      crate::auth::validate_session_for_visitor(&state, &headers, Some(host)).await,
-      "the visitor gate should admit this session on {host}"
-    );
-  }
-  assert!(
-    crate::auth::dashboard_role(&state, &headers)
-      .await
-      .is_none()
-  );
-}
-
-#[tokio::test]
-async fn an_admin_session_is_still_an_admin_session() {
-  // The master token and a named user administer Aperio, and this change must
-  // not quietly demote them.
-  let state = Arc::new(test_state());
-  let master = format!("aperio:{}", state.config().token);
-  let res = call_login(
-    state.clone(),
-    basic_headers(&master, Some("site.test")),
-    login_query(Some("/aperio")),
-  )
-  .await
-  .unwrap();
-  let token = res
-    .headers()
-    .get("set-cookie")
-    .and_then(|v| v.to_str().ok())
-    .and_then(|c| c.split(';').next())
-    .and_then(|kv| kv.split_once('='))
-    .map(|(_, v)| v.to_string())
-    .expect("a session token");
-  let headers = crate::test_support::cookie_headers(&token);
-  assert_eq!(
-    crate::auth::dashboard_role(&state, &headers).await,
-    Some(Role::Admin)
-  );
 }
