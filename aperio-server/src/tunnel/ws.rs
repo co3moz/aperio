@@ -91,7 +91,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{Notify, Semaphore, mpsc};
+use tokio::sync::{Notify, mpsc};
 use tracing::{error, info, warn};
 
 use crate::auth::authorize_tunnel_token;
@@ -100,8 +100,7 @@ use crate::protocol::{
   TunnelMessage, compress_frame, decode_binary_frame, decompress_frame,
 };
 use crate::routing::{
-  extract_client_ip, normalize_hostname_bind, normalize_path_bind, random_subdomain_hostname,
-  random_subdomain_hostname_seeded,
+  extract_client_ip, random_subdomain_hostname, random_subdomain_hostname_seeded,
 };
 use crate::state::{
   AppState, ClientHandle, ClientPerms, ResponseStreamHandle, TcpConsumerMsg, TunnelResponse,
@@ -135,6 +134,7 @@ type ScalingBindCtx = (
 // connection serves, and every field is admitted or refused against the token
 // before any of it takes effect; cutting it up would mean carrying the
 // half-applied state between the pieces.
+mod declare;
 mod messaging;
 mod ping;
 mod relay;
