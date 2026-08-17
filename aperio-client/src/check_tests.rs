@@ -181,6 +181,7 @@ fn base_settings() -> ClientSettings {
     multiplex: false,
     otel_bridge: None,
     startup_delay: None,
+    depends_on: None,
     pid_file: None,
     connect_timeout: None,
     min_tls_version: None,

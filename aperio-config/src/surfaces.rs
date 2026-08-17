@@ -44,6 +44,61 @@ pub const NOT_IN_CONFIGURATION_MD: &[Exempt] = &[
 /// first, because it is the one nobody opens while editing Rust.
 pub const NOT_IN_BOOK: &[Exempt] = &[];
 
+/// Client settings with no `APERIO_*` read, or one under another name.
+///
+/// Rule 16: env is the secondary surface, needed by containers and secret
+/// injection, so a variable should exist unless the value genuinely cannot be
+/// a flat scalar. A list of mappings is the stated exception; a scalar, a list
+/// of scalars, or a grouped block's child is not.
+///
+/// The server needs no such list: `config_file.rs` materializes every scalar
+/// key it reads into `APERIO_<KEY>` generically, so the surface is satisfied by
+/// construction there. The client reads each variable by name, which is where
+/// a key can quietly have none, and where `depends_on` did.
+pub const CLIENT_ENV_EXEMPT: &[Exempt] = &[
+  Exempt {
+    key: "services",
+    why: "a list of mappings, rule 16's stated exception",
+  },
+  Exempt {
+    key: "tunnels",
+    why: "a list of mappings, rule 16's stated exception",
+  },
+  Exempt {
+    key: "headers",
+    why: "a list of mappings, named in rule 16 itself",
+  },
+  Exempt {
+    key: "bind-tunnels",
+    why: "a map of mappings, which is the same shape as the exception and worse to flatten",
+  },
+  Exempt {
+    key: "include",
+    why: "resolved relative to the directory of the file that writes it, and a variable has no file to be relative to; the merge order is a property of the file tree",
+  },
+  Exempt {
+    key: "log_level",
+    why: "read as the bare LOG_LEVEL, which rule 16 names as one of the three exceptions to the APERIO_ prefix",
+  },
+  Exempt {
+    key: "auth",
+    why: "read as APERIO_VISITOR_AUTH, which says what it gates; the key is `auth:` because it sits on a service",
+  },
+  Exempt {
+    key: "token",
+    why: "the tunnel token, read as APERIO_SERVER_TOKEN because `token:` is the short spelling of `server.token:` and the variable names the thing rather than the shorthand",
+  },
+  Exempt {
+    key: "circuit_breaker",
+    why: "its two children are read as APERIO_BREAKER_FAILURES and APERIO_BREAKER_OPEN_FOR, shortened before rule 16 wrote the naming down; renaming them would break files that work, for a prefix",
+  },
+];
+
+/// The environment variable rule 16 expects for a yaml key.
+pub fn env_name(key: &str) -> String {
+  format!("APERIO_{}", key.replace('-', "_").to_ascii_uppercase())
+}
+
 /// Normalizes a key or a document for comparison.
 ///
 /// Three spellings of the same setting exist and all three are correct where

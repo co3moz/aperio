@@ -207,3 +207,82 @@ fn more_multiplexed_services_than_a_server_accepts_is_a_config_error() {
   assert_eq!(specs.len(), service::MAX_MULTIPLEXED_SERVICES);
   assert!(specs.iter().all(|s| s.multiplex_group == Some(0)));
 }
+
+// ---------------------------------------------------------------------------
+// A file-wide depends_on
+// ---------------------------------------------------------------------------
+
+/// `depends_on:` at the top of the file is the default for entries that name
+/// none of their own.
+///
+/// It was in the JSON Schema, so editors completed it and `--check-config`
+/// accepted it, and nothing ever read it: only the per-entry key was. A
+/// setting an operator can write, that validates, and that does nothing, is
+/// worse than one that does not exist.
+#[test]
+fn a_file_wide_depends_on_reaches_the_services_that_declare_none() {
+  let mut settings = base_settings();
+  settings.depends_on = Some(vec!["db".to_string()]);
+  settings.services = vec![
+    ServiceEntry {
+      name: Some("db".to_string()),
+      target: Some("http://localhost:5432".to_string()),
+      ..Default::default()
+    },
+    ServiceEntry {
+      name: Some("web".to_string()),
+      target: Some("http://localhost:3000".to_string()),
+      ..Default::default()
+    },
+    ServiceEntry {
+      name: Some("api".to_string()),
+      target: Some("http://localhost:4000".to_string()),
+      // Its own list wins over the file's, rather than merging with it.
+      depends_on: Some(vec!["web".to_string()]),
+      ..Default::default()
+    },
+  ];
+  let specs: Vec<ServiceSpec> = build_specs(&settings, "base-id", false).unwrap();
+  let of = |name: &str| -> Vec<String> {
+    specs
+      .iter()
+      .find(|s| s.name.as_deref() == Some(name))
+      .expect("service is in the list")
+      .depends_on
+      .clone()
+  };
+  assert_eq!(of("web"), vec!["db".to_string()], "the file's list applies");
+  assert_eq!(of("api"), vec!["web".to_string()], "its own list wins");
+  assert!(
+    of("db").is_empty(),
+    "a service the file-wide list names is one of the things being waited for, \
+     not one of the waiters; making it wait for itself refuses to start"
+  );
+}
+
+/// A file-wide list naming several services in the file is not a cycle.
+///
+/// This is why the fallback cannot be a plain `or_else`, and why dropping the
+/// self-reference alone is not enough either. `depends_on: [a, b]` over
+/// services `a` and `b` would leave each waiting for the other, and
+/// `validate_depends_on` refuses a cycle by exiting, so an ordinary file
+/// would stop the client from starting at all.
+#[test]
+fn a_file_wide_depends_on_naming_every_service_still_starts() {
+  let mut settings = base_settings();
+  settings.depends_on = Some(vec!["a".to_string(), "b".to_string()]);
+  settings.services = vec![
+    ServiceEntry {
+      name: Some("a".to_string()),
+      target: Some("http://localhost:3000".to_string()),
+      ..Default::default()
+    },
+    ServiceEntry {
+      name: Some("b".to_string()),
+      target: Some("http://localhost:4000".to_string()),
+      ..Default::default()
+    },
+  ];
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  validate_depends_on(&specs).expect("a file-wide list over every service is not a cycle");
+}

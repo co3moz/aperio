@@ -19,31 +19,6 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#128 Nothing checks rule 16, and `depends_on` is already through the
-  gap.** `#126` built the check for rule 17, that a setting reaches both
-  documentation tables. Rule 16 is the other half: an environment variable
-  should exist wherever the value can be expressed as one, because env is what
-  containers and secret injection have, and the only legitimate exception is a
-  list of mappings such as `routes:` or `headers:`.
-
-  Found while building `#126`: `depends_on` is a list of scalars, which rule 16
-  says is not an exception, and there is no `APERIO_DEPENDS_ON`. A client in a
-  container cannot express it at all. That is one known miss out of 214 keys
-  and nobody has looked at the other 213.
-
-  **The check is not the same shape as `#126`'s and should not be bolted onto
-  it.** Its exception list is different (a list of mappings is exempt here and
-  not there), and what it reads is different: rule 16 is about an `env::var`
-  call existing, which is a fact about the source rather than about a document.
-  `docs/configuration.md` already names the variable for every setting that has
-  one, so the table is a usable index, but the check should confirm the read
-  exists rather than trust the doc, or it verifies the wrong thing.
-
-  Fixing what it finds is the larger half and can be done key by key. Adding
-  one env read is small; deciding a key genuinely cannot have one is the part
-  that needs a sentence, which is what `surfaces.rs` is already the pattern
-  for.
-
 - [ ] **#127 Mutation testing where a green suite proves the least.** `#124`
   deleted three tests, and the only thing that made it safe was breaking four
   behaviors by hand and watching the inheriting test go red each time. That is
@@ -410,6 +385,72 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#128 Nothing checks rule 16, and `depends_on` is already through the
+  gap.** `#126` built the check for rule 17, that a setting reaches both
+  documentation tables. Rule 16 is the other half: an environment variable
+  should exist wherever the value can be expressed as one, because env is what
+  containers and secret injection have, and the only legitimate exception is a
+  list of mappings such as `routes:` or `headers:`.
+
+  Found while building `#126`: `depends_on` is a list of scalars, which rule 16
+  says is not an exception, and there is no `APERIO_DEPENDS_ON`. A client in a
+  container cannot express it at all. That is one known miss out of 214 keys
+  and nobody has looked at the other 213.
+
+  **The check is not the same shape as `#126`'s and should not be bolted onto
+  it.** Its exception list is different (a list of mappings is exempt here and
+  not there), and what it reads is different: rule 16 is about an `env::var`
+  call existing, which is a fact about the source rather than about a document.
+  `docs/configuration.md` already names the variable for every setting that has
+  one, so the table is a usable index, but the check should confirm the read
+  exists rather than trust the doc, or it verifies the wrong thing.
+
+  Fixing what it finds is the larger half and can be done key by key. Adding
+  one env read is small; deciding a key genuinely cannot have one is the part
+  that needs a sentence, which is what `surfaces.rs` is already the pattern
+  for.
+
+  Shipped 2026-08-18, and `depends_on` turned out to be a worse bug than a
+  missing variable. **The top-level key was read by nothing.** It sat on the
+  client's `FileConfig`, so the schema described it, editors completed it and
+  `--check-config` accepted it, and only the per-`services:`-entry spelling was
+  ever consulted. A setting that validates and is silently discarded is worse
+  than one that does not exist, because the file looks right.
+
+  It is now the default for entries that name none of their own, plus the
+  `APERIO_DEPENDS_ON` read that started this. **Two refusals had to be designed
+  around, and a test found the second one.** A file-wide list must not make a
+  service wait for itself, or `depends_on: [db]` beside a service called `db`
+  refuses to start; dropping the self-reference alone is still not enough,
+  because `[a, b]` over services `a` and `b` leaves each waiting for the other
+  and a cycle refuses too. So a service the list names is left out of it
+  entirely, which also reads correctly: the list is what is being waited for,
+  not who waits.
+
+  **The check reads the source, not the documentation.**
+  `docs/configuration.md` names a variable per setting, so checking the doc
+  would pass on a variable that is documented and never read, which is this
+  entry's exact failure. Comments are stripped first, and that is not a detail:
+  the first version searched the raw source, `ClientSettings` names each
+  variable in the doc comment above its field, and deleting the
+  `APERIO_DEPENDS_ON` read left the test green. Caught by mutating it, which is
+  the only way that is ever caught. With comments stripped it immediately found
+  a second key, `token`, read as `APERIO_SERVER_TOKEN`.
+
+  **The server needs no such check.** `config_file.rs` materializes every
+  scalar key into `APERIO_<KEY>` generically, so rule 16 holds there by
+  construction. The client reads each variable by name, which is the surface
+  where a key can quietly have none.
+
+  Nine of sixty-nine client keys have no `APERIO_<KEY>`, and eight are
+  legitimate, now written down in `CLIENT_ENV_EXEMPT` with a reason each: four
+  lists or maps of mappings, `include` (resolved relative to the file that
+  writes it, and a variable has no file to be relative to), `log_level` (bare,
+  by rule 16's own text), `auth` (`APERIO_VISITOR_AUTH`), `token`
+  (`APERIO_SERVER_TOKEN`) and `circuit_breaker` (`APERIO_BREAKER_*`, shortened
+  before the naming rule was written; renaming a working variable for a prefix
+  is not worth it).
 
 - [x] **#126 The four config surfaces are kept in step by discipline alone, and
   it has drifted once.** Rules 15 to 17 say a setting reaches yaml, an env

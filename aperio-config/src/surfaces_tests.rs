@@ -98,3 +98,113 @@ fn every_exemption_is_for_a_key_that_exists_and_gives_a_reason() {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Rule 16: an environment variable wherever one can exist
+// ---------------------------------------------------------------------------
+
+/// Strips line comments, so only what the code does counts.
+///
+/// Without this the check passes on a variable that is *documented* and never
+/// read, because `ClientSettings` names each variable in the doc comment above
+/// its field. Verified the only way that means anything: deleting the
+/// `APERIO_DEPENDS_ON` read while the doc comment stayed left the test green.
+fn code_only(src: &str) -> String {
+  src
+    .lines()
+    .map(|l| match l.find("//") {
+      Some(i) => &l[..i],
+      None => l,
+    })
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+/// Every client setting the schema describes is reachable from the environment.
+///
+/// Reads the source for the variable rather than the documentation table for
+/// its name. `docs/configuration.md` already lists a variable per setting, so
+/// checking the doc would pass on a variable that is documented and not read,
+/// which is the failure mode this is for: `depends_on` was in the schema, so
+/// editors completed it and `--check-config` accepted it, and no code read it
+/// anywhere, at the top level or from the environment.
+#[test]
+fn every_client_setting_can_be_set_from_the_environment() {
+  let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+  let mut src = String::new();
+  for dir in ["aperio-client/src", "aperio-config/src"] {
+    let mut stack = vec![root.join(dir)];
+    while let Some(d) = stack.pop() {
+      for entry in std::fs::read_dir(&d)
+        .expect("the crate source is readable")
+        .flatten()
+      {
+        let path = entry.path();
+        if path.is_dir() {
+          stack.push(path);
+        } else if path.extension().is_some_and(|e| e == "rs")
+          // Production reads only: a name that appears solely in a test is a
+          // variable nothing honours.
+          && !path.to_string_lossy().ends_with("_tests.rs")
+        {
+          src.push_str(&code_only(
+            &std::fs::read_to_string(&path).expect("a source file is readable"),
+          ));
+        }
+      }
+    }
+  }
+  let excused: Vec<String> = CLIENT_ENV_EXEMPT.iter().map(|e| fold(e.key)).collect();
+  let schema: serde_json::Value =
+    serde_json::from_str(&crate::schema_json()).expect("the schema is valid JSON");
+  let mut missing: Vec<String> = Vec::new();
+  for key in schema["properties"]
+    .as_object()
+    .expect("the schema has properties")
+    .keys()
+  {
+    if excused.contains(&fold(key)) {
+      continue;
+    }
+    let var = env_name(key);
+    if !src.contains(&var) {
+      missing.push(format!("{key} (expected {var})"));
+    }
+  }
+  missing.sort();
+  assert!(
+    missing.is_empty(),
+    "no environment variable is read for: {}.\n\nRule 16: env is the secondary \
+     surface and a container has nothing else. Add the read. If the value \
+     genuinely cannot be a flat scalar, or is read under another name, add it \
+     to `CLIENT_ENV_EXEMPT` in `surfaces.rs` with the reason.",
+    missing.join(", ")
+  );
+}
+
+/// The env exemptions are held to the same standard as the doc ones.
+#[test]
+fn every_env_exemption_is_for_a_key_that_exists_and_gives_a_reason() {
+  let schema: serde_json::Value =
+    serde_json::from_str(&crate::schema_json()).expect("the schema is valid JSON");
+  let all: Vec<String> = schema["properties"]
+    .as_object()
+    .expect("the schema has properties")
+    .keys()
+    .map(|k| fold(k))
+    .collect();
+  for exempt in CLIENT_ENV_EXEMPT {
+    assert!(
+      all.contains(&fold(exempt.key)),
+      "`{}` is exempted from needing an environment variable but is not a \
+       client setting; it was probably renamed, and the real key now goes \
+       unchecked",
+      exempt.key
+    );
+    assert!(
+      exempt.why.len() > 20,
+      "`{}` is exempted with no real reason given",
+      exempt.key
+    );
+  }
+}

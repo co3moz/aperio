@@ -254,6 +254,12 @@ pub(crate) fn resolve_settings(
       env_parse("APERIO_STARTUP_DELAY"),
       home.startup_delay,
     ),
+    depends_on: layered(
+      None,
+      local.depends_on.clone(),
+      env_str("APERIO_DEPENDS_ON").map(|raw| split_csv(&raw)),
+      home.depends_on.clone(),
+    ),
     pid_file: layered(
       None,
       local.pid_file.clone(),

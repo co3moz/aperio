@@ -197,6 +197,27 @@ pub struct ConfigChange {
 /// recorded here in the same commit that makes it (see CLAUDE.md).
 pub const CONFIG_CHANGES: &[ConfigChange] = &[
   ConfigChange {
+    // The version this ships in; corrected at release time if it slips.
+    version: "0.11.0",
+    surface: ConfigSurface::Client,
+    // `Migration`, not `Breaking`. The file already says what it wants and
+    // now gets it, so nobody has to change anything; what is worth reviewing
+    // is that services which started immediately may now wait, bounded at 60
+    // seconds. `WhenSet`, because only a file that writes the key at the top
+    // level is affected, which is exactly what `fields` finds.
+    severity: ChangeSeverity::Migration,
+    applies: Applies::WhenSet,
+    fields: &["depends_on"],
+    summary: "a top-level `depends_on:` is now honoured; it was in the schema, accepted by \
+              --check-config, and read by nothing",
+    action: "no change is needed, but check the intent: a top-level `depends_on:` is now the \
+             default for every `services:` entry that names none of its own, so those services \
+             wait for the named ones before opening their tunnels, up to 60 seconds before \
+             proceeding anyway. Entries the list itself names are unaffected, since they are what \
+             is being waited for. To restore the previous behaviour exactly, delete the key: it \
+             was doing nothing.",
+  },
+  ConfigChange {
     // Guessed for the same reason as the entries below.
     version: "0.10.0",
     surface: ConfigSurface::Server,

@@ -128,6 +128,9 @@ pub(crate) struct ClientSettings {
   /// Seconds a service waits before opening its tunnel (yaml `startup_delay`,
   /// env `APERIO_STARTUP_DELAY`).
   pub(crate) startup_delay: Option<u64>,
+  /// Services every entry waits for before opening its tunnel, unless it
+  /// names its own (yaml `depends_on`, env `APERIO_DEPENDS_ON` as `a,b`).
+  pub(crate) depends_on: Option<Vec<String>>,
   /// Path to write the process pid to (yaml `pid_file`, env
   /// `APERIO_PID_FILE`).
   pub(crate) pid_file: Option<String>,

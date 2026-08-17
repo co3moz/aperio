@@ -500,7 +500,23 @@ pub(crate) fn build_specs(
           .clone()
           .unwrap_or_else(|| settings.metrics_labels.clone()),
         startup_delay: entry.startup_delay.or(settings.startup_delay).unwrap_or(0),
-        depends_on: entry.depends_on.clone().unwrap_or_default(),
+        // A file-wide `depends_on:` is the default for entries that name none
+        // of their own, and it reads as "everything else waits for these", so
+        // a service the list itself names is not one of the things that wait.
+        // Dropping only the self-reference is not enough: `depends_on: [a, b]`
+        // over services `a` and `b` would leave each waiting for the other,
+        // and a cycle refuses to start.
+        depends_on: match entry.depends_on.clone() {
+          Some(own) => own,
+          None => {
+            let file_wide = settings.depends_on.clone().unwrap_or_default();
+            let named_in_it = entry
+              .name
+              .as_deref()
+              .is_some_and(|n| file_wide.iter().any(|d| d == n));
+            if named_in_it { Vec::new() } else { file_wide }
+          }
+        },
         connect_timeout: entry.connect_timeout.or(settings.connect_timeout),
         min_tls_version: entry
           .min_tls_version
