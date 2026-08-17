@@ -938,7 +938,10 @@ fn client_config_view(
       y.push_str(&format!("  - {}  # {}\n", yaml_str(host), origin));
     }
   }
-  if let Some(path) = handle.effective_path_bind() {
+  // This service's bind, like every other line in this view. Read off the
+  // connection it showed the first service's path for all of them, in the one
+  // place an operator goes to check what a service is actually configured as.
+  if let Some(path) = service.effective_path_bind() {
     push_line(&mut y, &notes, "path", &yaml_str(path));
   }
   if let Some(n) = service.max_concurrent {

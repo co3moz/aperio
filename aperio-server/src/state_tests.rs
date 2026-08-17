@@ -440,24 +440,27 @@ fn test_client_effective_binds_precedence() {
   use crate::test_support::mock_client;
   // declared path only.
   let c = mock_client(Some("a.local"), Some("/api"), None, None);
-  assert_eq!(c.effective_path_bind(), Some(&"/api".to_string()));
-  assert!(c.matches_host("a.local"));
-  assert!(c.has_hostname_bind());
+  assert_eq!(c.sole().effective_path_bind(), Some(&"/api".to_string()));
+  assert!(c.sole().matches_host("a.local"));
+  assert!(c.sole().has_hostname_bind());
 
   // override path wins over declared.
   let c = mock_client(Some("a.local"), Some("/api"), None, Some("/ovr"));
-  assert_eq!(c.effective_path_bind(), Some(&"/ovr".to_string()));
+  assert_eq!(c.sole().effective_path_bind(), Some(&"/ovr".to_string()));
 
   // assigned path used when nothing declared/overridden.
   let mut c = mock_client(None, None, None, None);
   c.sole_mut().assigned_path = Some("/assigned".to_string());
-  assert_eq!(c.effective_path_bind(), Some(&"/assigned".to_string()));
+  assert_eq!(
+    c.sole().effective_path_bind(),
+    Some(&"/assigned".to_string())
+  );
 
   // hostname override replaces the whole set.
   let c = mock_client(Some("a.local"), None, Some("override.local"), None);
   assert_eq!(c.effective_hostnames(), vec![&"override.local".to_string()]);
-  assert!(c.matches_host("override.local"));
-  assert!(!c.matches_host("a.local"));
+  assert!(c.sole().matches_host("override.local"));
+  assert!(!c.sole().matches_host("a.local"));
 
   // union of assigned + declared + extra declared hostnames, de-duplicated.
   let mut c = mock_client(Some("declared.local"), None, None, None);
@@ -472,8 +475,8 @@ fn test_client_effective_binds_precedence() {
 
   // no binds at all.
   let c = mock_client(None, None, None, None);
-  assert!(!c.has_hostname_bind());
-  assert!(c.effective_path_bind().is_none());
+  assert!(!c.sole().has_hostname_bind());
+  assert!(c.sole().effective_path_bind().is_none());
 }
 
 #[test]
@@ -2004,7 +2007,7 @@ fn each_service_answers_the_routing_questions_for_itself() {
 
   // And the connection's own view is still the first, which is what every
   // caller that has not been taught to pick a service still gets.
-  assert!(handle.matches_host("first.example"));
+  assert!(handle.sole().matches_host("first.example"));
 }
 
 // ----- match_declarations: which service a Ping entry updates ---------------
@@ -2130,4 +2133,97 @@ fn a_connection_reports_the_hostnames_of_all_its_services() {
     hosts.contains(&"second.example"),
     "the second service's hostname is served, so the fence has to see it"
   );
+}
+
+// ---------------------------------------------------------------------------
+// A connection carrying several services is asked about all of them (#122)
+// ---------------------------------------------------------------------------
+
+/// A two-service handle: the first serves `first`, the second `second`.
+fn multiplexed_handle(first: &str, second: &str) -> ClientHandle {
+  let mut handle = crate::test_support::mock_client(Some(first), None, None, None);
+  handle.services[0].declared_hostnames = vec![first.to_string()];
+  // Built the way `on_ping` builds one: a fresh service sharing the
+  // connection's pacer cell, then given its own binds.
+  let pacer = handle.services[0].bandwidth_bps.clone();
+  let mut extra = crate::state::ServiceState::newly_declared(pacer);
+  extra.declared_hostname = Some(second.to_string());
+  extra.declared_hostnames = vec![second.to_string()];
+  handle.services.push(extra);
+  handle
+}
+
+#[tokio::test]
+async fn the_org_fence_sees_a_hostname_held_by_a_later_service() {
+  // The fence is a tenant boundary: narrowing an organization's allowlist has
+  // to drop any connection still serving a name that left it. It asked the
+  // first service only, so a multiplexed connection whose *second* service
+  // held the revoked hostname passed the check and went on serving it, which
+  // is the same hole `effective_hostnames` was fixed for and reachable the
+  // moment a client could carry two services.
+  let state = crate::test_support::test_state();
+  let mut handle = multiplexed_handle("kept.example.com", "revoked.example.com");
+  handle.perms.org_id = Some("acme".to_string());
+  state.clients.write().await.insert("c1".to_string(), handle);
+
+  let dropped = state
+    .apply_org_hostnames("acme", &["kept.example.com".to_string()])
+    .await;
+  assert_eq!(
+    dropped, 1,
+    "the connection serves a name outside the allowlist and has to go"
+  );
+}
+
+#[tokio::test]
+async fn a_connection_serving_only_permitted_names_is_left_alone() {
+  // The other half of the same check: iterating every service must not turn
+  // the fence into something that drops connections it has no quarrel with.
+  let state = crate::test_support::test_state();
+  let mut handle = multiplexed_handle("a.example.com", "b.example.com");
+  handle.perms.org_id = Some("acme".to_string());
+  state.clients.write().await.insert("c1".to_string(), handle);
+
+  let dropped = state
+    .apply_org_hostnames(
+      "acme",
+      &["a.example.com".to_string(), "b.example.com".to_string()],
+    )
+    .await;
+  assert_eq!(dropped, 0);
+}
+
+#[test]
+fn process_scoped_answers_are_about_the_process_not_its_first_service() {
+  let threshold = std::time::Duration::from_secs(30);
+  let mut handle = multiplexed_handle("a.example.com", "b.example.com");
+  assert!(handle.serves_process_scoped(threshold));
+
+  // A raw `tunnels:` open and an `expose` lookup are about the client process.
+  // Reading the first service's kill switch meant disabling `a` from the
+  // dashboard silently took away a tunnel the process declared and served
+  // just as well through `b`.
+  handle.services[0].admin_enabled = false;
+  assert!(
+    handle.serves_process_scoped(threshold),
+    "one disabled service does not take the process's tunnels away"
+  );
+  handle.services[1].admin_enabled = false;
+  assert!(
+    !handle.serves_process_scoped(threshold),
+    "with nothing enabled there is no process left to serve them"
+  );
+}
+
+#[test]
+fn a_process_is_named_by_every_service_it_carries() {
+  let mut handle = multiplexed_handle("a.example.com", "b.example.com");
+  handle.services[0].service_name = Some("web".to_string());
+  handle.services[1].service_name = Some("api".to_string());
+  assert_eq!(handle.process_name().as_deref(), Some("web, api"));
+
+  // One service reads exactly as it did, which is every deployment before
+  // multiplexing.
+  handle.services.truncate(1);
+  assert_eq!(handle.process_name().as_deref(), Some("web"));
 }

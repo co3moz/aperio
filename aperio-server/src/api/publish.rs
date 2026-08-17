@@ -171,7 +171,17 @@ pub(crate) async fn subscribers_handler(
       .entry(key.clone())
       .or_insert_with(|| SubscriberView {
         instance_group: handle.instance_group.clone(),
-        service: handle.sole().service_name.clone(),
+        // The connection's services, joined, rather than the first of
+        // them: this view is keyed by process and a process may carry
+        // several, so naming one of them would name an arbitrary one.
+        service: {
+          let names: Vec<&str> = handle
+            .services
+            .iter()
+            .filter_map(|s| s.service_name.as_deref())
+            .collect();
+          (!names.is_empty()).then(|| names.join(", "))
+        },
         token_name: handle.perms.token_name.clone(),
         connections: 0,
         topics: Vec::new(),

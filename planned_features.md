@@ -19,27 +19,7 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#122 The 35 `sole()` call sites are live now, not dormant.** (triage 45)
-  `HandleState::sole()` is documented as "the remaining work of #46", a
-  deliberate marker whose count `grep sole` reports, and it takes the *first*
-  service of a connection on the assumption there is only one. That assumption
-  held for as long as no client could produce a connection with two. `#120`
-  shipped one, so every remaining call is now a place where a multiplexed
-  connection's second and later services are silently not considered.
-
-  Not all 35 matter equally, and the entry exists so the triage happens once
-  rather than per bug report. The ones worth looking at first, by what a wrong
-  answer does: `scaling.rs` (5) decides autoscaling from one service's
-  capacity, so a multiplexed pool is measured on a fraction of itself;
-  `api/metrics.rs` (2) attributes a connection's series to one service;
-  `tunnel/registry.rs` (4) and `tunnel/tcp.rs` (3) are the raw-tunnel path
-  `#46` already marked as keying on the connection; `api/settings.rs` (4) and
-  `api/explain.rs` (2) answer operator questions about "this client" with one
-  service's answer.
-
-  The honest short-term answer for anything not worth converting is to say so
-  where it is read, the way the raw `tunnels:` path already does, rather than
-  leaving a caller that looks correct.
+Nothing open. The next idea takes the next free id, which is `#123`.
 
 ## Withdrawn
 
@@ -386,6 +366,60 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#122 The 35 `sole()` call sites are live now, not dormant.** (triage 45)
+  `HandleState::sole()` is documented as "the remaining work of #46", a
+  deliberate marker whose count `grep sole` reports, and it takes the *first*
+  service of a connection on the assumption there is only one. That assumption
+  held for as long as no client could produce a connection with two. `#120`
+  shipped one, so every remaining call is now a place where a multiplexed
+  connection's second and later services are silently not considered.
+
+  Not all 35 matter equally, and the entry exists so the triage happens once
+  rather than per bug report. The ones worth looking at first, by what a wrong
+  answer does: `scaling.rs` (5) decides autoscaling from one service's
+  capacity, so a multiplexed pool is measured on a fraction of itself;
+  `api/metrics.rs` (2) attributes a connection's series to one service;
+  `tunnel/registry.rs` (4) and `tunnel/tcp.rs` (3) are the raw-tunnel path
+  `#46` already marked as keying on the connection; `api/settings.rs` (4) and
+  `api/explain.rs` (2) answer operator questions about "this client" with one
+  service's answer.
+
+  The honest short-term answer for anything not worth converting is to say so
+  where it is read, the way the raw `tunnels:` path already does, rather than
+  leaving a caller that looks correct.
+
+  **shipped: 2026-08-17.** All 35 converted, and `sole`/`sole_mut` are now
+  `#[cfg(test)]`, so the count cannot grow back without somebody noticing. A
+  test that builds a one-service handle and pokes at it is not assuming
+  anything, which is why the accessor survives there and only there.
+
+  Three shapes came out of it rather than one. A caller that means *this*
+  service takes the index from routing or `match_declarations` and goes through
+  `service_at`. A caller that means the connection iterates `services`. A caller
+  that means the client *process* now says so through a named helper:
+  `tunnels()` (declared once by the client and copied onto every service),
+  `serves_process_scoped()` (any enabled service, because a raw tunnel is not a
+  service's to withdraw) and `process_name()`.
+
+  Where it differed from the plan: the triage list was right about which files
+  matter but missed the worst one, because it was not a `sole()` call at all.
+  `newly_declared` starts a service with no assigned binds, so the second and
+  later services of a multiplexed connection came up without the hostnames
+  their *token* granted and without the server's random subdomain, both of
+  which are settled at connect time onto the one service a connection starts
+  with. A route that depends on a token grant simply did not work for them.
+  Found while reading `random_hostname` for the `api/settings.rs` entry on the
+  list.
+
+  Two more the list underrated. `apply_org_hostnames` is a tenant boundary and
+  was checking the first service's names, so narrowing an organization's
+  allowlist did not disconnect a client still serving a revoked hostname
+  through a later service. And `api/metrics.rs` did not merely mislabel: it
+  dropped every other service's request count out of the metric. That one is
+  now a series per service, with a `service` label added only when a connection
+  carries more than one, so no existing deployment sees its series split.
+
 
 - [x] **#121 `adaptive_concurrency` never reaches the server, so two thirds of
   what it is for does not happen.** (triage 60) Found by measurement, not by

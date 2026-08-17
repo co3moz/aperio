@@ -334,18 +334,22 @@ async fn reassign_random_hostnames(state: &Arc<AppState>) {
   {
     let mut clients = state.clients.write().await;
     for (id, c) in clients.iter_mut() {
-      // Taken by value before the mutation rather than borrowed across it:
-      // reading and writing the same service through two accessor calls is
-      // two borrows of the connection, which is what a plain field access
-      // used to hide.
-      let old = c.sole().random_hostname.clone();
-      if let Some(old) = old {
-        c.sole_mut().assigned_hostnames.retain(|h| *h != old);
-      }
+      // Every service on the connection, because the random hostname is the
+      // connection's: it is derived from the instance group at connect time
+      // and handed to whatever the connection serves. Reassigning it on the
+      // first service alone left the others answering for a name that points
+      // at the retired pattern.
       let fresh = pattern.as_deref().map(random_subdomain_hostname);
-      c.sole_mut().random_hostname = fresh.clone();
+      for service in c.services.iter_mut() {
+        if let Some(old) = service.random_hostname.take() {
+          service.assigned_hostnames.retain(|h| *h != old);
+        }
+        service.random_hostname = fresh.clone();
+        if let Some(h) = fresh.clone() {
+          service.assigned_hostnames.push(h);
+        }
+      }
       if let Some(h) = fresh {
-        c.sole_mut().assigned_hostnames.push(h.clone());
         info!("Reassigned random hostname {} to client {}", h, id);
         notifications.push((c.tx.clone(), h));
       }

@@ -2868,33 +2868,41 @@ pub(crate) async fn observe_service_availability(
   let mut out: std::collections::HashMap<String, (Availability, Option<String>)> =
     std::collections::HashMap::new();
   for (conn_id, handle) in clients.iter() {
-    let key = handle
-      .sole()
-      .service_name
-      .clone()
-      .or_else(|| handle.reported_instance_id.clone())
-      .unwrap_or_else(|| conn_id.clone());
-    let status = if !handle.is_healthy(down_threshold) {
-      Availability::Down
-    } else if handle.sole().backend_healthy && handle.sole().admin_enabled && !handle.draining {
-      Availability::Up
-    } else {
-      Availability::Degraded
-    };
-    // Several connections may serve one entity; the best state wins. All
-    // connections of one entity share its organization.
-    let entry = out
-      .entry(key)
-      .or_insert((Availability::Down, handle.perms.org_id.clone()));
-    let rank = |s: &Availability| match s {
-      Availability::Up => 2,
-      Availability::Degraded => 1,
-      Availability::Down => 0,
-    };
-    if rank(&status) > rank(&entry.0) {
-      entry.0 = status;
+    // One record per service, not per connection. Uptime is asked about a
+    // service by name, and a connection carrying several reported only the
+    // first of them: the rest had no history at all, which reads as a service
+    // that was never up rather than one nothing was watching.
+    for service in &handle.services {
+      let key = service
+        .service_name
+        .clone()
+        .or_else(|| handle.reported_instance_id.clone())
+        .unwrap_or_else(|| conn_id.clone());
+      // The connection's own health gates every service on it, because a
+      // socket that is not answering is not serving any of them; past that
+      // each service is up or degraded on its own backend.
+      let status = if !handle.is_healthy(down_threshold) {
+        Availability::Down
+      } else if service.backend_healthy && service.admin_enabled && !handle.draining {
+        Availability::Up
+      } else {
+        Availability::Degraded
+      };
+      // Several connections may serve one entity; the best state wins. All
+      // connections of one entity share its organization.
+      let entry = out
+        .entry(key)
+        .or_insert((Availability::Down, handle.perms.org_id.clone()));
+      let rank = |s: &Availability| match s {
+        Availability::Up => 2,
+        Availability::Degraded => 1,
+        Availability::Down => 0,
+      };
+      if rank(&status) > rank(&entry.0) {
+        entry.0 = status;
+      }
+      entry.1 = handle.perms.org_id.clone();
     }
-    entry.1 = handle.perms.org_id.clone();
   }
   out
 }

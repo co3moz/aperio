@@ -155,10 +155,8 @@ pub(crate) async fn topology_handler(
       .into_iter()
       .map(|e| {
         let served_by = live.iter().find_map(|(cid, c)| {
-          let serving = c.sole().admin_enabled
-            && !c.draining
-            && c.is_healthy(threshold)
-            && c.sole().tunnels.iter().any(|d| {
+          let serving = c.serves_process_scoped(threshold)
+            && c.tunnels().iter().any(|d| {
               d.protocol == "tcp"
                 && !d.encrypt
                 && match &e.tunnel {

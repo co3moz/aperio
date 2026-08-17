@@ -146,10 +146,11 @@ pub(crate) async fn tcp_ws_handler(
       let found = clients
         .iter()
         .find(|(_, c)| {
-          c.sole().tcp_enabled
-            && c.sole().admin_enabled
-            && !c.draining
-            && c.is_healthy(state.config().client_down_threshold)
+          // Any service with a legacy `tcp_target`, since which of a
+          // connection's services owns a raw socket is not something the
+          // opener names.
+          c.services.iter().any(|s| s.tcp_enabled)
+            && c.serves_process_scoped(state.config().client_down_threshold)
             && registry::may_bind(&perms, &c.perms)
         })
         .map(|(id, c)| (id.clone(), c.tx.clone()));
@@ -548,7 +549,7 @@ pub(crate) async fn tunnels_list_handler(
   if !registry::may_bind(&perms, &c.perms) {
     return reject(registry::Rejection::Forbidden, id).into_response();
   }
-  Json(c.sole().tunnels.clone()).into_response()
+  Json(c.tunnels().to_vec()).into_response()
 }
 
 /// Relays bytes between a public TCP consumer WebSocket and the tunnel.

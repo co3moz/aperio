@@ -625,15 +625,24 @@ pub(crate) async fn explain_handler(
       .collect();
     // Every connected client that serves this hostname but would not take
     // the request, with the reason, which is the question behind most 504s.
+    //
+    // The reason is asked of the *service* that serves the hostname, not of
+    // the connection: on a connection carrying several, the first one's kill
+    // switch and backend health answered for a service that had neither
+    // problem, which is precisely the wrong answer to give somebody who came
+    // here to find out why their route is not working.
     let ineligible: Vec<(Conn, &'static str, &'static str)> = clients
       .iter()
-      .filter(|(id, c)| !pool.iter().any(|p| p.id == **id) && c.matches_host(&hostname))
-      .map(|(id, c)| {
-        let (why, code) = if !c.sole().admin_enabled {
+      .filter_map(|(id, c)| {
+        if pool.iter().any(|p| p.id == *id) {
+          return None;
+        }
+        let service = c.services.iter().find(|s| s.matches_host(&hostname))?;
+        let (why, code) = if !service.admin_enabled {
           ("disabled from the dashboard", "ineligible.disabled")
         } else if c.draining {
           ("draining", "ineligible.draining")
-        } else if !c.sole().backend_healthy {
+        } else if !service.backend_healthy {
           (
             "its backend health probe is failing",
             "ineligible.backend_unhealthy",
@@ -643,15 +652,15 @@ pub(crate) async fn explain_handler(
         } else {
           ("its path bind does not match", "ineligible.path_mismatch")
         };
-        (
+        Some((
           Conn {
             id: id.clone(),
-            name: c.display_name(),
+            name: service.display_name(),
             org: c.perms.org_id.clone(),
           },
           why,
           code,
-        )
+        ))
       })
       .collect();
     (pool, ineligible)

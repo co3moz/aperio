@@ -106,6 +106,11 @@ type ScalingBindCtx = (
   Option<String>,
   Option<String>,
   Option<String>,
+  // Which of the connection's services declared it, so the warn-once flag
+  // that reports a bad block is that service's. Shared, a second service's
+  // mistake would be silenced by the first service having already warned
+  // about its own, which is the failure the per-service flags exist for.
+  usize,
 );
 
 #[cfg(test)]
@@ -1390,6 +1395,19 @@ impl ConnCtx {
                 .first()
                 .map(|s| s.bandwidth_bps.clone())
                 .unwrap_or_default();
+              // What the *token* granted this connection, and the random
+              // subdomain the server handed it. Both are settled at connect
+              // time onto the one service a connection starts with, and both
+              // belong to the connection rather than to that service, so a
+              // service declared later has to be given them too. Without this
+              // a multiplexed client's second service came up with no assigned
+              // binds at all: a token whose grant is what makes the route
+              // reachable served its first service and silently not the rest.
+              let (granted_hostnames, random_hostname) = handle
+                .services
+                .first()
+                .map(|s| (s.assigned_hostnames.clone(), s.random_hostname.clone()))
+                .unwrap_or_default();
               let mut old: Vec<Option<crate::state::ServiceState>> =
                 handle.services.drain(..).map(Some).collect();
               let mut fresh = Vec::with_capacity(matched.len());
@@ -1398,8 +1416,14 @@ impl ConnCtx {
                   .and_then(|i| old.get_mut(i).and_then(Option::take))
                   .unwrap_or_else(|| {
                     // The connection's own cell, so a service added mid-flight
-                    // announces into the one the writer actually reads.
-                    crate::state::ServiceState::newly_declared(pacer_cell.clone())
+                    // announces into the one the writer actually reads, and
+                    // the connection's assigned binds, which are the token's
+                    // and the server's rather than any one service's.
+                    let mut service =
+                      crate::state::ServiceState::newly_declared(pacer_cell.clone());
+                    service.assigned_hostnames = granted_hostnames.clone();
+                    service.random_hostname = random_hostname.clone();
+                    service
                   });
                 fresh.push(carried);
               }
@@ -2001,6 +2025,7 @@ impl ConnCtx {
                 .cloned(),
               handle.perms.org_id.clone(),
               handle.perms.token_id.clone(),
+              service_index,
             ));
           }
         }
@@ -2113,7 +2138,7 @@ impl ConnCtx {
     // it back off the first entry, as this did, silently armed nothing when a
     // *later* service was the one that asked for scaling: the context was
     // set, the declaration was not, and the tuple pattern simply failed.
-    if let (true, Some((decl, hostnames, path, org, token_id))) =
+    if let (true, Some((decl, hostnames, path, org, token_id, scaling_service))) =
       (state.config().scaling_enabled, scaling_ctx)
     {
       for hostname in hostnames {
@@ -2126,8 +2151,10 @@ impl ConnCtx {
               let mut clients = state.clients.write().await;
               match clients.get_mut(client_id) {
                 Some(handle) => {
-                  let already = handle.sole().scaling_invalid_warned;
-                  handle.sole_mut().scaling_invalid_warned = true;
+                  let already = handle.service_at(scaling_service).scaling_invalid_warned;
+                  handle
+                    .service_at_mut(scaling_service)
+                    .scaling_invalid_warned = true;
                   already
                 }
                 None => true,
@@ -2459,12 +2486,19 @@ impl ConnCtx {
       if removed.is_some() {
         let mut rr_map = state.path_rr.lock().await;
         rr_map.retain(|(host_key, path_key), _| {
+          // Any service of any connection, because a routing group is a set of
+          // services and that is what the index is indexing. Asked of the
+          // connection it read the first service's binds, so a group kept
+          // alive only by a *later* service of a multiplexed connection had
+          // its round-robin position dropped and started over at zero.
           clients.values().any(|c| {
-            let host_ok = match host_key {
-              Some(h) => c.matches_host(h),
-              None => !c.has_hostname_bind(),
-            };
-            host_ok && c.effective_path_bind() == path_key.as_ref()
+            c.services.iter().any(|s| {
+              let host_ok = match host_key {
+                Some(h) => s.matches_host(h),
+                None => !s.has_hostname_bind(),
+              };
+              host_ok && s.effective_path_bind() == path_key.as_ref()
+            })
           })
         });
       }

@@ -81,14 +81,37 @@ pub(crate) async fn metrics_handler(
   // The client's own announced labels ride along with its counter, so a
   // Prometheus scraping several environments can group by `env` without
   // relabelling rules written against client ids.
+  //
+  // One series per *service*, because the counter and the labels are both the
+  // service's: reading the first one dropped every other service's traffic
+  // from the metric entirely, and rendered one service's labels over a
+  // connection carrying several.
+  //
+  // The `service` label appears only on a connection that carries more than
+  // one, which is what keeps this backward compatible. Every deployment before
+  // multiplexing produces exactly the series it produced before, so no
+  // recording rule or dashboard sees its series split; a multiplexed
+  // connection needs the label because two of its services can carry identical
+  // `metrics_labels`, and two samples with the same label set in one scrape is
+  // a duplicate Prometheus rejects rather than a shape it merges.
   let per_client: Vec<(String, u64, String)> = clients
     .iter()
-    .map(|(id, c)| {
-      (
-        id.clone(),
-        c.sole().request_count.load(Ordering::SeqCst),
-        crate::metrics_labels::render(&c.sole().metrics_labels),
-      )
+    .flat_map(|(id, c)| {
+      let multiplexed = c.services.len() > 1;
+      c.services.iter().enumerate().map(move |(i, s)| {
+        let mut labels = crate::metrics_labels::render(&s.metrics_labels);
+        if multiplexed {
+          let name = s
+            .service_name
+            .clone()
+            .unwrap_or_else(|| format!("service_{i}"));
+          labels.push_str(&crate::metrics_labels::render(&[(
+            "service".to_string(),
+            name,
+          )]));
+        }
+        (id.clone(), s.request_count.load(Ordering::SeqCst), labels)
+      })
     })
     .collect();
   drop(clients);

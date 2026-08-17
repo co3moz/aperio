@@ -1653,22 +1653,39 @@ impl ClientHandle {
   /// The one service this connection carries, on the assumption that there
   /// is exactly one.
   ///
-  /// Every call is a place that has not yet been taught to pick a service,
-  /// which is the point of the name: `grep sole` is the remaining work of
-  /// #46, and it shrinks as callers learn. A caller that genuinely wants
-  /// every service should iterate `services` instead and will keep working
-  /// when the length stops being one; a caller that wants a *particular*
-  /// service will take it from routing, which is what decides.
+  /// **Test-only, and that is the whole point.** `grep sole` was the remaining
+  /// work of #46: every call was a place that had not been taught to pick a
+  /// service, and while no client could open a connection with two the
+  /// assumption cost nothing. `#120` shipped a client that can, which turned
+  /// all thirty-five of them live at once (#122), so they were converted and
+  /// the accessor was left where only a test can reach it. A test that builds
+  /// a handle with one service and pokes at it is not assuming anything; it
+  /// said so, and now the compiler holds it to that.
+  ///
+  /// Production code asks a question instead. Something about *this* service
+  /// takes it from routing or from `match_declarations`, which decide rather
+  /// than guess, through `service_at`. Something about the connection, or
+  /// about the process behind it, iterates `services`, and there are named
+  /// helpers for the answers that recur: `effective_hostnames`, `tunnels`,
+  /// `serves_process_scoped`, `process_name`.
   ///
   /// Panics on an empty list, which is the honest reading of an invariant a
   /// `Vec` cannot express: every construction puts a service here, so an
   /// empty one is a bug in this file rather than anything a peer can cause.
-  /// The alternative, an `Option` threaded through four hundred callers, is
-  /// four hundred invented answers to a question that has no real case.
+  #[cfg(test)]
   pub(crate) fn sole(&self) -> &ServiceState {
     self
       .services
       .first()
+      .expect("a connection always carries at least one service")
+  }
+
+  /// The mutable half of `sole`, with the same meaning and the same fence.
+  #[cfg(test)]
+  pub(crate) fn sole_mut(&mut self) -> &mut ServiceState {
+    self
+      .services
+      .first_mut()
       .expect("a connection always carries at least one service")
   }
 
@@ -1683,14 +1700,6 @@ impl ClientHandle {
 
   pub(crate) fn service_at_mut(&mut self, index: usize) -> &mut ServiceState {
     &mut self.services[index]
-  }
-
-  /// The mutable half of `sole`, with the same meaning and the same debt.
-  pub(crate) fn sole_mut(&mut self) -> &mut ServiceState {
-    self
-      .services
-      .first_mut()
-      .expect("a connection always carries at least one service")
   }
 }
 
@@ -1813,11 +1822,34 @@ impl ClientHandle {
     reference.elapsed() < down_threshold
   }
 
-  /// Routing predicates, delegated to the one service. Each is a `sole` on
-  /// the #46 list: a caller that knows *which* service it means should ask
-  /// the `ServiceState` directly instead.
-  pub(crate) fn effective_path_bind(&self) -> Option<&String> {
-    self.sole().effective_path_bind()
+  /// The `tunnels:` this connection declares.
+  ///
+  /// Process-wide on the client, which resolves one list and copies it onto
+  /// every service, so any service's copy is the answer and the first is as
+  /// good as any. Read through here rather than through `sole()` at four call
+  /// sites, so the reason is stated once and a future per-service `tunnels:`
+  /// has one place to change instead of four to find.
+  pub(crate) fn tunnels(&self) -> &[crate::protocol::TunnelDecl] {
+    self
+      .services
+      .first()
+      .map(|s| s.tunnels.as_slice())
+      .unwrap_or(&[])
+  }
+
+  /// Whether this connection can be used for something that belongs to the
+  /// *process* rather than to one of its services: a raw `tunnels:` open, an
+  /// `expose` lookup, the topology view.
+  ///
+  /// Any enabled service is enough, and that is not a shortcut: what these ask
+  /// about is not a service, so there is no service whose kill switch is the
+  /// right one to consult. Reading the first one's meant that disabling `web`
+  /// from the dashboard silently took away a tunnel declared by the process
+  /// and served just as well through `api`.
+  pub(crate) fn serves_process_scoped(&self, down_threshold: Duration) -> bool {
+    self.is_healthy(down_threshold)
+      && !self.draining
+      && self.services.iter().any(|s| s.admin_enabled)
   }
 
   /// Every hostname this connection serves, across all of its services.
@@ -1843,16 +1875,20 @@ impl ClientHandle {
     out
   }
 
-  pub(crate) fn display_name(&self) -> Option<String> {
-    self.sole().display_name()
-  }
-
-  pub(crate) fn matches_host(&self, host: &str) -> bool {
-    self.sole().matches_host(host)
-  }
-
-  pub(crate) fn has_hostname_bind(&self) -> bool {
-    self.sole().has_hostname_bind()
+  /// What to call this client *process* on screen.
+  ///
+  /// Every service it carries, joined, because the callers are the ones that
+  /// describe the process rather than a service: a raw tunnel listing, a
+  /// subscriber view. A connection carrying one service reads exactly as it
+  /// did, which is the common case and the whole of every deployment before
+  /// multiplexing.
+  pub(crate) fn process_name(&self) -> Option<String> {
+    let names: Vec<String> = self
+      .services
+      .iter()
+      .filter_map(|s| s.display_name())
+      .collect();
+    (!names.is_empty()).then(|| names.join(", "))
   }
 }
 
@@ -3259,12 +3295,21 @@ impl AppState {
         continue;
       }
       handle.perms.org_hostnames = hostnames.to_vec();
-      let serving: Vec<String> = handle
-        .sole()
-        .assigned_hostnames
+      // Every service on the connection, not the first one's names. The fence
+      // is a tenant boundary and the question it asks is "is this connection
+      // serving anything outside the allowlist", so a name reached the first
+      // way it can be reached is a name that has to be checked: a multiplexed
+      // connection whose second service held the revoked hostname would
+      // otherwise pass the check and keep serving it. Same reasoning, and the
+      // same hole, as `effective_hostnames`.
+      let serving: Vec<&String> = handle
+        .services
         .iter()
-        .chain(handle.sole().declared_hostnames.iter())
-        .cloned()
+        .flat_map(|s| {
+          s.assigned_hostnames
+            .iter()
+            .chain(s.declared_hostnames.iter())
+        })
         .collect();
       if serving
         .iter()

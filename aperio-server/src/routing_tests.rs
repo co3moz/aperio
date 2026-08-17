@@ -624,15 +624,24 @@ fn affinity_matches_instance_id_then_connection_id() {
 fn effective_path_bind_precedence() {
   let mut h = base_handle();
   h.sole_mut().assigned_path = Some("/granted".to_string());
-  assert_eq!(h.effective_path_bind(), Some(&"/granted".to_string()));
+  assert_eq!(
+    h.sole().effective_path_bind(),
+    Some(&"/granted".to_string())
+  );
 
   // Declared wins over assigned.
   h.sole_mut().declared_path = Some("/declared".to_string());
-  assert_eq!(h.effective_path_bind(), Some(&"/declared".to_string()));
+  assert_eq!(
+    h.sole().effective_path_bind(),
+    Some(&"/declared".to_string())
+  );
 
   // Dashboard override wins over everything.
   h.sole_mut().override_path_bind = Some("/override".to_string());
-  assert_eq!(h.effective_path_bind(), Some(&"/override".to_string()));
+  assert_eq!(
+    h.sole().effective_path_bind(),
+    Some(&"/override".to_string())
+  );
 }
 
 #[test]
@@ -640,23 +649,23 @@ fn matches_host_uses_override_then_union() {
   let mut h = base_handle();
   h.sole_mut().assigned_hostnames = vec!["a.example.com".to_string()];
   h.sole_mut().declared_hostname = Some("b.example.com".to_string());
-  assert!(h.has_hostname_bind());
-  assert!(h.matches_host("a.example.com"));
-  assert!(h.matches_host("b.example.com"));
-  assert!(!h.matches_host("c.example.com"));
+  assert!(h.sole().has_hostname_bind());
+  assert!(h.sole().matches_host("a.example.com"));
+  assert!(h.sole().matches_host("b.example.com"));
+  assert!(!h.sole().matches_host("c.example.com"));
 
   // An override replaces the whole set.
   h.sole_mut().override_hostname_binds = vec!["c.example.com".to_string()];
-  assert!(h.matches_host("c.example.com"));
-  assert!(!h.matches_host("a.example.com"));
+  assert!(h.sole().matches_host("c.example.com"));
+  assert!(!h.sole().matches_host("a.example.com"));
 
   // Several overridden names all route: an operator retargeting the hostname
   // the client declared can keep the random subdomain alive alongside it.
   h.sole_mut().override_hostname_binds =
     vec!["c.example.com".to_string(), "a.example.com".to_string()];
-  assert!(h.matches_host("c.example.com"));
-  assert!(h.matches_host("a.example.com"));
-  assert!(!h.matches_host("b.example.com"));
+  assert!(h.sole().matches_host("c.example.com"));
+  assert!(h.sole().matches_host("a.example.com"));
+  assert!(!h.sole().matches_host("b.example.com"));
 }
 
 #[test]

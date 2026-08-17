@@ -257,29 +257,45 @@ pub(crate) async fn measure(state: &AppState, hostname: &str, path: Option<&str>
   let down_threshold = state.config().client_down_threshold;
   let mut out = Capacity::default();
   for client in clients.values() {
-    // Only clients that could actually take a request count as capacity.
-    let eligible = client.is_healthy(down_threshold)
-      && client.sole().backend_healthy
-      && !client.draining
-      && client.sole().admin_enabled
-      // Standby tiers exist to be idle; counting them would hide saturation
-      // of the primaries under `primary-standby`.
-      && client.sole().priority == 0
-      && client.effective_hostnames().iter().any(|h| **h == hostname)
-      && match path {
-        Some(p) => client.effective_path_bind().map(String::as_str) == Some(p),
-        None => true,
-      };
-    if !eligible {
+    // The bind belongs to a *service*, so eligibility is asked of each service
+    // rather than of the connection. Asked of the connection it was two
+    // mistakes that hid each other: the hostname test passed if *any* service
+    // on the connection served the name, and the capacity added afterwards was
+    // the *first* service's, so a connection carrying `web` and `api` measured
+    // the `api` pool using `web`'s concurrency and health.
+    //
+    // A connection is still one instance however many of its services match:
+    // `instances` answers "how many of these are running", and the thing an
+    // autoscaler adds is a process.
+    let connection_up = client.is_healthy(down_threshold) && !client.draining;
+    if !connection_up {
       continue;
     }
-    out.instances += 1;
-    if let (Some(limit), Some(limiter)) = (
-      client.sole().max_concurrent,
-      client.sole().inflight_limiter.as_ref(),
-    ) {
-      out.capacity += limit;
-      out.inflight += limit.saturating_sub(limiter.available_permits() as u32);
+    let mut matched = false;
+    for service in &client.services {
+      let eligible = service.backend_healthy
+        && service.admin_enabled
+        // Standby tiers exist to be idle; counting them would hide saturation
+        // of the primaries under `primary-standby`.
+        && service.priority == 0
+        && service.effective_hostnames().iter().any(|h| **h == hostname)
+        && match path {
+          Some(p) => service.effective_path_bind().map(String::as_str) == Some(p),
+          None => true,
+        };
+      if !eligible {
+        continue;
+      }
+      matched = true;
+      if let (Some(limit), Some(limiter)) =
+        (service.max_concurrent, service.inflight_limiter.as_ref())
+      {
+        out.capacity += limit;
+        out.inflight += limit.saturating_sub(limiter.available_permits() as u32);
+      }
+    }
+    if matched {
+      out.instances += 1;
     }
   }
   if out.capacity > 0 {
