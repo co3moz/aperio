@@ -1803,6 +1803,53 @@ async fn a_server_that_cannot_serve_a_list_is_not_sent_one() {
   let _ = tokio::time::timeout(Duration::from_secs(5), svc).await;
 }
 
+#[tokio::test]
+async fn a_refused_connection_backs_off_instead_of_redialing_flat_out() {
+  // A refusal is not a reason to stop retrying, but it is a reason to wait.
+  // The backoff, the jitter and the failover to the next server all live at
+  // the tail of the reconnect loop, and a refusal that `continue`d past them
+  // dialed as fast as the network allowed: about seven thousand handshakes a
+  // second on loopback, each one a full TLS negotiation and a token
+  // authentication on the server, with an error line per attempt. The log even
+  // said "Retrying", which is what the backoff path says, so nothing about it
+  // looked wrong from the outside.
+  //
+  // Reached here through the multiplex gate because it is the cheapest refusal
+  // to set up, but the path is shared with the visitor-gate refusals.
+  let (listener, ws_url) = loopback_ws().await;
+  let specs = two_multiplexed(&ws_url);
+  let healths: Vec<BackendHealth> = specs.iter().map(BackendHealth::for_spec).collect();
+  let (cancel_tx, cancel_rx) = watch::channel(false);
+  let svc = tokio::spawn(run_service(
+    specs,
+    test_shared(),
+    cancel_rx,
+    healths,
+    true,
+    1,
+    ConnectionCeiling::new(),
+  ));
+
+  // Answer with the bare handshake an old server sends, and count how many
+  // times we are asked. The first delay is a jittered half-to-full second, so
+  // two seconds is room for a couple of honest retries and nowhere near room
+  // for a spin.
+  let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+  let mut dials = 0u32;
+  while let Ok(Ok((stream, _))) = tokio::time::timeout_at(deadline, listener.accept()).await {
+    let _ = accept_async(stream).await;
+    dials += 1;
+  }
+  assert!(dials >= 1, "the client should keep trying, not give up");
+  assert!(
+    dials <= 8,
+    "a refused connection redialed {dials} times in two seconds; the backoff is being skipped"
+  );
+
+  cancel_tx.send(true).unwrap();
+  let _ = tokio::time::timeout(Duration::from_secs(5), svc).await;
+}
+
 #[test]
 fn a_named_dispatch_finds_its_own_service_and_an_unknown_one_falls_back() {
   let specs = two_multiplexed("ws://127.0.0.1:1/");

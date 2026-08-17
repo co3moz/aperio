@@ -1579,7 +1579,13 @@ pub(crate) async fn run_service(
           r = &mut connect_fut => r,
         };
         match connect_result {
-          Ok((ws_stream, response)) => {
+          // Labelled so a refusal below can give this connection up without
+          // giving up the *loop*. `continue` reads like the right word for
+          // "retry", and it is the wrong one here: the backoff, the jitter and
+          // the failover to the next server all live at the tail of the loop,
+          // and skipping them turned a refused connection into a dial as fast
+          // as the network allows, forever, with an error line per attempt.
+          Ok((ws_stream, response)) => 'connection: {
             info!("[{}] Successfully connected to Aperio Server!", label);
             // The half of the window only this side can judge (#113). A server
             // cannot know it is too old for something a future client wants,
@@ -1629,7 +1635,7 @@ pub(crate) async fn run_service(
                   MIN_MULTIPLEX_PROTOCOL,
                   specs.len()
                 );
-                continue;
+                break 'connection;
               }
             }
             // The server announces what this token may open for one service.
@@ -1729,7 +1735,7 @@ pub(crate) async fn run_service(
                 "[{}] No service on this connection can be served by this server. Retrying.",
                 label
               );
-              continue;
+              break 'connection;
             }
             let announced_services: Vec<usize> =
               (0..specs.len()).filter(|i| !withheld.contains(i)).collect();
