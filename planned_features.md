@@ -365,6 +365,62 @@ nothing reuses them.
 
 ## Completed
 
+- [x] **#107 A `bearer` method, and the `?aperio_token=` form beside it.**
+  Today a machine can administer Aperio without a screen (admin API keys, the
+  master token, `APERIO_METRICS_TOKEN`) and cannot **use** a tunnelled service
+  without one: `check_visitor_gate` reads only the session cookie and a share
+  link, `Authorization: Basic` on a proxied request means nothing, and every
+  refusal is a 302. So there is no way to `curl` a gated route.
+
+  **Most of it is already written, in the wrong place.** `metrics_handler`
+  (`aperio-server/src/api/metrics.rs`) accepts `Authorization: Bearer` *or*
+  `?token=`, compares in constant time, and answers **401**. That is exactly
+  what the visitor gate needs and exactly what it does not do.
+
+  **The query form is worth having and has to be paid for.** It is what an
+  `<img src>`, a sender that cannot set headers, a link in an email and a
+  flagless `curl` need. But a query string reaches the access log, the
+  `Referer` header, browser history and the fronting proxy's logs, and
+  Aperio's own `access_log` writes `uri` per line, so the naive version writes
+  the secret to disk by default. Share links already solve half of this: the
+  first click **redirects to the clean URL** and moves the credential into a
+  cookie (`share.rs`). Reuse that shape: `query:` is opt-in per method and
+  defaults to **false**; on a browser navigation it does the share-link dance
+  and leaves a visitor session behind; on anything else it authenticates that
+  one request. Stripping the token from the logged URI and from the inspector
+  capture is part of the work, not a follow-up, and `inspector_redact` is the
+  pattern for it.
+
+  **Write down why this secret is not hashed** while #105 is hashing `basic`.
+  A bearer secret is high-entropy and operator-generated, so there is no
+  dictionary surface to defend, and it has to be comparable in constant time
+  against what the operator wrote in the file. Without that sentence it reads
+  as an inconsistency six months from now.
+
+  First of the methods to build: no new dependency, no crypto, and it is the
+  precondition for #108, because once routes start closing, scripts need a
+  door or everyone reopens them with `public: true` and nothing was gained.
+
+  Shipped, and then lost: the commit that built it (`3ee273e`) deleted this
+  block from the open list instead of ticking it and moving it, so the id read
+  as never-used for months while `#105`'s entry went on citing it twice. Found
+  2026-08-18 by counting ids across all three sections, 123 of them for a
+  highest id of 124, and restored from `3ee273e^` rather than rewritten from
+  memory. This is the failure rule 7 is about, in the direction the rule does
+  not name: not a ticked item left sitting in the open list, but an item taken
+  out of the file altogether.
+
+  What shipped, checked against the code rather than recalled: the `bearer`
+  method reads `Authorization: Bearer` and, when the method's `query:` opts
+  in, `?aperio_token=` (`aperio-server/src/proxy/gate.rs`); the refusal is a
+  401 with a challenge; the secret is compared with `constant_time_eq_str`
+  (`aperio-server/src/visitor_auth.rs`); the page-load form mints a cookie the
+  way a share link does (`share.rs`); and the token is stripped from the
+  logged URI and the inspector capture (`redact.rs`, alongside `?code=` and
+  `?aperio_share=`). The "why this secret is not hashed" sentence the entry
+  asked for is written where it belongs, on the field itself in
+  `visitor_auth.rs`.
+
 - [x] **#124 `proxy/handler_tests.rs` is three tests written before the
   fixtures existed.** (triage 4) 697 lines for three tests, roughly 230 lines
   each, every one building its `AppState`, its client, its pending-request
