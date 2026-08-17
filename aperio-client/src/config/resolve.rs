@@ -1,10 +1,19 @@
 //! Layering the four sources into the settings the client runs on: CLI, then
 //! `./aperio.yaml`, then the environment, then `~/.aperio.yaml`.
 //!
-//! One function, deliberately whole. It is a single pass that reads each
-//! setting from four places and writes it once into one struct literal; split
-//! into groups it becomes several partial structs to merge, and a setting
-//! resolved in the wrong group is a silent default.
+//! One function, whole because the single column is the point, not because it
+//! resists being cut. It was measured: three values cross any boundary inside
+//! it (`local`, `home`, and the `nonempty` closure), the lowest count of
+//! anything in this repo, and the mechanism for lifting a field out already
+//! exists five times over, `resolve_scaling`, `resolve_hostnames`,
+//! `resolve_connections`, `resolve_otel_bridge` and `resolve_metrics_labels`
+//! each return one field's value. No partial structs, nothing to merge.
+//!
+//! It stays whole because sixty-six settings, each showing its four sources on
+//! one line, is a table an operator and a reader can scan top to bottom. Lift
+//! ten of them into helpers and the table has ten holes in it. The five that
+//! were lifted are the ones that build a sub-object (`ScalingDecl`,
+//! `OtelBridge`), which is a different thing from a setting.
 
 use super::*;
 use aperio_config::FileConfig;

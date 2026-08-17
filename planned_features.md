@@ -19,96 +19,28 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#123 The files still over a thousand lines, and why each one is still
-  there.** (triage 15) The 2026-08-17 sweep took the ten biggest modules apart
-  (`state.rs` 3840 → 941, `aperio-config/lib.rs` 3687 → 163, `tunnel/ws.rs`
-  2986 → 850, `proxy.rs` 2910 → 412, `server/lib.rs` 2908 → 485,
-  `client/lib.rs` 2413 → 539, `client/config.rs` 1738 → 730, `service.rs`
-  1726 → 962, `proxy/forward.rs` 1667 → 901, `auth.rs` 1552 → 447). What is
-  left falls into three groups, and only one of them is work. No production
-  module is over a thousand lines any more; everything still on this list is a
-  test file or a function nobody has counted.
+- [ ] **#124 `proxy/handler_tests.rs` is three tests written before the
+  fixtures existed.** (triage 4) 697 lines for three tests, roughly 230 lines
+  each, every one building its `AppState`, its client, its pending-request
+  plumbing and its response by hand. Forty-seven tests in `proxy_tests.rs`
+  drive the same handler in ten to twenty-five lines each, because they use
+  `connected`, `mark_connected`, `insert_live_client`, `answer_with` and
+  `text_response`.
 
-  **One function, moved whole rather than cut.** `resolve_settings` (491), and
-  it is the last one. It holds state that every one of its many exits has to
-  release, so splitting it means inventing a struct to carry what the single
-  scope carries for free. **It has not had the count run on it**, which is the
-  only thing that would settle it, and every function that has was wrong.
+  The three are not worse tests, they are older ones: they came out of
+  `aperio-server/src/lib_tests.rs` during `#123` and were moved verbatim,
+  which was the right call for a move whose whole safety argument was that it
+  changed nothing. Rewriting them onto the fixtures is a separate change with
+  a separate risk, because a hand-built `AppState` and a fixture-built one are
+  not guaranteed to be the same `AppState`, and a test that starts passing for
+  a new reason is worse than a long test.
 
-  `build_state`, `on_ping`, `run_service` and `proxy_http_request` were all on
-  this list and all four came off it, and how is the useful part. The
-  objection is about how many values cross a cut, which is a number, and in no
-  case had anybody counted it. `build_state`: eight of eighty-eight, because
-  the first of its *two* struct literals absorbs the rest. `on_ping`: one,
-  because the loop body re-binds every field from its own `ServiceDecl` and
-  shadows the outer ones. `run_service`: twenty-one, and it still came apart,
-  because nineteen of the twenty-one were the same thing said nineteen ways.
-  They were the live state of one socket, so they became one struct with a
-  name, `Dispatch`. `proxy_http_request`: twenty-seven, which did *not*
-  collapse to one, they were eight groups, and the split is honest about that
-  by naming the three worth naming (`Marks`, `Capture`, `RequestIdPolicy`) and
-  leaving the rest as separate fields rather than inventing a relationship the
-  code does not have.
-
-  Counting is fiddly enough to be worth doing carefully. A first pass over
-  `proxy_http_request` said thirty-nine, and fourteen of those were words in
-  comments, struct-literal keys (`status: tunnel_res.status`), field accesses
-  (`.response`) and inner bindings that shadow (a `permit` from a match arm, an
-  `rx` from a closure parameter). Strip comments and strings, exclude anything
-  followed by `:`, and the number is twenty-seven. The compiler settled the
-  last two: `uri` and `headers` were carried into the new struct out of caution
-  and it reported both as never read.
-
-  The count is also worth running for what it turns up on the way. Doing it to
-  `on_ping` found seven connection-level fields being written inside the
-  per-service loop, once per declaration with the same value each time, which
-  is both why the body would not lift and a thing worth fixing on its own.
-  Doing it to `run_service` found the two parallel `Vec`s the caller had to
-  keep the same length by hand, which became `ServiceRuntime` and took three
-  crossers off the count before the cut was even attempted. Doing it to
-  `proxy_http_request` found that its stated reason for being whole was not
-  true: the dispatch slot and the pending-response registration it said had to
-  be released on every exit are both RAII guards, released by the same `Drop`
-  the file already relied on. The permit still stays in the caller, which is
-  all the single scope ever actually bought.
-
-  `service.rs` went 1726 → 962, with `run_service` itself 1522 → 828: first
-  the read loop to `dispatch.rs`, then the write task to `writer.rs` (its
-  mirror), then the four gates a connection passes before its first dial to
-  `startup.rs`. `forward.rs` went 1667 → 901 by the same measurement, cut where
-  the function already changes subject, five gates and a body read here, then
-  `attempt.rs` for the dispatch-and-failover loop. A high crosser count turned
-  out to be a description of missing types, not a verdict on the function.
-
-  **Close enough to the line that splitting costs more than it buys.** The four
-  test files left in the 1000-1400 band: `service_tests.rs` (1386),
-  `proxy_tests.rs` (1381), the client's `lib_tests.rs` (1151) and
-  `proxy/gate_tests.rs` (1064). Each is one subject's tests beside one subject's
-  code, which is what rule 22 asks for, and cutting them produces two files a
-  reader has to hold open together.
-
-  This group started larger and kept shrinking: `routing.rs`, `api/clients.rs`
-  and `proxy/http.rs` were all on it and all came off, each splitting cleanly
-  into four subjects. The lesson is that the line was never the criterion. How
-  many distinct subjects a file holds is, and a file long enough to be on this
-  list is worth *asking* the question of rather than skipping by size.
-
-  **The one that was actually work, and is done.** `aperio-server/src/lib_tests.rs`
-  was 1766 for a `lib.rs` of 485, and the mismatch was the signal: most of it
-  tested `routing` and `proxy` rather than the crate root. Done 2026-08-17 in
-  the order this entry predicted, `routing.rs` (1139 → 26) first so its tests
-  had somewhere to go, then twenty-one tests out of `lib_tests.rs` (1766 → 375)
-  to the modules they actually cover. The three `proxy_handler` drives went to
-  a new `proxy/handler_tests.rs` rather than onto `proxy_tests.rs`, which is
-  itself in the band above. What is left in `lib_tests.rs` is what belongs to
-  the crate rather than to a module: the store fixtures and `mock_client` every
-  other test file builds from.
-
-  So the open part of this entry is now the first two groups only, and neither
-  is work: they are decisions, recorded so they are not re-litigated. It stays
-  open as the place that answers "why is this file still 1200 lines". The
-  first group's honest answer is still "because nobody ran the count", and it
-  is now 0 for 3.
+  So: rewrite them one at a time, and for each one confirm it still fails when
+  the behavior it names is broken, not just that it still passes. If a fixture
+  turns out not to cover what the long-hand setup did, that gap is the
+  finding, and it belongs in the fixture rather than back in the test. Two
+  files claiming "the proxy handler driven end to end" is the wart worth
+  removing; the line count is incidental.
 
 ## Withdrawn
 
@@ -455,6 +387,121 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#123 The files still over a thousand lines, and why each one is still
+  there.** (triage 15) The 2026-08-17 sweep took the ten biggest modules apart
+  (`state.rs` 3840 → 941, `aperio-config/lib.rs` 3687 → 163, `tunnel/ws.rs`
+  2986 → 850, `proxy.rs` 2910 → 412, `server/lib.rs` 2908 → 485,
+  `client/lib.rs` 2413 → 539, `client/config.rs` 1738 → 730, `service.rs`
+  1726 → 962, `proxy/forward.rs` 1667 → 901, `auth.rs` 1552 → 447). What is
+  left falls into three groups, and only one of them is work. No production
+  module is over a thousand lines any more; everything still on this list is a
+  test file or a function nobody has counted.
+
+  **One function, moved whole rather than cut. Every claim in this group has
+  now been measured, and every one of the five was wrong.** `build_state`:
+  eight crossers of eighty-eight locals, because the first of its *two* struct
+  literals absorbs the rest. `on_ping`: one, because the loop body re-binds
+  every field from its own `ServiceDecl` and shadows the outer ones.
+  `run_service`: twenty-one, and it still came apart, because nineteen of the
+  twenty-one were the same thing said nineteen ways. They were the live state
+  of one socket, so they became one struct with a name, `Dispatch`.
+  `proxy_http_request`: twenty-seven, which did *not* collapse to one, they
+  were eight groups, and the split is honest about that by naming the three
+  worth naming (`Marks`, `Capture`, `RequestIdPolicy`) and leaving the rest as
+  separate fields rather than inventing a relationship the code does not have.
+
+  `resolve_settings` is the interesting one, because it is the only one that
+  stayed whole and the only one whose written reason was pure invention. It
+  claimed a split would produce "several partial structs to merge". Its count
+  is **three** (`local`, `home`, and a `nonempty` closure), the lowest of
+  anything here, and the mechanism for lifting a field out already existed
+  five times in the same file: `resolve_scaling`, `resolve_hostnames`,
+  `resolve_connections`, `resolve_otel_bridge` and `resolve_metrics_labels`
+  each return one field's value. No partial structs, nothing to merge, ever.
+
+  It stays whole anyway, and this is the point worth keeping: sixty-six
+  settings each showing their four sources on one line is a table, and the
+  table is what the function is for. Lift ten into helpers and it has ten
+  holes. The five already lifted are the ones that build a sub-object, which
+  is a different thing from a setting. A real reason survives the count; the
+  written one did not.
+
+  Counting is fiddly enough to be worth doing carefully. A first pass over
+  `proxy_http_request` said thirty-nine, and fourteen of those were words in
+  comments, struct-literal keys (`status: tunnel_res.status`), field accesses
+  (`.response`) and inner bindings that shadow (a `permit` from a match arm, an
+  `rx` from a closure parameter). Strip comments and strings, exclude anything
+  followed by `:`, and the number is twenty-seven. The compiler settled the
+  last two: `uri` and `headers` were carried into the new struct out of caution
+  and it reported both as never read.
+
+  The count is also worth running for what it turns up on the way. Doing it to
+  `on_ping` found seven connection-level fields being written inside the
+  per-service loop, once per declaration with the same value each time, which
+  is both why the body would not lift and a thing worth fixing on its own.
+  Doing it to `run_service` found the two parallel `Vec`s the caller had to
+  keep the same length by hand, which became `ServiceRuntime` and took three
+  crossers off the count before the cut was even attempted. Doing it to
+  `proxy_http_request` found that its stated reason for being whole was not
+  true: the dispatch slot and the pending-response registration it said had to
+  be released on every exit are both RAII guards, released by the same `Drop`
+  the file already relied on. The permit still stays in the caller, which is
+  all the single scope ever actually bought.
+
+  `service.rs` went 1726 → 962, with `run_service` itself 1522 → 828: first
+  the read loop to `dispatch.rs`, then the write task to `writer.rs` (its
+  mirror), then the four gates a connection passes before its first dial to
+  `startup.rs`. `forward.rs` went 1667 → 901 by the same measurement, cut where
+  the function already changes subject, five gates and a body read here, then
+  `attempt.rs` for the dispatch-and-failover loop. A high crosser count turned
+  out to be a description of missing types, not a verdict on the function.
+
+  **Test files, which the guideline explicitly excepts.** The four left in the
+  1000-1400 band: `service_tests.rs` (1386), `proxy_tests.rs` (1381), the
+  client's `lib_tests.rs` (1151) and `proxy/gate_tests.rs` (1064). Each is one
+  subject's tests beside one subject's code, which is what rule 22 asks for,
+  and cutting them produces two files a reader has to hold open together. When
+  the sweep's findings were written up as rule 24, "test files excepted" went
+  into the rule itself, so this group is now covered by the rule rather than
+  being an exception to it.
+
+  This group started larger and kept shrinking: `routing.rs`, `api/clients.rs`
+  and `proxy/http.rs` were all on it and all came off, each splitting cleanly
+  into four subjects. The lesson is that the line was never the criterion. How
+  many distinct subjects a file holds is, and a file long enough to be on this
+  list is worth *asking* the question of rather than skipping by size.
+
+  **The one that was actually work, and is done.** `aperio-server/src/lib_tests.rs`
+  was 1766 for a `lib.rs` of 485, and the mismatch was the signal: most of it
+  tested `routing` and `proxy` rather than the crate root. Done 2026-08-17 in
+  the order this entry predicted, `routing.rs` (1139 → 26) first so its tests
+  had somewhere to go, then twenty-one tests out of `lib_tests.rs` (1766 → 375)
+  to the modules they actually cover. The three `proxy_handler` drives went to
+  a new `proxy/handler_tests.rs` rather than onto `proxy_tests.rs`, which is
+  itself in the band above. What is left in `lib_tests.rs` is what belongs to
+  the crate rather than to a module: the store fixtures and `mock_client` every
+  other test file builds from.
+
+  Moving those three verbatim was right for a move whose safety argument was
+  that it changed nothing, and it left a wart: they are long-hand, and the
+  forty-seven tests already next door say the same things in a tenth of the
+  space. That is `#124`, and it is a rewrite rather than a move, which is
+  exactly why it is not part of this entry.
+
+  Nothing is left open. Every "cannot be split" claim has been measured and
+  the score is 0 for 5, no production module in the workspace is over a
+  thousand lines, and what the sweep learned is now rule 24 in `CLAUDE.md`
+  rather than a paragraph in a backlog nobody re-reads. The one thing it
+  turned up that is still work is `#124`.
+
+  Shipped 2026-08-18: what was planned as "record why these files are big"
+  turned into "measure the claims and most of them fall", which is a better
+  outcome than the entry expected and the reason it ran three days instead of
+  one. Ten production modules taken apart, five unsplittable claims disproved,
+  one (`resolve_settings`) left whole on a reason that survived the count, and
+  the method written up as rule 24 so the next person does not start from the
+  same wrong assumption.
 
 - [x] **#122 The 35 `sole()` call sites are live now, not dormant.** (triage 45)
   `HandleState::sole()` is documented as "the remaining work of #46", a
