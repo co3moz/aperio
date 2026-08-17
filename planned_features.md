@@ -36,13 +36,18 @@ readable without scrolling past what is already done.
   what the single scope carries for free. Not work; a decision, recorded so it
   is not re-litigated.
 
-  **Close enough to the line that splitting costs more than it buys.**
-  `proxy/http.rs` (1131) and the test files in the 1000-1400 band. A 1100-line
-  file with one clear subject reads fine; cutting it produces two files that
-  have to be read together. `routing.rs` and `api/clients.rs` were on this list
-  and came off it, both split on 2026-08-17: the line is a heuristic, not a
-  rule, and a file that turns out to have four distinct subjects belongs on the
-  other side of it however long it is.
+  **Close enough to the line that splitting costs more than it buys.** The four
+  test files left in the 1000-1400 band: `proxy_tests.rs` (1381),
+  `service_tests.rs` (1345), the client's `lib_tests.rs` (1151) and
+  `proxy/gate_tests.rs` (1064). Each is one subject's tests beside one subject's
+  code, which is what rule 22 asks for, and cutting them produces two files a
+  reader has to hold open together.
+
+  This group started larger and kept shrinking: `routing.rs`, `api/clients.rs`
+  and `proxy/http.rs` were all on it and all came off, each splitting cleanly
+  into four subjects. The lesson is that the line was never the criterion. How
+  many distinct subjects a file holds is, and a file long enough to be on this
+  list is worth *asking* the question of rather than skipping by size.
 
   **The one that was actually work, and is done.** `aperio-server/src/lib_tests.rs`
   was 1766 for a `lib.rs` of 485, and the mismatch was the signal: most of it
