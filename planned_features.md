@@ -19,37 +19,6 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#125 `/api/explain` is a second implementation of the request path, and
-  nothing holds the two together.** The endpoint walks the proxy's decisions on
-  a request nobody sends and reports which one decides. Its own doc comment
-  says it walks "the same decisions in the same order", which is a promise
-  about two files staying in step, and there is no test that would notice when
-  they stop.
-
-  They have already stopped. Checked 2026-08-18 against the request path, the
-  explainer has no stage for the per-IP token bucket, the admission slot
-  (`max_concurrent_requests`), `max_body_size`, `denied_ips`, a service's
-  `allowed_ips`, the token and organization quotas, the canary split, or the
-  cache. Its `rate_limits` stage is the `rate_limits:` route block, not the
-  per-IP limit, which is easy to misread as coverage.
-
-  Several of those decide the answer outright: a visitor in `denied_ips` is
-  refused, an over-quota token gets a 429, and a cache hit is served without a
-  tunnel at all. So the explainer can report a route as reachable when the real
-  request would be refused, which is worse than not having an explainer,
-  because the operator now has a confident wrong answer instead of a log grep.
-
-  **The repo already knows how to enforce this kind of promise.**
-  `state/client_tests.rs` reads `protocol.rs` and asserts every `ServiceDecl`
-  field appears on `ServiceState`; `protocol_profile_tests.rs` reads
-  `docs/embedded-profile.md`. The same shape fits here: name the refusal sites
-  once, and assert each maps to a stage. Adding the missing stages is the
-  smaller half; the test is what stops it happening again.
-
-  `#123` is the warning. Splitting `forward.rs` moved most of these decisions
-  into `attempt.rs` and nothing anywhere had to change to match, which is
-  exactly how two files drift without anybody deciding to let them.
-
 - [ ] **#126 The four config surfaces are kept in step by discipline alone, and
   it has drifted once.** Rules 15 to 17 say a setting reaches yaml, an env
   read, the table in `docs/configuration.md` and the reference table in
@@ -443,6 +412,62 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#125 `/api/explain` is a second implementation of the request path, and
+  nothing holds the two together.** The endpoint walks the proxy's decisions on
+  a request nobody sends and reports which one decides. Its own doc comment
+  says it walks "the same decisions in the same order", which is a promise
+  about two files staying in step, and there is no test that would notice when
+  they stop.
+
+  They have already stopped. Checked 2026-08-18 against the request path, the
+  explainer has no stage for the per-IP token bucket, the admission slot
+  (`max_concurrent_requests`), `max_body_size`, `denied_ips`, a service's
+  `allowed_ips`, the token and organization quotas, the canary split, or the
+  cache. Its `rate_limits` stage is the `rate_limits:` route block, not the
+  per-IP limit, which is easy to misread as coverage.
+
+  Several of those decide the answer outright: a visitor in `denied_ips` is
+  refused, an over-quota token gets a 429, and a cache hit is served without a
+  tunnel at all. So the explainer can report a route as reachable when the real
+  request would be refused, which is worse than not having an explainer,
+  because the operator now has a confident wrong answer instead of a log grep.
+
+  **The repo already knows how to enforce this kind of promise.**
+  `state/client_tests.rs` reads `protocol.rs` and asserts every `ServiceDecl`
+  field appears on `ServiceState`; `protocol_profile_tests.rs` reads
+  `docs/embedded-profile.md`. The same shape fits here: name the refusal sites
+  once, and assert each maps to a stage. Adding the missing stages is the
+  smaller half; the test is what stops it happening again.
+
+  `#123` is the warning. Splitting `forward.rs` moved most of these decisions
+  into `attempt.rs` and nothing anywhere had to change to match, which is
+  exactly how two files drift without anybody deciding to let them.
+
+  Shipped 2026-08-18. Eleven stages added, in the order the proxy makes them:
+  `denied_ips` (which is middleware and so runs before everything already
+  here), the per-IP bucket, the server-wide in-flight ceiling with its live
+  count, `allowed_ips`, the effective body limit, the serving client's
+  `max_concurrent`, response caching, the two token quotas, the organization's
+  monthly quota, and the per-visitor stream cap.
+
+  **Where a rule cannot honestly be evaluated, the stage says so instead of
+  reporting a pass.** The deny list and the stream cap are about who is asking
+  and nobody is; which token a visitor arrives with is not a property of a
+  hostname and a path. That distinction is the difference between an
+  explanation and a guess with a green tick on it, so a test pins the wording.
+
+  **The parity test is anchored on `Limit::setting()`, not on stage names.**
+  `ALL_LIMITS` already existed with a comment saying a test could assert none
+  was forgotten, which nothing had ever done. The setting string is the right
+  anchor because it is what an operator searches for when they want the number
+  changed, so a stage that cannot name where its number lives is not an
+  explanation of it. The test earned its place immediately: it failed on
+  `Limit::Route`, the one limit that was supposedly covered, because the
+  branch for "no rule matches this path" named no setting at all. Fixed
+  rather than excused. Checked the other way too, deleting a stage turns it
+  red.
+
 
 - [x] **#107 A `bearer` method, and the `?aperio_token=` form beside it.**
   Today a machine can administer Aperio without a screen (admin API keys, the

@@ -25,6 +25,17 @@ use std::sync::Arc;
 
 use crate::state::AppState;
 
+/// The limits that belong to whoever would serve the request, rather than to
+/// the server or the route. Read off the first candidate while the client map
+/// is open, because every stage below that needs one of these would otherwise
+/// reopen it.
+struct Serving {
+  max_concurrent: Option<u32>,
+  cache: bool,
+  restricts_source_ips: bool,
+  max_request_body: Option<u64>,
+}
+
 /// What to explain. `hostname` may also be given as a full URL, which is what
 /// someone has in their clipboard when they come here.
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -350,6 +361,34 @@ pub(crate) async fn explain_handler(
   };
   let cfg = state.config();
 
+  // 0. The source-IP deny list, which is middleware in `server/router.rs` and
+  // so runs before any of this. Reported as a rule rather than a verdict: this
+  // report is about a hostname and a path, and the deny list is about who is
+  // asking, which nobody is here.
+  if cfg.denied_ips.is_empty() {
+    steps.push(Step::new(
+      "denied_ips",
+      Verdict::Skipped,
+      "denied_ips.none",
+      "no source-IP deny list is configured",
+    ));
+  } else {
+    steps.push(
+      Step::new(
+        "denied_ips",
+        Verdict::Passes,
+        "denied_ips.configured",
+        format!(
+          "a source-IP deny list is in force ({} entr{}); a request from a listed address is refused before anything below runs, whatever this report says",
+          cfg.denied_ips.len(),
+          if cfg.denied_ips.len() == 1 { "y" } else { "ies" }
+        ),
+      )
+      .with(serde_json::json!({ "count": cfg.denied_ips.len() }))
+      .from("denied_ips:"),
+    );
+  }
+
   // 1. Maintenance mode, which wins over everything.
   match state.maintenance_for(Some(&hostname)).await {
     Some(flag) => {
@@ -534,13 +573,39 @@ pub(crate) async fn explain_handler(
       }))
       .from("rate_limits"),
     ),
-    None => steps.push(Step::new(
-      "route_rate_limit",
-      Verdict::Skipped,
-      "route_rate_limit.none",
-      "no rate_limits: rule covers this path",
-    )),
+    // Still names the key it looked in. A stage that says "nothing here"
+    // without saying where it looked leaves the reader to guess which of the
+    // eight limits it was about.
+    None => steps.push(
+      Step::new(
+        "route_rate_limit",
+        Verdict::Skipped,
+        "route_rate_limit.none",
+        "no rate_limits: rule covers this path",
+      )
+      .from(crate::limits::Limit::Route.setting()),
+    ),
   }
+
+  // 5b. The per-visitor token bucket. Reported, never spent: charging this
+  // dry run would make the explainer part of the thing it explains, and
+  // somebody debugging a 429 would be adding to it with every refresh.
+  steps.push(
+    Step::new(
+      "rate_limit_ip",
+      Verdict::Passes,
+      "rate_limit_ip.configured",
+      format!(
+        "every visitor IP gets a bucket of {} with {}/s refill; this dry run does not spend from it",
+        cfg.ip_limit_max, cfg.ip_limit_refill
+      ),
+    )
+    .with(serde_json::json!({
+      "max": cfg.ip_limit_max,
+      "refill": cfg.ip_limit_refill,
+    }))
+    .from(crate::limits::Limit::Ip.setting()),
+  );
 
   // 6. The visitor gate. Three things can raise it, and naming which one is
   // the whole value: a client's own password is the service's, the server's
@@ -599,8 +664,33 @@ pub(crate) async fn explain_handler(
     ));
   }
 
+  // 6b. The server's own in-flight ceiling, across every service. Unlike the
+  // rules above this is a live number, so the report is what it is right now
+  // rather than what it would be when somebody actually sends the request.
+  {
+    let in_flight = state
+      .active_proxied_requests
+      .load(std::sync::atomic::Ordering::Relaxed);
+    steps.push(
+      Step::new(
+        "server_concurrency",
+        Verdict::Passes,
+        "server_concurrency.headroom",
+        format!(
+          "{} of {} server-wide request slots are in use right now; a request arriving with none free is refused rather than queued",
+          in_flight, cfg.max_concurrent_requests
+        ),
+      )
+      .with(serde_json::json!({
+        "in_flight": in_flight,
+        "max": cfg.max_concurrent_requests,
+      }))
+      .from(crate::limits::Limit::ServerConcurrency.setting()),
+    );
+  }
+
   // 7. Routing: which clients could take it, and why the others could not.
-  let (pool, ineligible) = {
+  let (pool, ineligible, serving) = {
     let clients = state.clients.read().await;
     let down_threshold = cfg.client_down_threshold;
     let pool = crate::routing::select_client_pool(
@@ -663,7 +753,25 @@ pub(crate) async fn explain_handler(
         ))
       })
       .collect();
-    (pool, ineligible)
+    // What the stages below need from whoever would serve this, taken while
+    // the map is already open. The first candidate stands for the pool: a
+    // service's own limits are the same on every connection it holds, and
+    // where they are not, the pool is a load-balancing set whose members are
+    // meant to be interchangeable anyway.
+    let serving = pool.first().and_then(|p| {
+      clients
+        .get(&p.id)?
+        .services
+        .iter()
+        .find(|s| s.matches_host(&hostname))
+        .map(|s| Serving {
+          max_concurrent: s.max_concurrent,
+          cache: s.cache,
+          restricts_source_ips: !s.allowed_ips.is_empty(),
+          max_request_body: s.max_request_body,
+        })
+    });
+    (pool, ineligible, serving)
   };
   // The same lists twice: once as a sentence for `detail`, once as data.
   // `label` is what a person reads and `id` is what addresses the client, so
@@ -815,6 +923,178 @@ pub(crate) async fn explain_handler(
         detail,
       ));
     }
+  }
+
+  // 9. What the serving client and the visitor's token bring to it. These run
+  // after routing because every one of them is a property of whoever would
+  // take the request, and there is nobody to ask until routing has picked one.
+  if let Some(serving) = &serving {
+    if serving.restricts_source_ips {
+      steps.push(
+        Step::new(
+          "allowed_ips",
+          Verdict::Passes,
+          "allowed_ips.restricted",
+          "the serving service declares allowed_ips, so a visitor outside that list is routed nowhere and gets the 504 below rather than a refusal naming the list",
+        )
+        .from("allowed_ips"),
+      );
+    }
+    let body_limit =
+      crate::proxy::effective_body_limit(cfg.max_body_size, serving.max_request_body);
+    steps.push(
+      Step::new(
+        "body_limit",
+        Verdict::Passes,
+        "body_limit.effective",
+        format!(
+          "a request body over {body_limit} bytes is refused with 413; the service may tighten the server's limit but never widen it"
+        ),
+      )
+      .with(serde_json::json!({
+        "effective": body_limit,
+        "server": cfg.max_body_size,
+        "service": serving.max_request_body,
+      }))
+      .from("max_body_size"),
+    );
+    match serving.max_concurrent {
+      Some(max) => steps.push(
+        Step::new(
+          "client_concurrency",
+          Verdict::Passes,
+          "client_concurrency.declared",
+          format!(
+            "the serving client admits {max} at a time; past that a request waits for a slot and is refused if none frees before the gateway timeout"
+          ),
+        )
+        .with(serde_json::json!({ "max": max }))
+        .from(crate::limits::Limit::ClientConcurrency.setting()),
+      ),
+      None => steps.push(
+        Step::new(
+          "client_concurrency",
+          Verdict::Skipped,
+          "client_concurrency.unlimited",
+          "the serving client declares no concurrency limit of its own",
+        )
+        .from(crate::limits::Limit::ClientConcurrency.setting()),
+      ),
+    }
+    if cfg.cache_enabled && serving.cache {
+      steps.push(
+        Step::new(
+          "cache",
+          Verdict::Passes,
+          "cache.eligible",
+          "this route is cacheable, so a fresh entry would answer here without the request reaching a client at all",
+        )
+        .from("cache"),
+      );
+    } else {
+      steps.push(Step::new(
+        "cache",
+        Verdict::Skipped,
+        "cache.off",
+        if cfg.cache_enabled {
+          "the serving service does not opt into caching, so every request goes to the backend"
+        } else {
+          "response caching is off server-wide"
+        },
+      ));
+    }
+  }
+
+  // 10. The quotas, which belong to the credential rather than to the route.
+  // The token is the one thing this report cannot know: it explains a
+  // hostname and a path, and which token a visitor arrives with is not a
+  // property of either.
+  steps.push(
+    Step::new(
+      "token_quota",
+      Verdict::Skipped,
+      "token_quota.depends_on_token",
+      "a dynamic token carries its own requests-per-second limit and daily byte quota; which token a request arrives with is not a property of this route, so neither is checked here",
+    )
+    .from(crate::limits::Limit::TokenRate.setting()),
+  );
+  steps.push(
+    Step::new(
+      "token_quota",
+      Verdict::Skipped,
+      "token_quota.daily",
+      "the same token's daily byte quota is likewise a property of the credential",
+    )
+    .from(crate::limits::Limit::TokenQuota.setting()),
+  );
+  match org.as_deref() {
+    Some(id) => {
+      let over = state.org_over_month_bytes(Some(id)).await;
+      steps.push(
+        Step::new(
+          "org_quota",
+          if over { Verdict::Decides } else { Verdict::Passes },
+          if over {
+            "org_quota.exhausted"
+          } else {
+            "org_quota.within"
+          },
+          if over {
+            "429: this organization is over its monthly byte quota, so every request it serves is refused until the month turns"
+          } else {
+            "this organization is within its monthly byte quota"
+          },
+        )
+        .from(crate::limits::Limit::OrgQuota.setting()),
+      );
+      if over {
+        decided(
+          &mut outcome,
+          "org_quota",
+          "429: this organization is over its monthly byte quota".to_string(),
+          "org_quota.exhausted",
+          None,
+        );
+      }
+    }
+    None => steps.push(
+      Step::new(
+        "org_quota",
+        Verdict::Skipped,
+        "org_quota.master",
+        "the master organization has no monthly byte quota",
+      )
+      .from(crate::limits::Limit::OrgQuota.setting()),
+    ),
+  }
+
+  // 11. Streamed responses already open for this visitor. A ceiling on
+  // concurrency per IP, so like the bucket above it is a rule here rather than
+  // a count: the report has no visitor to count for.
+  if cfg.max_streams_per_ip == 0 {
+    steps.push(
+      Step::new(
+        "streams_per_ip",
+        Verdict::Skipped,
+        "streams_per_ip.unlimited",
+        "no ceiling on concurrently open streamed responses per visitor",
+      )
+      .from(crate::limits::Limit::StreamsPerIp.setting()),
+    );
+  } else {
+    steps.push(
+      Step::new(
+        "streams_per_ip",
+        Verdict::Passes,
+        "streams_per_ip.capped",
+        format!(
+          "one visitor IP may hold {} streamed responses open at once; a streamed answer past that is refused",
+          cfg.max_streams_per_ip
+        ),
+      )
+      .with(serde_json::json!({ "max": cfg.max_streams_per_ip }))
+      .from(crate::limits::Limit::StreamsPerIp.setting()),
+    );
   }
 
   let (outcome, summary, summary_code, summary_params) = outcome.unwrap_or_else(|| {

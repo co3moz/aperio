@@ -803,3 +803,105 @@ async fn a_tenant_sees_its_own_clients_named_and_qualified() {
   assert_eq!(clients[0]["label"], "acme@axum");
   assert_eq!(clients[0]["ids"][0], "tenant-conn");
 }
+
+// ---------------------------------------------------------------------------
+// The explainer against the request path it claims to walk
+// ---------------------------------------------------------------------------
+
+/// Every refusal the proxy can hand out has a stage here that names it.
+///
+/// This is the whole reason the endpoint is trustworthy. It is a second
+/// implementation of the request path's decision order, and a second
+/// implementation drifts: when it was written it covered one of the eight
+/// limits, and the other seven were missing for months without a single test
+/// going red. `ALL_LIMITS` exists so a counter can iterate the kinds; it works
+/// just as well as the list this has to cover.
+///
+/// The anchor is `Limit::setting()` rather than a stage name, because that is
+/// the string an operator searches for when they want the number changed, and
+/// a stage that cannot name where the number lives is not an explanation.
+#[tokio::test]
+async fn every_limit_the_proxy_can_refuse_with_is_explained() {
+  let state = Arc::new(test_state());
+  // A client, so the stages that only exist once routing has picked somebody
+  // are reached: without one the report stops at the 504.
+  state.clients.write().await.insert(
+    "c1".to_string(),
+    mock_client(Some("app.example.com"), None, None, None),
+  );
+  let headers = admin_headers(&state).await;
+  let body = json_body(explain(&state, headers, q("app.example.com", None)).await).await;
+
+  let settings: Vec<&str> = body["steps"]
+    .as_array()
+    .expect("steps is a list")
+    .iter()
+    .filter_map(|s| s["setting"].as_str())
+    .collect();
+
+  for limit in crate::limits::ALL_LIMITS {
+    assert!(
+      settings.contains(&limit.setting()),
+      "no stage names {:?}, whose setting is `{}`; the proxy can refuse a \
+       request with it and this report would not say so. Add a stage for it \
+       rather than relaxing this test.",
+      limit,
+      limit.setting()
+    );
+  }
+}
+
+/// The dry run stays a dry run: asking does not spend the visitor's bucket.
+///
+/// The per-IP limit is the one stage that could not be reported by doing what
+/// the proxy does, because doing it is what the proxy charges for. Somebody
+/// debugging a 429 by refreshing this page would otherwise be feeding it.
+#[tokio::test]
+async fn explaining_a_route_does_not_spend_the_rate_limit_it_reports() {
+  let mut cfg = test_config();
+  cfg.ip_limit_max = 2.0;
+  cfg.ip_limit_refill = 0.0;
+  let state = Arc::new(test_state_with(cfg));
+  let headers = admin_headers(&state).await;
+  for _ in 0..5 {
+    let _ = explain(&state, headers.clone(), q("app.example.com", None)).await;
+  }
+  let ip = test_peer().ip();
+  assert!(
+    state.check_rate_limit(ip).await && state.check_rate_limit(ip).await,
+    "five explanations must leave a bucket of two untouched"
+  );
+}
+
+/// A stage that reports a rule rather than a verdict says which it is doing.
+///
+/// The deny list, the token quotas and the per-IP bucket cannot be evaluated
+/// for a request nobody sends, and reporting them as `passes` without saying
+/// so would be the confident wrong answer this endpoint exists to prevent.
+#[tokio::test]
+async fn the_stages_that_cannot_be_evaluated_say_what_they_are_reporting() {
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  let body = json_body(explain(&state, headers, q("app.example.com", None)).await).await;
+  let step = |stage: &str| -> String {
+    body["steps"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .find(|s| s["stage"] == stage)
+      .unwrap_or_else(|| panic!("no {stage} stage"))["detail"]
+      .as_str()
+      .unwrap()
+      .to_string()
+  };
+  assert!(
+    step("rate_limit_ip").contains("does not spend"),
+    "the bucket stage must say it is not charging: {}",
+    step("rate_limit_ip")
+  );
+  assert!(
+    step("token_quota").contains("not a property of this route"),
+    "the token stage must say why it cannot answer: {}",
+    step("token_quota")
+  );
+}
