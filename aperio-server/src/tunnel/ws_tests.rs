@@ -1908,6 +1908,81 @@ fn alternates_are_capped() {
 }
 
 // ---------------------------------------------------------------------------
+// A declaration is bounded before anything is built from it
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_service_list_past_the_ceiling_is_refused_before_it_is_walked() {
+  // Everything the Ping does with this list is proportional to its length,
+  // some of it quadratic, all of it under the `clients` write lock, and the
+  // allocation at the end is one `ServiceState` per entry. A 20 MB frame holds
+  // several million `{}` entries, so without a bound one authenticated client
+  // could hold that lock through a quadratic pass over them, blocking every
+  // other client and every dashboard request, and then ask for the memory.
+  //
+  // Refused rather than truncated: serving the first 256 of a longer list is a
+  // connection that establishes and then serves less than it was told to.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  let cid = wait_client_id(&state).await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    *services = Some(
+      (0..MAX_DECLARED_SERVICES + 1)
+        .map(|i| crate::protocol::ServiceDecl {
+          service: Some(format!("svc{i}")),
+          ..Default::default()
+        })
+        .collect(),
+    );
+  }
+  send(&mut ws, &ping).await;
+
+  // The connection goes, and the services were never built.
+  wait_no_clients(&state).await;
+  assert!(state.clients.read().await.get(&cid).is_none());
+}
+
+#[tokio::test]
+async fn a_list_at_the_ceiling_is_served() {
+  // The other half: the bound is a fence around a failure mode, not a limit
+  // anybody legitimate is meant to feel.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  let cid = wait_client_id(&state).await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    *services = Some(
+      (0..MAX_DECLARED_SERVICES)
+        .map(|i| crate::protocol::ServiceDecl {
+          service: Some(format!("svc{i}")),
+          ..Default::default()
+        })
+        .collect(),
+    );
+  }
+  send(&mut ws, &ping).await;
+  read_until_pong(&mut ws).await;
+  assert_eq!(
+    state.clients.read().await.get(&cid).unwrap().services.len(),
+    MAX_DECLARED_SERVICES
+  );
+
+  ws.close(None).await.unwrap();
+  wait_no_clients(&state).await;
+}
+
+// ---------------------------------------------------------------------------
 // The concurrency limit follows the client that announces it (#65, #121)
 // ---------------------------------------------------------------------------
 

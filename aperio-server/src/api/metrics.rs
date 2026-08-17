@@ -101,14 +101,9 @@ pub(crate) async fn metrics_handler(
       c.services.iter().enumerate().map(move |(i, s)| {
         let mut labels = crate::metrics_labels::render(&s.metrics_labels);
         if multiplexed {
-          let name = s
-            .service_name
-            .clone()
-            .unwrap_or_else(|| format!("service_{i}"));
-          labels.push_str(&crate::metrics_labels::render(&[(
-            "service".to_string(),
-            name,
-          )]));
+          labels.push_str(&crate::metrics_labels::render(&[
+            crate::metrics_labels::service_label(s.service_name.as_deref(), i),
+          ]));
         }
         (id.clone(), s.request_count.load(Ordering::SeqCst), labels)
       })

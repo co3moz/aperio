@@ -911,6 +911,14 @@ struct LiveDecl {
 /// its version string need not be.
 pub(crate) const MIN_MULTIPLEX_PROTOCOL: u32 = 8;
 
+/// Most services this client will put on one connection.
+///
+/// The server's own ceiling, mirrored so the refusal happens where the message
+/// can name the config file. A server answers a longer list by dropping the
+/// connection, which from the operator's side is a client that connects and
+/// disconnects with the reason in somebody else's log.
+pub(crate) const MAX_MULTIPLEXED_SERVICES: usize = 256;
+
 /// Ceiling on a service's candidate server list, configured plus learned.
 ///
 /// A fence rather than a policy: the list is tried in rotation, so a server
@@ -1359,6 +1367,19 @@ pub(crate) async fn run_service(
   // carrying several is still one connection and one of its services has to
   // stand for it. What a *request* is about is resolved per request, from the
   // service the server names in the frame.
+  // The two lists are one list written as two arguments, and every index below
+  // reads them together. Checked once at the door, because the alternative is
+  // an out-of-range panic six hundred lines in, at whichever index happens to
+  // be reached first, with nothing at the crash site saying what the caller
+  // got wrong.
+  if specs.is_empty() || healths.len() != specs.len() {
+    error!(
+      "Refusing to open a connection: it was given {} service(s) and {} health state(s), which have to be the same non-empty list",
+      specs.len(),
+      healths.len()
+    );
+    return;
+  }
   let spec = specs[0].clone();
   // A connection carrying several services is labelled by how many, not by the
   // first of them: every line about the connection would otherwise read as

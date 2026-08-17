@@ -25,7 +25,43 @@ const MAX_VALUE: usize = 64;
 /// take over. Letting it would produce two labels of the same name in one
 /// series, which is not valid exposition, and would let a client relabel
 /// itself as another.
-const RESERVED: &[&str] = &["client_id", "job", "instance", "token", "hostname", "limit"];
+const RESERVED: &[&str] = &[
+  "client_id",
+  "job",
+  "instance",
+  "token",
+  "hostname",
+  "limit",
+  // Written by the server on a multiplexed connection's series. Not reserved
+  // until it was written, and reserving it late is the point: a client that
+  // had already announced a `service` label of its own would otherwise put a
+  // second one of that name into a single series, which is not valid
+  // exposition and costs the whole scrape rather than that one client's.
+  "service",
+];
+
+/// The `service` label for one service of a connection, ready to render.
+///
+/// The name is the client's, which is why it goes through the same discipline
+/// a client's own labels do rather than straight onto the wire. It arrives
+/// unvalidated and unbounded on the heartbeat, and the server may not have it
+/// at all, so it is capped at the value length every other label is held to
+/// and replaced by the position when it is empty, too long, or absent. The
+/// position is always available and always distinct, which is what the label
+/// is for: telling two series of one `client_id` apart.
+///
+/// The cap is not cosmetic. This value ends up in a Prometheus series, a
+/// client can change it on any heartbeat, and label cardinality is how a
+/// metrics backend dies. Escaping alone would keep the scrape *valid* while
+/// letting one tunnel token fill the operator's time-series database.
+pub(crate) fn service_label(name: Option<&str>, index: usize) -> (String, String) {
+  let value = name
+    .map(str::trim)
+    .filter(|n| !n.is_empty() && n.len() <= MAX_VALUE)
+    .map(str::to_string)
+    .unwrap_or_else(|| format!("service_{index}"));
+  ("service".to_string(), value)
+}
 
 /// Validates and caps what a client announced.
 ///

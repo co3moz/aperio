@@ -13,6 +13,20 @@ use futures_util::{sink::SinkExt, stream::StreamExt};
 /// the number lives on the server where the resource is.
 pub(crate) const MAX_CONNECTIONS_HEADER: &str = "x-aperio-max-connections";
 
+/// Most services one connection may declare in a Ping.
+///
+/// A sanity bound, not a policy, and deliberately far above anything a real
+/// deployment writes: multiplexing exists for the operator with forty services
+/// and this is six times that. What it bounds is the cost of the declaration
+/// itself, which is paid under the `clients` write lock and is not all linear,
+/// so an unbounded list is a way for one authenticated client to stall every
+/// other one and then exhaust memory.
+///
+/// Refused rather than truncated. Serving the first 256 of a longer list is
+/// the connection that establishes and then serves less than it was told to,
+/// which is the failure the empty-list refusal beside it exists to prevent.
+pub(crate) const MAX_DECLARED_SERVICES: usize = 256;
+
 /// The tunnel protocol version this server speaks, announced on the upgrade
 /// response (`planned_features.md` #120).
 ///
@@ -1261,6 +1275,27 @@ impl ConnCtx {
         );
         return false;
       }
+      // Refused before anything is built from it, which is the point of doing
+      // it here rather than after the names are collected: everything below
+      // this line is work proportional to the length, some of it quadratic,
+      // all of it under the `clients` write lock, and the allocation at the
+      // end is one `ServiceState` per entry.
+      //
+      // A 20 MB frame (the default `max_body_size` doubled) holds several
+      // million `{}` entries, so an authenticated client could hold the write
+      // lock through a quadratic pass over them, blocking every other client
+      // and every dashboard request, and then ask for the memory. A tunnel
+      // token is not supposed to be able to take the front door down.
+      Some(list) if list.len() > MAX_DECLARED_SERVICES => {
+        warn!(
+          "Client {} declared {} services on one connection; the ceiling is {}. Refusing the \
+           connection rather than serving part of what it asked for.",
+          cid,
+          list.len(),
+          MAX_DECLARED_SERVICES
+        );
+        return false;
+      }
       Some(list) => list,
       None => Vec::new(),
     };
@@ -2149,12 +2184,22 @@ impl ConnCtx {
           Err(e) => {
             let warned = {
               let mut clients = state.clients.write().await;
-              match clients.get_mut(client_id) {
-                Some(handle) => {
-                  let already = handle.service_at(scaling_service).scaling_invalid_warned;
-                  handle
-                    .service_at_mut(scaling_service)
-                    .scaling_invalid_warned = true;
+              // `get` rather than `service_at`, which indexes and would panic.
+              // The index was decided under a lock this has since released and
+              // re-taken, and while nothing can currently shrink the list in
+              // between (a connection's Pings are handled one at a time, and
+              // nothing else writes `services`), that is an invariant held
+              // across a hundred lines and a lock boundary. The cost of being
+              // wrong is the whole process; the cost of asking is one `match`,
+              // and a warn-once flag that could not be set is worth exactly a
+              // suppressed log line.
+              match clients
+                .get_mut(client_id)
+                .and_then(|handle| handle.services.get_mut(scaling_service))
+              {
+                Some(service) => {
+                  let already = service.scaling_invalid_warned;
+                  service.scaling_invalid_warned = true;
                   already
                 }
                 None => true,

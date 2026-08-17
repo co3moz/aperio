@@ -1536,7 +1536,16 @@ fn settle_multiplexed_bandwidth(specs: &mut [ServiceSpec]) {
       .map(|&i| specs[i].label())
       .collect();
     let total: Option<u64> = if uncapped.is_empty() {
-      Some(declared.iter().flatten().sum())
+      // Saturating: these come from the config, and a sum of 256 of them that
+      // wrapped would announce a *small* cap for a link the operator asked to
+      // leave fast, which is the wrong direction to be wrong in. In a debug
+      // build it would panic outright.
+      Some(
+        declared
+          .iter()
+          .flatten()
+          .fold(0u64, |acc, n| acc.saturating_add(*n)),
+      )
     } else {
       warn!(
         "bandwidth: {} share(s) a connection with {} which declare(s) no limit, so nothing on it is paced. The server shapes the socket, not the service, and a service without a limit lifts it for the whole connection. Give every service in the group a bandwidth:, or take one out with multiplex: false.",
@@ -1623,6 +1632,17 @@ fn group_multiplexed(specs: &mut [ServiceSpec]) -> Result<(), String> {
         );
       }
       continue;
+    }
+    // Refused here, where the message can name the file, rather than at the
+    // server, which answers a list this long by dropping the connection: the
+    // operator would see a client that connects and disconnects with the
+    // reason in somebody else's log.
+    if indexes.len() > service::MAX_MULTIPLEXED_SERVICES {
+      return Err(format!(
+        "CRITICAL ERROR: {} services ask to share one connection (multiplex: true) and a server accepts at most {}! Split them across connections with multiplex: false, or give some of them a server of their own.",
+        indexes.len(),
+        service::MAX_MULTIPLEXED_SERVICES
+      ));
     }
     for i in &indexes {
       // A name is what the server files this service's routing, ejection and

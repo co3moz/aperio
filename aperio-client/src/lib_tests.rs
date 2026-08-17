@@ -1,3 +1,8 @@
+//! What `build_specs` turns a configuration into, which is the only place the
+//! whole file is seen at once: per-service fallbacks, connection pools, serve mode,
+//! the bandwidth budget, and the refusals that belong at config time rather than
+//! at runtime.
+
 use super::*;
 use config::ServiceEntry;
 
@@ -1749,4 +1754,24 @@ fn a_service_on_its_own_connection_still_splits_its_bandwidth_per_connection() {
   let specs = build_specs(&settings, "base-id", false).unwrap();
   let budget = parse_bandwidth("8mbit").unwrap();
   assert_eq!(specs[0].bandwidth_bps, Some(budget / 4));
+}
+
+#[test]
+fn more_multiplexed_services_than_a_server_accepts_is_a_config_error() {
+  // The server answers a longer list by dropping the connection, so refusing
+  // here is what lets the message name the file: otherwise the operator sees a
+  // client that connects and disconnects with the reason in somebody else's
+  // log.
+  let mut settings = base_settings();
+  settings.multiplex = true;
+  settings.services = multiplexed_services(service::MAX_MULTIPLEXED_SERVICES + 1);
+  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  assert!(err.contains("share one connection"), "{err}");
+
+  // Exactly at the ceiling is fine; the bound is a fence, not a limit anybody
+  // legitimate is meant to feel.
+  settings.services = multiplexed_services(service::MAX_MULTIPLEXED_SERVICES);
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  assert_eq!(specs.len(), service::MAX_MULTIPLEXED_SERVICES);
+  assert!(specs.iter().all(|s| s.multiplex_group == Some(0)));
 }

@@ -70,3 +70,47 @@ fn escapes_what_would_break_a_scrape() {
   assert_eq!(rendered, r#",env="pr\"o\\d""#);
   assert!(render(&[]).is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// The `service` label the server writes on a multiplexed connection
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_service_name_a_client_could_weaponize_does_not_reach_the_scrape() {
+  // The name arrives on the heartbeat, unvalidated and unbounded, and a client
+  // may change it on any heartbeat. Escaping alone would keep the exposition
+  // *valid* while letting one tunnel token fill the operator's time-series
+  // database, which is the failure the value cap on every other label exists
+  // to prevent.
+  let huge = "a".repeat(5_000);
+  assert_eq!(service_label(Some(&huge), 3).1, "service_3");
+  assert_eq!(service_label(Some("  "), 1).1, "service_1");
+  assert_eq!(service_label(None, 0).1, "service_0");
+  // Exactly at the cap is still the client's own name; one past it is not.
+  let at_cap = "b".repeat(MAX_VALUE);
+  assert_eq!(service_label(Some(&at_cap), 0).1, at_cap);
+  assert_eq!(
+    service_label(Some(&"c".repeat(MAX_VALUE + 1)), 0).1,
+    "service_0"
+  );
+}
+
+#[test]
+fn a_client_cannot_announce_a_second_service_label() {
+  // The server writes `service` itself on a multiplexed connection. A client
+  // label of the same name would put two into one series, which is not valid
+  // exposition and costs the whole scrape rather than that one client's.
+  let mut raw = std::collections::BTreeMap::new();
+  raw.insert("service".to_string(), "impostor".to_string());
+  raw.insert("env".to_string(), "prod".to_string());
+  let kept = sanitize(&raw);
+  assert_eq!(kept, vec![("env".to_string(), "prod".to_string())]);
+}
+
+#[test]
+fn the_service_label_is_escaped_like_any_other_value() {
+  // Second line of defence, the way `render`'s own doc puts it: the cap above
+  // decides what is kept, and escaping means what is kept cannot break a line.
+  let rendered = render(&[service_label(Some("we\"ird\\name\nhere"), 0)]);
+  assert_eq!(rendered, r#",service="we\"ird\\name\nhere""#);
+}
