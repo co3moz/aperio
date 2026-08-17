@@ -623,6 +623,26 @@ const CLI_EXEMPT: &[(&str, &str)] = &[
   ),
 ];
 
+/// Concatenates every `.rs` file under `path` (a file or a directory), so a
+/// scan over "the CLI's source" cannot be defeated by the source being split
+/// into more files.
+fn walk_sources(path: &std::path::Path, out: &mut String) {
+  if path.is_file() {
+    if path.extension().is_some_and(|e| e == "rs")
+      && let Ok(text) = std::fs::read_to_string(path)
+    {
+      out.push_str(&text);
+    }
+    return;
+  }
+  let Ok(entries) = std::fs::read_dir(path) else {
+    return;
+  };
+  for entry in entries.flatten() {
+    walk_sources(&entry.path(), out);
+  }
+}
+
 #[test]
 fn every_admin_route_is_reachable_from_the_cli() {
   // Scans the server's own route declarations rather than a list kept here:
@@ -657,7 +677,17 @@ fn every_admin_route_is_reachable_from_the_cli() {
     routes.len()
   );
 
-  let called = std::fs::read_to_string("src/api.rs").expect("the CLI's own source");
+  // The CLI's own source, the whole module rather than one file: the api
+  // command surface is `api.rs` plus `api/`, and reading only the first of
+  // them made this test pass by looking at a file the routes had moved out of.
+  let mut called = String::new();
+  walk_sources(std::path::Path::new("src/api.rs"), &mut called);
+  walk_sources(std::path::Path::new("src/api"), &mut called);
+  assert!(
+    called.len() > 10_000,
+    "only {} bytes of CLI source found; the scan is looking in the wrong place",
+    called.len()
+  );
   let missing: Vec<&String> = routes
     .iter()
     .filter(|route| {
