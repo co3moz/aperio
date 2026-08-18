@@ -205,25 +205,79 @@ pub(super) fn lockout_window_is_capped() {
 
 // --- LockoutTracker: gc / set_policy ----------------------------------------
 
+/// The failure map is bounded, which is the only thing standing between a
+/// login endpoint and one entry per source address.
+///
+/// This test used to run `gc` and assert nothing about it: it filled the map,
+/// recorded a failure far enough in the future to trigger a sweep, and then
+/// checked `set_policy`. A mutation run found the consequence, nine survivors
+/// in nine lines, including replacing the whole of `gc` with `()`. Every bound
+/// it enforces was unheld: whether it runs at all, when it starts running, and
+/// how old is old.
+///
+/// It matters more than a leak: the map is keyed on the caller's IP and grown
+/// by anyone who can reach the login form, so unbounded is a memory-exhaustion
+/// path that needs no credentials and no valid account.
 #[test]
-pub(super) fn lockout_gc_drops_stale_and_set_policy() {
+pub(super) fn lockout_gc_bounds_the_failure_map() {
+  let now = Instant::now();
+  let addr = |i: u32| IpAddr::V4(std::net::Ipv4Addr::from(i));
+
+  // Below the trigger, nothing is swept however old it gets. Cheapness is the
+  // reason: `gc` runs inline on every recorded failure.
+  let mut small = LockoutTracker::new(2, Duration::from_secs(60));
+  for i in 0..100u32 {
+    small.record_failure(addr(i), now);
+  }
+  small.record_failure(addr(9999), now + Duration::from_secs(48 * 3600));
+  assert_eq!(
+    small.map.len(),
+    101,
+    "under the trigger the map is left alone, ancient entries included"
+  );
+
+  let mut t = LockoutTracker::new(2, Duration::from_secs(60));
+  for i in 0..1100u32 {
+    t.record_failure(addr(i), now);
+  }
+  assert_eq!(t.map.len(), 1100, "nothing is swept while every entry is fresh");
+
+  // Two hours on, past the trigger: still fresh, so still all there. This is
+  // what says the window is a day rather than an hour, and what a `24 * 3600`
+  // that became `24 + 3600` would break.
+  t.record_failure(addr(2001), now + Duration::from_secs(2 * 3600));
+  assert_eq!(
+    t.map.len(),
+    1101,
+    "a two-hour-old entry is not stale; the window is twenty-four hours"
+  );
+
+  // A day and an hour on, the sweep runs and keeps only what is recent.
+  let future = now + Duration::from_secs(25 * 3600);
+  t.record_failure(addr(3001), future);
+  assert!(
+    t.map.len() < 10,
+    "the sweep must drop the day-old entries, {} left",
+    t.map.len()
+  );
+  assert!(
+    t.map.contains_key(&addr(3001)),
+    "the failure that triggered the sweep is not itself stale"
+  );
+}
+
+#[test]
+pub(super) fn lockout_policy_can_be_swapped_at_runtime() {
   let mut t = LockoutTracker::new(2, Duration::from_secs(60));
   let now = Instant::now();
-  // Fill past the gc trigger (1024) with stale entries, then a fresh failure
-  // runs gc() which retains only recent ones.
-  for i in 0..1100u32 {
-    let a = IpAddr::V4(std::net::Ipv4Addr::from(i));
-    t.record_failure(a, now);
-  }
-  // A failure far in the future evicts the now-stale earlier entries.
-  let future = now + Duration::from_secs(25 * 3600);
-  let fresh: IpAddr = "198.51.100.7".parse().unwrap();
-  t.record_failure(fresh, future);
-  // Policy can be swapped at runtime; clamps to sane minimums.
+  // Clamps to sane minimums: a threshold of 0 would lock nobody out or
+  // everybody, depending on which way the comparison fell.
   t.set_policy(0, Duration::from_millis(1));
   let ip: IpAddr = "198.51.100.9".parse().unwrap();
-  // threshold clamped to >=1, so the first failure locks immediately.
-  assert!(t.record_failure(ip, future).is_some());
+  assert!(
+    t.record_failure(ip, now).is_some(),
+    "threshold clamped to at least one, so the first failure locks"
+  );
 }
 
 // --- auth_login_handler -----------------------------------------------------
