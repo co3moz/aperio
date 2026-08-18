@@ -241,6 +241,8 @@ export const ru: Record<string, string> = {
   'Max concurrent requests': 'Макс. одновременных запросов',
   'Max request body': 'Макс. тело запроса',
   'Max tunnel clients': 'Макс. туннельных клиентов',
+  'May ask the server to reach a target itself (server_side)':
+    'Может просить сервер обращаться к цели напрямую (server_side)',
   'May publish public services (visitor auth gate skipped)':
     'Может публиковать публичные сервисы (без проверки посетителей)',
   Method: 'Метод',

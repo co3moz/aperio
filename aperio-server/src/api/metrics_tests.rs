@@ -18,6 +18,7 @@ use tokio::sync::{Mutex, mpsc, watch};
 
 fn test_config(metrics_token: Option<String>) -> ServerConfig {
   ServerConfig {
+    server_side_targets: Vec::new(),
     token: "test".to_string(),
     gateway_timeout: Duration::from_secs(1),
     gateway_response_timeout: Duration::from_secs(1),
@@ -236,6 +237,8 @@ fn mock_client() -> ClientHandle {
     instance_group: None,
     subscriptions: Vec::new(),
     services: vec![crate::state::ServiceState {
+      server_side_refused: None,
+      server_side_target: None,
       metrics_labels: Vec::new(),
       service_custom_name: None,
       request_count: Arc::new(AtomicU64::new(3)),

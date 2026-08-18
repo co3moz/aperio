@@ -170,6 +170,11 @@ pub(crate) struct ServiceSpec {
   pub(crate) health_threshold: u32,
   /// Ask the server to skip its visitor auth gate for this service.
   pub(crate) public: bool,
+  /// Ask the server to reach `target` itself rather than dispatching here
+  /// (`server_side: true`). Carries the address so the two travel together:
+  /// the ask is meaningless without it, and it is sent only when asked, which
+  /// is what keeps a relayed service's backend address off the wire.
+  pub(crate) server_side_target: Option<String>,
   /// Per-service visitor login (`user:password`) the server should gate this
   /// service behind, overriding its own APERIO_SERVER_AUTH (None = no override).
   pub(crate) visitor_auth: Option<String>,

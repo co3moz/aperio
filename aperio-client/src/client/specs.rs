@@ -308,6 +308,10 @@ pub(crate) fn build_specs(
       server_addr,
       ws_url,
       ws_urls: ws_urls.clone(),
+      // Not offered on the single-service shape: `server_side:` is a
+      // `services:` key, and the top-level spellings are the deprecated form
+      // this project is retiring, so a new feature does not grow one.
+      server_side_target: None,
       target,
       hostnames: settings.hostnames.clone(),
       path: settings.path.clone(),
@@ -406,6 +410,17 @@ pub(crate) fn build_specs(
             describe()
           )
         })?;
+      // `server_side:` moves the last hop to the server, so `serve:` stops
+      // being reachable: the files are on this machine. Refused here rather
+      // than at the server, where the reason would arrive as a log line on
+      // somebody else's machine.
+      if entry.server_side.unwrap_or(false) && entry.serve.is_some() {
+        return Err(format!(
+          "CRITICAL ERROR: service '{}' sets both server_side: and serve:; the files are on \
+           this machine, and a server reaching the target itself cannot serve them!",
+          describe()
+        ));
+      }
       let path = entry.path.clone();
       let declared_connections = entry.connections.as_ref().or(settings.connections.as_ref());
       let (connections_min, connections) =
@@ -428,6 +443,9 @@ pub(crate) fn build_specs(
         server_addr: server_addr.clone(),
         ws_url: ws_url.clone(),
         ws_urls: ws_urls.clone(),
+        // The address travels with the ask, so the server is told where to go
+        // only by a service that asked it to go there.
+        server_side_target: entry.server_side.unwrap_or(false).then(|| target.clone()),
         target,
         hostnames: entry
           .hostname

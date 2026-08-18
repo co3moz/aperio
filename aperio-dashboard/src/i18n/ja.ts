@@ -239,6 +239,8 @@ export const ja: Record<string, string> = {
   'Max concurrent requests': '最大同時リクエスト数',
   'Max request body': '最大リクエストボディ',
   'Max tunnel clients': '最大トンネルクライアント数',
+  'May ask the server to reach a target itself (server_side)':
+    'サーバー自身がターゲットに到達するよう要求できる (server_side)',
   'May publish public services (visitor auth gate skipped)':
     '公開サービスを公開可能（訪問者認証ゲートをスキップ）',
   Method: 'メソッド',

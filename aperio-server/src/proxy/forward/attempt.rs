@@ -177,8 +177,26 @@ impl Attempt<'_> {
       });
       let (tx_response, rx_response) = oneshot::channel::<TunnelResponse>();
 
-      // Insert oneshot receiver to await response mapping
-      {
+      // Served from this server rather than relayed. Nothing is registered in
+      // `pending_requests` and nothing goes over the tunnel: the answer is
+      // fetched here and handed back through the same channel, so the response
+      // timeout, the header rules, the stats, the cache, the capture and the
+      // access log below all run unchanged and cannot tell the two apart.
+      let server_side_target = selected.server_side_target.clone();
+      if let Some(target) = server_side_target.clone() {
+        let st = state.clone();
+        let method = method_str.clone();
+        let pq = uri_str.clone();
+        let hdrs = serialized_headers.clone();
+        let body = body_bytes.to_vec();
+        tokio::spawn(async move {
+          let res = super::server_side::fetch(st, &target, &method, &pq, hdrs, body).await;
+          if let Some(res) = res {
+            let _ = tx_response.send(res);
+          }
+        });
+      } else {
+        // Insert oneshot receiver to await response mapping
         let mut pending = state.pending_requests.lock().await;
         pending.insert(
           request_id.clone(),
@@ -321,11 +339,16 @@ impl Attempt<'_> {
       } else {
         None
       };
-      let dispatched = selected
-        .tx
-        .send(dispatch_frame.unwrap_or_else(|| Message::Text(req_json.into())))
-        .await
-        .is_ok();
+      let dispatched = if server_side_target.is_some() {
+        // Already under way in the task above; the tunnel is not involved.
+        true
+      } else {
+        selected
+          .tx
+          .send(dispatch_frame.unwrap_or_else(|| Message::Text(req_json.into())))
+          .await
+          .is_ok()
+      };
       if !dispatched {
         state.pending_requests.lock().await.remove(&request_id);
       } else if let Some(raw_body) = streamed_body.take() {

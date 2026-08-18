@@ -634,6 +634,17 @@ pub struct ServiceEntry {
   /// Serve this service without the server's visitor login (needs a token that allows it).
   #[schemars(extend("examples" = [true]))]
   pub public: Option<bool>,
+  /// Let the server reach `target` itself instead of relaying through this
+  /// client, when the server's `server_side_targets:` permits that address
+  /// (needs a token that allows it). Saves the two hops a relayed request
+  /// makes, the one to this client and the one from here to the target, and is
+  /// only useful when the target is somewhere the server can already reach.
+  /// The service is still declared, gated and routed here; only the last hop
+  /// moves. Refused rather than ignored when the target is not permitted, and
+  /// cannot be combined with `serve:`, whose files are on this machine.
+  /// Default: false.
+  #[schemars(extend("examples" = [true]))]
+  pub server_side: Option<bool>,
   /// Gate this service behind your own visitor login instead of the server's.
   /// A `user:password` scalar, one `{method: ...}` block, or a list of them.
   #[schemars(extend("examples" = ["admin:s3cret", {"method": "none"}]))]

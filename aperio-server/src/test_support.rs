@@ -153,6 +153,7 @@ pub(crate) fn test_uptime_store() -> crate::store::uptime::UptimeStore {
 /// `"test"`; rate limiting is generous; auth and TLS features are off.
 pub(crate) fn test_config() -> ServerConfig {
   ServerConfig {
+    server_side_targets: Vec::new(),
     token: "test".to_string(),
     gateway_timeout: Duration::from_secs(1),
     gateway_response_timeout: Duration::from_secs(1),
@@ -363,6 +364,8 @@ pub(crate) fn mock_client(
     instance_group: None,
     subscriptions: Vec::new(),
     services: vec![crate::state::ServiceState {
+      server_side_target: None,
+      server_side_refused: None,
       metrics_labels: Vec::new(),
       service_custom_name: None,
       request_count: Arc::new(AtomicU64::new(0)),

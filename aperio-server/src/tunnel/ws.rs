@@ -694,6 +694,8 @@ pub(crate) async fn handle_socket(
         instance_group: instance_group.clone(),
         subscriptions: Vec::new(),
         services: vec![crate::state::ServiceState {
+          server_side_target: None,
+          server_side_refused: None,
           request_count: client_req_count.clone(),
           declared_path: None,
           assigned_path: perms.granted_path(),

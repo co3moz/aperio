@@ -651,3 +651,155 @@ async fn a_shrink_under_load_reports_what_it_could_actually_take() {
   ws.close(None).await.unwrap();
   wait_no_clients(&state).await;
 }
+
+// --- server-side serving ----------------------------------------------------
+
+/// Builds a state whose operator has named `targets` as reachable directly.
+fn state_allowing(targets: &str) -> Arc<AppState> {
+  let mut cfg = test_config();
+  cfg.server_side_targets = crate::outbound::parse_patterns(targets).expect("valid patterns");
+  Arc::new(test_state_with(cfg))
+}
+
+/// A token that may ask for it, and a target the operator named: the service
+/// is served from the server.
+#[tokio::test]
+async fn a_permitted_target_is_served_from_the_server() {
+  let state = state_allowing("10.0.0.0/8");
+  let url = start_server(state.clone()).await;
+  let secret = {
+    let mut store = state.token_store.lock().await;
+    let (_rec, secret) = store
+      .create(crate::store::tokens::TokenSpec {
+        name: "ss".into(),
+        allow_server_side: true,
+        ..Default::default()
+      })
+      .expect("the test store can be written to");
+    secret
+  };
+  let mut ws = connect(&url, &secret).await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    *services = Some(vec![crate::protocol::ServiceDecl {
+      server_side_target: Some("http://10.1.2.3:8080".into()),
+      ..Default::default()
+    }]);
+  }
+  send(&mut ws, &ping).await;
+  let cid = wait_client_id(&state).await;
+  read_until_pong(&mut ws).await;
+
+  let clients = state.clients.read().await;
+  let h = clients.get(&cid).unwrap();
+  assert_eq!(
+    h.sole().server_side_target.as_deref(),
+    Some("http://10.1.2.3:8080"),
+    "the target the operator permitted should be what the server dials"
+  );
+  assert!(h.sole().server_side_refused.is_none());
+}
+
+/// The token gates the asking, and a token that may not ask is refused even
+/// when the operator's list would have allowed the address.
+#[tokio::test]
+async fn a_token_without_the_permission_is_refused_and_not_relayed() {
+  let state = state_allowing("10.0.0.0/8");
+  let url = start_server(state.clone()).await;
+  let (secret, _id) = make_dynamic_token(&state, false).await;
+  let mut ws = connect(&url, &secret).await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    *services = Some(vec![crate::protocol::ServiceDecl {
+      server_side_target: Some("http://10.1.2.3:8080".into()),
+      ..Default::default()
+    }]);
+  }
+  send(&mut ws, &ping).await;
+  let cid = wait_client_id(&state).await;
+  read_until_pong(&mut ws).await;
+
+  let clients = state.clients.read().await;
+  let h = clients.get(&cid).unwrap();
+  assert!(h.sole().server_side_target.is_none());
+  let why = h
+    .sole()
+    .server_side_refused
+    .as_deref()
+    .expect("a refusal, not a silent relay");
+  assert!(
+    why.contains("allow_server_side"),
+    "the refusal should name the permission that is missing: {why}"
+  );
+}
+
+/// A target the operator never named is refused, and the refusal says so.
+///
+/// The service is then excluded from routing rather than relayed, which
+/// `select.rs` enforces: relaying looks kind and is not, since a client asking
+/// for this usually cannot reach the target itself.
+#[tokio::test]
+async fn a_target_outside_the_operators_list_is_refused() {
+  let state = state_allowing("10.0.0.0/8");
+  let url = start_server(state.clone()).await;
+  let secret = {
+    let mut store = state.token_store.lock().await;
+    let (_rec, secret) = store
+      .create(crate::store::tokens::TokenSpec {
+        name: "ss".into(),
+        allow_server_side: true,
+        ..Default::default()
+      })
+      .expect("the test store can be written to");
+    secret
+  };
+  let mut ws = connect(&url, &secret).await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    *services = Some(vec![crate::protocol::ServiceDecl {
+      hostname_bind: Some("ss.e2e.local".into()),
+      server_side_target: Some("http://192.168.9.9:8080".into()),
+      ..Default::default()
+    }]);
+  }
+  send(&mut ws, &ping).await;
+  let cid = wait_client_id(&state).await;
+  read_until_pong(&mut ws).await;
+
+  {
+    let clients = state.clients.read().await;
+    let h = clients.get(&cid).unwrap();
+    assert!(h.sole().server_side_target.is_none());
+    let why = h.sole().server_side_refused.as_deref().expect("refused");
+    assert!(why.contains("not on server_side_targets"), "{why}");
+  }
+
+  // And it is not routed: a refused service answers as an unclaimed route
+  // does, rather than quietly falling back to the tunnel.
+  let picked = crate::routing::select::pick_proxy_client(
+    &state,
+    "/",
+    Some("ss.e2e.local"),
+    None,
+    None,
+    Some("127.0.0.1".parse().unwrap()),
+    None,
+  )
+  .await;
+  assert!(
+    matches!(picked, crate::routing::select::PickOutcome::NoRoute),
+    "a refused service must not be routed to"
+  );
+}

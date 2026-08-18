@@ -153,6 +153,9 @@ impl ConnCtx {
       vec![crate::protocol::ServiceDecl {
         service,
         service_custom_name,
+        // The singular-field compatibility path: a client old enough to send
+        // no service list is old enough not to know about this at all.
+        server_side_target: None,
         path_bind,
         hostname_bind,
         hostname_binds,

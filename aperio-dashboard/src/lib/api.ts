@@ -221,6 +221,7 @@ export interface TokenView {
   /** Parallel connections per service; null = the server's own ceiling. */
   max_connections: number | null
   allow_public: boolean
+  allow_server_side: boolean
   allow_bind: boolean
   allow_otel: boolean
   /** Topic filters this token may publish to and subscribe to. */
@@ -256,6 +257,7 @@ export interface TokenCreatePayload {
   daily_max_bytes?: number
   max_connections?: number
   allow_public?: boolean
+  allow_server_side?: boolean
   allow_bind?: boolean
   allow_otel?: boolean
   topics?: string[]
@@ -270,6 +272,7 @@ export interface TokenUpdatePayload {
   max_rps?: number
   daily_max_bytes?: number
   allow_public?: boolean
+  allow_server_side?: boolean
   allow_bind?: boolean
   allow_otel?: boolean
   topics?: string[]

@@ -198,6 +198,14 @@ pub(crate) struct ServerConfig {
   /// Hard per-stream backlog cap in bytes (APERIO_STREAM_BACKLOG_LIMIT,
   /// default 16 MiB); drops producers that cannot be paused.
   pub(crate) stream_backlog_limit: usize,
+  /// Destinations a client may ask this server to reach itself
+  /// (`server_side: true` on a service), from `server_side_targets:`.
+  ///
+  /// Empty permits nothing, which is the opposite of `outbound_policy`'s
+  /// empty allowlist and deliberate: that one governs callbacks the server
+  /// makes on its own initiative, this one opens a request and response
+  /// channel a tenant steers.
+  pub(crate) server_side_targets: Vec<crate::outbound::OutboundPattern>,
   /// Optional policy over outbound callbacks, i.e. where webhook deliveries
   /// and autoscaling hooks may be sent (`APERIO_OUTBOUND_ALLOWLIST`,
   /// `APERIO_OUTBOUND_BLOCK_PRIVATE`). Default: unrestricted.

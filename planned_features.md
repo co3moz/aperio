@@ -19,105 +19,6 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#139 A service the server can reach itself, without the two hops
-  through the client.** Today every service is relayed: a request arrives, the
-  server dispatches it over the tunnel, the client connects to the target, and
-  the answer comes back the same way. When the target is somewhere the server
-  can already reach, that is two hops bought for nothing.
-
-  **The shape, after the discussion that settled it.** The obvious version,
-  a client declaring "serve this one from the server, here is the target", is
-  not the version to build. `outbound.rs` already names why, about a smaller
-  feature than this one: a URL taken from a lower-trust party and then called
-  by the server makes the server an SSRF probe into its own network. Webhooks
-  and `scaling.url` are fire-and-forget with a bounded shape. This would be a
-  full request and response channel, any method, any path, any header, with
-  the body coming back, which is not a probe but a steerable HTTP proxy inside
-  the operator's network. On a shared server that is the difference between
-  poking and browsing.
-
-  So the destination is the operator's to name, not the client's:
-
-  - **The operator lists destinations** that may be served this way, and the
-    list is the permission. Deny by default, unlike `outbound.allowlist`,
-    which is opt-in and permissive because it governs callbacks rather than a
-    proxy.
-  - **The client opts a service in**, and the server takes the shortcut only
-    when that service's target matches the list. A token permission gates
-    whether a client may ask at all, but it is not the thing that decides
-    where the server may connect. A boolean permission would hand any
-    permitted token every address the server can reach.
-  - **A service that asks and does not match is refused at declaration**,
-    naming the target and the fact that it is not listed, rather than falling
-    back to the tunnel silently. A quiet fallback would make the fast path
-    depend on configuration nobody can see from either side.
-
-  **Where it goes, and why it is cheaper than it sounds.** `forward.rs` puts a
-  request through five gates before anything is sent: the per-IP rate limit,
-  the visitor gate, the wait for a client, the admission slot, and picking who
-  serves it. Only the last two change. Most of `ServiceState` is already
-  server-side, hostname and path binds, `visitor_auth`, `allowed_ips`,
-  `max_concurrent`, the inflight limiter, metrics labels, capture, so the
-  gates keep working unchanged. What is replaced is the dispatch in `attempt`,
-  and the wait-for-a-client gate, which has nothing to wait for.
-
-  **What stops working, and has to be refused rather than discovered.** A
-  service served this way cannot use `run:` (the client starts that process),
-  `serve:` (the files are on the client), failover or load balancing across
-  several client connections, bandwidth pacing, or backend health probed from
-  the client's vantage point. Each of those has to be a refusal at declaration
-  with a message naming which one, because every one of them fails silently or
-  confusingly otherwise.
-
-  **The lifecycle decision, stated rather than assumed.** Tying the definition
-  to the client's connection, so it disappears when the client goes away, is a
-  clean cleanup story and gives liveness for free. It also means holding a
-  WebSocket open for a service that never uses it. That is defensible, the
-  client is then a lease holder and the connection is what says "this is still
-  wanted", but it is a choice with a cost and should be made deliberately. The
-  alternative, an operator-authored route with an upstream, already half
-  exists in `static_routes`, which today can answer with a redirect or a fixed
-  response but cannot proxy to a target.
-
-  **The name, and the extension that is not coming.** `edge` is taken:
-  `docs/edge-proxy.md` and `APERIO_EDGE_TOKEN` already mean the Traefik/Caddy
-  integration in *front* of Aperio, and a second meaning would be worse than a
-  longer word. Settled on `direct: true` on the service with `direct_targets:`
-  as the operator's list, one word on both sides.
-
-  `served_by: server | client` was the other candidate and was rejected after
-  asking what a third value would ever be. Both plausible answers are bad:
-
-  - **Another client's id is already solved, better.** `pick_proxy_client`
-    narrows a pool by hostname, path, health, strategy and round-robin, with
-    sticky affinity and canary splits on top. Two clients that should serve
-    the same thing both declare it and the *server* chooses. A client naming a
-    peer would be a second, weaker spelling of that, and it inverts the
-    authority: here a client declares only what it serves itself, and which
-    client answers a request is the server's decision. Clients in one
-    organization are not equally trusted either, a CI runner and a production
-    box hold tokens of the same org. There is a lifetime problem too, since a
-    connection id is per-connection and a rule naming one is stale the moment
-    that client reconnects.
-  - **Anything else is a new key anyway.** Rule 23 makes adding an optional
-    field the compatible move, so a genuine third mode would arrive as its own
-    key whether or not this one is an enum. The enum buys nothing and invites
-    the value above.
-
-  The deciding argument is smaller than either: the two values are not
-  symmetric. Nobody writes `served_by: client`, because that is the default
-  and what every service already is, so the enum is a boolean wearing an
-  enum's clothes.
-
-  **The one cost of `direct`, recorded so it is a choice.** `egress.rs`
-  already uses "direct" for "not through the outbound proxy", and here it will
-  mean "not through the tunnel". Both are "without an intermediary" but the
-  intermediaries differ, which allows one genuinely confusing sentence: a
-  `direct: true` service that the server reaches *through* the egress proxy is
-  direct and not direct at once. The two live far apart in the file and in the
-  docs, so this is survivable; `server_side: true` is the alternative with no
-  overlap at all, if the sentence turns out to be one that has to be written.
-
 - [ ] **#134 Upgrade `webauthn-rs` and `argon2` once they have a stable
   release, and re-run the duplicate sweep behind them.** Both are the newest
   thing standing between the tree and a single version of several crates, and
@@ -508,6 +409,146 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#139 A service the server can reach itself, without the two hops
+  through the client.** Today every service is relayed: a request arrives, the
+  server dispatches it over the tunnel, the client connects to the target, and
+  the answer comes back the same way. When the target is somewhere the server
+  can already reach, that is two hops bought for nothing.
+
+  **The shape, after the discussion that settled it.** The obvious version,
+  a client declaring "serve this one from the server, here is the target", is
+  not the version to build. `outbound.rs` already names why, about a smaller
+  feature than this one: a URL taken from a lower-trust party and then called
+  by the server makes the server an SSRF probe into its own network. Webhooks
+  and `scaling.url` are fire-and-forget with a bounded shape. This would be a
+  full request and response channel, any method, any path, any header, with
+  the body coming back, which is not a probe but a steerable HTTP proxy inside
+  the operator's network. On a shared server that is the difference between
+  poking and browsing.
+
+  So the destination is the operator's to name, not the client's:
+
+  - **The operator lists destinations** that may be served this way, and the
+    list is the permission. Deny by default, unlike `outbound.allowlist`,
+    which is opt-in and permissive because it governs callbacks rather than a
+    proxy.
+  - **The client opts a service in**, and the server takes the shortcut only
+    when that service's target matches the list. A token permission gates
+    whether a client may ask at all, but it is not the thing that decides
+    where the server may connect. A boolean permission would hand any
+    permitted token every address the server can reach.
+  - **A service that asks and does not match is refused at declaration**,
+    naming the target and the fact that it is not listed, rather than falling
+    back to the tunnel silently. A quiet fallback would make the fast path
+    depend on configuration nobody can see from either side.
+
+  **Where it goes, and why it is cheaper than it sounds.** `forward.rs` puts a
+  request through five gates before anything is sent: the per-IP rate limit,
+  the visitor gate, the wait for a client, the admission slot, and picking who
+  serves it. Only the last two change. Most of `ServiceState` is already
+  server-side, hostname and path binds, `visitor_auth`, `allowed_ips`,
+  `max_concurrent`, the inflight limiter, metrics labels, capture, so the
+  gates keep working unchanged. What is replaced is the dispatch in `attempt`,
+  and the wait-for-a-client gate, which has nothing to wait for.
+
+  **What stops working, and has to be refused rather than discovered.** A
+  service served this way cannot use `run:` (the client starts that process),
+  `serve:` (the files are on the client), failover or load balancing across
+  several client connections, bandwidth pacing, or backend health probed from
+  the client's vantage point. Each of those has to be a refusal at declaration
+  with a message naming which one, because every one of them fails silently or
+  confusingly otherwise.
+
+  **The lifecycle decision, stated rather than assumed.** Tying the definition
+  to the client's connection, so it disappears when the client goes away, is a
+  clean cleanup story and gives liveness for free. It also means holding a
+  WebSocket open for a service that never uses it. That is defensible, the
+  client is then a lease holder and the connection is what says "this is still
+  wanted", but it is a choice with a cost and should be made deliberately. The
+  alternative, an operator-authored route with an upstream, already half
+  exists in `static_routes`, which today can answer with a redirect or a fixed
+  response but cannot proxy to a target.
+
+  **The name, and the extension that is not coming.** `edge` is taken:
+  `docs/edge-proxy.md` and `APERIO_EDGE_TOKEN` already mean the Traefik/Caddy
+  integration in *front* of Aperio, and a second meaning would be worse than a
+  longer word. Settled on `server_side: true` on the service, with
+  `server_side_targets:` as the operator's list: it says where the last hop is
+  made rather than what it avoids.
+
+  `served_by: server | client` was the other candidate and was rejected after
+  asking what a third value would ever be. Both plausible answers are bad:
+
+  - **Another client's id is already solved, better.** `pick_proxy_client`
+    narrows a pool by hostname, path, health, strategy and round-robin, with
+    sticky affinity and canary splits on top. Two clients that should serve
+    the same thing both declare it and the *server* chooses. A client naming a
+    peer would be a second, weaker spelling of that, and it inverts the
+    authority: here a client declares only what it serves itself, and which
+    client answers a request is the server's decision. Clients in one
+    organization are not equally trusted either, a CI runner and a production
+    box hold tokens of the same org. There is a lifetime problem too, since a
+    connection id is per-connection and a rule naming one is stale the moment
+    that client reconnects.
+  - **Anything else is a new key anyway.** Rule 23 makes adding an optional
+    field the compatible move, so a genuine third mode would arrive as its own
+    key whether or not this one is an enum. The enum buys nothing and invites
+    the value above.
+
+  The deciding argument is smaller than either: the two values are not
+  symmetric. Nobody writes `served_by: client`, because that is the default
+  and what every service already is, so the enum is a boolean wearing an
+  enum's clothes.
+
+  **`direct` was the runner-up and lost on one word.** It is shorter and
+  reads well, but `egress.rs` already uses "direct" for "not through the
+  outbound proxy" and here it would mean "not through the tunnel". Both are
+  "without an intermediary" with different intermediaries, which allows a
+  genuinely confusing sentence: a `direct: true` service that the server
+  reaches *through* the egress proxy is direct and not direct at once.
+  `server_side` says where the last hop is made instead of what it avoids, and
+  nothing else in the configuration uses the word.
+
+  **Shipped** as `server_side: true` on a `services:` entry, with
+  `server_side_targets:` / `APERIO_SERVER_SIDE_TARGETS` as the operator's list
+  and `allow_server_side` on the token. Both have to agree, and an unset list
+  permits nothing.
+
+  **The delivery half was never touched, which was the whole trick.** The plan
+  assumed a 400-line extraction so both paths could share the response
+  handling. They do share it, but by a much smaller change: the answer is
+  fetched here and handed back through the *same oneshot channel* a tunnel
+  response arrives on. The response timeout, the header rewrite rules, the
+  stats and per-organization attribution, the response cache, the inspector
+  capture and the access log therefore run the code they already ran and
+  cannot tell the two apart. Counting the crossers first is what found it: the
+  cut had 20, and looking at what they were showed the seam was in the wrong
+  place.
+
+  **A design fault caught while writing it.** The first version resolved the
+  target and matched its addresses against the CIDR entries, copying
+  `OutboundPolicy::check`. That is sound for a callback made once and unsound
+  here, where the server dials the same target for every request for as long
+  as the client stays connected: a name admitted because it resolved into an
+  allowed range could resolve elsewhere a second later, and the allowlist
+  would have approved an address nobody checked. It now judges the target as
+  written, so a CIDR entry admits an address and never a name. That also made
+  it callable from the declaration path, which holds a lock and cannot await.
+
+  **What the seam tests caught**, which is worth recording as evidence they
+  work: both new fields were placed on `ServiceState` without being declared
+  in `SERVICE_DECL_IN_SERVICE_STATE` or `SERVICE_SCOPED_DERIVED`, and two
+  tests refused the build until somebody said where they belong and why.
+
+  **The honest limitations**, both refused or documented rather than left to
+  be discovered. A server-side response is buffered rather than streamed, so a
+  large body is held in memory here instead of flowing through; streaming it
+  is a separate change. The request body is buffered for the same reason,
+  decided in one place in `forward.rs` so the dispatch cannot disagree with it.
+  `serve:` is refused at client startup, naming the conflict. And the
+  single-service top-level shape does not offer the key at all, because those
+  spellings are the deprecated form this project is retiring.
 
 - [x] **#138 A `CONFIG_CHANGES` entry can name a version that never ships.**
   `the_shipped_table_is_well_formed` checks that every entry parses, names at

@@ -22,6 +22,7 @@ use super::*;
 use crate::state::AppState;
 
 pub(crate) mod attempt;
+mod server_side;
 
 /// Forwards a buffered/streamed HTTP request over the tunnel and maps the
 /// response back. Split out of [`proxy_handler`] so the whole flow runs inside
@@ -688,7 +689,13 @@ pub(crate) async fn proxy_http_request(
     )
       .into_response();
   }
-  let stream_request = selected.protocol.unwrap_or(1) >= 2
+  // A service served from this server buffers its request body instead of
+  // streaming it: streaming exists to avoid holding a large upload while it
+  // crosses the tunnel, and there is no tunnel here. Deciding it at this one
+  // place rather than in the dispatch keeps the two from disagreeing, which
+  // would have shown up as a body pumped into a socket nobody is reading.
+  let stream_request = selected.server_side_target.is_none()
+    && selected.protocol.unwrap_or(1) >= 2
     && (chunked_upload || content_length.is_some_and(|l| l > REQUEST_STREAM_THRESHOLD));
   // Bytes forwarded by the streamed-body pump (for stats attribution).
   let streamed_bytes = Arc::new(AtomicU64::new(0));

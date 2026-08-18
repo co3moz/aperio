@@ -68,6 +68,7 @@ interface TokenFormState {
   /** Parallel connections per service; empty = the server's own ceiling. */
   maxConnections: string
   allowPublic: boolean
+  allowServerSide: boolean
   allowBind: boolean
   allowOtel: boolean
   /** Comma-separated topic filters; empty means messaging is not permitted. */
@@ -86,6 +87,7 @@ function formFromToken(tok: TokenView | null): TokenFormState {
     dailyMaxMb: tok?.daily_max_bytes != null ? String(tok.daily_max_bytes / (1024 * 1024)) : '',
     maxConnections: tok?.max_connections != null ? String(tok.max_connections) : '',
     allowPublic: tok?.allow_public ?? false,
+    allowServerSide: tok?.allow_server_side ?? false,
     allowBind: tok?.allow_bind ?? false,
     allowOtel: tok?.allow_otel ?? false,
     topics: (tok?.topics ?? []).join(', '),
@@ -154,6 +156,7 @@ function TokenFormDialog({
             ? {}
             : { max_connections: maxConnections }),
           allow_public: form.allowPublic,
+          allow_server_side: form.allowServerSide,
           allow_bind: form.allowBind,
           allow_otel: form.allowOtel,
           topics: splitList(form.topics),
@@ -178,6 +181,7 @@ function TokenFormDialog({
             ? {}
             : { max_connections: maxConnections }),
           allow_public: form.allowPublic,
+          allow_server_side: form.allowServerSide,
           allow_bind: form.allowBind,
           allow_otel: form.allowOtel,
           topics: splitList(form.topics),
@@ -293,6 +297,13 @@ function TokenFormDialog({
               onCheckedChange={(v) => setForm((f) => ({ ...f, allowPublic: v === true }))}
             />
             {t('May publish public services (visitor auth gate skipped)')}
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={form.allowServerSide}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, allowServerSide: v === true }))}
+            />
+            {t('May ask the server to reach a target itself (server_side)')}
           </label>
           <label className="flex items-center gap-2 text-sm">
             <Checkbox

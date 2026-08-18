@@ -335,3 +335,61 @@ async fn a_url_without_a_host_is_refused_by_a_restricted_policy() {
   let err = policy.check("unix:/var/run/x.sock").await.unwrap_err();
   assert!(err.contains("no host"), "{err}");
 }
+
+// ----- server_side_targets -----
+
+/// An empty list permits nothing, which is the opposite of an empty
+/// `outbound.allowlist` and the whole reason this is a separate function.
+///
+/// The outbound policy governs calls the server decides to make, so no policy
+/// means no restriction. This governs a channel a tenant steers, so no list
+/// has to mean no permission: an operator who never configured it must not
+/// discover that a client could already point the server anywhere.
+#[test]
+fn no_configured_targets_permits_nothing() {
+  let err = server_side_allows(&[], "http://10.0.0.5:8080").unwrap_err();
+  assert!(
+    err.contains("no server_side_targets"),
+    "the refusal should name the setting that is missing: {err}"
+  );
+}
+
+#[test]
+fn an_exact_host_and_a_suffix_admit_what_they_name() {
+  let pats = parse_patterns("app.internal,*.svc.example.com").unwrap();
+  assert!(server_side_allows(&pats, "http://app.internal:8080/x").is_ok());
+  assert!(server_side_allows(&pats, "http://api.svc.example.com/x").is_ok());
+  // The suffix needs a label boundary, so it cannot be spoofed by a name that
+  // merely ends with the same letters.
+  let err = server_side_allows(&pats, "http://evilsvc.example.com/x").unwrap_err();
+  assert!(err.contains("not on server_side_targets"), "{err}");
+  let err = server_side_allows(&pats, "http://app.internal.evil.com/x").unwrap_err();
+  assert!(err.contains("not on server_side_targets"), "{err}");
+}
+
+/// A CIDR entry admits an address, and deliberately not a name.
+///
+/// This is where it differs from `OutboundPolicy::check`, which resolves a
+/// hostname and offers its addresses to the CIDR entries. That is sound for a
+/// callback made once. Here the server dials the same target for every request
+/// for as long as the client stays connected, so a name admitted because it
+/// resolved into the range at declaration could resolve elsewhere a moment
+/// later, and the allowlist would have approved an address nobody checked.
+#[test]
+fn a_cidr_admits_an_address_and_not_a_name_that_might_resolve_into_it() {
+  let pats = parse_patterns("10.0.0.0/8").unwrap();
+  assert!(server_side_allows(&pats, "http://10.4.5.6:9000/x").is_ok());
+  assert!(server_side_allows(&pats, "http://192.168.1.1/x").is_err());
+  let err = server_side_allows(&pats, "http://anything.example.com/x").unwrap_err();
+  assert!(
+    err.contains("not on server_side_targets"),
+    "a name must not be admitted by a CIDR entry, whatever it resolves to: {err}"
+  );
+}
+
+#[test]
+fn a_target_that_is_not_a_url_is_refused_rather_than_guessed_at() {
+  let pats = parse_patterns("10.0.0.0/8").unwrap();
+  assert!(server_side_allows(&pats, "not a url").is_err());
+  assert!(server_side_allows(&pats, "http:///nohost").is_err());
+}

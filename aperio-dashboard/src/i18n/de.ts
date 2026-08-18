@@ -242,6 +242,8 @@ export const de: Record<string, string> = {
   'Max concurrent requests': 'Max. gleichzeitige Anfragen',
   'Max request body': 'Max. Anfrage-Body',
   'Max tunnel clients': 'Max. Tunnel-Clients',
+  'May ask the server to reach a target itself (server_side)':
+    'Darf den Server bitten, ein Ziel selbst zu erreichen (server_side)',
   'May publish public services (visitor auth gate skipped)':
     'Darf öffentliche Dienste veröffentlichen (Besucher-Anmeldung übersprungen)',
   Method: 'Methode',

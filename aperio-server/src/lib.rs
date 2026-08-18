@@ -417,6 +417,8 @@ pub mod testkit {
         instance_group: None,
         subscriptions: Vec::new(),
         services: vec![crate::state::ServiceState {
+          server_side_target: None,
+          server_side_refused: None,
           service_custom_name: None,
           request_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
           declared_path: None,

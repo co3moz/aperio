@@ -360,6 +360,35 @@ pub(crate) fn resolve() -> Option<Resolved> {
     );
   }
 
+  // Destinations a client may ask the server to reach itself. Unset permits
+  // nothing, so the failure of an operator who never configured this is a
+  // refused declaration rather than a server that will dial anywhere.
+  let server_side_targets = match std::env::var("APERIO_SERVER_SIDE_TARGETS") {
+    Ok(raw) if !raw.trim().is_empty() => match crate::outbound::parse_patterns(&raw) {
+      Ok(list) => list,
+      Err(e) => {
+        error!(
+          "APERIO_SERVER_SIDE_TARGETS is invalid ({e}); refusing to start rather than \
+           permitting a partial list of destinations the server may be steered to"
+        );
+        return None;
+      }
+    },
+    _ => Vec::new(),
+  };
+  if !server_side_targets.is_empty() {
+    info!(
+      "Server-side targets configured ({} entr{}): a client whose token allows it may ask this \
+       server to reach these itself instead of relaying through the client",
+      server_side_targets.len(),
+      if server_side_targets.len() == 1 {
+        "y"
+      } else {
+        "ies"
+      }
+    );
+  }
+
   // Optional outbound-callback policy (webhooks, autoscaling hooks): an
   // allowlist of host/CIDR patterns and/or a block on private destinations.
   // Empty/off keeps today's permissive behaviour. An invalid entry refuses
@@ -725,6 +754,7 @@ pub(crate) fn resolve() -> Option<Resolved> {
     trusted_proxies,
     admin_allowed_ips,
     secure_cookies,
+    server_side_targets,
     outbound_policy,
     require_hostname_bind,
     default_access,

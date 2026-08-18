@@ -241,6 +241,8 @@ export const tr: Record<string, string> = {
   'Max concurrent requests': 'Azami eşzamanlı istek',
   'Max request body': 'Azami istek gövdesi',
   'Max tunnel clients': 'Azami tünel istemcisi',
+  'May ask the server to reach a target itself (server_side)':
+    'Sunucudan hedefe kendisinin ulaşmasını isteyebilir (server_side)',
   'May publish public services (visitor auth gate skipped)':
     'Herkese açık servis yayınlayabilir (ziyaretçi kimlik kapısı atlanır)',
   Method: 'Metod',

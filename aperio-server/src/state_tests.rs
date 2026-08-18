@@ -8,6 +8,7 @@ use crate::store::tokens::TokenSpec;
 
 fn perms(hostnames: &[&str], paths: &[&str]) -> ClientPerms {
   ClientPerms {
+    allow_server_side: false,
     master: false,
     hostnames: hostnames.iter().map(|s| s.to_string()).collect(),
     paths: paths.iter().map(|s| s.to_string()).collect(),
@@ -482,6 +483,7 @@ async fn test_disconnect_token_clients() {
 
   let mut c = mock_client(Some("a.local"), None, None, None);
   c.perms = ClientPerms {
+    allow_server_side: false,
     master: false,
     hostnames: vec![],
     paths: vec![],

@@ -25,6 +25,10 @@ use tokio::sync::{Notify, Semaphore, mpsc};
 /// arrive without somebody saying where it goes.
 #[cfg(test)]
 pub(crate) const SERVICE_DECL_IN_SERVICE_STATE: &[(&str, Option<&str>)] = &[
+  // Where the server dials for this service, when it was permitted to. The
+  // wire name and the field name are the same because they mean the same
+  // thing; the refusal beside it is derived here rather than declared.
+  ("server_side_target", Some("server_side_target")),
   ("service", Some("service_name")),
   ("service_custom_name", Some("service_custom_name")),
   ("path_bind", Some("declared_path")),
@@ -92,6 +96,10 @@ pub(crate) const SERVICE_SCOPED_DERIVED: &[&str] = &[
   "allowed_ips_invalid_warned",
   "cache_ignored_warned",
   "scaling_invalid_warned",
+  // The service's answer, not the connection's: one service of a process may
+  // have been refused server-side serving while its neighbour serves. Held on
+  // the connection it would let one service's refusal stop another.
+  "server_side_refused",
 ];
 
 /// What genuinely belongs to the connection, and stays one per socket.
@@ -238,6 +246,8 @@ impl ServiceState {
   pub(crate) fn newly_declared(pacer: Arc<AtomicU64>) -> Self {
     Self {
       request_count: Arc::new(AtomicU64::new(0)),
+      server_side_target: None,
+      server_side_refused: None,
       declared_path: None,
       assigned_path: None,
       declared_hostname: None,
@@ -448,6 +458,18 @@ pub(crate) struct ServiceState {
   /// Dashboard kill switch: false = temporarily excluded from routing even
   /// though the connection and heartbeats remain healthy.
   pub(crate) admin_enabled: bool,
+  /// Where the server reaches this service itself, when the client asked for
+  /// that and both the token and `server_side_targets:` permitted it. `None`
+  /// is the ordinary service, relayed over the tunnel.
+  pub(crate) server_side_target: Option<String>,
+  /// Set when the service asked to be served from the server and was refused,
+  /// carrying the reason for the log and the dashboard.
+  ///
+  /// A refused service is excluded from routing rather than relayed, because
+  /// a client that asks for this usually cannot reach the target itself:
+  /// relaying would produce broken requests rather than slow ones, and the
+  /// operator would be reading a backend error instead of a permission one.
+  pub(crate) server_side_refused: Option<String>,
   /// False when the service asked not to be recorded for the request
   /// inspector (`capture: false` in its aperio.yaml), announced via Ping.
   pub(crate) capture: bool,
@@ -700,6 +722,8 @@ pub(crate) struct ClientPerms {
   pub(crate) token_id: Option<String>,
   /// May this token publish services as public (visitor auth gate skipped)?
   pub(crate) allow_public: bool,
+  /// May this token ask the server to reach a service's target itself?
+  pub(crate) allow_server_side: bool,
   /// May this token bind another client's tunnels within its organization?
   pub(crate) allow_bind: bool,
   /// May this token send OpenTelemetry exports through the OTel bridge?
@@ -733,6 +757,7 @@ impl ClientPerms {
       token_name: None,
       token_id: None,
       allow_public: true,
+      allow_server_side: true,
       allow_bind: true,
       allow_otel: true,
       topics: vec!["#".to_string()],

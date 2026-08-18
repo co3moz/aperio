@@ -299,7 +299,7 @@ fn the_dashboards_schema_snapshot_is_not_stale() {
       same(snap, &live),
       "the {side} schema snapshot has the right keys but differs in shape \
        (a type, an enum, a description); regenerate it with \
-       `node scripts/dump-schemas.mjs`"
+       `node scripts/dump-schemas.mjs` from aperio-dashboard/"
     );
   }
 }

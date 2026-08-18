@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 fn create_req(name: &str) -> TokenCreateRequest {
   TokenCreateRequest {
+    allow_server_side: false,
     name: name.to_string(),
     hostnames: Vec::new(),
     paths: Vec::new(),
@@ -35,6 +36,7 @@ fn create_req(name: &str) -> TokenCreateRequest {
 
 fn empty_update() -> TokenUpdateRequest {
   TokenUpdateRequest {
+    allow_server_side: None,
     name: None,
     hostnames: None,
     paths: None,

@@ -44,6 +44,7 @@ pub(crate) struct TokenView {
   pub(crate) daily_max_bytes: Option<u64>,
   pub(crate) max_connections: Option<u32>,
   pub(crate) allow_public: bool,
+  pub(crate) allow_server_side: bool,
   pub(crate) allow_bind: bool,
   pub(crate) allow_otel: bool,
   pub(crate) topics: Vec<String>,
@@ -78,6 +79,7 @@ pub(crate) async fn tokens_list_handler(
       daily_max_bytes: t.daily_max_bytes,
       max_connections: t.max_connections,
       allow_public: t.allow_public,
+      allow_server_side: t.allow_server_side,
       allow_bind: t.allow_bind,
       allow_otel: t.allow_otel,
       topics: t.topics.clone(),
@@ -114,6 +116,12 @@ pub(crate) struct TokenCreateRequest {
   /// server's visitor auth gate)? Defaults to false.
   #[serde(default)]
   pub(crate) allow_public: bool,
+  /// May clients using this token ask the server to reach a service's target
+  /// itself (`server_side: true`)? Defaults to false. Where the server may
+  /// connect is the operator's `server_side_targets:`; this only decides
+  /// whether the client may ask.
+  #[serde(default)]
+  pub(crate) allow_server_side: bool,
   /// May clients using this token bind another client's tunnels within the
   /// same organization? Defaults to false.
   #[serde(default)]
@@ -153,6 +161,7 @@ pub(crate) struct TokenUpdateRequest {
   pub(crate) max_connections: Option<u32>,
   /// Absent = keep; true/false sets whether public publishing is permitted.
   pub(crate) allow_public: Option<bool>,
+  pub(crate) allow_server_side: Option<bool>,
   /// Absent = keep; true/false sets whether this token may bind other
   /// clients' tunnels in its organization.
   pub(crate) allow_bind: Option<bool>,
@@ -349,6 +358,7 @@ pub(crate) async fn tokens_create_handler(
       daily_max_bytes: payload.daily_max_bytes.filter(|v| *v > 0),
       max_connections: payload.max_connections.filter(|v| *v > 0),
       allow_public: payload.allow_public,
+      allow_server_side: payload.allow_server_side,
       allow_bind: payload.allow_bind,
       allow_otel: payload.allow_otel,
       canary: payload.canary,
@@ -532,6 +542,7 @@ pub(crate) async fn tokens_update_handler(
       daily_max_bytes: payload.daily_max_bytes.map(Some),
       max_connections: payload.max_connections.map(Some),
       allow_public: payload.allow_public,
+      allow_server_side: payload.allow_server_side,
       allow_bind: payload.allow_bind,
       allow_otel: payload.allow_otel,
       canary: payload.canary,

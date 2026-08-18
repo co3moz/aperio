@@ -6,6 +6,7 @@ use crate::state::ClientPerms;
 /// A dynamic token's permissions, with the two knobs the rules read.
 fn perms(token_id: &str, org: Option<&str>, allow_bind: bool) -> ClientPerms {
   ClientPerms {
+    allow_server_side: false,
     master: false,
     hostnames: Vec::new(),
     paths: Vec::new(),

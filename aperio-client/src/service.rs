@@ -510,6 +510,7 @@ pub(crate) async fn run_service(
                   priority: s.priority,
                   bandwidth_bps: s.bandwidth_bps,
                   public: s.public,
+                  server_side_target: s.server_side_target.clone(),
                   visitor_auth: s.visitor_auth.clone(),
                   visitor_auth_methods: negotiated_gates[i].clone(),
                   allowed_ips: s.allowed_ips.clone(),
@@ -657,6 +658,12 @@ pub(crate) async fn run_service(
                   bandwidth_bps: first.bandwidth_bps,
                   service: first.service.clone(),
                   service_custom_name: first.service_custom_name.clone(),
+                  // No `server_side_target` here on purpose. These singular
+                  // fields are the shim an older server reads, and an older
+                  // server cannot honour this: it would relay instead, which
+                  // is the silent fallback the feature exists to avoid. The
+                  // ask travels only in the `services` list, where a server
+                  // that understands it will find it.
                   public: first.public,
                   visitor_auth: first.visitor_auth.clone(),
                   visitor_auth_methods: first.visitor_auth_methods.clone(),

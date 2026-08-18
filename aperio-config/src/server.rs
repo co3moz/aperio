@@ -377,6 +377,20 @@ pub struct ServerFileConfig {
   /// deny list (env: APERIO_DENIED_IPS).
   #[schemars(extend("examples" = [["203.0.113.7", "198.51.100.0/24"]]))]
   pub denied_ips: Option<Vec<String>>,
+  /// Destinations a client may ask this server to reach itself, instead of
+  /// relaying the request through the client (`server_side: true` on a
+  /// service). Host/CIDR patterns, the same spellings `outbound.allowlist`
+  /// takes: an exact host, `*.suffix`, an IP, or a CIDR.
+  ///
+  /// Unset is the default and permits nothing: unlike `outbound.allowlist`,
+  /// which governs callbacks the server makes on its own initiative, this
+  /// list opens a request and response channel that a tenant steers, so an
+  /// unset list has to mean deny rather than allow. A service asking for a
+  /// target outside it is refused at declaration, naming the target, rather
+  /// than quietly relayed. The client's token must also allow it
+  /// (env: APERIO_SERVER_SIDE_TARGETS).
+  #[schemars(extend("examples" = [["10.0.0.0/8", "*.internal.example.com"]]))]
+  pub server_side_targets: Option<Vec<String>>,
   /// Tell the backend which client, organization and token served the
   /// request, as `x-aperio-client-id`, `x-aperio-org` and `x-aperio-token`.
   /// Off by default: they are new trust surface, and a backend that starts

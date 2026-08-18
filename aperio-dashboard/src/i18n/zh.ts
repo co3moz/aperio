@@ -236,6 +236,8 @@ export const zh: Record<string, string> = {
   'Max concurrent requests': '最大并发请求数',
   'Max request body': '最大请求正文',
   'Max tunnel clients': '最大隧道客户端数',
+  'May ask the server to reach a target itself (server_side)':
+    '可请求服务器自行访问目标 (server_side)',
   'May publish public services (visitor auth gate skipped)': '可发布公开服务（跳过访客认证）',
   Method: '方法',
   'Mint a scoped token now': '立即铸造受限 Token',

@@ -65,6 +65,7 @@ impl ConnCtx {
       priority,
       bandwidth_bps,
       public,
+      server_side_target,
       visitor_auth,
       visitor_auth_methods,
       allowed_ips,
@@ -95,6 +96,7 @@ impl ConnCtx {
       d0.priority,
       d0.bandwidth_bps,
       d0.public,
+      d0.server_side_target,
       d0.visitor_auth,
       d0.visitor_auth_methods,
       d0.allowed_ips,
@@ -387,6 +389,59 @@ impl ConnCtx {
           "Client {} serves public traffic: the visitor auth gate is skipped for its routes",
           client_id
         );
+      }
+    }
+    // Served from this server rather than relayed: the token has to allow the
+    // asking and the operator's `server_side_targets:` has to allow the
+    // address, and both are checked every heartbeat rather than once, so a
+    // list edited under a live connection takes effect on the next beat.
+    //
+    // A refusal excludes the service from routing instead of relaying it.
+    // Relaying looks like the kind thing to do and is not: a client asks for
+    // this when the *server* can reach the target and it cannot, so the
+    // fallback would serve errors from a backend nobody can see, and the
+    // operator would be reading a connection failure instead of the
+    // permission problem that caused it.
+    {
+      let refusal = match &server_side_target {
+        None => None,
+        Some(_) if !handle.perms.allow_server_side => Some(
+          "its token does not allow being served from the server (allow_server_side)".to_string(),
+        ),
+        Some(target) => {
+          crate::outbound::server_side_allows(&state.config().server_side_targets, target).err()
+        }
+      };
+      let service = handle.service_at_mut(service_index);
+      let was_refused = service.server_side_refused.is_some();
+      match (&server_side_target, &refusal) {
+        (Some(target), None) => {
+          if service.server_side_target.as_deref() != Some(target.as_str()) {
+            info!(
+              "Client {} serves {} from this server: requests go straight to the target, not \
+               over the tunnel",
+              client_id, target
+            );
+          }
+          service.server_side_target = Some(target.clone());
+          service.server_side_refused = None;
+        }
+        (Some(target), Some(why)) => {
+          service.server_side_target = None;
+          service.server_side_refused = Some(why.clone());
+          if !was_refused {
+            warn!(
+              "Client {} asked this server to reach {} itself and it is refused ({}); the \
+               service is not routed, because a client that asks for this usually cannot reach \
+               the target either",
+              client_id, target, why
+            );
+          }
+        }
+        (None, _) => {
+          service.server_side_target = None;
+          service.server_side_refused = None;
+        }
       }
     }
     // Client-declared visitor password override: honored only

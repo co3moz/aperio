@@ -16,6 +16,7 @@ use tokio_tungstenite::tungstenite::handshake::client::generate_key;
 
 fn dynamic_perms(token_id: &str) -> ClientPerms {
   ClientPerms {
+    allow_server_side: false,
     master: false,
     hostnames: Vec::new(),
     paths: Vec::new(),

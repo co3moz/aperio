@@ -401,6 +401,18 @@ pub struct ServiceDecl {
   pub priority: u32,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub bandwidth_bps: Option<u64>,
+  /// The address the server should reach for this service itself, instead of
+  /// dispatching over the tunnel (`server_side: true` in the client's file).
+  ///
+  /// Sent only when the client asked for it, which is what keeps a relayed
+  /// service's backend address off the wire: the server has never needed to
+  /// know where a client connects, and it still does not unless the client is
+  /// asking it to go there. Honored only when the token allows it and the
+  /// address matches the server's `server_side_targets:`; a service that asks
+  /// and is not permitted is refused rather than quietly relayed, because
+  /// asking usually means this client cannot reach the target at all.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub server_side_target: Option<String>,
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub public: bool,
   #[serde(default, skip_serializing_if = "Option::is_none")]

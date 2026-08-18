@@ -2261,6 +2261,16 @@
               "./dist"
             ]
           },
+          "server_side": {
+            "description": "Let the server reach `target` itself instead of relaying through this\nclient, when the server's `server_side_targets:` permits that address\n(needs a token that allows it). Saves the two hops a relayed request\nmakes, the one to this client and the one from here to the target, and is\nonly useful when the target is somewhere the server can already reach.\nThe service is still declared, gated and routed here; only the last hop\nmoves. Refused rather than ignored when the target is not permitted, and\ncannot be combined with `serve:`, whose files are on this machine.\nDefault: false.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "examples": [
+              true
+            ]
+          },
           "startup_delay": {
             "description": "Seconds to wait before this service opens its tunnel. For a backend that\nis starting alongside the client and is not ready to answer the moment\nthe process is. Default: `0` (env: APERIO_STARTUP_DELAY).",
             "type": [
@@ -4088,6 +4098,22 @@
             "type": "null"
           }
         ]
+      },
+      "server_side_targets": {
+        "description": "Destinations a client may ask this server to reach itself, instead of\nrelaying the request through the client (`server_side: true` on a\nservice). Host/CIDR patterns, the same spellings `outbound.allowlist`\ntakes: an exact host, `*.suffix`, an IP, or a CIDR.\n\nUnset is the default and permits nothing: unlike `outbound.allowlist`,\nwhich governs callbacks the server makes on its own initiative, this\nlist opens a request and response channel that a tenant steers, so an\nunset list has to mean deny rather than allow. A service asking for a\ntarget outside it is refused at declaration, naming the target, rather\nthan quietly relayed. The client's token must also allow it\n(env: APERIO_SERVER_SIDE_TARGETS).",
+        "type": [
+          "array",
+          "null"
+        ],
+        "examples": [
+          [
+            "10.0.0.0/8",
+            "*.internal.example.com"
+          ]
+        ],
+        "items": {
+          "type": "string"
+        }
       },
       "server_token": {
         "description": "Deprecated spelling of `server.token` (env: APERIO_SERVER_TOKEN).",

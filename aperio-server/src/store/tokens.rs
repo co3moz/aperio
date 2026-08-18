@@ -51,6 +51,13 @@ pub struct ApiToken {
   /// server's visitor auth gate)? Defaults to false.
   #[serde(default)]
   pub allow_public: bool,
+  /// May clients using this token ask the server to reach a service's target
+  /// itself, instead of relaying through the client (`server_side: true`)?
+  /// Defaults to false. The permission only decides whether the client may
+  /// ask; where the server may connect is the operator's
+  /// `server_side_targets:`, and both have to agree.
+  #[serde(default)]
+  pub allow_server_side: bool,
   /// May this token bind the tunnels of *other* clients in the same
   /// organization? Defaults to false. Without it a binder needs the very
   /// credential the declaring client connected with, which is also the
@@ -160,6 +167,7 @@ pub struct TokenSpec {
   pub max_connections: Option<u32>,
   /// What it is allowed to do beyond serving.
   pub allow_public: bool,
+  pub allow_server_side: bool,
   pub allow_bind: bool,
   pub allow_otel: bool,
   /// Routed to only by traffic that opted in.
@@ -185,6 +193,7 @@ pub struct TokenPatch {
   pub daily_max_bytes: Option<Option<u64>>,
   pub max_connections: Option<Option<u32>>,
   pub allow_public: Option<bool>,
+  pub allow_server_side: Option<bool>,
   pub allow_bind: Option<bool>,
   pub allow_otel: Option<bool>,
   pub canary: Option<bool>,
@@ -284,6 +293,7 @@ impl TokenStore {
       daily_max_bytes: spec.daily_max_bytes,
       max_connections: spec.max_connections.filter(|v| *v > 0),
       allow_public: spec.allow_public,
+      allow_server_side: spec.allow_server_side,
       allow_bind: spec.allow_bind,
       allow_otel: spec.allow_otel,
       topics: spec.topics,
@@ -312,6 +322,7 @@ impl TokenStore {
       daily_max_bytes,
       max_connections,
       allow_public,
+      allow_server_side,
       allow_bind,
       allow_otel,
       canary,
@@ -353,6 +364,9 @@ impl TokenStore {
       }
       if let Some(p) = allow_public {
         token.allow_public = p;
+      }
+      if let Some(p) = allow_server_side {
+        token.allow_server_side = p;
       }
       if let Some(b) = allow_bind {
         token.allow_bind = b;

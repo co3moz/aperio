@@ -54,6 +54,129 @@ pub(crate) enum OutboundPattern {
   Cidr(IpAddr, u32),
 }
 
+/// May the server be asked to reach `url_str` itself (`server_side:`)?
+///
+/// Deliberately not a method on [`OutboundPolicy`], and deliberately not
+/// sharing its empty-list rule. That policy governs calls the server makes on
+/// its own initiative, so an empty allowlist there means "no policy" and
+/// permits everything. Here an empty list is the whole answer: nothing is
+/// permitted until an operator names something, because what this opens is a
+/// request and response channel a tenant steers.
+///
+/// **Judged on the URL as written, never on what a name resolves to**, which
+/// is the one place this deliberately differs from [`OutboundPolicy::check`].
+/// That policy resolves a hostname and offers its addresses to the CIDR
+/// entries, which is sound enough for a callback made once. Here the server
+/// would dial the same target for every request for as long as the client
+/// stays connected, so a name admitted because it resolved into an allowed
+/// range at declaration could resolve somewhere else a second later, and the
+/// allowlist would have approved an address nobody ever checked. A CIDR entry
+/// therefore admits only a target written as an address, and a named target
+/// needs a name or `*.suffix` entry. It also makes this callable from the
+/// declaration path, which holds a lock and cannot await.
+pub(crate) fn server_side_allows(targets: &[OutboundPattern], url_str: &str) -> Result<(), String> {
+  if targets.is_empty() {
+    return Err(
+      "no server_side_targets are configured, so this server reaches nothing on a client's \
+       behalf (set server_side_targets: / APERIO_SERVER_SIDE_TARGETS)"
+        .to_string(),
+    );
+  }
+  let url = url::Url::parse(url_str).map_err(|e| format!("invalid target url: {e}"))?;
+  let Some(host) = url.host_str() else {
+    return Err("the target has no host".to_string());
+  };
+  let host = host.trim_end_matches('.').to_ascii_lowercase();
+  let bare = host.trim_start_matches('[').trim_end_matches(']');
+  let literal_ip = bare.parse::<IpAddr>().ok();
+  for pattern in targets {
+    match pattern {
+      OutboundPattern::Host(h) if *h == host => return Ok(()),
+      OutboundPattern::Suffix(s) => {
+        if host.len() > s.len() + 1 && host.ends_with(s.as_str()) {
+          let boundary = host.as_bytes()[host.len() - s.len() - 1];
+          if boundary == b'.' {
+            return Ok(());
+          }
+        }
+      }
+      OutboundPattern::Cidr(base, bits) => {
+        if let Some(ip) = literal_ip
+          && crate::auth::cidr_contains(*base, *bits, ip)
+        {
+          return Ok(());
+        }
+      }
+      _ => {}
+    }
+  }
+  Err(format!(
+    "target {host} is not on server_side_targets, so this server will not reach it on a \
+     client's behalf"
+  ))
+}
+
+/// Does `host` match any of `patterns`, by name or by address?
+///
+/// Shared by the outbound-callback allowlist and by `server_side_targets:`,
+/// which take the same spellings and have to agree about what a pattern
+/// means: an operator reading one and writing the other would otherwise be
+/// working from two rules that only look alike.
+///
+/// A name is matched by name first. Its resolved addresses are then offered to
+/// the CIDR entries, so an all-IP list still covers a named destination, and
+/// that resolution only happens when it can decide anything: never for a
+/// literal address, never without a CIDR entry to satisfy, and never for a
+/// name the proxy would resolve on its own network instead.
+pub(crate) async fn matches_patterns(
+  patterns: &[OutboundPattern],
+  host: &str,
+  bare: &str,
+  literal_ip: Option<IpAddr>,
+  port: u16,
+  resolves_here: bool,
+) -> Result<bool, String> {
+  for pattern in patterns {
+    match pattern {
+      OutboundPattern::Host(h) if h == host => return Ok(true),
+      OutboundPattern::Suffix(s) => {
+        if host.len() > s.len() + 1 && host.ends_with(s.as_str()) {
+          let boundary = host.as_bytes()[host.len() - s.len() - 1];
+          if boundary == b'.' {
+            return Ok(true);
+          }
+        }
+      }
+      OutboundPattern::Cidr(base, bits) => {
+        if let Some(ip) = literal_ip
+          && crate::auth::cidr_contains(*base, *bits, ip)
+        {
+          return Ok(true);
+        }
+      }
+      _ => {}
+    }
+  }
+  let has_cidrs = patterns
+    .iter()
+    .any(|p| matches!(p, OutboundPattern::Cidr(..)));
+  if literal_ip.is_none() && has_cidrs && resolves_here {
+    let addrs = tokio::net::lookup_host((bare, port))
+      .await
+      .map_err(|e| format!("cannot resolve {host}: {e}"))?;
+    for addr in addrs {
+      for pattern in patterns {
+        if let OutboundPattern::Cidr(base, bits) = pattern
+          && crate::auth::cidr_contains(*base, *bits, addr.ip())
+        {
+          return Ok(true);
+        }
+      }
+    }
+  }
+  Ok(false)
+}
+
 /// Parses a comma-separated allowlist. Each entry is a hostname, a
 /// `*.suffix` wildcard, an IP, or a CIDR. An unparseable entry is an error:
 /// starting with a partial allowlist would silently refuse legitimate
@@ -291,47 +414,17 @@ impl OutboundPolicy {
 
     if !self.allowlist.is_empty() {
       let port = url.port_or_known_default().unwrap_or(443);
-      // A hostname is matched by name first; its resolved addresses are also
-      // given to the CIDR entries, so an all-IP allowlist still covers named
-      // destinations.
-      for pattern in &self.allowlist {
-        match pattern {
-          OutboundPattern::Host(h) if *h == host => return Ok(()),
-          OutboundPattern::Suffix(s) => {
-            if host.len() > s.len() + 1 && host.ends_with(s.as_str()) {
-              let boundary = host.as_bytes()[host.len() - s.len() - 1];
-              if boundary == b'.' {
-                return Ok(());
-              }
-            }
-          }
-          OutboundPattern::Cidr(base, bits) => {
-            if let Some(ip) = literal_ip
-              && crate::auth::cidr_contains(*base, *bits, ip)
-            {
-              return Ok(());
-            }
-          }
-          _ => {}
-        }
-      }
-      let has_cidrs = self
-        .allowlist
-        .iter()
-        .any(|p| matches!(p, OutboundPattern::Cidr(..)));
-      if literal_ip.is_none() && has_cidrs && resolves_here {
-        let addrs = tokio::net::lookup_host((bare, port))
-          .await
-          .map_err(|e| format!("cannot resolve {host}: {e}"))?;
-        for addr in addrs {
-          for pattern in &self.allowlist {
-            if let OutboundPattern::Cidr(base, bits) = pattern
-              && crate::auth::cidr_contains(*base, *bits, addr.ip())
-            {
-              return Ok(());
-            }
-          }
-        }
+      if matches_patterns(
+        &self.allowlist,
+        &host,
+        bare,
+        literal_ip,
+        port,
+        resolves_here,
+      )
+      .await?
+      {
+        return Ok(());
       }
       return Err(format!(
         "destination {host} is not on the outbound allowlist (APERIO_OUTBOUND_ALLOWLIST)"

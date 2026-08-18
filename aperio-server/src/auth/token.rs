@@ -66,6 +66,7 @@ pub(crate) async fn authorize_tunnel_token(
         token_name: Some(token.name.clone()),
         token_id: Some(token.id.clone()),
         allow_public: token.allow_public,
+        allow_server_side: token.allow_server_side,
         allow_bind: token.allow_bind,
         allow_otel: token.allow_otel,
         topics: token.topics.clone(),

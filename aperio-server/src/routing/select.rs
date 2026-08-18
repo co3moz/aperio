@@ -53,7 +53,10 @@ pub(crate) fn select_client_pool(
         )
       })
     })
-    .filter(|(_, s)| s.backend_healthy && s.admin_enabled)
+    // A service refused server-side serving is excluded here rather than
+    // relayed, so it answers as an unclaimed route does. See the refusal in
+    // `declare.rs` for why relaying would be the worse failure.
+    .filter(|(_, s)| s.backend_healthy && s.admin_enabled && s.server_side_refused.is_none())
     .collect();
 
   // --- Hostname stage ---
@@ -223,6 +226,14 @@ pub(crate) struct SelectedClient {
   pub(crate) protocol: Option<u32>,
   /// The client opted into the server-side response cache (Ping `cache`).
   pub(crate) cache: bool,
+  /// Where this request goes instead of over the tunnel, when the service was
+  /// permitted to be served from the server. `None` is the ordinary path.
+  ///
+  /// Carried on the selection rather than looked up again in the forward path
+  /// so the two cannot disagree: the service that won the routing pipeline is
+  /// the service whose target gets dialed, even if a heartbeat changes the
+  /// declaration a moment later.
+  pub(crate) server_side_target: Option<String>,
   /// The client asked for serve-stale resilience (Ping `resilience`).
   pub(crate) resilience: bool,
   /// False when this service asked not to be recorded for the request
@@ -355,6 +366,7 @@ pub(crate) async fn pick_proxy_client(
       instance_id: c.reported_instance_id.clone(),
       protocol: c.client_protocol,
       cache: svc.cache,
+      server_side_target: svc.server_side_target.clone(),
       resilience: svc.resilience,
       capture: svc.capture,
       max_request_body: svc.max_request_body,
