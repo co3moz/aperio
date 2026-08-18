@@ -19,6 +19,73 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
+- [ ] **#130 A Rust change can break a dashboard check, and nothing runs it.**
+  Rule 14 says a UI-only change may skip the `e2e` suite, and gives the reason:
+  e2e exercises a Rust path a `.tsx` edit cannot affect. The inverse has no
+  rule, and it is the one that bit.
+
+  `explainMessages.test.ts` reads the message codes out of `api/explain.rs` and
+  demands a catalogue entry for each. `#125` added eleven stages to that file,
+  which is Rust, so the work ran `cargo test --workspace`, `clippy` and one
+  `e2e` pass and never ran `vitest`. **The check stayed red across five
+  commits** (`#125`, `#126`, `#127`, `#128`, `#129`) and every gate anybody
+  looked at was green the whole time. It surfaced only because a later sweep
+  happened to open the dashboard.
+
+  **The specific fix is cheaper than the general one.** The general answer is
+  "run the dashboard checks when Rust changes", which means teaching CI which
+  Rust files the dashboard reads and is a rule nobody will remember. The
+  specific answer is already in the repo, pointing the other way:
+  `store/audit_tests.rs` reads `aperio-dashboard/src/lib/auditEvents.ts` from a
+  *Rust* test, so `cargo test --workspace` catches a missing entry. Explain
+  parity should be asserted from Rust for the same reason. The TypeScript test
+  can stay, it is the right place to catch the other direction, a catalogue
+  entry for a code the server stopped sending.
+
+  Then look for the rest of the class rather than fixing the one that hurt:
+  any check that lives on one side of the language boundary and guards the
+  other. Each should be asserted from the side whose change breaks it, which
+  is the side whose test suite that change actually runs.
+
+- [ ] **#131 Four of the five mutation-scoped modules have never been run.**
+  `#127` scoped `cargo mutants` to five modules and `#129` cleared `auth.rs`,
+  which is 46 of 315 mutants. `visitor_auth.rs` (46), `proxy/gate.rs` (67),
+  `state/admission.rs` (107) and `redact.rs` (46) have never been mutated:
+  **269 mutants, no verdict on any of them.**
+
+  This is not a bug report, it is a known unknown with a number on it, which
+  is the honest shape for it. The scoped run was measured at about 73 seconds
+  per mutant on this machine, so the remainder is roughly five and a half hours
+  single-threaded, which is why the workflow exists and shards eight ways. Let
+  the monthly run take it, or dispatch it per module.
+
+  What to expect, from the one module that has been done: 46 mutants gave 18
+  caught, 3 alive and 2 unviable in the shard examined, and of the three alive
+  one was a test asserting nothing, one was a fixture too small to exercise the
+  bound it was supposed to, and one needed the *caller* read before it could be
+  judged. Budget the reading time, not just the run time. The survivors are the
+  work and they do not come with an answer attached.
+
+- [ ] **#132 Nothing says which routes are deliberately outside the OpenAPI
+  document.** Measured 2026-08-18: 98 routes, 87 carrying a `utoipa::path`
+  annotation, 11 without. **All eleven look deliberate**, and that is worth
+  saying plainly rather than dressing up as a finding: the dashboard SPA and
+  its assets (`/`, `/aperio/`, `/aperio/{*rest}`, `/aperio/assets/{*path}`),
+  the document itself (`/aperio/api/openapi.json`), the two OIDC browser
+  redirects, and the four upgrade endpoints that are not REST at all
+  (`/aperio/ws`, `/aperio/tcp`, `/aperio/udp`, `/aperio/tunnels/{client_id}`).
+
+  So this finds no current bug, and the case for it is the twelfth route rather
+  than these eleven. `openapi_tests.rs` asserts a **hardcoded list** of paths is
+  present, which catches a path that disappears and cannot catch one that is
+  added: a new admin endpoint with no annotation is invisible to the document,
+  to anything generated from it, and to that test. The same shape as `#126`,
+  where the answer was to enumerate what exists and make every absence a
+  declared one with a reason.
+
+  Worth doing after `#130`, not before. That one is a check that exists and is
+  not being run, which is strictly worse than a check that does not exist yet.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
