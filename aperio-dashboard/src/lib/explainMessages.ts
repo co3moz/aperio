@@ -81,6 +81,8 @@ export const EXPLAIN_MESSAGES: Record<string, string> = {
   'rate_limit_ip.configured':
     'every visitor IP gets a bucket of {max} with {refill}/s refill; this dry run does not spend from it',
 
+  'server_concurrency.ceiling':
+    'the server admits {max} requests at once across every service; one arriving with no slot free is refused rather than queued',
   'server_concurrency.headroom':
     '{in_flight} of {max} server-wide request slots are in use right now; a request arriving with none free is refused rather than queued',
 

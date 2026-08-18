@@ -1163,4 +1163,5 @@ export const ja: Record<string, string> = {
   'Token quota': 'トークン割当',
   'Organization quota': '組織割当',
   'Streams per visitor': '訪問者あたりのストリーム',
+  'the server admits {max} requests at once across every service; one arriving with no slot free is refused rather than queued': 'サーバーは全サービス合計で同時に {max} 件の要求を受け付けます。空きスロットがない状態で届いた要求は、待機列に入れられるのではなく拒否されます',
 }

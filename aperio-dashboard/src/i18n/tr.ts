@@ -1169,4 +1169,5 @@ export const tr: Record<string, string> = {
   'Token quota': 'Token kotası',
   'Organization quota': 'Organizasyon kotası',
   'Streams per visitor': 'Ziyaretçi başına akış',
+  'the server admits {max} requests at once across every service; one arriving with no slot free is refused rather than queued': 'sunucu her servis genelinde aynı anda {max} isteği kabul eder; boş yuva yokken gelen bir istek kuyruğa alınmaz, reddedilir',
 }

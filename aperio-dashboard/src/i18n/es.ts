@@ -1165,4 +1165,5 @@ export const es: Record<string, string> = {
   'Token quota': 'Cuota de token',
   'Organization quota': 'Cuota de organización',
   'Streams per visitor': 'Streams por visitante',
+  'the server admits {max} requests at once across every service; one arriving with no slot free is refused rather than queued': 'el servidor admite {max} peticiones a la vez en todos los servicios; una que llegue sin ninguna ranura libre se rechaza en lugar de encolarse',
 }

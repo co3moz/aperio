@@ -1146,4 +1146,5 @@ export const zh: Record<string, string> = {
   'Token quota': '令牌配额',
   'Organization quota': '组织配额',
   'Streams per visitor': '每访客流数',
+  'the server admits {max} requests at once across every service; one arriving with no slot free is refused rather than queued': '服务器在所有服务上合计同时接受 {max} 个请求；在没有空闲槽位时到达的请求会被拒绝而不是排队',
 }

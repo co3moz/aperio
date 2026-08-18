@@ -667,7 +667,14 @@ pub(crate) async fn explain_handler(
   // 6b. The server's own in-flight ceiling, across every service. Unlike the
   // rules above this is a live number, so the report is what it is right now
   // rather than what it would be when somebody actually sends the request.
-  {
+  // The ceiling is configuration, which is what the rest of this report is
+  // made of. The live count is not: it is the whole server's load this
+  // instant, across every organization, and a tenant polling this endpoint
+  // could read the traffic of tenants they cannot otherwise see. So the number
+  // goes only to a caller who is not scoped to an organization, and everybody
+  // else is told the rule, which is the same line this report already walks
+  // for the checks it will not run.
+  if crate::auth::is_master_admin(&state, &headers).await {
     let in_flight = state
       .active_proxied_requests
       .load(std::sync::atomic::Ordering::Relaxed);
@@ -685,6 +692,20 @@ pub(crate) async fn explain_handler(
         "in_flight": in_flight,
         "max": cfg.max_concurrent_requests,
       }))
+      .from(crate::limits::Limit::ServerConcurrency.setting()),
+    );
+  } else {
+    steps.push(
+      Step::new(
+        "server_concurrency",
+        Verdict::Passes,
+        "server_concurrency.ceiling",
+        format!(
+          "the server admits {} requests at once across every service; one arriving with no slot free is refused rather than queued",
+          cfg.max_concurrent_requests
+        ),
+      )
+      .with(serde_json::json!({ "max": cfg.max_concurrent_requests }))
       .from(crate::limits::Limit::ServerConcurrency.setting()),
     );
   }

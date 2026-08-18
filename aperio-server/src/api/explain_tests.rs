@@ -973,3 +973,67 @@ fn every_message_code_has_a_dashboard_entry() {
     missing.join(", ")
   );
 }
+
+/// A tenant is told the server's concurrency rule, never its live load.
+///
+/// Every other stage in this report is configuration, which an operator is
+/// entitled to read. The in-flight count is not: it is the whole server's
+/// load this instant, across every organization, so a tenant polling this
+/// endpoint could read the traffic of tenants they cannot otherwise see. That
+/// number appears nowhere else an org-scoped caller can reach, and it arrived
+/// here with the limits stages, so it left again the same way.
+#[tokio::test]
+async fn a_tenant_is_not_told_the_servers_live_load() {
+  let state = Arc::new(test_state());
+  let org = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", vec!["acme.example".into()], None)
+    .unwrap()
+    .id;
+  // A *named* user belonging to the organization, which is what a tenant is.
+  // A master admin who merely selected an org is still a master and is meant
+  // to keep seeing the number; the session's selection is a view, not a
+  // boundary.
+  state
+    .users
+    .lock()
+    .await
+    .create("dan", "password1", Role::Operator, Some(org.clone()))
+    .unwrap();
+  let tenant = cookie_headers(&seed_session(&state, Role::Operator, Some("dan"), Some(org)).await);
+  let body = json_body(explain(&state, tenant, q("acme.example", None)).await).await;
+  let step = body["steps"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .find(|s| s["stage"] == "server_concurrency")
+    .expect("the stage is still reported");
+  assert_eq!(step["code"], "server_concurrency.ceiling");
+  assert!(
+    step["params"]["in_flight"].is_null(),
+    "a tenant must not be handed the live count: {}",
+    step["params"]
+  );
+  assert!(
+    !step["detail"].as_str().unwrap().contains("right now"),
+    "the sentence must not describe the moment either: {}",
+    step["detail"]
+  );
+
+  // The master sees it, because the number is only useful to somebody who can
+  // act on it and they are already entitled to every organization's traffic.
+  // A hostname no organization claims, since the master's own view is the
+  // master organization and the stage is server-wide either way.
+  let master = admin_headers(&state).await;
+  let body = json_body(explain(&state, master, q("unclaimed.example", None)).await).await;
+  let step = body["steps"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .find(|s| s["stage"] == "server_concurrency")
+    .unwrap();
+  assert_eq!(step["code"], "server_concurrency.headroom");
+  assert!(step["params"]["in_flight"].is_number());
+}

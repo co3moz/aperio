@@ -1167,4 +1167,5 @@ export const de: Record<string, string> = {
   'Token quota': 'Token-Kontingent',
   'Organization quota': 'Organisationskontingent',
   'Streams per visitor': 'Streams pro Besucher',
+  'the server admits {max} requests at once across every service; one arriving with no slot free is refused rather than queued': 'der Server nimmt über alle Dienste hinweg {max} Anfragen gleichzeitig an; eine ohne freien Platz eintreffende wird abgelehnt statt eingereiht',
 }

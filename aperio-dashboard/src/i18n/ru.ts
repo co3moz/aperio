@@ -1165,4 +1165,5 @@ export const ru: Record<string, string> = {
   'Token quota': 'Квота токена',
   'Organization quota': 'Квота организации',
   'Streams per visitor': 'Потоки на посетителя',
+  'the server admits {max} requests at once across every service; one arriving with no slot free is refused rather than queued': 'сервер принимает {max} запросов одновременно по всем сервисам; пришедший без свободного слота отклоняется, а не ставится в очередь',
 }
