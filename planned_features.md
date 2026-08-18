@@ -19,6 +19,74 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
+- [ ] **#140 A `server_side:` service buffers what the relayed path streams.**
+  `server_side::fetch` reads the whole response with `res.bytes().await` and
+  hands back a `TunnelResponse` with `body_raw` set and `stream_rx` empty, and
+  the request body is buffered to match, decided in `forward.rs` so the
+  dispatch cannot disagree with it. The relayed path streams both.
+
+  So the fast path is the one that holds a large body in memory, which is the
+  wrong way round: a service is turned on precisely because it carries real
+  traffic. A few concurrent large responses on a server that is also relaying
+  everything else is a memory profile nobody chose. Nothing bounds it today
+  except `max_request_body` on the way in; there is no equivalent on the way
+  out because the relayed path never needed one.
+
+  The shape is known rather than open. `TunnelResponse.stream_rx` is a
+  `mpsc::Receiver<Result<BodyFrame, io::Error>>`, and reqwest hands out a
+  `bytes_stream()`, so this is a pump from one to the other plus the same
+  cancellation care the tunnel's pump already takes: a visitor that hangs up
+  mid-body must stop the reader rather than leave it filling a channel nobody
+  drains. Worth doing together with the request half, since the two are one
+  decision in `forward.rs`.
+
+  Not urgent and not a correctness bug, which is why it shipped documented
+  rather than blocking. It is the first thing to fix if anyone puts real
+  traffic through it.
+
+- [ ] **#141 A WebSocket cannot be served from the server, and now says so.**
+  Split from `#139`, which shipped the refusal rather than the feature: an
+  upgrade on a `server_side:` service answers 501, because a socket has no
+  relay to live in and falling through to the tunnel worked only when the
+  client could reach the target itself, which is usually not why anyone turns
+  this on.
+
+  The refusal is the honest interim answer, not the intended end state. A
+  service whose HTTP works from the server and whose WebSocket does not is a
+  split an operator has to remember, and the failure lands on the visitor.
+
+  What it would take is a server-side socket pump: accept the upgrade here,
+  dial the target with a WebSocket client, and relay frames both ways, with
+  the same idle and lifetime bounds the tunnel path applies. The awkward part
+  is not the pump, it is that `proxy/ws.rs` is written around a `tx` to a
+  client and an id in the pending map, so the seam is further back than the
+  HTTP one was. Worth measuring the crossers before assuming where it cuts,
+  the same way `#139` turned out to need no extraction at all.
+
+- [ ] **#142 Nothing checks that the two paths to a backend strip the same
+  things.** `#139` introduced a second way for a visitor's request to reach a
+  backend, and it skipped the hop-by-hop strip the first one performs. That
+  was found by reading, days after it shipped, and only because somebody went
+  looking.
+
+  Both paths end at reqwest and both are reachable by a visitor's headers, so
+  the list is a shared invariant with two implementations: `is_hop_by_hop` in
+  `aperio-server/src/proxy/forward/server_side.rs`, and the inline chain in
+  `aperio-client/src/proxy/http.rs` (with a third, narrower one in
+  `proxy/h2.rs`, which drops only the framing headers and says why).
+
+  This is rule 25's shape across a crate boundary rather than a language one:
+  a strip added to the client because of something found there will not reach
+  the server's copy, and the suite that would notice is not the one the author
+  runs. The check has to assert the names, not the mechanism, since the two
+  are written differently on purpose.
+
+  Worth deciding whether the honest fix is a test over both lists or one
+  shared list in `aperio-config`, which both crates already depend on. The
+  second is tempting and not obviously right: the client's list is longer than
+  the server's needs to be, and `h2.rs` deliberately strips less, so a single
+  list would have to carry that difference rather than erase it.
+
 - [ ] **#134 Upgrade `webauthn-rs` and `argon2` once they have a stable
   release, and re-run the duplicate sweep behind them.** Both are the newest
   thing standing between the tree and a single version of several crates, and
