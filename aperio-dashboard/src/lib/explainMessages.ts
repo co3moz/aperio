@@ -70,6 +70,49 @@ export const EXPLAIN_MESSAGES: Record<string, string> = {
 
   'client.reached': 'the request reaches a tunnel client ({clients})',
 
+  // The limits, in the order the proxy applies them. Several of these report
+  // a rule rather than a verdict, because a request nobody sends has no
+  // visitor IP, no token and no body, and saying "passes" about a check that
+  // was never run is the confident wrong answer this screen exists to avoid.
+  'denied_ips.none': 'no source-IP deny list is configured',
+  'denied_ips.configured':
+    'a source-IP deny list is in force ({count} entries); a request from a listed address is refused before anything below runs, whatever this report says',
+
+  'rate_limit_ip.configured':
+    'every visitor IP gets a bucket of {max} with {refill}/s refill; this dry run does not spend from it',
+
+  'server_concurrency.headroom':
+    '{in_flight} of {max} server-wide request slots are in use right now; a request arriving with none free is refused rather than queued',
+
+  'allowed_ips.restricted':
+    'the serving service declares allowed_ips, so a visitor outside that list is routed nowhere and gets the 504 below rather than a refusal naming the list',
+
+  'body_limit.effective':
+    'a request body over {effective} bytes is refused with 413; the service may tighten the server\'s limit but never widen it',
+
+  'client_concurrency.declared':
+    'the serving client admits {max} at a time; past that a request waits for a slot and is refused if none frees before the gateway timeout',
+  'client_concurrency.unlimited': 'the serving client declares no concurrency limit of its own',
+
+  'cache.eligible':
+    'this route is cacheable, so a fresh entry would answer here without the request reaching a client at all',
+  'cache.off': 'response caching is off server-wide',
+  'cache.not_opted_in':
+    'the serving service does not opt into caching, so every request goes to the backend',
+
+  'token_quota.depends_on_token':
+    "a dynamic token carries its own requests-per-second limit and daily byte quota; which token a request arrives with is not a property of this route, so neither is checked here",
+  'token_quota.daily': "the same token's daily byte quota is likewise a property of the credential",
+
+  'org_quota.within': 'this organization is within its monthly byte quota',
+  'org_quota.exhausted':
+    '429: this organization is over its monthly byte quota, so every request it serves is refused until the month turns',
+  'org_quota.master': 'the master organization has no monthly byte quota',
+
+  'streams_per_ip.unlimited': 'no ceiling on concurrently open streamed responses per visitor',
+  'streams_per_ip.capped':
+    'one visitor IP may hold {max} streamed responses open at once; a streamed answer past that is refused',
+
   // Not a step: what stands in a client list for a client the reader's
   // organization is not entitled to be told about. It is still counted, so
   // "something else serves this" stays answerable.
@@ -97,6 +140,16 @@ export const EXPLAIN_STAGES: Record<string, string> = {
   cold_start: 'Cold start',
   fallback: 'Fallback',
   no_client: 'No client',
+  denied_ips: 'Deny list',
+  rate_limit_ip: 'Visitor rate limit',
+  server_concurrency: 'Server concurrency',
+  allowed_ips: 'Allowed IPs',
+  body_limit: 'Body limit',
+  client_concurrency: 'Client concurrency',
+  cache: 'Cache',
+  token_quota: 'Token quota',
+  org_quota: 'Organization quota',
+  streams_per_ip: 'Streams per visitor',
 }
 
 // Where a decision comes from. Most are a config key, `routes:` or `waf:`,

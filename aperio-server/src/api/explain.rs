@@ -991,16 +991,22 @@ pub(crate) async fn explain_handler(
         )
         .from("cache"),
       );
+    } else if cfg.cache_enabled {
+      // Two codes rather than one with two sentences: a code names a sentence
+      // shape, and a caller rendering its own text can only do that if the
+      // code tells it which sentence this is.
+      steps.push(Step::new(
+        "cache",
+        Verdict::Skipped,
+        "cache.not_opted_in",
+        "the serving service does not opt into caching, so every request goes to the backend",
+      ));
     } else {
       steps.push(Step::new(
         "cache",
         Verdict::Skipped,
         "cache.off",
-        if cfg.cache_enabled {
-          "the serving service does not opt into caching, so every request goes to the backend"
-        } else {
-          "response caching is off server-wide"
-        },
+        "response caching is off server-wide",
       ));
     }
   }
