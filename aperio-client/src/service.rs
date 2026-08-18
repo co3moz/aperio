@@ -634,7 +634,16 @@ pub(crate) async fn run_service(
                 // change is which servers can read the Ping at all.
                 let first = &decls[0];
                 let ping_msg = TunnelMessage::Ping {
-                  services: (decls.len() > 1).then(|| decls.clone()),
+                  // Also sent for a single service when it asks to be served
+                  // from the server, because that ask exists only in the list:
+                  // the singular fields are the shim an older server reads and
+                  // they deliberately do not carry it. Without this the feature
+                  // worked only on a multiplexed connection, which is not
+                  // where most services live, and it failed by relaying
+                  // silently. Found by the e2e phase, which is what it is for.
+                  services: (decls.len() > 1
+                    || decls.iter().any(|d| d.server_side_target.is_some()))
+                  .then(|| decls.clone()),
                   cpu_percent: self_health_ping.cpu_percent(),
                   rss_bytes: crate::health_report::rss_bytes(),
                   rtt_ms,

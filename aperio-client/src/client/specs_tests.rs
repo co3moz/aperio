@@ -314,3 +314,41 @@ fn a_file_wide_depends_on_does_not_refuse_a_file_with_an_unnamed_service() {
   validate_depends_on(&specs)
     .expect("an unnamed entry must not inherit a list it cannot be validated against");
 }
+
+/// `server_side: true` on an entry reaches the spec, carrying its target.
+///
+/// The ask and the address travel together, and this is where they are joined:
+/// a spec whose `server_side_target` is None declares nothing, and the server
+/// relays it without a word. The e2e phase found exactly that, so it is worth
+/// a unit test that fails in this crate rather than three processes away.
+#[test]
+fn an_entry_that_asks_to_be_served_from_the_server_carries_its_target() {
+  let mut settings = base_settings();
+  settings.services = vec![ServiceEntry {
+    name: Some("ss".into()),
+    target: Some("http://127.0.0.1:9111".into()),
+    hostname: Some(aperio_config::Hostnames::One("ss.example.com".into())),
+    server_side: Some(true),
+    ..Default::default()
+  }];
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  assert_eq!(
+    specs[0].server_side_target.as_deref(),
+    Some("http://127.0.0.1:9111"),
+    "the entry asked to be served from the server and the spec must say so"
+  );
+}
+
+/// An entry that does not ask keeps its backend address off the wire.
+#[test]
+fn an_entry_that_does_not_ask_sends_no_target() {
+  let mut settings = base_settings();
+  settings.services = vec![ServiceEntry {
+    name: Some("relayed".into()),
+    target: Some("http://127.0.0.1:9112".into()),
+    hostname: Some(aperio_config::Hostnames::One("relayed.example.com".into())),
+    ..Default::default()
+  }];
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  assert!(specs[0].server_side_target.is_none());
+}
