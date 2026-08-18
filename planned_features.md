@@ -19,6 +19,117 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
+- [ ] **#135 The backup feature writes snapshots and cannot put one back.**
+  `backup.rs` has `write_snapshot` and `prune_snapshots` and nothing else:
+  there is no restore anywhere in the tree, no CLI subcommand, no admin
+  endpoint. An operator who has to use a backup today opens the encrypted file
+  themselves, works out the format, decrypts it with a key the feature was
+  careful to keep away from the snapshot, and puts the database in place by
+  hand, while the thing they need it for is happening.
+
+  `docs/production-hardening.md` already asks them to prove this works: *"A
+  backup snapshot restores into a working server in a staging test."* That
+  line is a checklist item for a capability the product does not have, which
+  is worse than not offering backups at all, because it reads as though the
+  round trip has been thought through.
+
+  The pieces are mostly here. Each store already has the dump side of a
+  dump-restore path, `store.rs` can replace every row of a table in one
+  transaction, and `import` exists for the stats and activity shapes. What is
+  missing is the operator-facing half and the parts that only matter when
+  somebody is having a bad day:
+
+  - **Refuse the obvious mistakes rather than half-completing them.** Restoring
+    onto a running server, or from a snapshot written by a newer Aperio than
+    the one restoring it, should be refused with a message that says which,
+    not attempted and abandoned partway.
+  - **A `verify` that does not restore.** Decrypt the snapshot, check it is
+    complete and parses, report what is in it and when it was taken. That is
+    what makes the hardening checklist item honest, and it is the operation
+    somebody can safely run on a Tuesday.
+  - **Say what will change before changing it.** How many tokens, users,
+    organizations the snapshot holds against what is there now.
+
+  The encryption that shipped this cycle makes this more urgent rather than
+  less: it is exactly what stops a competent operator from improvising a
+  restore with `sqlite3`.
+
+- [ ] **#136 Nothing checks that data written by an older Aperio still reads.**
+  Config files have this and nothing else does. `check_config_tests.rs` runs
+  the upgrade mechanism against real old config files, which is the right
+  shape, and it exists because config was the surface somebody thought about.
+  Every other thing this server persists is covered only by tests that create
+  it fresh in the same process that reads it.
+
+  This is not theoretical. The `rusqlite` jump in `#133` went from SQLite 3.46
+  to 3.53 under the store, and the suite passed without demonstrating anything
+  about an existing database, because every store test opens a new file. It
+  was checked by hand, writing a WAL database with the old build and reading
+  it with the new one, and the check has to be done by hand again next time.
+  `#134` records the same gap twice more: a passkey registered under
+  `webauthn-rs 0.5` has to still authenticate under 0.6, and a hash written by
+  `argon2 0.5` has to still verify under 0.6, and nothing will say so.
+
+  What the fixture should cover, in one place rather than three:
+
+  - a SQLite store with rows in every table
+  - a stored passkey credential, and a stored argon2 hash
+  - an encrypted backup snapshot, which ties this to `#135`: a snapshot is
+    exactly a thing written by the version that took it and read by whichever
+    version restores it
+
+  The awkward part is honest about itself: a fixture committed to the repo is
+  frozen at the version that generated it, and the useful thing is not "an old
+  file" but "a file from the last few releases". Worth deciding whether these
+  are checked-in fixtures with a script that regenerates them per release, or
+  a test that builds the previous release from a git tag. The first is cheap
+  and drifts; the second is slow and does not.
+
+- [ ] **#137 The changelog's grouping is not checked, and it has already
+  broken.** `CHANGELOG.md` is the file an operator reads to decide whether an
+  upgrade is safe, and the grouping under `### Added` / `### Changed` /
+  `### Fixed` / `### Security` is how they find the part that concerns them.
+  Three versions in the file repeat a heading inside themselves: `[Unreleased]`
+  has two `### Security` sections, `[0.10.0]` has three separate `### Fixed`
+  sections interleaved with the others, and `[0.6.0]` and `[0.2.2]` are the
+  same, older and already released.
+
+  Nothing is lost and no entry is wrong, which is exactly why it survived:
+  somebody looking for what 0.10.0 fixed finds one of three lists and has no
+  way to learn the other two exist. That is the entire job of the grouping.
+
+  This is the shape of `#126` and `#130`: a convention held by whoever
+  remembers, over a file long enough that the drift is invisible by eye. A
+  test that parses the file and asserts no version repeats a section heading,
+  that the sections appear in the order the file's own history uses, and that
+  every entry sits under one, would have caught all four the day they landed.
+  Fixing the two released sections is a separate decision from adding the
+  check, and the check should be written so it can be added while they are
+  still wrong.
+
+- [ ] **#138 A `CONFIG_CHANGES` entry can name a version that never ships.**
+  `the_shipped_table_is_well_formed` checks that every entry parses, names at
+  least one field, tells the operator something to do, and that a `Security`
+  entry is `WhenSet`. It does not check that the version is a version.
+
+  There is one in the table right now: the `depends_on` entry is stamped
+  `0.11.0`, which does not exist, with a comment beside it saying it is
+  corrected at release time if it slips. That comment is doing real work and
+  the mechanism is behaving as designed, but it is a note to a human, and rule
+  19's release audit is the only thing that catches it. An entry naming a
+  version that never ships never fires, and it fails silently: no test goes
+  red, no operator is warned, the upgrade note simply does not appear for the
+  people it was written for.
+
+  A test could hold the honest version of this. Every entry's version must
+  parse, must not be older than some floor, and must be either at or one minor
+  ahead of the crate's own version, the second being the legitimate case of an
+  entry written mid-cycle for a release not yet cut. Anything further ahead is
+  a typo or a guess that has gone stale, and the message should say which
+  entry and what the crate version is, so the fix is obvious at the moment the
+  release is prepared rather than a year later when somebody wonders why an
+  upgrade said nothing.
+
 - [ ] **#134 Upgrade `webauthn-rs` and `argon2` once they have a stable
   release, and re-run the duplicate sweep behind them.** Both are the newest
   thing standing between the tree and a single version of several crates, and
