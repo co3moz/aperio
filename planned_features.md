@@ -79,15 +79,44 @@ readable without scrolling past what is already done.
   exists in `static_routes`, which today can answer with a redirect or a fixed
   response but cannot proxy to a target.
 
-  **The name is still open.** `edge` is taken: `docs/edge-proxy.md` and
-  `APERIO_EDGE_TOKEN` already mean the Traefik/Caddy integration in *front* of
-  Aperio, and a second meaning would be worse than a longer word. The
-  candidates, all answering "who connects to the target":
-  `served_by: server` with `server_targets:` (an axis rather than a flag, and
-  room for a third mode later), `direct: true` with `direct_targets:` (shortest,
-  one word on both sides, but `egress.rs` already uses "direct" for "not
-  through the proxy"), or `skip_tunnel:` (unmistakable, but names what does not
-  happen). Written here as `served_by` so the entry reads; not decided.
+  **The name, and the extension that is not coming.** `edge` is taken:
+  `docs/edge-proxy.md` and `APERIO_EDGE_TOKEN` already mean the Traefik/Caddy
+  integration in *front* of Aperio, and a second meaning would be worse than a
+  longer word. Settled on `direct: true` on the service with `direct_targets:`
+  as the operator's list, one word on both sides.
+
+  `served_by: server | client` was the other candidate and was rejected after
+  asking what a third value would ever be. Both plausible answers are bad:
+
+  - **Another client's id is already solved, better.** `pick_proxy_client`
+    narrows a pool by hostname, path, health, strategy and round-robin, with
+    sticky affinity and canary splits on top. Two clients that should serve
+    the same thing both declare it and the *server* chooses. A client naming a
+    peer would be a second, weaker spelling of that, and it inverts the
+    authority: here a client declares only what it serves itself, and which
+    client answers a request is the server's decision. Clients in one
+    organization are not equally trusted either, a CI runner and a production
+    box hold tokens of the same org. There is a lifetime problem too, since a
+    connection id is per-connection and a rule naming one is stale the moment
+    that client reconnects.
+  - **Anything else is a new key anyway.** Rule 23 makes adding an optional
+    field the compatible move, so a genuine third mode would arrive as its own
+    key whether or not this one is an enum. The enum buys nothing and invites
+    the value above.
+
+  The deciding argument is smaller than either: the two values are not
+  symmetric. Nobody writes `served_by: client`, because that is the default
+  and what every service already is, so the enum is a boolean wearing an
+  enum's clothes.
+
+  **The one cost of `direct`, recorded so it is a choice.** `egress.rs`
+  already uses "direct" for "not through the outbound proxy", and here it will
+  mean "not through the tunnel". Both are "without an intermediary" but the
+  intermediaries differ, which allows one genuinely confusing sentence: a
+  `direct: true` service that the server reaches *through* the egress proxy is
+  direct and not direct at once. The two live far apart in the file and in the
+  docs, so this is survivable; `server_side: true` is the alternative with no
+  overlap at all, if the sentence turns out to be one that has to be written.
 
 - [ ] **#134 Upgrade `webauthn-rs` and `argon2` once they have a stable
   release, and re-run the duplicate sweep behind them.** Both are the newest
