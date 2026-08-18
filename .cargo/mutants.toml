@@ -8,6 +8,15 @@
 # (`visitor_auth`, `proxy/gate`, `auth`), what is refused (`state/admission`)
 # and what is kept out of the logs (`redact`).
 #
+# **Run it as `cargo mutants --in-place`, one job, on a machine with a small
+# disk.** Without `--in-place` the tool copies the whole build tree per job, so
+# `--jobs 3` is three trees of about 6 GB each on top of `target/`; three runs
+# died of a full disk before one finished. `--in-place` copies nothing, but
+# then `target/` grows with every mutant instead and reached 38 GB, so clean
+# before and after and do not run `cargo test --workspace` beside it. CI shards
+# across runners, which is where parallelism belongs. Note `-f` is ignored
+# while `examine_globs` is set below; scope a run with `--config` instead.
+#
 # Run it with `cargo mutants`, or let the scheduled workflow do it. The output
 # that matters is the list of survivors, never the score: a survivor is either
 # a missing assertion or a line that does nothing, and both are worth knowing.

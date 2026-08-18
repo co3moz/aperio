@@ -387,6 +387,15 @@ nothing reuses them.
   Shipped 2026-08-18. **Twelve survivors, and the module they cluster in is
   the one that keeps secrets out of the dashboard.**
 
+  It took three runs to get a complete answer, and the first two are worth
+  recording because the failure was not the tool's. `cargo-mutants` copies the
+  whole build tree per job, so `--jobs 3` is three trees of about 4.4 GB each
+  *plus* whatever `target/` has grown to, and both early runs died on disk
+  partway through: one at 47 mutants, one at 159. A run that dies partway
+  still writes a survivor list, and that list reads exactly like a complete
+  one, which is the trap. The counts below are from the modules that actually
+  finished.
+
   Nine were in `redact.rs`, which stands between a captured request and a
   secret in the inspector, the HAR download or copy-as-cURL. Its tests covered
   the *shapes*, a URI, headers, a JSON body, a form, and none of the things
@@ -427,11 +436,50 @@ nothing reuses them.
   suite fills with assertions nobody believes. The other seven `gc` mutants
   were killed by the bound the security scan added.
 
-  **Cost, for whoever runs it next.** Two runs died on disk before one
-  finished: `cargo-mutants` copies the whole build tree per job, so `--jobs 3`
-  is three trees of about 4.4 GB each *plus* whatever `target/` has grown to.
-  Clean first, watch the disk, and do not run `cargo test --workspace` beside
-  it. At three jobs the rate was about two mutants a minute.
+  **The other two modules, and where the survivors really were.** The first
+  pass covered `auth.rs`, `redact.rs` and `visitor_auth.rs`; `state/admission.rs`
+  (107 mutants) and most of `proxy/gate.rs` had not run at all, which the
+  partial run's survivor list gave no hint of. Completed in a second pass:
+  **32 more survivors, 30 of them in `admission.rs`**, the module that decides
+  what the server lets in and on whose budget.
+
+  It had **no sibling test file**, which is rule 22's shape and also the
+  explanation: its coverage came from `state_tests.rs`, the crate's file rather
+  than its own, and what got tested was whatever somebody reached for while
+  writing something else. `admission_tests.rs` exists now.
+
+  Two patterns account for almost all thirty:
+
+  - **Arithmetic no test ever exercised.** Every existing test calls a limiter
+    twice in a row, and back to back `elapsed` is nearly zero, so
+    `tokens + elapsed * rate` is `tokens + 0`: the refill term can be deleted,
+    inverted or divided and no answer changes. Three separate buckets (token,
+    route, per-IP) were unheld this way. The fix is letting real time pass, a
+    200ms sleep, which is the only thing that gives the term a value.
+  - **Enforcement checked only in its permissive direction.** A quota with
+    nothing to count, an org with no clients. Replacing the whole of
+    `check_org_client_quota` with `Ok(())` survived, and so did flipping the
+    org filter from `==` to `!=`, which counts *other* organizations' clients.
+
+  Three more stood out on their own: `max_rps: 0` means unset, and `>= 0.0`
+  turns it into a limit of one for every token that never set one; the daily
+  byte counter's rollover inverted, so the quota never accumulates;
+  `maintenance_windows` consulted only when the list is *empty*, so every
+  scheduled window ever written is silently ignored while the runtime flag
+  path keeps working and hides it.
+
+  **A mutation check caught my own test being wrong**, which is worth the
+  space. The monthly-quota test first used 60 bytes each way against a quota
+  of 100, reasoning that a product would not reach it. 60 * 60 is 3600, so the
+  mutant lived through the test written to kill it. 99 and 1 separate the
+  operators; 60 and 60 never could.
+
+  **Cost, for whoever runs it next.** Three runs died on disk before one
+  finished. `cargo-mutants` copies the whole build tree per job, so `--jobs 3`
+  is three trees of about 6 GB each *plus* `target/`; `--in-place` copies
+  nothing, but then `target/` itself grows with every mutant and reached 38 GB.
+  On a small disk: `--in-place`, one job, clean before and after, and do not
+  run `cargo test --workspace` beside it. About one mutant a minute that way.
 
 - [x] **#132 Nothing says which routes are deliberately outside the OpenAPI
   document.** Measured 2026-08-18: 98 routes, 87 carrying a `utoipa::path`

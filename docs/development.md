@@ -59,9 +59,16 @@ Coverage says a line ran. It does not say anything checked what the line did, an
 
 ```bash
 cargo install cargo-mutants
-cargo mutants                                   # the scoped set below
-cargo mutants -f 'aperio-server/src/auth.rs'    # one module
+cargo mutants --in-place        # the scoped set below; see the note on disk
 ```
+
+**Use `--in-place`, one job, and clean around it.** Without it the tool copies
+the entire build tree once per job, which is about 6 GB each; with it `target/`
+grows instead, to tens of gigabytes over a full run. Either way the disk is the
+binding constraint on a laptop, and a run that dies partway still writes a
+survivor list that reads exactly like a complete one. Scope a run with
+`--config` pointing at a cut-down file rather than `-f`, which `examine_globs`
+overrides.
 
 [`.cargo/mutants.toml`](../.cargo/mutants.toml) scopes it to the five modules where a wrong answer is a security answer: `visitor_auth.rs`, `proxy/gate.rs` and `auth.rs` (who is let in), `state/admission.rs` (what is refused) and `redact.rs` (what is kept out of the logs). That is roughly 315 mutants, and the cost is one full test suite per mutant, so the whole set is hours rather than minutes. It is deliberately not on the pull-request path: a monthly workflow shards it eight ways, and `workflow_dispatch` takes a glob for when you have just changed one of these modules and want to know.
 

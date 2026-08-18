@@ -1062,3 +1062,41 @@ pub(crate) async fn visitor_gate_traversal_honors_the_closed_posture() {
   .await;
   assert!(matches!(gate, VisitorGate::Deny(_)));
 }
+
+/// Aperio's own headers are stripped, and the Authorization strip is
+/// conditional on Aperio having consumed it.
+///
+/// `consumed_authorization && name == "authorization"` becoming `||` survived.
+/// That mutant strips *every* header once Aperio has consumed the
+/// Authorization one, so a backend behind a gated route stops receiving any
+/// header at all, and it strips `authorization` even when the visitor's own
+/// credential was meant to be forwarded. Both directions are wrong and
+/// neither had a test.
+#[test]
+fn what_counts_as_aperios_own_header() {
+  let carried = vec!["x-forwarded-user".to_string()];
+
+  // The namespace, always, whatever the switches say.
+  assert!(header_is_aperios("x-aperio-service", &carried, false));
+  assert!(header_is_aperios("X-Aperio-Visitor-How", &carried, false));
+
+  // A name an endpoint delivers an identity under.
+  assert!(header_is_aperios("x-forwarded-user", &carried, false));
+
+  // Authorization only when Aperio consumed it. This is the pair the `&&`
+  // holds together: neither half alone is the rule.
+  assert!(header_is_aperios("authorization", &carried, true));
+  assert!(
+    !header_is_aperios("authorization", &carried, false),
+    "a credential Aperio did not consume belongs to the backend"
+  );
+
+  // Everything else travels, and it must keep travelling once Aperio has
+  // consumed an Authorization header.
+  assert!(!header_is_aperios("accept", &carried, false));
+  assert!(
+    !header_is_aperios("accept", &carried, true),
+    "consuming Authorization must not strip every other header too"
+  );
+  assert!(!header_is_aperios("content-type", &carried, true));
+}
