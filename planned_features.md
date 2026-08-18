@@ -38,26 +38,6 @@ readable without scrolling past what is already done.
   judged. Budget the reading time, not just the run time. The survivors are the
   work and they do not come with an answer attached.
 
-- [ ] **#132 Nothing says which routes are deliberately outside the OpenAPI
-  document.** Measured 2026-08-18: 98 routes, 87 carrying a `utoipa::path`
-  annotation, 11 without. **All eleven look deliberate**, and that is worth
-  saying plainly rather than dressing up as a finding: the dashboard SPA and
-  its assets (`/`, `/aperio/`, `/aperio/{*rest}`, `/aperio/assets/{*path}`),
-  the document itself (`/aperio/api/openapi.json`), the two OIDC browser
-  redirects, and the four upgrade endpoints that are not REST at all
-  (`/aperio/ws`, `/aperio/tcp`, `/aperio/udp`, `/aperio/tunnels/{client_id}`).
-
-  So this finds no current bug, and the case for it is the twelfth route rather
-  than these eleven. `openapi_tests.rs` asserts a **hardcoded list** of paths is
-  present, which catches a path that disappears and cannot catch one that is
-  added: a new admin endpoint with no annotation is invisible to the document,
-  to anything generated from it, and to that test. The same shape as `#126`,
-  where the answer was to enumerate what exists and make every absence a
-  declared one with a reason.
-
-  Worth doing after `#130`, not before. That one is a check that exists and is
-  not being run, which is strictly worse than a check that does not exist yet.
-
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
@@ -403,6 +383,45 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#132 Nothing says which routes are deliberately outside the OpenAPI
+  document.** Measured 2026-08-18: 98 routes, 87 carrying a `utoipa::path`
+  annotation, 11 without. **All eleven look deliberate**, and that is worth
+  saying plainly rather than dressing up as a finding: the dashboard SPA and
+  its assets (`/`, `/aperio/`, `/aperio/{*rest}`, `/aperio/assets/{*path}`),
+  the document itself (`/aperio/api/openapi.json`), the two OIDC browser
+  redirects, and the four upgrade endpoints that are not REST at all
+  (`/aperio/ws`, `/aperio/tcp`, `/aperio/udp`, `/aperio/tunnels/{client_id}`).
+
+  So this finds no current bug, and the case for it is the twelfth route rather
+  than these eleven. `openapi_tests.rs` asserts a **hardcoded list** of paths is
+  present, which catches a path that disappears and cannot catch one that is
+  added: a new admin endpoint with no annotation is invisible to the document,
+  to anything generated from it, and to that test. The same shape as `#126`,
+  where the answer was to enumerate what exists and make every absence a
+  declared one with a reason.
+
+  Worth doing after `#130`, not before. That one is a check that exists and is
+  not being run, which is strictly worse than a check that does not exist yet.
+
+  Shipped 2026-08-18, and it still finds no current bug, which was the
+  prediction. Eleven routes are exempt and all eleven are the ones measured
+  before it was written, now carrying the reason they are not an API rather
+  than being absent for a reason held in somebody's head.
+
+  Two tests, the same pair `#126` settled on: one asserts every `.route(...)`
+  in the server's source has a `utoipa::path` annotation or a declared
+  exemption, the other holds the exemption list itself to naming a route that
+  still exists and giving a real reason. The scan reads the router declarations
+  rather than a list kept beside it, so it cannot drift; the nest prefix is
+  applied, since routes are written `/api/...` and served under `/aperio`.
+
+  Both checked by mutation: adding an unannotated route names it, and renaming
+  an exempted route reports the exemption as excusing nothing. The second only
+  failed on the second attempt, because the first mutation edited text that
+  `cargo fmt` had already reflowed and so changed nothing. Worth recording as
+  the mutation-check's own failure mode: a mutation that does not apply looks
+  exactly like a test that does not catch.
 
 - [x] **#130 A Rust change can break a dashboard check, and nothing runs it.**
   Rule 14 says a UI-only change may skip the `e2e` suite, and gives the reason:
