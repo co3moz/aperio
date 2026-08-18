@@ -4,7 +4,8 @@ Feature ideas and what became of them. Items carry stable `#N` ids, never
 renumbered and never reused, so a commit message or a comment naming `#28`
 points at the same thing forever.
 
-The file has three sections, and an entry moves between them exactly once:
+The file has four sections. An entry moves between the first three exactly
+once; the fourth is not a queue at all:
 
 - **Future ideas**, what is open. An entry that turns out to be bigger than
   one piece of work is split, the original id keeping the part it best
@@ -13,56 +14,18 @@ The file has three sections, and an entry moves between them exactly once:
   than re-argued from memory.
 - **Completed**, shipped, ticked `[x]` and moved here with a `shipped:` note
   saying what was actually built and where that differed from the plan.
+- **Recurring checks**, things to look at again on an interval, which are not
+  work anybody can sit down and do. They live apart because counting them as
+  open work makes the backlog permanently non-empty and hides whether there is
+  anything to build.
 
 Keeping the sections apart is the point: what is left to do should be
 readable without scrolling past what is already done.
 
+**"What is left?" is answered by *Future ideas* alone.** An empty one means
+there is nothing to build, whatever *Recurring checks* holds.
+
 ## Future ideas
-
-- [ ] **#134 Upgrade `webauthn-rs` and `argon2` once they have a stable
-  release, and re-run the duplicate sweep behind them.** Both are the newest
-  thing standing between the tree and a single version of several crates, and
-  both currently publish only pre-releases: as of 2026-08-18 `webauthn-rs` is
-  at 0.5.5 with 0.6.1-dev ahead of it, and `argon2` at 0.5.3 with 0.6.0-rc.8.
-  Moving onto a release candidate to tidy a dependency graph is taking on
-  somebody else's unfinished work in the passkey and password-hashing paths,
-  which is the wrong trade. So this waits for a stable tag rather than being
-  attempted now.
-
-  **The payoffs are very different, and that is the point of writing it
-  down.**
-
-  `webauthn-rs` is the one that pays. Its chain is the only consumer left of
-  `thiserror 1` (through `asn1-rs`, `der-parser` and `x509-parser`) and of
-  `base64 0.21` (through `base64urlsafedata`), and its `webauthn-authenticator-rs`
-  dev dependency is the only consumer of `bitflags 1.3`. That is four of the
-  seventeen remaining duplicate entries, `thiserror` and `thiserror-impl`
-  counting separately, gone in one upgrade.
-
-  `argon2` pays nothing here and should not be attempted for this reason. It
-  would drop `password-hash 0.5` as a consumer of `rand_core 0.6`, but the
-  duplicate stays regardless: `crypto-common 0.1.7` holds it, and that is the
-  whole RustCrypto `digest 0.10` generation, `sha2`, `sha1`, `hmac`, `blake2`,
-  `chacha20poly1305`, plus our own two direct declarations. Upgrade `argon2`
-  when it stabilizes for currency and for whatever it fixes, not expecting the
-  graph to get smaller. `getrandom 0.2` is held by `ring` either way.
-
-  **What has to be verified, not assumed, on the webauthn upgrade.** Existing
-  users' credentials are stored, so the check is that a passkey registered
-  under 0.5 still authenticates under 0.6, the same shape of check that the
-  `rusqlite` jump got by writing a database with the old build and reading it
-  with the new. The `SoftPasskey` tests in `webauthn_tests.rs` exercise the
-  registration and authentication flow and are the natural place to drive it
-  from, but they build a fresh credential each run, so they do not cover the
-  stored one on their own. Same for `argon2`: a hash written by 0.5 must still
-  verify under 0.6.
-
-  While in there, our own `rand_core = "0.6"` in both crates is worth a look.
-  It is used for exactly `OsRng` and `RngCore`, and `totp.rs` already reaches
-  them through `argon2::password_hash::rand_core` instead, so the direct
-  declaration may not need to exist at all. It does not remove the duplicate
-  by itself, for the reason above, but it is one fewer thing pinning an old
-  major.
 
 ## Withdrawn
 
@@ -407,6 +370,74 @@ nothing reuses them.
   data across a trust boundary as a side effect of a convenience feature. The
   observability answer stays the OpenTelemetry bridge (`#85`), which exports
   what was chosen for export.
+
+## Recurring checks
+
+Not a queue. Each entry says what to look at, how often, and when it was last
+looked at, and nothing here is waiting on anybody: they are all waiting on
+somebody else's release, somebody else's advisory, or the passage of time.
+
+**The convention:** an entry carries a `**Checked:**` line with the date of the
+last look and what was found. When a check is performed, that line is updated
+in place rather than a new one being added, so the entry stays one paragraph
+long however many times it has been run. An entry that finally has something to
+do becomes a `#N` in *Future ideas*, and the recurring entry stays here saying
+so.
+
+- **#134 Upgrade `webauthn-rs` and `argon2` once they have a stable
+  release, and re-run the duplicate sweep behind them.** Both are the newest
+  thing standing between the tree and a single version of several crates, and
+  both currently publish only pre-releases (the `**Checked:**` line below
+  carries what was last seen). Moving onto a release candidate to tidy a dependency graph is taking on
+  somebody else's unfinished work in the passkey and password-hashing paths,
+  which is the wrong trade. So this waits for a stable tag rather than being
+  attempted now.
+
+  **The payoffs are very different, and that is the point of writing it
+  down.**
+
+  `webauthn-rs` is the one that pays. Its chain is the only consumer left of
+  `thiserror 1` (through `asn1-rs`, `der-parser` and `x509-parser`) and of
+  `base64 0.21` (through `base64urlsafedata`), and its `webauthn-authenticator-rs`
+  dev dependency is the only consumer of `bitflags 1.3`. That is four of the
+  seventeen remaining duplicate entries, `thiserror` and `thiserror-impl`
+  counting separately, gone in one upgrade.
+
+  `argon2` pays nothing here and should not be attempted for this reason. It
+  would drop `password-hash 0.5` as a consumer of `rand_core 0.6`, but the
+  duplicate stays regardless: `crypto-common 0.1.7` holds it, and that is the
+  whole RustCrypto `digest 0.10` generation, `sha2`, `sha1`, `hmac`, `blake2`,
+  `chacha20poly1305`, plus our own two direct declarations. Upgrade `argon2`
+  when it stabilizes for currency and for whatever it fixes, not expecting the
+  graph to get smaller. `getrandom 0.2` is held by `ring` either way.
+
+  **What has to be verified, not assumed, on the webauthn upgrade.** Existing
+  users' credentials are stored, so the check is that a passkey registered
+  under 0.5 still authenticates under 0.6, the same shape of check that the
+  `rusqlite` jump got by writing a database with the old build and reading it
+  with the new. The `SoftPasskey` tests in `webauthn_tests.rs` exercise the
+  registration and authentication flow and are the natural place to drive it
+  from, but they build a fresh credential each run, so they do not cover the
+  stored one on their own. Same for `argon2`: a hash written by 0.5 must still
+  verify under 0.6.
+
+  While in there, our own `rand_core = "0.6"` in both crates is worth a look.
+  It is used for exactly `OsRng` and `RngCore`, and `totp.rs` already reaches
+  them through `argon2::password_hash::rand_core` instead, so the direct
+  declaration may not need to exist at all. It does not remove the duplicate
+  by itself, for the reason above, but it is one fewer thing pinning an old
+  major.
+
+  **Every 4 weeks.** Both publish pre-releases only, and the check is one
+  question: has either tagged a stable release? Nothing else about this entry
+  changes until the answer is yes, at which point it becomes a piece of work
+  with an id in *Future ideas*.
+
+  **Checked: 2026-08-19.** `webauthn-rs` is at 0.5.5 stable with `0.6.1-dev`
+  ahead of it, published the same day, and its `-dev` channel has run in
+  parallel for years: `0.5.0-dev` preceded stable `0.5.0` by about six months.
+  `argon2` is at `0.6.0-rc.8`, the eighth candidate in a run that started
+  2025-09, with no rc since March. Neither is close.
 
 ## Completed
 
