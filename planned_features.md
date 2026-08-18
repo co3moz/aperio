@@ -19,28 +19,6 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#137 The changelog's grouping is not checked, and it has already
-  broken.** `CHANGELOG.md` is the file an operator reads to decide whether an
-  upgrade is safe, and the grouping under `### Added` / `### Changed` /
-  `### Fixed` / `### Security` is how they find the part that concerns them.
-  Three versions in the file repeat a heading inside themselves: `[Unreleased]`
-  has two `### Security` sections, `[0.10.0]` has three separate `### Fixed`
-  sections interleaved with the others, and `[0.6.0]` and `[0.2.2]` are the
-  same, older and already released.
-
-  Nothing is lost and no entry is wrong, which is exactly why it survived:
-  somebody looking for what 0.10.0 fixed finds one of three lists and has no
-  way to learn the other two exist. That is the entire job of the grouping.
-
-  This is the shape of `#126` and `#130`: a convention held by whoever
-  remembers, over a file long enough that the drift is invisible by eye. A
-  test that parses the file and asserts no version repeats a section heading,
-  that the sections appear in the order the file's own history uses, and that
-  every entry sits under one, would have caught all four the day they landed.
-  Fixing the two released sections is a separate decision from adding the
-  check, and the check should be written so it can be added while they are
-  still wrong.
-
 - [ ] **#138 A `CONFIG_CHANGES` entry can name a version that never ships.**
   `the_shipped_table_is_well_formed` checks that every entry parses, names at
   least one field, tells the operator something to do, and that a `Security`
@@ -454,6 +432,56 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#137 The changelog's grouping is not checked, and it has already
+  broken.** `CHANGELOG.md` is the file an operator reads to decide whether an
+  upgrade is safe, and the grouping under `### Added` / `### Changed` /
+  `### Fixed` / `### Security` is how they find the part that concerns them.
+  Three versions in the file repeat a heading inside themselves: `[Unreleased]`
+  has two `### Security` sections, `[0.10.0]` has three separate `### Fixed`
+  sections interleaved with the others, and `[0.6.0]` and `[0.2.2]` are the
+  same, older and already released.
+
+  Nothing is lost and no entry is wrong, which is exactly why it survived:
+  somebody looking for what 0.10.0 fixed finds one of three lists and has no
+  way to learn the other two exist. That is the entire job of the grouping.
+
+  This is the shape of `#126` and `#130`: a convention held by whoever
+  remembers, over a file long enough that the drift is invisible by eye. A
+  test that parses the file and asserts no version repeats a section heading,
+  that the sections appear in the order the file's own history uses, and that
+  every entry sits under one, would have caught all four the day they landed.
+  Fixing the two released sections is a separate decision from adding the
+  check, and the check should be written so it can be added while they are
+  still wrong.
+
+  **Shipped:** four checks in `aperio-config/src/changelog_tests.rs`, beside
+  the `surfaces.rs` they are modelled on: no version repeats a section, the
+  sections are known ones in the file's order, no entry floats outside a
+  section, and every exemption still describes a version that is really
+  malformed.
+
+  It found more than the entry did. The two repeated headings were known;
+  running the order check turned up three further released versions, `[0.4.0]`
+  and `[0.1.2]` with their sections in the order somebody wrote them rather
+  than the file's, and `[0.2.0]` carrying a `### CI` section no other version
+  has. Five in total, all tagged, all left as they shipped with a written
+  reason, because rule 12 freezes a version and rewriting a section somebody
+  may have linked to buys less than it costs.
+
+  `[Unreleased]` and `[0.10.0]` were repaired, since one is not frozen and the
+  other is this cycle's. The repair moved headings only: the 548 entry lines
+  were compared as a sorted set before and after and are identical, which is
+  the check worth doing, since an equal *count* would survive an entry being
+  rewritten.
+
+  The order the file uses is `Security` first, which is not Keep a Changelog's,
+  and that is recorded as a decision rather than left as an accident: it is the
+  section an operator most needs before deciding whether to upgrade.
+
+  Each check was verified by breaking the file in its own way: a second
+  `### Security` in `[Unreleased]`, a `### Notes` section, an entry above every
+  heading, and an exemption naming a version that does not exist.
 
 - [x] **#136 Nothing checks that data written by an older Aperio still reads.**
   Config files have this and nothing else does. `check_config_tests.rs` runs

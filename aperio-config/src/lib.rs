@@ -29,6 +29,7 @@ pub mod pairing;
 // What stays here is what the whole schema is built out of: the name, topic
 // and protocol rules every part validates against.
 pub mod auth;
+pub mod changelog;
 pub mod client;
 pub mod file;
 pub mod groups;
