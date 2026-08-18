@@ -19,59 +19,6 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#129 The two survivors `#127` left on the table, one of which is worth
-  a test and one of which probably is not.** The first shard the new mutation
-  job was pointed at examined twenty mutants in `auth.rs` and left three alive.
-  One, `auth_page_handler` replaceable by `Response::default()`, was fixed with
-  `#127` itself. These are the other two, written down rather than fixed in the
-  same breath, because deciding what a survivor means is the part that needs
-  judgement and the part `#127` says the output is *for*.
-
-  **`OIDC_MAX_ANSWER_BYTES`: `256 * 1024` survives becoming `256 + 1024`.**
-  That is the cap on how much an OIDC token or userinfo endpoint can make one
-  login cost, and the mutant drops it from 256 KiB to 1280 bytes. A real token
-  response is comfortably over 1280 bytes, so the mutant breaks OIDC login
-  outright and every test stayed green.
-
-  **The full mutant list says exactly where the hole is, and it is smaller than
-  "untested".** `256 / 1024` *is* caught, because integer division makes the
-  cap zero and every answer is refused. So the path is driven: `mock_oidc_server`
-  in `auth/oidc_flow_tests.rs` stands up a real endpoint and the callback reads
-  from it. What it serves is a handful of `&'static str` literals, all far
-  under 1280 bytes, so a cap of 1280 still passes them. The fixture is the
-  gap, not the coverage.
-
-  That makes the fix cheap and specific: one case whose token body is the size
-  a real one is, an ID token being a JWT of several kilobytes, asserted to be
-  accepted. `read_bounded` itself is separately covered in
-  `forward_auth_tests.rs` with the limit passed in, so this is only ever about
-  the constant the OIDC path chooses.
-
-  Note which direction the mutant moves: it makes the cap *tighter*, so the
-  hole is in availability rather than in the memory bound. Worth saying because
-  it decides what the test asserts, that a legitimate answer is accepted, not
-  that an enormous one is refused.
-
-  **`LockoutTracker::locked`: `until > now` survives becoming `until >= now`,
-  and this one may be an equivalent mutant.** The two differ only when `until`
-  is exactly `now`: `>` calls the lockout served, `>=` reports it as locked
-  with `Duration::ZERO` remaining. One call, at one instant, and the very next
-  call agrees again. `locked()` does take `now` as an argument, so unlike most
-  timing boundaries this *is* deterministically testable, which is why it is
-  recorded rather than dismissed.
-
-  The rest of the run supports the equivalent reading rather than the buggy
-  one. Every other mutation of that same comparison is caught: `> ` to `==`,
-  to `<`, and the whole guard forced to `true` and to `false`. Only the one
-  that moves the boundary by a single instant survives, which is what an
-  equivalent mutant looks like from the outside.
-
-  The judgement to make is whether "a lockout that has just expired lets you
-  in" is a rule worth pinning or a tautology dressed as one. If it is not, the
-  honest close is to say so here and leave the mutant alive, because a test
-  written only to kill a mutant is how a suite fills up with assertions nobody
-  believes.
-
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
@@ -417,6 +364,96 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#129 The two survivors `#127` left on the table, one of which is worth
+  a test and one of which probably is not.** The first shard the new mutation
+  job was pointed at examined twenty mutants in `auth.rs` and left three alive.
+  One, `auth_page_handler` replaceable by `Response::default()`, was fixed with
+  `#127` itself. These are the other two, written down rather than fixed in the
+  same breath, because deciding what a survivor means is the part that needs
+  judgement and the part `#127` says the output is *for*.
+
+  **`OIDC_MAX_ANSWER_BYTES`: `256 * 1024` survives becoming `256 + 1024`.**
+  That is the cap on how much an OIDC token or userinfo endpoint can make one
+  login cost, and the mutant drops it from 256 KiB to 1280 bytes. A real token
+  response is comfortably over 1280 bytes, so the mutant breaks OIDC login
+  outright and every test stayed green.
+
+  **The full mutant list says exactly where the hole is, and it is smaller than
+  "untested".** `256 / 1024` *is* caught, because integer division makes the
+  cap zero and every answer is refused. So the path is driven: `mock_oidc_server`
+  in `auth/oidc_flow_tests.rs` stands up a real endpoint and the callback reads
+  from it. What it serves is a handful of `&'static str` literals, all far
+  under 1280 bytes, so a cap of 1280 still passes them. The fixture is the
+  gap, not the coverage.
+
+  That makes the fix cheap and specific: one case whose token body is the size
+  a real one is, an ID token being a JWT of several kilobytes, asserted to be
+  accepted. `read_bounded` itself is separately covered in
+  `forward_auth_tests.rs` with the limit passed in, so this is only ever about
+  the constant the OIDC path chooses.
+
+  Note which direction the mutant moves: it makes the cap *tighter*, so the
+  hole is in availability rather than in the memory bound. Worth saying because
+  it decides what the test asserts, that a legitimate answer is accepted, not
+  that an enormous one is refused.
+
+  **`LockoutTracker::locked`: `until > now` survives becoming `until >= now`,
+  and this one may be an equivalent mutant.** The two differ only when `until`
+  is exactly `now`: `>` calls the lockout served, `>=` reports it as locked
+  with `Duration::ZERO` remaining. One call, at one instant, and the very next
+  call agrees again. `locked()` does take `now` as an argument, so unlike most
+  timing boundaries this *is* deterministically testable, which is why it is
+  recorded rather than dismissed.
+
+  The rest of the run supports the equivalent reading rather than the buggy
+  one. Every other mutation of that same comparison is caught: `> ` to `==`,
+  to `<`, and the whole guard forced to `true` and to `false`. Only the one
+  that moves the boundary by a single instant survives, which is what an
+  equivalent mutant looks like from the outside.
+
+  The judgement to make is whether "a lockout that has just expired lets you
+  in" is a rule worth pinning or a tautology dressed as one. If it is not, the
+  honest close is to say so here and leave the mutant alive, because a test
+  written only to kill a mutant is how a suite fills up with assertions nobody
+  believes.
+
+  Shipped 2026-08-18. Both were fixed, which was not the expected answer for
+  the second one.
+
+  **The OIDC cap.** `mock_oidc_server` now takes an owned body instead of a
+  `&'static str`, because that was the thing keeping every fixture in the file
+  a few dozen bytes long, and one case serves a token response the size a real
+  one is: an access token and an id token as JWTs of about 1800 and 2400 bytes,
+  past 4 KB together. It asserts the visitor is *logged in*, not that anything
+  is refused, which is the direction the surviving mutant pointed at: a cap set
+  too tight is the failure nothing else notices, since a cap set too loose at
+  least still lets people in. Confirmed by applying `256 + 1024` and watching
+  it fail.
+
+  **The lockout boundary was pinned after all, and the reason is the caller
+  rather than the mutant.** `locked()` returning `Some(Duration::ZERO)` is a
+  lockout with nothing left to serve, and `auth_login_handler` turns any `Some`
+  into a 429, logging "locked out for 0s more". Refusing a login and telling
+  somebody to wait no time at all is a wrong answer however narrow the window
+  is. The rule reads as a rule independently of the mutant, which is the test
+  this entry set: "a lockout is served at the instant it expires", not "kill
+  the mutant". The existing test stepped around that instant deliberately,
+  checking 59 seconds and 61, and the new one stands on it, also asserting the
+  consequence that makes it observable, that the counter went back to zero and
+  the next failure starts a fresh count.
+
+  So the answer to the judgement this entry asked for is: it was worth pinning,
+  but only once the caller was read. On the numbers alone it looked equivalent,
+  and every other mutation of that comparison being caught made it look more
+  so. What settled it was one line three files away.
+
+  Confirmed by the tool rather than by hand: the shard that found all three ran
+  again and went from 15 caught / 3 alive to **18 caught / 0 alive**, with the
+  same two unviable. Each fix was also checked on its own first, by applying
+  the exact surviving mutant and watching the new test fail, because a shard
+  going green proves the set is clean and not that a particular test is what
+  cleaned it.
 
 - [x] **#127 Mutation testing where a green suite proves the least.** `#124`
   deleted three tests, and the only thing that made it safe was breaking four

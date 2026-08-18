@@ -27,14 +27,22 @@ fn oidc_runtime(base: &str, allowed: Vec<String>) -> crate::oidc::OidcRuntime {
 /// `token`, everything else (userinfo) gets `info`. Returns its base URL.
 async fn mock_oidc_server(
   token_status: u16,
-  token_body: &'static str,
+  token_body: impl Into<String>,
   info_status: u16,
-  info_body: &'static str,
+  info_body: impl Into<String>,
 ) -> String {
+  // Owned rather than `&'static str`, so a case can serve a body the size a
+  // real one is. While these were literals every body in the file was a few
+  // dozen bytes, and a mutation run showed what that cost: the cap on how much
+  // an OIDC endpoint may return could be dropped from 256 KiB to 1280 bytes
+  // and every one of them still fit.
+  let token_body: String = token_body.into();
+  let info_body: String = info_body.into();
   let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
   let addr = listener.local_addr().unwrap();
   tokio::spawn(async move {
     while let Ok((mut sock, _)) = listener.accept().await {
+      let (token_body, info_body) = (token_body.clone(), info_body.clone());
       tokio::spawn(async move {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let mut buf = [0u8; 8192];
@@ -44,9 +52,9 @@ async fn mock_oidc_server(
         }
         let is_token = buf.starts_with(b"POST");
         let (status, body) = if is_token {
-          (token_status, token_body)
+          (token_status, token_body.as_str())
         } else {
-          (info_status, info_body)
+          (info_status, info_body.as_str())
         };
         let resp = format!(
           "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
@@ -111,6 +119,64 @@ async fn oidc_callback_success_creates_session() {
   assert_eq!(resp.headers().get("location").unwrap(), "/after");
   assert!(resp.headers().get("set-cookie").is_some());
   assert_eq!(state.sessions.lock().await.len(), 1);
+}
+
+/// A JWT of about `bytes`, in the shape a provider actually sends: three
+/// base64url segments, the payload carrying the claims that make a real one
+/// large (groups, roles, a picture URL, the issuer's own metadata).
+fn jwt_of(bytes: usize) -> String {
+  let head = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6Ims1In0";
+  let sig = "c2lnbmF0dXJl";
+  let filler = "a".repeat(bytes.saturating_sub(head.len() + sig.len() + 2));
+  format!("{head}.{filler}.{sig}")
+}
+
+/// A token response the size a real one is, is accepted.
+///
+/// The cap on how much an OIDC endpoint may make one login cost is
+/// `OIDC_MAX_ANSWER_BYTES`, and nothing held it to a usable value: every body
+/// in this file was a few dozen bytes, so the constant could be anything from
+/// one kilobyte upwards and the suite stayed green. A mutation run found it by
+/// turning `256 * 1024` into `256 + 1024`, which breaks every real login and
+/// broke no test.
+///
+/// Asserting acceptance rather than refusal is deliberate, and it is what the
+/// surviving mutant pointed at: the cap being too *tight* is the failure that
+/// nothing else notices, because a cap being too loose at least still logs
+/// people in. The refusal side is covered where the bound itself lives, in
+/// `read_bounded`'s own tests.
+#[tokio::test]
+async fn a_normal_sized_token_response_is_not_refused_as_oversized() {
+  // Comfortably past 1280 bytes and nowhere near 256 KiB: an access token and
+  // an id token of the size providers issue, which is where a real response
+  // spends its length.
+  let token_body = format!(
+    "{{\"access_token\":\"{}\",\"id_token\":\"{}\",\"token_type\":\"Bearer\",\"expires_in\":3600}}",
+    jwt_of(1800),
+    jwt_of(2400),
+  );
+  assert!(
+    token_body.len() > 4000,
+    "the fixture has to be big enough to matter: {}",
+    token_body.len()
+  );
+  let base = mock_oidc_server(200, token_body, 200, "{\"email\":\"user@allow.com\"}").await;
+  let mut state = test_state();
+  state.oidc = Some(oidc_runtime(&base, vec!["*".to_string()]));
+  let state = Arc::new(state);
+  seed_oidc_state(&state, "csrf-big", None).await;
+  let resp = call_oidc_callback(
+    state.clone(),
+    oidc_query(&[("code", "c"), ("state", "csrf-big")]),
+  )
+  .await;
+  assert_eq!(
+    resp.status(),
+    StatusCode::FOUND,
+    "a normal token response must log the visitor in; a 302 back to the login \
+     page here means the answer was read as oversized"
+  );
+  assert_eq!(state.sessions.lock().await.len(), 1, "a session was minted");
 }
 
 #[tokio::test]

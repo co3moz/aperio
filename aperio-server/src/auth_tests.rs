@@ -137,6 +137,41 @@ pub(super) fn lockout_triggers_after_threshold_and_escalates() {
   assert_eq!(t.record_failure(ip, later), Some(Duration::from_secs(120)));
 }
 
+/// The instant the window ends, the lockout is served rather than still on.
+///
+/// The test above steps around this on purpose, checking 59 seconds and 61.
+/// A mutation run found what the step hid: `until > now` becoming
+/// `until >= now` survived every test in the suite. It is one instant, and
+/// with `Instant::now()` at all three call sites it is not reachable in
+/// practice, so it is close to an equivalent mutant and was nearly left alone.
+///
+/// It is pinned because of what the caller does with the difference, not
+/// because of the mutant. `locked()` returning `Some(ZERO)` is a lockout with
+/// nothing left to serve, and `auth_login_handler` turns any `Some` into a
+/// 429 refusing the login, logging "locked out for 0s more". Refusing a login
+/// and telling somebody to wait zero seconds is a wrong answer however narrow
+/// the window is, and `locked()` takes `now` as an argument, so stating the
+/// rule at its edge costs one assertion.
+#[test]
+pub(super) fn a_lockout_is_served_at_the_instant_it_expires() {
+  let mut t = LockoutTracker::new(3, Duration::from_secs(60));
+  let ip: IpAddr = "203.0.113.9".parse().unwrap();
+  let now = Instant::now();
+  for _ in 0..3 {
+    t.record_failure(ip, now);
+  }
+  let ends = now + Duration::from_secs(60);
+  assert!(t.locked(ip, ends - Duration::from_nanos(1)).is_some());
+  assert!(
+    t.locked(ip, ends).is_none(),
+    "at the deadline the window has been served; a `Some` here is a 429 \
+     telling the visitor to wait no time at all"
+  );
+  // Served means the counter went back to zero, not merely that this one call
+  // said no: the next failure starts a fresh count rather than re-locking.
+  assert_eq!(t.record_failure(ip, ends), None);
+}
+
 #[test]
 pub(super) fn lockout_cleared_on_success_and_isolated_per_ip() {
   let mut t = LockoutTracker::new(2, Duration::from_secs(60));
