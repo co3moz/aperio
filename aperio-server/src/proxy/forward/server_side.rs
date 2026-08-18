@@ -50,6 +50,9 @@ pub(super) async fn fetch(
 
   let mut req = client.request(method, url);
   for (name, value) in &headers {
+    if is_hop_by_hop(name) {
+      continue;
+    }
     if let Ok(header) = reqwest::header::HeaderName::from_bytes(name.as_bytes())
       && let Ok(v) = reqwest::header::HeaderValue::from_str(value)
     {
@@ -99,6 +102,40 @@ pub(super) async fn fetch(
     // No client, so no client-side stages. Not invented.
     timings: None,
   })
+}
+
+/// Headers a visitor may not hand to the target through this path.
+///
+/// The relayed path strips exactly these in `aperio-client`'s
+/// `proxy/http.rs`, and the reason is written there in full: forwarding a
+/// visitor-supplied `transfer-encoding: chunked` collides with reqwest's own
+/// body framing and opens an HTTP desync and request-smuggling surface.
+/// Dropping it leaves `content-length` as the single framing signal.
+///
+/// The same list has to exist here because the two paths reach a backend the
+/// same way, through reqwest, and only one of them used to be reachable by a
+/// visitor's headers. Serving from the server was not meant to be a way past
+/// a strip the relayed path performs.
+///
+/// `host` is on the list for a different and sharper reason. What was checked
+/// against `server_side_targets:` is the *target*, and reqwest lets an
+/// explicit `Host` header override the authority the target's URL carries, so
+/// forwarding the visitor's would let them pick a virtual host on an address
+/// the operator allowed for something else entirely. The connection goes
+/// where the allowlist said; the name it asks for goes with it.
+fn is_hop_by_hop(name: &str) -> bool {
+  let n = name.to_ascii_lowercase();
+  matches!(
+    n.as_str(),
+    "connection"
+      | "keep-alive"
+      | "upgrade"
+      | "proxy-connection"
+      | "accept-encoding"
+      | "transfer-encoding"
+      | "trailer"
+      | "host"
+  ) || n.starts_with("sec-websocket-")
 }
 
 /// Joins the declared target with the visitor's path and query.

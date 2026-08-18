@@ -190,6 +190,30 @@ pub(crate) async fn handle_ws_proxy(
     )
     .await
     {
+      // A service served from this server has no relay for a socket to live
+      // in. Refused rather than quietly sent over the tunnel: the client that
+      // declared it usually cannot reach the target at all, which is why it
+      // asked, so relaying the upgrade would work or not depending on
+      // something neither side can see. Saying so is the predictable answer,
+      // and the HTTP half of the same service keeps working.
+      crate::routing::PickOutcome::Selected(c) if c.server_side_target.is_some() => {
+        log_request_failure(
+          &state,
+          &method_str,
+          &uri_str,
+          501,
+          std::time::Instant::now().duration_since(start_time),
+          Some("WebSocket upgrade on a server_side service is not supported"),
+          c.org_id.clone(),
+        )
+        .await;
+        return (
+          axum::http::StatusCode::NOT_IMPLEMENTED,
+          "501 Not Implemented - this route is served directly by the server \
+           (server_side), which does not proxy WebSocket upgrades",
+        )
+          .into_response();
+      }
       crate::routing::PickOutcome::Selected(c) => {
         (c.id, c.tx, c.request_count, c.org_id, c.service_name)
       }

@@ -69,3 +69,62 @@ fn nothing_a_visitor_sends_can_change_the_host() {
     );
   }
 }
+
+// ----- what a visitor may not hand to the target -----
+
+/// The framing headers are stripped, exactly as the relayed path strips them.
+///
+/// This is not tidiness. `aperio-client`'s `proxy/http.rs` drops these with a
+/// CRITICAL comment naming what they cost: a visitor-supplied
+/// `transfer-encoding: chunked` collides with reqwest's own body framing and
+/// opens an HTTP desync and request-smuggling surface. Both paths end at
+/// reqwest, so a strip that exists on one and not the other means serving
+/// from the server is a way around it.
+#[test]
+fn the_framing_headers_a_visitor_sends_do_not_reach_the_target() {
+  for h in [
+    "transfer-encoding",
+    "Transfer-Encoding",
+    "connection",
+    "keep-alive",
+    "upgrade",
+    "proxy-connection",
+    "trailer",
+    "accept-encoding",
+    "sec-websocket-key",
+    "Sec-WebSocket-Version",
+  ] {
+    assert!(is_hop_by_hop(h), "{h} must not be forwarded");
+  }
+}
+
+/// The visitor does not get to choose which virtual host is asked for.
+///
+/// `server_side_targets:` was checked against the target, and reqwest lets an
+/// explicit `Host` override the authority in the URL. Forwarding the
+/// visitor's would mean the connection goes where the operator allowed while
+/// the name it asks for is the visitor's, which is a different server on the
+/// same address.
+#[test]
+fn a_visitors_host_header_cannot_repoint_the_request() {
+  assert!(is_hop_by_hop("host"));
+  assert!(is_hop_by_hop("Host"));
+}
+
+/// Everything else still travels: the strip is a named list, not a filter that
+/// quietly eats ordinary headers.
+#[test]
+fn ordinary_headers_still_reach_the_target() {
+  for h in [
+    "authorization",
+    "content-type",
+    "content-length",
+    "accept",
+    "user-agent",
+    "x-request-id",
+    "cookie",
+    "x-forwarded-for",
+  ] {
+    assert!(!is_hop_by_hop(h), "{h} should reach the target");
+  }
+}
