@@ -508,14 +508,23 @@ pub(crate) fn build_specs(
         // and a cycle refuses to start.
         depends_on: match entry.depends_on.clone() {
           Some(own) => own,
-          None => {
-            let file_wide = settings.depends_on.clone().unwrap_or_default();
-            let named_in_it = entry
-              .name
-              .as_deref()
-              .is_some_and(|n| file_wide.iter().any(|d| d == n));
-            if named_in_it { Vec::new() } else { file_wide }
-          }
+          // An entry with no name does not inherit it either, and that is not
+          // a detail: `validate_depends_on` refuses a nameless spec that
+          // carries a list, so handing the default to one would turn a file
+          // that started yesterday into a client that refuses to start today.
+          // A nameless service is also nothing another can wait *for*, so
+          // there is no meaning being lost.
+          None => match entry.name.as_deref() {
+            None => Vec::new(),
+            Some(name) => {
+              let file_wide = settings.depends_on.clone().unwrap_or_default();
+              if file_wide.iter().any(|d| d == name) {
+                Vec::new()
+              } else {
+                file_wide
+              }
+            }
+          },
         },
         connect_timeout: entry.connect_timeout.or(settings.connect_timeout),
         min_tls_version: entry

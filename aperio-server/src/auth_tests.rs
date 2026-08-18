@@ -240,7 +240,11 @@ pub(super) fn lockout_gc_bounds_the_failure_map() {
   for i in 0..1100u32 {
     t.record_failure(addr(i), now);
   }
-  assert_eq!(t.map.len(), 1100, "nothing is swept while every entry is fresh");
+  assert_eq!(
+    t.map.len(),
+    1100,
+    "nothing is swept while every entry is fresh"
+  );
 
   // Two hours on, past the trigger: still fresh, so still all there. This is
   // what says the window is a day rather than an hour, and what a `24 * 3600`

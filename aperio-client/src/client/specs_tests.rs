@@ -286,3 +286,31 @@ fn a_file_wide_depends_on_naming_every_service_still_starts() {
   let specs = build_specs(&settings, "base-id", false).unwrap();
   validate_depends_on(&specs).expect("a file-wide list over every service is not a cycle");
 }
+
+/// A file-wide `depends_on:` must not refuse a file that has an unnamed entry.
+///
+/// `validate_depends_on` rejects a spec that carries a `depends_on` and has no
+/// name, because there is nothing for the others to wait *for*. That rule is
+/// about an entry declaring its own list. Handing the file-wide default to a
+/// nameless entry turns it into the same refusal, so a file that started fine
+/// yesterday stops starting today.
+#[test]
+fn a_file_wide_depends_on_does_not_refuse_a_file_with_an_unnamed_service() {
+  let mut settings = base_settings();
+  settings.depends_on = Some(vec!["db".to_string()]);
+  settings.services = vec![
+    ServiceEntry {
+      name: Some("db".to_string()),
+      target: Some("http://localhost:5432".to_string()),
+      ..Default::default()
+    },
+    ServiceEntry {
+      // No name, which is legal for a service nothing depends on.
+      target: Some("http://localhost:3000".to_string()),
+      ..Default::default()
+    },
+  ];
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  validate_depends_on(&specs)
+    .expect("an unnamed entry must not inherit a list it cannot be validated against");
+}
