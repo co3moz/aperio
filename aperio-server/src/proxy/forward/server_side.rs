@@ -125,17 +125,10 @@ pub(super) async fn fetch(
 /// where the allowlist said; the name it asks for goes with it.
 fn is_hop_by_hop(name: &str) -> bool {
   let n = name.to_ascii_lowercase();
-  matches!(
-    n.as_str(),
-    "connection"
-      | "keep-alive"
-      | "upgrade"
-      | "proxy-connection"
-      | "accept-encoding"
-      | "transfer-encoding"
-      | "trailer"
-      | "host"
-  ) || n.starts_with("sec-websocket-")
+  aperio_config::hop_by_hop::HOP_BY_HOP_CORE.contains(&n.as_str())
+    || n == "trailer"
+    || n == "host"
+    || n.starts_with(aperio_config::hop_by_hop::WEBSOCKET_PREFIX)
 }
 
 /// Joins the declared target with the visitor's path and query.

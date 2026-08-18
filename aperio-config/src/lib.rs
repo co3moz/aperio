@@ -33,6 +33,7 @@ pub mod changelog;
 pub mod client;
 pub mod file;
 pub mod groups;
+pub mod hop_by_hop;
 pub mod rules;
 pub mod server;
 pub mod settings;

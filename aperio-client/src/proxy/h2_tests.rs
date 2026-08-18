@@ -709,3 +709,24 @@ async fn a_stalled_h2_backend_is_retried_like_any_other_pre_response_failure() {
     started.elapsed()
   );
 }
+
+/// This path strips everything every path to a backend strips.
+///
+/// The shared list lives in `aperio-config` so the assertion runs in the suite
+/// a change to *this* file runs, which is the whole point: the server grew a
+/// second path to a backend and skipped these, and nothing failed because the
+/// only check was on the other side.
+#[test]
+fn the_h2_path_strips_the_shared_set() {
+  aperio_config::hop_by_hop::strips_the_core(is_hop_by_hop).expect("the shared strip");
+  aperio_config::hop_by_hop::leaves_ordinary_headers(is_hop_by_hop).expect("ordinary headers");
+  // This path's own two, recorded so a change to either is deliberate.
+  assert!(
+    is_hop_by_hop("host"),
+    "HTTP/2 carries the authority as a pseudo-header"
+  );
+  assert!(
+    !is_hop_by_hop("te"),
+    "`te: trailers` travels end to end, which gRPC needs"
+  );
+}

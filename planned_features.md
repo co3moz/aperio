@@ -63,30 +63,6 @@ readable without scrolling past what is already done.
   HTTP one was. Worth measuring the crossers before assuming where it cuts,
   the same way `#139` turned out to need no extraction at all.
 
-- [ ] **#142 Nothing checks that the two paths to a backend strip the same
-  things.** `#139` introduced a second way for a visitor's request to reach a
-  backend, and it skipped the hop-by-hop strip the first one performs. That
-  was found by reading, days after it shipped, and only because somebody went
-  looking.
-
-  Both paths end at reqwest and both are reachable by a visitor's headers, so
-  the list is a shared invariant with two implementations: `is_hop_by_hop` in
-  `aperio-server/src/proxy/forward/server_side.rs`, and the inline chain in
-  `aperio-client/src/proxy/http.rs` (with a third, narrower one in
-  `proxy/h2.rs`, which drops only the framing headers and says why).
-
-  This is rule 25's shape across a crate boundary rather than a language one:
-  a strip added to the client because of something found there will not reach
-  the server's copy, and the suite that would notice is not the one the author
-  runs. The check has to assert the names, not the mechanism, since the two
-  are written differently on purpose.
-
-  Worth deciding whether the honest fix is a test over both lists or one
-  shared list in `aperio-config`, which both crates already depend on. The
-  second is tempting and not obviously right: the client's list is longer than
-  the server's needs to be, and `h2.rs` deliberately strips less, so a single
-  list would have to carry that difference rather than erase it.
-
 - [ ] **#134 Upgrade `webauthn-rs` and `argon2` once they have a stable
   release, and re-run the duplicate sweep behind them.** Both are the newest
   thing standing between the tree and a single version of several crates, and
@@ -477,6 +453,53 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#142 Nothing checks that the two paths to a backend strip the same
+  things.** `#139` introduced a second way for a visitor's request to reach a
+  backend, and it skipped the hop-by-hop strip the first one performs. That
+  was found by reading, days after it shipped, and only because somebody went
+  looking.
+
+  Both paths end at reqwest and both are reachable by a visitor's headers, so
+  the list is a shared invariant with two implementations: `is_hop_by_hop` in
+  `aperio-server/src/proxy/forward/server_side.rs`, and the inline chain in
+  `aperio-client/src/proxy/http.rs` (with a third, narrower one in
+  `proxy/h2.rs`, which drops only the framing headers and says why).
+
+  This is rule 25's shape across a crate boundary rather than a language one:
+  a strip added to the client because of something found there will not reach
+  the server's copy, and the suite that would notice is not the one the author
+  runs. The check has to assert the names, not the mechanism, since the two
+  are written differently on purpose.
+
+  Worth deciding whether the honest fix is a test over both lists or one
+  shared list in `aperio-config`, which both crates already depend on. The
+  second is tempting and not obviously right: the client's list is longer than
+  the server's needs to be, and `h2.rs` deliberately strips less, so a single
+  list would have to carry that difference rather than erase it.
+
+  **Shipped** as `aperio-config/src/hop_by_hop.rs`: the shared core, the
+  WebSocket prefix, and two helpers that take a path's own predicate rather
+  than a copy of its list, so each crate tests the code it actually runs.
+
+  The open question resolved as "both": a shared list *and* an assertion on
+  each side. One flat list would have had to erase two differences that are
+  deliberate, so the list carries only what all three strip and each path
+  declares its own additions with the reason beside them. `trailer` is HTTP/1
+  and the server, not h2, where trailers are a protocol concept rather than a
+  header a visitor writes. `host` is the server and h2, not HTTP/1, where it
+  leaves the loop and is put back once by `pass_hostname`. Each path's test
+  asserts its own two, so changing either is deliberate rather than quiet.
+
+  Writing it found a smaller trap. The client's predicates took an
+  already-lowercased name, because the loops that call them lowercase first,
+  while the server's lowercased internally. Nothing was wrong today and the
+  next caller would have found out the hard way, so all three lowercase their
+  own input now.
+
+  Rule 25 is satisfied in the direction that matters: a header added to the
+  shared list fails in the suite of whichever crate has not stripped it, which
+  is the suite that crate's author runs.
 
 - [x] **#139 A service the server can reach itself, without the two hops
   through the client.** Today every service is relayed: a request arrives, the

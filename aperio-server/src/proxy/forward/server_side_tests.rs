@@ -128,3 +128,16 @@ fn ordinary_headers_still_reach_the_target() {
     assert!(!is_hop_by_hop(h), "{h} should reach the target");
   }
 }
+
+/// This path strips everything every path strips.
+///
+/// The list lives in `aperio-config` and each crate asserts its own predicate
+/// against it, which is rule 25 across a crate boundary: a header added to the
+/// shared list has to fail here, in the suite a server change runs, rather
+/// than in one nobody runs after editing this file. Shipping without this is
+/// how the strip went missing in the first place.
+#[test]
+fn this_path_strips_everything_every_path_strips() {
+  aperio_config::hop_by_hop::strips_the_core(is_hop_by_hop).expect("the shared strip");
+  aperio_config::hop_by_hop::leaves_ordinary_headers(is_hop_by_hop).expect("ordinary headers");
+}

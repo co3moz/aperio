@@ -259,3 +259,23 @@ pub(crate) async fn test_unparsable_target_url_502() {
 // ---------------------------------------------------------------------------
 // tls_floor (planned_features #59)
 // ---------------------------------------------------------------------------
+
+/// This path strips everything every path to a backend strips.
+///
+/// See the h2 twin: the list is shared so that each side asserts it in its own
+/// suite, rather than one side policing the other's from a suite it never
+/// triggers.
+#[test]
+fn the_http1_path_strips_the_shared_set() {
+  aperio_config::hop_by_hop::strips_the_core(is_hop_by_hop).expect("the shared strip");
+  aperio_config::hop_by_hop::leaves_ordinary_headers(is_hop_by_hop).expect("ordinary headers");
+  // This path's own two, recorded so a change to either is deliberate.
+  assert!(
+    is_hop_by_hop("trailer"),
+    "on HTTP/1 a visitor can write this framing header"
+  );
+  assert!(
+    !is_hop_by_hop("host"),
+    "taken out of the loop and re-added once by pass_hostname, not stripped"
+  );
+}

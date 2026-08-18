@@ -23,6 +23,27 @@ pub(crate) use stream::*;
 
 use crate::protocol::{FRAME_RESPONSE_CHUNK, TunnelMessage, encode_binary_frame, send_tunnel_msg};
 
+/// Headers this path never hands to the backend.
+///
+/// The shared half is `aperio_config::hop_by_hop::HOP_BY_HOP_CORE`, which
+/// every path to a backend strips, and a test holds this to it. `trailer` is
+/// this path's own addition: on HTTP/1 it is a hop-by-hop framing header a
+/// visitor can write, which the h2 path does not need because HTTP/2 carries
+/// trailers as a protocol concept instead.
+///
+/// `host` is deliberately absent. It is taken out of the header loop and put
+/// back exactly once, only when `pass_hostname` is set, because adding it in
+/// both places produced a duplicate Host header.
+/// Lowercases its own input rather than trusting the caller to have done it.
+/// The server's twin does the same, so all three paths answer the same
+/// question whatever spelling reaches them.
+pub(crate) fn is_hop_by_hop(name: &str) -> bool {
+  let n = name.to_ascii_lowercase();
+  aperio_config::hop_by_hop::HOP_BY_HOP_CORE.contains(&n.as_str())
+    || n == "trailer"
+    || n.starts_with(aperio_config::hop_by_hop::WEBSOCKET_PREFIX)
+}
+
 /// Batches backend body chunks into full `STREAM_CHUNK_SIZE` frames
 /// (planned_features #24). A backend yields bytes in read-sized pieces well
 /// under the frame size, and every frame pays its own allocation, client-side
@@ -166,15 +187,7 @@ pub(crate) async fn handle_incoming_request(
     // content-length is intentionally kept: the streamed-upload path below
     // relies on it so reqwest frames with content-length instead of falling
     // back to chunked, which content-length-only backends cannot read.
-    if k_lower == "connection"
-      || k_lower == "keep-alive"
-      || k_lower == "upgrade"
-      || k_lower == "proxy-connection"
-      || k_lower == "accept-encoding"
-      || k_lower == "transfer-encoding"
-      || k_lower == "trailer"
-      || k_lower.starts_with("sec-websocket-")
-    {
+    if is_hop_by_hop(&k_lower) {
       continue;
     }
 

@@ -21,6 +21,24 @@ use crate::proxy::http::{
 };
 use futures_util::FutureExt;
 
+/// Headers this path never hands to the backend.
+///
+/// The shared half is `aperio_config::hop_by_hop::HOP_BY_HOP_CORE`, held to it
+/// by a test. Two differences from the HTTP/1 path, both deliberate:
+/// `host` is stripped here because HTTP/2 carries the authority in a
+/// pseudo-header rather than a field, and `trailer` is not, because trailers
+/// are a framing concept of the protocol rather than something a visitor
+/// writes. `te: trailers` survives on purpose, since gRPC needs it end to end.
+/// Lowercases its own input rather than trusting the caller to have done it.
+/// The server's twin does the same, so all three paths answer the same
+/// question whatever spelling reaches them.
+pub(crate) fn is_hop_by_hop(name: &str) -> bool {
+  let n = name.to_ascii_lowercase();
+  aperio_config::hop_by_hop::HOP_BY_HOP_CORE.contains(&n.as_str())
+    || n == "host"
+    || n.starts_with(aperio_config::hop_by_hop::WEBSOCKET_PREFIX)
+}
+
 /// Request body type sent to HTTP/2 backends.
 type H2Body = BoxBody<Bytes, std::io::Error>;
 
@@ -176,15 +194,7 @@ pub(crate) async fn handle_incoming_request_h2(
     let k_lower = k.to_lowercase();
     // Connection-specific headers are forbidden in HTTP/2, except
     // `te: trailers`, which gRPC requires end-to-end.
-    if k_lower == "connection"
-      || k_lower == "keep-alive"
-      || k_lower == "upgrade"
-      || k_lower == "proxy-connection"
-      || k_lower == "transfer-encoding"
-      || k_lower == "accept-encoding"
-      || k_lower == "host"
-      || k_lower.starts_with("sec-websocket-")
-    {
+    if is_hop_by_hop(&k_lower) {
       continue;
     }
     if k_lower == "te" && !v.to_ascii_lowercase().contains("trailers") {
