@@ -588,7 +588,7 @@ async fn tcp_relay_full_roundtrip() {
 
   // Consumer -> tunnel.
   consumer
-    .send(TMessage::Binary(vec![10, 20, 30]))
+    .send(TMessage::Binary(vec![10, 20, 30].into()))
     .await
     .unwrap();
   match recv_msg(&mut crx).await {
@@ -606,7 +606,7 @@ async fn tcp_relay_full_roundtrip() {
     .expect("consumer frame timeout")
     .unwrap()
     .unwrap();
-  assert_eq!(got, TMessage::Binary(vec![1, 2, 3]));
+  assert_eq!(got, TMessage::Binary(vec![1, 2, 3].into()));
 
   // Close from the tunnel side ends the relay and drops the stream.
   relay_tx.push(TcpConsumerMsg::Close).unwrap();
@@ -645,7 +645,10 @@ async fn udp_relay_full_roundtrip() {
     other => panic!("expected UdpOpen, got {other:?}"),
   }
 
-  consumer.send(TMessage::Binary(vec![7, 7])).await.unwrap();
+  consumer
+    .send(TMessage::Binary(vec![7, 7].into()))
+    .await
+    .unwrap();
   match recv_msg(&mut crx).await {
     Message::Text(t) => assert!(t.contains("UdpDatagram")),
     other => panic!("expected UdpDatagram, got {other:?}"),
@@ -661,7 +664,7 @@ async fn udp_relay_full_roundtrip() {
     .expect("consumer frame timeout")
     .unwrap()
     .unwrap();
-  assert_eq!(got, TMessage::Binary(vec![9, 8]));
+  assert_eq!(got, TMessage::Binary(vec![9, 8].into()));
 
   relay_tx.send(TcpConsumerMsg::Close).await.unwrap();
   wait_streams_empty(&state, true).await;

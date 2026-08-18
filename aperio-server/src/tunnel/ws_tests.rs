@@ -96,7 +96,7 @@ pub(super) async fn wait_no_clients(state: &AppState) {
 }
 
 pub(super) async fn send(ws: &mut Client, msg: &TunnelMessage) {
-  ws.send(TMessage::Text(serde_json::to_string(msg).unwrap()))
+  ws.send(TMessage::Text(serde_json::to_string(msg).unwrap().into()))
     .await
     .unwrap();
 }
@@ -321,7 +321,7 @@ pub(super) fn the_pacer_charges_debt_only_past_the_burst() {
 /// Sends one raw binary frame (a v7 relay payload) over the tunnel socket.
 pub(super) async fn send_frame(ws: &mut Client, tag: u8, stream_id: &str, payload: &[u8]) {
   let frame = crate::protocol::encode_binary_frame(tag, stream_id, payload).expect("encodable");
-  ws.send(TMessage::Binary(frame)).await.unwrap();
+  ws.send(TMessage::Binary(frame.into())).await.unwrap();
 }
 
 #[tokio::test]

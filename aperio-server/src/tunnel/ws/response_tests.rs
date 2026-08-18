@@ -472,7 +472,9 @@ async fn response_stream_lifecycle() {
 
   // Binary frame chunk path (FRAME_RESPONSE_CHUNK).
   ws.send(TMessage::Binary(
-    encode_binary_frame(FRAME_RESPONSE_CHUNK, "s1", &[1, 2]).unwrap(),
+    encode_binary_frame(FRAME_RESPONSE_CHUNK, "s1", &[1, 2])
+      .unwrap()
+      .into(),
   ))
   .await
   .unwrap();
@@ -607,7 +609,7 @@ async fn compressed_ping_is_decoded() {
   let _cid = wait_client_id(&state).await;
 
   let json = serde_json::to_string(&base_ping()).unwrap();
-  ws.send(TMessage::Binary(compress_frame(&json)))
+  ws.send(TMessage::Binary(compress_frame(&json).into()))
     .await
     .unwrap();
   // A decoded Ping still yields a Pong.
