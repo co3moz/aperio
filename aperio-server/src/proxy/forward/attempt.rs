@@ -188,7 +188,14 @@ impl Attempt<'_> {
         let method = method_str.clone();
         let pq = uri_str.clone();
         let hdrs = serialized_headers.clone();
-        let body = body_bytes.to_vec();
+        // Streamed when the visitor's upload is big enough to be worth it,
+        // buffered otherwise, the same choice `forward.rs` makes for the
+        // relayed path. Taken here rather than in the dispatch below, which
+        // this branch never reaches.
+        let body = match streamed_body.take() {
+          Some(raw) => super::server_side::RequestBody::Stream(raw, body_limit as u64),
+          None => super::server_side::RequestBody::Buffered(body_bytes.to_vec()),
+        };
         tokio::spawn(async move {
           let res = super::server_side::fetch(st, &target, &method, &pq, hdrs, body).await;
           if let Some(res) = res {

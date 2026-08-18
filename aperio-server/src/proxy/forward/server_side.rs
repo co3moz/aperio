@@ -19,10 +19,22 @@
 //! [`TunnelResponse::timings`] describes stages measured on a client's clock,
 //! and there is no client here, so it is `None` rather than invented.
 
+use futures_util::StreamExt;
 use std::sync::Arc;
 
 use crate::state::AppState;
 use crate::state::stream::TunnelResponse;
+
+/// The visitor's request body, as it reaches this path.
+///
+/// Two shapes rather than one because the choice is the same one `forward.rs`
+/// makes for the relayed path: a small upload is already in memory and a large
+/// one should not be. Carrying the limit with the stream keeps the cap where
+/// the bytes are counted.
+pub(super) enum RequestBody {
+  Buffered(Vec<u8>),
+  Stream(axum::body::Body, u64),
+}
 
 /// Sends `method`/`path` to `target` and shapes the answer like a tunnel one.
 ///
@@ -35,7 +47,7 @@ pub(super) async fn fetch(
   method: &str,
   path_and_query: &str,
   headers: Vec<(String, String)>,
-  body: Vec<u8>,
+  body: RequestBody,
 ) -> Option<TunnelResponse> {
   let url = join_target(target, path_and_query)?;
   let method = reqwest::Method::from_bytes(method.as_bytes()).ok()?;
@@ -59,8 +71,34 @@ pub(super) async fn fetch(
       req = req.header(header, v);
     }
   }
-  if !body.is_empty() {
-    req = req.body(body);
+  match body {
+    RequestBody::Buffered(bytes) if !bytes.is_empty() => {
+      req = req.body(bytes);
+    }
+    RequestBody::Buffered(_) => {}
+    RequestBody::Stream(raw, limit) => {
+      // The visitor's upload goes to the target as it arrives rather than
+      // being held here first, which is the half of #140 that matches what
+      // the relayed path already does. The cap still applies: a stream that
+      // runs past it ends in an error rather than being truncated, because a
+      // truncated upload is a request the backend would answer as if it were
+      // whole.
+      let mut seen: u64 = 0;
+      let counted = raw.into_data_stream().map(move |chunk| match chunk {
+        Ok(bytes) => {
+          seen += bytes.len() as u64;
+          if seen > limit {
+            Err(std::io::Error::other(
+              "request body exceeded the configured limit",
+            ))
+          } else {
+            Ok(bytes)
+          }
+        }
+        Err(e) => Err(std::io::Error::other(e.to_string())),
+      });
+      req = req.body(reqwest::Body::wrap_stream(counted));
+    }
   }
 
   let res = match req.send().await {
@@ -78,27 +116,47 @@ pub(super) async fn fetch(
       out_headers.push((name.as_str().to_string(), v.to_string()));
     }
   }
-  let body_raw = match res.bytes().await {
-    Ok(b) => b,
-    Err(e) => {
-      tracing::warn!("Server-side response body from {} failed: {}", target, e);
-      return None;
+
+  // Streamed rather than buffered, which is what the relayed path does and
+  // what this one owes it: a service is served from here because it carries
+  // real traffic, so holding whole responses in memory would have made the
+  // fast path the expensive one. The head goes back as soon as it arrives and
+  // the body follows through the channel.
+  let (chunk_tx, chunk_rx) =
+    tokio::sync::mpsc::channel::<Result<crate::state::BodyFrame, std::io::Error>>(32);
+  let target_for_log = target.to_string();
+  tokio::spawn(async move {
+    let mut stream = res.bytes_stream();
+    while let Some(next) = stream.next().await {
+      let frame = match next {
+        Ok(bytes) => Ok(crate::state::BodyFrame::Data(bytes)),
+        Err(e) => {
+          tracing::warn!(
+            "Server-side response body from {} failed mid-stream: {}",
+            target_for_log,
+            e
+          );
+          Err(std::io::Error::other(e.to_string()))
+        }
+      };
+      let failed = frame.is_err();
+      // A closed receiver is the visitor having hung up. Stop reading the
+      // target rather than filling a channel nobody drains, which is the one
+      // way a pump like this turns a dropped request into work that continues.
+      if chunk_tx.send(frame).await.is_err() || failed {
+        break;
+      }
     }
-  };
+  });
   let _ = &state;
 
   Some(TunnelResponse {
     status,
     headers: out_headers,
     body: None,
-    body_raw: Some(body_raw),
+    body_raw: None,
     trailers: None,
-    // Buffered rather than streamed, which is the one behavioural difference
-    // from the tunnel path and is honest about what it costs: a large
-    // response is held in memory here instead of flowing through. The body
-    // cap that bounds it is the same `max_request_body`-shaped question the
-    // relayed path answers, and a streaming version is a separate change.
-    stream_rx: None,
+    stream_rx: Some(chunk_rx),
     // No client, so no client-side stages. Not invented.
     timings: None,
   })
@@ -106,18 +164,12 @@ pub(super) async fn fetch(
 
 /// Headers a visitor may not hand to the target through this path.
 ///
-/// The relayed path strips exactly these in `aperio-client`'s
-/// `proxy/http.rs`, and the reason is written there in full: forwarding a
-/// visitor-supplied `transfer-encoding: chunked` collides with reqwest's own
-/// body framing and opens an HTTP desync and request-smuggling surface.
-/// Dropping it leaves `content-length` as the single framing signal.
+/// The shared core is `aperio_config::hop_by_hop::HOP_BY_HOP_CORE`, and a test
+/// holds this to it. The reason is written there in full: a visitor-supplied
+/// `transfer-encoding: chunked` collides with the HTTP client's own body
+/// framing and opens a desync and request-smuggling surface.
 ///
-/// The same list has to exist here because the two paths reach a backend the
-/// same way, through reqwest, and only one of them used to be reachable by a
-/// visitor's headers. Serving from the server was not meant to be a way past
-/// a strip the relayed path performs.
-///
-/// `host` is on the list for a different and sharper reason. What was checked
+/// `host` is this path's own addition, for a sharper reason. What was checked
 /// against `server_side_targets:` is the *target*, and reqwest lets an
 /// explicit `Host` header override the authority the target's URL carries, so
 /// forwarding the visitor's would let them pick a virtual host on an address

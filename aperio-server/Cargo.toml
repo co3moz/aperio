@@ -75,6 +75,9 @@ reqwest = { version = "0.13", default-features = false, features = [
   "form",
   "rustls-no-provider",
   "blocking",
+  # The server-side path streams a response back rather than buffering it,
+  # which is what `bytes_stream()` needs.
+  "stream",
 ] }
 url = "2.5"
 flate2 = "1"

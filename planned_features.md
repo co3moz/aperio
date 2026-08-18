@@ -19,31 +19,6 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#140 A `server_side:` service buffers what the relayed path streams.**
-  `server_side::fetch` reads the whole response with `res.bytes().await` and
-  hands back a `TunnelResponse` with `body_raw` set and `stream_rx` empty, and
-  the request body is buffered to match, decided in `forward.rs` so the
-  dispatch cannot disagree with it. The relayed path streams both.
-
-  So the fast path is the one that holds a large body in memory, which is the
-  wrong way round: a service is turned on precisely because it carries real
-  traffic. A few concurrent large responses on a server that is also relaying
-  everything else is a memory profile nobody chose. Nothing bounds it today
-  except `max_request_body` on the way in; there is no equivalent on the way
-  out because the relayed path never needed one.
-
-  The shape is known rather than open. `TunnelResponse.stream_rx` is a
-  `mpsc::Receiver<Result<BodyFrame, io::Error>>`, and reqwest hands out a
-  `bytes_stream()`, so this is a pump from one to the other plus the same
-  cancellation care the tunnel's pump already takes: a visitor that hangs up
-  mid-body must stop the reader rather than leave it filling a channel nobody
-  drains. Worth doing together with the request half, since the two are one
-  decision in `forward.rs`.
-
-  Not urgent and not a correctness bug, which is why it shipped documented
-  rather than blocking. It is the first thing to fix if anyone puts real
-  traffic through it.
-
 - [ ] **#141 A WebSocket cannot be served from the server, and now says so.**
   Split from `#139`, which shipped the refusal rather than the feature: an
   upgrade on a `server_side:` service answers 501, because a socket has no
@@ -453,6 +428,57 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#140 A `server_side:` service buffers what the relayed path streams.**
+  `server_side::fetch` reads the whole response with `res.bytes().await` and
+  hands back a `TunnelResponse` with `body_raw` set and `stream_rx` empty, and
+  the request body is buffered to match, decided in `forward.rs` so the
+  dispatch cannot disagree with it. The relayed path streams both.
+
+  So the fast path is the one that holds a large body in memory, which is the
+  wrong way round: a service is turned on precisely because it carries real
+  traffic. A few concurrent large responses on a server that is also relaying
+  everything else is a memory profile nobody chose. Nothing bounds it today
+  except `max_request_body` on the way in; there is no equivalent on the way
+  out because the relayed path never needed one.
+
+  The shape is known rather than open. `TunnelResponse.stream_rx` is a
+  `mpsc::Receiver<Result<BodyFrame, io::Error>>`, and reqwest hands out a
+  `bytes_stream()`, so this is a pump from one to the other plus the same
+  cancellation care the tunnel's pump already takes: a visitor that hangs up
+  mid-body must stop the reader rather than leave it filling a channel nobody
+  drains. Worth doing together with the request half, since the two are one
+  decision in `forward.rs`.
+
+  Not urgent and not a correctness bug, which is why it shipped documented
+  rather than blocking. It is the first thing to fix if anyone puts real
+  traffic through it.
+
+  **Shipped**, both halves, and the entry's guess about them being equally
+  urgent turned out to be wrong in a way worth recording. Measuring first
+  showed they were not the same problem: the response was genuinely unbounded,
+  while the request body was already capped by `max_body_size`, 10 MB by
+  default and tightenable per service. So the response half was the fault and
+  the request half was a cost.
+
+  Both are streamed now. The head goes back as soon as it arrives and the body
+  follows through the `mpsc` channel `TunnelResponse.stream_rx` already
+  expected, with the same 32-frame depth the tunnel path uses. A closed
+  receiver, which is a visitor hanging up, breaks the pump rather than leaving
+  it reading a target into a channel nobody drains.
+
+  The request half carries its cap with it: the stream is counted as it passes
+  and ends in an error past the limit rather than being truncated, because a
+  truncated upload is a request the backend would answer as though it were
+  whole. `forward.rs` decides streaming in the one place it always did, so the
+  dispatch cannot disagree with it.
+
+  It needed `stream` on the server's reqwest, which the client already had.
+
+  **Not done, and worth its own entry if anyone wants it:** there is no e2e
+  phase for `server_side:` at all. The unit tests cover the join, the strips
+  and the declaration refusals, but nothing exercises the whole path against a
+  live backend, which is where a streaming bug would actually show.
 
 - [x] **#142 Nothing checks that the two paths to a backend strip the same
   things.** `#139` introduced a second way for a visitor's request to reach a
