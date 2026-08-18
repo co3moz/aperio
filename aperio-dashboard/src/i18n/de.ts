@@ -1168,4 +1168,5 @@ export const de: Record<string, string> = {
   'Organization quota': 'Organisationskontingent',
   'Streams per visitor': 'Streams pro Besucher',
   'the server admits {max} requests at once across every service; one arriving with no slot free is refused rather than queued': 'der Server nimmt über alle Dienste hinweg {max} Anfragen gleichzeitig an; eine ohne freien Platz eintreffende wird abgelehnt statt eingereiht',
+  'caching applies to GET; a {method} always reaches a client': 'Caching gilt für GET; ein {method} erreicht immer einen Client',
 }

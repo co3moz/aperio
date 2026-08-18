@@ -1002,33 +1002,47 @@ pub(crate) async fn explain_handler(
         .from(crate::limits::Limit::ClientConcurrency.setting()),
       ),
     }
-    if cfg.cache_enabled && serving.cache {
-      steps.push(
-        Step::new(
-          "cache",
-          Verdict::Passes,
-          "cache.eligible",
-          "this route is cacheable, so a fresh entry would answer here without the request reaching a client at all",
-        )
-        .from("cache"),
-      );
-    } else if cfg.cache_enabled {
-      // Two codes rather than one with two sentences: a code names a sentence
-      // shape, and a caller rendering its own text can only do that if the
-      // code tells it which sentence this is.
-      steps.push(Step::new(
-        "cache",
-        Verdict::Skipped,
-        "cache.not_opted_in",
-        "the serving service does not opt into caching, so every request goes to the backend",
-      ));
-    } else {
+    // The real check is `request_cacheable`, which is the two switches *and*
+    // the method *and* the headers. Reporting only the switches said
+    // "cacheable" of a POST, which is never true; the method is a parameter of
+    // this endpoint, so there was never a need to guess at it. The headers
+    // are the part a request nobody sends does not have, and the sentence
+    // says so rather than implying they were checked.
+    if !cfg.cache_enabled {
       steps.push(Step::new(
         "cache",
         Verdict::Skipped,
         "cache.off",
         "response caching is off server-wide",
       ));
+    } else if !serving.cache {
+      steps.push(Step::new(
+        "cache",
+        Verdict::Skipped,
+        "cache.not_opted_in",
+        "the serving service does not opt into caching, so every request goes to the backend",
+      ));
+    } else if method != "GET" {
+      steps.push(
+        Step::new(
+          "cache",
+          Verdict::Skipped,
+          "cache.method",
+          format!("caching applies to GET; a {method} always reaches a client"),
+        )
+        .with(serde_json::json!({ "method": method }))
+        .from("cache"),
+      );
+    } else {
+      steps.push(
+        Step::new(
+          "cache",
+          Verdict::Passes,
+          "cache.eligible",
+          "this route is cacheable, so a fresh entry would answer here without the request reaching a client at all; a request carrying an Authorization or Cookie header, or asking for no-cache, is served by a client anyway, which this dry run has no headers to decide",
+        )
+        .from("cache"),
+      );
     }
   }
 

@@ -99,6 +99,7 @@ export const EXPLAIN_MESSAGES: Record<string, string> = {
   'cache.eligible':
     'this route is cacheable, so a fresh entry would answer here without the request reaching a client at all',
   'cache.off': 'response caching is off server-wide',
+  'cache.method': 'caching applies to GET; a {method} always reaches a client',
   'cache.not_opted_in':
     'the serving service does not opt into caching, so every request goes to the backend',
 

@@ -1166,4 +1166,5 @@ export const fr: Record<string, string> = {
   'Organization quota': "Quota d'organisation",
   'Streams per visitor': 'Flux par visiteur',
   'the server admits {max} requests at once across every service; one arriving with no slot free is refused rather than queued': "le serveur admet {max} requêtes à la fois sur l'ensemble des services; une requête qui arrive sans emplacement libre est refusée plutôt que mise en file",
+  'caching applies to GET; a {method} always reaches a client': "le cache s'applique à GET; une requête {method} atteint toujours un client",
 }

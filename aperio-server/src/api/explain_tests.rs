@@ -1037,3 +1037,49 @@ async fn a_tenant_is_not_told_the_servers_live_load() {
   assert_eq!(step["code"], "server_concurrency.headroom");
   assert!(step["params"]["in_flight"].is_number());
 }
+
+/// The cache stage answers for the method it was asked about.
+///
+/// `request_cacheable` is the two switches, the method and the headers.
+/// Reporting only the switches said "this route is cacheable" of a POST, which
+/// is never true, and the method is a parameter of this endpoint rather than
+/// something it has to guess. The headers are the part a request nobody sends
+/// does not have, so the sentence says so instead of implying they passed.
+#[tokio::test]
+async fn the_cache_stage_does_not_call_a_post_cacheable() {
+  let mut cfg = test_config();
+  cfg.cache_enabled = true;
+  let state = Arc::new(test_state_with(cfg));
+  let mut client = mock_client(Some("app.example.com"), None, None, None);
+  client.services[0].cache = true;
+  state.clients.write().await.insert("c1".to_string(), client);
+  let headers = admin_headers(&state).await;
+
+  let stage = async |method: Option<&str>| -> serde_json::Value {
+    let query = Query(ExplainQuery {
+      hostname: "app.example.com".to_string(),
+      path: None,
+      method: method.map(str::to_string),
+    });
+    let body = json_body(explain(&state, headers.clone(), query).await).await;
+    body["steps"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .find(|s| s["stage"] == "cache")
+      .expect("the cache stage is reported")
+      .clone()
+  };
+
+  assert_eq!(
+    stage(None).await["code"],
+    "cache.eligible",
+    "GET is the default"
+  );
+  let post = stage(Some("POST")).await;
+  assert_eq!(
+    post["code"], "cache.method",
+    "a POST is never served from the cache, whatever the switches say"
+  );
+  assert_eq!(post["verdict"], "skipped");
+}
