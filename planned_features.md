@@ -19,29 +19,6 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#138 A `CONFIG_CHANGES` entry can name a version that never ships.**
-  `the_shipped_table_is_well_formed` checks that every entry parses, names at
-  least one field, tells the operator something to do, and that a `Security`
-  entry is `WhenSet`. It does not check that the version is a version.
-
-  There is one in the table right now: the `depends_on` entry is stamped
-  `0.11.0`, which does not exist, with a comment beside it saying it is
-  corrected at release time if it slips. That comment is doing real work and
-  the mechanism is behaving as designed, but it is a note to a human, and rule
-  19's release audit is the only thing that catches it. An entry naming a
-  version that never ships never fires, and it fails silently: no test goes
-  red, no operator is warned, the upgrade note simply does not appear for the
-  people it was written for.
-
-  A test could hold the honest version of this. Every entry's version must
-  parse, must not be older than some floor, and must be either at or one minor
-  ahead of the crate's own version, the second being the legitimate case of an
-  entry written mid-cycle for a release not yet cut. Anything further ahead is
-  a typo or a guess that has gone stale, and the message should say which
-  entry and what the crate version is, so the fix is obvious at the moment the
-  release is prepared rather than a year later when somebody wonders why an
-  upgrade said nothing.
-
 - [ ] **#134 Upgrade `webauthn-rs` and `argon2` once they have a stable
   release, and re-run the duplicate sweep behind them.** Both are the newest
   thing standing between the tree and a single version of several crates, and
@@ -432,6 +409,50 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#138 A `CONFIG_CHANGES` entry can name a version that never ships.**
+  `the_shipped_table_is_well_formed` checks that every entry parses, names at
+  least one field, tells the operator something to do, and that a `Security`
+  entry is `WhenSet`. It does not check that the version is a version.
+
+  There is one in the table right now: the `depends_on` entry is stamped
+  `0.11.0`, which does not exist, with a comment beside it saying it is
+  corrected at release time if it slips. That comment is doing real work and
+  the mechanism is behaving as designed, but it is a note to a human, and rule
+  19's release audit is the only thing that catches it. An entry naming a
+  version that never ships never fires, and it fails silently: no test goes
+  red, no operator is warned, the upgrade note simply does not appear for the
+  people it was written for.
+
+  A test could hold the honest version of this. Every entry's version must
+  parse, must not be older than some floor, and must be either at or one minor
+  ahead of the crate's own version, the second being the legitimate case of an
+  entry written mid-cycle for a release not yet cut. Anything further ahead is
+  a typo or a guess that has gone stale, and the message should say which
+  entry and what the crate version is, so the fix is obvious at the moment the
+  release is prepared rather than a year later when somebody wonders why an
+  upgrade said nothing.
+
+  **Shipped:** `no_entry_names_a_version_far_ahead_of_this_build` in
+  `compat_tests.rs`, plus a correction to the comment above the well-formed
+  test, which still said the table was empty.
+
+  The honest scope is written into the test rather than claimed in the entry.
+  A perfect check is not possible: `0.11.0` is correct today and becomes wrong
+  only if the next release turns out to be `0.10.1`, and nothing at test time
+  can know which. What is checkable is the distance. One minor ahead is the
+  legitimate mid-cycle window, because `CARGO_PKG_VERSION` stays at the last
+  release until rule 11's bump moves it, and a planned major is the other
+  honest case. Anything further is a typo, or a guess the releases have moved
+  past while nobody looked.
+
+  So this narrows the window rule 19's release audit has to cover instead of
+  replacing it, and the failure message says so, naming the entry and telling
+  the reader to correct it to the version actually being cut.
+
+  Verified by stamping an entry `0.12.0` and `1.10.0`, both of which fail with
+  that message, and `1.0.0`, which is allowed because a major bump is a real
+  plan rather than a slip.
 
 - [x] **#137 The changelog's grouping is not checked, and it has already
   broken.** `CHANGELOG.md` is the file an operator reads to decide whether an

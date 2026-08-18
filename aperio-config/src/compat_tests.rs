@@ -248,8 +248,8 @@ fn a_config_from_a_newer_aperio_is_called_out() {
 
 #[test]
 fn the_shipped_table_is_well_formed() {
-  // It is empty today, but every entry added later must parse and name at
-  // least one field, or the report would be useless at the moment it fires.
+  // Every entry must parse and name at least one field, or the report would
+  // be useless at the moment it fires.
   for change in CONFIG_CHANGES {
     Version::parse(change.version)
       .unwrap_or_else(|e| panic!("CONFIG_CHANGES entry '{}': {e}", change.summary));
@@ -437,4 +437,42 @@ fn the_report_names_the_keys_this_file_writes_not_the_whole_entry() {
   .unwrap();
   let text = report_lines(&report).join("\n");
   assert!(text.contains("Affected: cache_max_bytes."), "{text}");
+}
+
+/// No entry names a version this build could not plausibly be leading up to.
+///
+/// The table is written one change at a time, and an entry for a release that
+/// has not been cut has to guess its number. That guess is the failure mode
+/// worth catching, because it fails in the quietest possible way: an entry
+/// naming a version that never ships simply never fires. No test goes red, no
+/// operator is warned, and the upgrade note is missing for exactly the people
+/// it was written for. The `depends_on` entry is one of these today, stamped
+/// `0.11.0` against a crate at 0.10.0.
+///
+/// What can be checked is the distance. One minor ahead is the legitimate
+/// mid-cycle window, since `CARGO_PKG_VERSION` is the last release until rule
+/// 11's bump moves it, and a planned major is the other honest case. Anything
+/// further is a typo or a guess that has gone stale while the releases moved
+/// past it. What cannot be checked here is a guess that is merely *wrong*,
+/// `0.11.0` written for what turns out to be a `0.10.1` release, which is what
+/// rule 19's release audit is for; this narrows the window that audit has to
+/// cover rather than replacing it.
+#[test]
+fn no_entry_names_a_version_far_ahead_of_this_build() {
+  let build = Version::parse(env!("CARGO_PKG_VERSION")).expect("the crate version parses");
+  for change in CONFIG_CHANGES {
+    let v = Version::parse(change.version).expect("checked by the well-formed test");
+    let plausible = (v.major == build.major && v.minor <= build.minor + 1)
+      || (v.major == build.major + 1 && v.minor == 0);
+    assert!(
+      plausible,
+      "CONFIG_CHANGES entry '{}' is stamped {} against a build at {}. \
+       Either it is a typo, or the releases have moved past a guess written \
+       before the number was known; rule 19 says correct it to the version \
+       actually being cut.",
+      change.summary,
+      change.version,
+      env!("CARGO_PKG_VERSION")
+    );
+  }
 }
