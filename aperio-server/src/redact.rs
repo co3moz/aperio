@@ -59,15 +59,28 @@ const SENSITIVE_FIELDS: &[&str] = &[
   "cvc",
 ];
 
+/// How `APERIO_INSPECTOR_REDACT` reads, given the raw value.
+///
+/// Split out of [`redaction_enabled`] so it can be tested at all. The switch
+/// is read once into a `OnceLock`, which is right for a hot path and means the
+/// first caller in a process decides for every later one, so the parsing could
+/// never be exercised both ways from a test. A mutation run made the cost of
+/// that concrete: inverting the comparison, dropping the negation and swapping
+/// the `&&` all survived, which is three ways for redaction to be off while
+/// the operator believes it is on.
+fn redaction_setting(raw: Option<&str>) -> bool {
+  match raw {
+    None => true,
+    Some(v) => v != "0" && !v.eq_ignore_ascii_case("false"),
+  }
+}
+
 /// True unless the operator opted out with `APERIO_INSPECTOR_REDACT=0`.
 pub(crate) fn redaction_enabled() -> bool {
   use std::sync::OnceLock;
   static ENABLED: OnceLock<bool> = OnceLock::new();
-  *ENABLED.get_or_init(|| {
-    std::env::var("APERIO_INSPECTOR_REDACT")
-      .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
-      .unwrap_or(true)
-  })
+  *ENABLED
+    .get_or_init(|| redaction_setting(std::env::var("APERIO_INSPECTOR_REDACT").ok().as_deref()))
 }
 
 /// True when a configuration/setting key name suggests it carries a secret and

@@ -19,25 +19,6 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#131 Four of the five mutation-scoped modules have never been run.**
-  `#127` scoped `cargo mutants` to five modules and `#129` cleared `auth.rs`,
-  which is 46 of 315 mutants. `visitor_auth.rs` (46), `proxy/gate.rs` (67),
-  `state/admission.rs` (107) and `redact.rs` (46) have never been mutated:
-  **269 mutants, no verdict on any of them.**
-
-  This is not a bug report, it is a known unknown with a number on it, which
-  is the honest shape for it. The scoped run was measured at about 73 seconds
-  per mutant on this machine, so the remainder is roughly five and a half hours
-  single-threaded, which is why the workflow exists and shards eight ways. Let
-  the monthly run take it, or dispatch it per module.
-
-  What to expect, from the one module that has been done: 46 mutants gave 18
-  caught, 3 alive and 2 unviable in the shard examined, and of the three alive
-  one was a test asserting nothing, one was a fixture too small to exercise the
-  bound it was supposed to, and one needed the *caller* read before it could be
-  judged. Budget the reading time, not just the run time. The survivors are the
-  work and they do not come with an answer attached.
-
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
@@ -383,6 +364,74 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#131 Four of the five mutation-scoped modules have never been run.**
+  `#127` scoped `cargo mutants` to five modules and `#129` cleared `auth.rs`,
+  which is 46 of 315 mutants. `visitor_auth.rs` (46), `proxy/gate.rs` (67),
+  `state/admission.rs` (107) and `redact.rs` (46) have never been mutated:
+  **269 mutants, no verdict on any of them.**
+
+  This is not a bug report, it is a known unknown with a number on it, which
+  is the honest shape for it. The scoped run was measured at about 73 seconds
+  per mutant on this machine, so the remainder is roughly five and a half hours
+  single-threaded, which is why the workflow exists and shards eight ways. Let
+  the monthly run take it, or dispatch it per module.
+
+  What to expect, from the one module that has been done: 46 mutants gave 18
+  caught, 3 alive and 2 unviable in the shard examined, and of the three alive
+  one was a test asserting nothing, one was a fixture too small to exercise the
+  bound it was supposed to, and one needed the *caller* read before it could be
+  judged. Budget the reading time, not just the run time. The survivors are the
+  work and they do not come with an answer attached.
+
+  Shipped 2026-08-18. **Twelve survivors, and the module they cluster in is
+  the one that keeps secrets out of the dashboard.**
+
+  Nine were in `redact.rs`, which stands between a captured request and a
+  secret in the inspector, the HAR download or copy-as-cURL. Its tests covered
+  the *shapes*, a URI, headers, a JSON body, a form, and none of the things
+  that decide: the switch, the entry point, and the predicate.
+
+  - **`redaction_enabled()` returning `false` survived**, along with three
+    other ways to invert the same switch. That is four ways for redaction to
+    be silently off, and the failure is invisible by construction: everything
+    keeps working, the dashboard keeps rendering, and the secrets are in it.
+    Three of the four were untestable in place, because the switch is read
+    once into a `OnceLock` and the first caller in a process decides for every
+    later one, so the parsing was split into `redaction_setting(raw)` and the
+    `OnceLock` kept as a wrapper.
+  - **`redacted_view`'s guard with the `!` deleted survived**, which returns
+    the untouched capture whenever redaction is *enabled*. That is the exact
+    inversion of the module's purpose, and it is the function
+    `api/inspector.rs` calls.
+  - **`field_is_sensitive`'s `||` becoming `&&` survived**, which masks only
+    names on the exact list *and* containing a needle. `cvv` is on no needle
+    list and `user_password` is on no exact list, so under that mutant both go
+    to the screen in full.
+  - **`mask()` returning `""` survived.** Technically still redaction, which
+    is why nothing caught it; what is lost is the difference between "masked"
+    and "empty" on a screen somebody is reading to find out what was sent.
+
+  One was in `visitor_auth.rs`: `block_from_config_file` replaced wholesale by
+  `None`. Its own doc comment says what it is there to prevent, "an operator
+  who wrote a gate and got no gate", and that is precisely what the mutant
+  does. Both spellings are pinned now, `server: {auth:}` and the flat
+  `server_auth:`.
+
+  **Two were left alive on purpose**, both in `LockoutTracker::gc`: `> 1024`
+  becoming `>= 1024`, and `< 24h` becoming `<= 24h`. They differ only at the
+  exact boundary, and neither boundary is a rule anyone would state
+  independently: whether the sweep begins at 1024 entries or 1025, and whether
+  an entry aged to the nanosecond is stale, are arbitrary either way. Writing
+  a test for them would be writing a test to kill a mutant, which is how a
+  suite fills with assertions nobody believes. The other seven `gc` mutants
+  were killed by the bound the security scan added.
+
+  **Cost, for whoever runs it next.** Two runs died on disk before one
+  finished: `cargo-mutants` copies the whole build tree per job, so `--jobs 3`
+  is three trees of about 4.4 GB each *plus* whatever `target/` has grown to.
+  Clean first, watch the disk, and do not run `cargo test --workspace` beside
+  it. At three jobs the rate was about two mutants a minute.
 
 - [x] **#132 Nothing says which routes are deliberately outside the OpenAPI
   document.** Measured 2026-08-18: 98 routes, 87 carrying a `utoipa::path`

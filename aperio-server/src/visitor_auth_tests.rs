@@ -172,3 +172,48 @@ fn a_gate_answers_in_the_shape_its_caller_can_act_on() {
   assert_eq!(both.challenge(), Some("Bearer"));
   assert_eq!(both.method_names(), vec!["basic", "bearer"]);
 }
+
+/// A gate written in `aperio-server.yaml` is read from it.
+///
+/// This function's own doc says what it is here to prevent: "an operator who
+/// wrote a gate and got no gate". A mutation run replaced it wholesale with
+/// `None`, which is that failure exactly, and nothing went red. A server that
+/// answers as if no gate were configured, while the file says one is, is the
+/// worst shape this can take, because the operator's evidence that the route
+/// is protected is the file they wrote.
+///
+/// Both spellings are checked: `server: {auth: ...}` and the flat
+/// `server_auth:`, since the fallback between them is the other thing that
+/// could quietly stop working.
+#[test]
+fn a_gate_written_in_the_file_is_read_from_it() {
+  let _lock = crate::test_support::config_lock();
+  struct Cleanup;
+  impl Drop for Cleanup {
+    fn drop(&mut self) {
+      let _ = std::fs::remove_file("aperio-server.yaml");
+    }
+  }
+  let with = |yaml: &str| -> Option<AuthSetting> {
+    let _cleanup = Cleanup;
+    std::fs::write("aperio-server.yaml", yaml).unwrap();
+    crate::config_file::reload().unwrap();
+    block_from_config_file()
+  };
+
+  assert!(
+    with("host: 0.0.0.0\n").is_none(),
+    "a file with no gate declares no gate"
+  );
+
+  let grouped = with("server:\n  auth:\n    method: basic\n    users: 'dan:hunter2'\n")
+    .expect("`server: {auth:}` is a gate and must be read as one");
+  assert!(
+    matches!(grouped, AuthSetting::One(_) | AuthSetting::Any(_)),
+    "the block parses into a policy rather than being dropped"
+  );
+
+  let flat = with("server_auth:\n  method: basic\n  users: 'dan:hunter2'\n")
+    .expect("the flat `server_auth:` spelling is a gate too");
+  assert!(matches!(flat, AuthSetting::One(_) | AuthSetting::Any(_)));
+}
