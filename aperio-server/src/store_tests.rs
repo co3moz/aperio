@@ -137,3 +137,60 @@ fn test_data_dir_is_a_file_falls_back_to_memory() {
 
   let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ----- what a previous release wrote -----
+
+/// The path of a checked-in artifact written by an older build.
+///
+/// See `fixtures/README.md` for what each one pins down and why regenerating
+/// one is usually the wrong repair.
+pub(crate) fn fixture(name: &str) -> std::path::PathBuf {
+  std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    .join("fixtures")
+    .join(name)
+}
+
+/// A data directory from a previous release still opens, with its rows.
+///
+/// Every other test here creates the database it reads, in the same process,
+/// with the same SQLite. That proves the code agrees with itself. It says
+/// nothing about the file already sitting in somebody's data directory, which
+/// is the only database that matters during an upgrade, and `#133` went from
+/// SQLite 3.46 to 3.53 under this store with the whole suite green.
+///
+/// The fixture is copied first because opening it runs the schema setup and
+/// switches on WAL, and a test that mutates a checked-in file is a test that
+/// passes once.
+#[test]
+fn a_database_written_by_an_older_release_still_opens_and_reads() {
+  let dir = std::env::temp_dir().join(format!("aperio-fixture-{}", std::process::id()));
+  std::fs::create_dir_all(&dir).unwrap();
+  let db = dir.join("aperio.db");
+  std::fs::copy(fixture("store-written-by-0.10.0.db"), &db).expect("the fixture is checked in");
+
+  let conn = try_open_db(&db).expect("a database from 0.10.0 must still open");
+
+  // Every table the schema creates carries its row, so this fails on a
+  // migration that drops or renames one as loudly as on a file that will not
+  // open at all.
+  for table in [
+    "tokens",
+    "webhooks",
+    "stats",
+    "users",
+    "sessions",
+    "webhook_deliveries",
+    "organizations",
+    "inbox",
+    "admin_keys",
+    "scaling",
+  ] {
+    let n: i64 = conn
+      .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+      .unwrap_or_else(|e| panic!("{table} is not readable from the 0.10.0 fixture: {e}"));
+    assert_eq!(n, 1, "{table} lost the row the fixture was written with");
+  }
+
+  drop(conn);
+  let _ = std::fs::remove_dir_all(&dir);
+}
