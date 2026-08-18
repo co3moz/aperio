@@ -75,7 +75,7 @@ async fn spawn(opts: ServeOptions) -> (String, std::path::PathBuf) {
 #[tokio::test]
 async fn serves_files_with_mime_and_handles_head() {
   let (base, root) = spawn(ServeOptions::default()).await;
-  let client = reqwest::Client::new();
+  let client = crate::test_http_client();
 
   // A known asset is served 200 with a JS content-type.
   let resp = client
@@ -127,7 +127,7 @@ async fn serves_files_with_mime_and_handles_head() {
 #[tokio::test]
 async fn rejects_non_get_and_missing_paths() {
   let (base, root) = spawn(ServeOptions::default()).await;
-  let client = reqwest::Client::new();
+  let client = crate::test_http_client();
 
   // A non-GET/HEAD verb is refused.
   let resp = client.post(format!("{base}/")).send().await.unwrap();
@@ -157,7 +157,7 @@ async fn spa_fallback_serves_index_for_navigations_only() {
     not_found_html: None,
   })
   .await;
-  let client = reqwest::Client::new();
+  let client = crate::test_http_client();
 
   // A navigation (Accept: text/html) to an unknown route gets index.html @200.
   let resp = client
@@ -209,7 +209,7 @@ async fn spa_without_index_falls_through_to_404() {
   )
   .await
   .unwrap();
-  let resp = reqwest::Client::new()
+  let resp = crate::test_http_client()
     .get(format!("http://127.0.0.1:{port}/route"))
     .header("accept", "text/html")
     .send()
@@ -226,7 +226,7 @@ async fn custom_404_page_is_served_for_misses() {
     not_found_html: Some(b"<b>gone</b>".to_vec()),
   };
   let (base, root) = spawn(opts).await;
-  let client = reqwest::Client::new();
+  let client = crate::test_http_client();
 
   let resp = client.get(format!("{base}/missing")).send().await.unwrap();
   assert_eq!(resp.status(), 404);
@@ -324,7 +324,7 @@ fn parse_range_covers_the_forms_and_the_edges() {
 async fn range_requests_get_partial_content() {
   let (base, root) = spawn(ServeOptions::default()).await;
   std::fs::write(root.join("video.bin"), "0123456789").unwrap();
-  let client = reqwest::Client::new();
+  let client = crate::test_http_client();
 
   // A middle slice comes back 206 with the exact bytes and a Content-Range.
   let resp = client
@@ -441,7 +441,7 @@ fn if_none_match_compares_weakly_and_understands_a_list() {
 #[tokio::test]
 async fn a_request_carrying_the_validator_gets_304_without_a_body() {
   let (base, root) = spawn(ServeOptions::default()).await;
-  let client = reqwest::Client::new();
+  let client = crate::test_http_client();
 
   let first = client
     .get(format!("{base}/assets/app.js"))
@@ -494,7 +494,7 @@ async fn a_request_carrying_the_validator_gets_304_without_a_body() {
 #[tokio::test]
 async fn if_range_continues_a_download_only_while_the_file_is_unchanged() {
   let (base, root) = spawn(ServeOptions::default()).await;
-  let client = reqwest::Client::new();
+  let client = crate::test_http_client();
   std::fs::write(root.join("big.bin"), vec![b'x'; 100]).unwrap();
 
   let head = client.get(format!("{base}/big.bin")).send().await.unwrap();

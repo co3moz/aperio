@@ -179,6 +179,7 @@ impl Egress {
   /// same host and a webhook receiver on the internet. `Proxy::custom` is
   /// given the bypass rule so one client serves both.
   pub(crate) fn client_builder(&self) -> reqwest::ClientBuilder {
+    crate::ensure_crypto_provider();
     let builder = reqwest::Client::builder().no_proxy();
     let Some(ref proxy) = self.proxy else {
       return builder;
@@ -225,6 +226,7 @@ pub(crate) fn set_egress(egress: Egress) {
 /// keeps the four-part rule (no ambient proxy, the configured proxy, no
 /// redirects, a bounded read) from being enforced by repetition.
 pub(crate) fn client_builder() -> reqwest::ClientBuilder {
+  crate::ensure_crypto_provider();
   match EGRESS.get() {
     Some(egress) => egress.client_builder(),
     // Before startup has run, and in tests: still never the environment.

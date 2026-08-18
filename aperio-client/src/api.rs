@@ -92,6 +92,7 @@ pub(crate) async fn run_api(
     }
   };
 
+  crate::ensure_crypto_provider();
   let http = match reqwest::Client::builder()
     .timeout(Duration::from_secs(30))
     // Never follow the login redirect the dashboard router answers with; it

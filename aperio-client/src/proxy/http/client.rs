@@ -74,6 +74,7 @@ pub(crate) fn tls_floor(raw: Option<&str>) -> Result<Option<reqwest::tls::Versio
 /// The requests that *do* belong to the internet, the API and discovery calls
 /// to the tunnel server, keep reading the environment and are built directly.
 pub(crate) fn backend_client_builder() -> reqwest::ClientBuilder {
+  crate::ensure_crypto_provider();
   reqwest::Client::builder().no_proxy()
 }
 

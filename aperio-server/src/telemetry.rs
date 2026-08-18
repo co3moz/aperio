@@ -262,7 +262,8 @@ fn probe_http(endpoint: String) {
     ""
   };
 
-  let client = match reqwest_otlp::blocking::Client::builder()
+  crate::ensure_crypto_provider();
+  let client = match reqwest::blocking::Client::builder()
     .timeout(PROBE_TIMEOUT)
     .build()
   {

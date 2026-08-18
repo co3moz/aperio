@@ -104,6 +104,38 @@ reader task. Background tasks handle retention pruning, scheduled backups, alert
 evaluation, and uptime sampling. A global `AtomicUsize` bounds in-flight proxied
 requests so the limit can change at runtime without rebuilding a semaphore.
 
+## Outbound TLS, and what verifies it
+
+Two different trust stores are in play, on purpose, and it is worth knowing
+which is which when a certificate is rejected.
+
+**The tunnel itself uses a bundled root set.** The client's `wss://` dial to
+the server builds its root store from `webpki-roots`, the Mozilla set compiled
+into the binary. That is deliberate: the tunnel is the one connection the
+client cannot afford to have quietly redirected, and a compiled-in set does
+not depend on the host being configured correctly, or on what a local
+administrator has since added.
+
+**Everything else uses the host's store.** Outbound HTTP made through
+`reqwest`, the server's webhook deliveries, OIDC and JWKS fetches, autoscaling
+callbacks and OTLP export, and the client's calls to your own backends, is
+verified against the platform's certificate store via
+`rustls-platform-verifier`. This is what lets an operator running an internal
+CA, a private OIDC provider or a corporate egress proxy make those calls work
+by installing the CA where everything else on the box already reads it, rather
+than by rebuilding Aperio.
+
+The practical consequences:
+
+- A container needs a CA bundle for outbound calls. The images published here
+  `apk add ca-certificates` for exactly this reason; a hand-rolled `scratch`
+  image with the static binary and nothing else will fail every outbound HTTPS
+  call while the tunnel keeps working, which is a confusing pair of symptoms
+  if you do not know the split above.
+- A CA installed on the host is trusted for outbound calls but **not** for the
+  tunnel dial. Adding a corporate MITM CA will not let anything intercept the
+  tunnel.
+
 ## Where state lives
 
 - **`aperio.db` (SQLite, WAL mode)**, the durable store: dynamic tokens, admin

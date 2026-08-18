@@ -32,6 +32,7 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
   // startup would; the health request is an ordinary HTTP call and carries
   // the proxy itself.
   crate::dial::set_egress_proxy(settings.egress_proxy.clone());
+  crate::ensure_crypto_provider();
   let mut http_builder = reqwest::Client::builder().timeout(Duration::from_secs(5));
   if let Some(ref proxy) = settings.egress_proxy {
     match crate::egress::as_reqwest(proxy) {

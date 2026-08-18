@@ -68,6 +68,28 @@ pub(crate) use server::state_build::*;
 
 use crate::state::AppState;
 
+/// Install the process-wide rustls crypto provider, once, before anything
+/// builds a TLS client.
+///
+/// Two separate things need this and both are load-bearing. rustls itself is
+/// pulled with `ring` *and* `aws-lc-rs` enabled by workspace feature
+/// unification, and with two providers it refuses to auto-select. And reqwest
+/// is on `rustls-no-provider`, which does not fall back at all: it panics
+/// inside `ClientBuilder::build()` with "No rustls crypto provider is
+/// configured".
+///
+/// So the provider is not merely preferred, it has to exist before the first
+/// client is built. Doing it only in `run()` made that an ordering rule held
+/// up by a panic, which is how the whole unit suite went down the first time
+/// reqwest moved to 0.13: tests build clients without ever entering `run()`.
+/// Every builder in this crate calls this first instead.
+pub(crate) fn ensure_crypto_provider() {
+  static ONCE: std::sync::Once = std::sync::Once::new();
+  ONCE.call_once(|| {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+  });
+}
+
 /// Entry point for the Aperio server, called by the thin binary in
 /// `main.rs`. Handles the diagnostic subcommands, loads `aperio-server.yaml`
 /// into the environment while still single-threaded, then hands over to the
@@ -84,7 +106,7 @@ pub fn run() {
   // unification), and with two providers rustls refuses to auto-select one,
   // the first outbound TLS call (webhooks, OIDC, OTLP) would panic without
   // this.
-  let _ = rustls::crypto::ring::default_provider().install_default();
+  ensure_crypto_provider();
 
   // `aperio-server --version` must print and exit instead of starting the
   // server (used by installers and packaging).

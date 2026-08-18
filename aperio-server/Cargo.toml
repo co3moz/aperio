@@ -63,7 +63,19 @@ argon2 = "0.5"
 # OpenAPI spec generation for the admin API (/aperio/api/openapi.json).
 utoipa = { version = "5", features = ["axum_extras"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# One reqwest for the whole binary. It used to be two: 0.12 here for our own
+# outbound calls, and the 0.13 that opentelemetry-otlp pulls, aliased as
+# `reqwest_otlp`. OTLP is not optional, so every server linked two complete
+# HTTP stacks. `rustls-no-provider` keeps it off aws-lc-rs and on the ring
+# provider installed at startup; see NOTE 2 below, which this dependency is
+# now the whole of. `form` is separate in 0.13 and the OIDC token exchange
+# posts one; `blocking` is the OTLP exporter's client.
+reqwest = { version = "0.13", default-features = false, features = [
+  "json",
+  "form",
+  "rustls-no-provider",
+  "blocking",
+] }
 url = "2.5"
 flate2 = "1"
 # OpenTelemetry OTLP trace export (opt-in via APERIO_OTEL). Both transports the
@@ -79,7 +91,7 @@ flate2 = "1"
 # NOTE 2: we deliberately do NOT enable otlp's `reqwest-rustls` feature, on
 # reqwest 0.13 that resolves to the aws-lc-rs crypto provider, a heavy C/asm
 # build (aws-lc-sys) that dominates the Windows release build. Instead the
-# `reqwest_otlp` edge below pins reqwest's `rustls-no-provider`, which reuses the
+# single `reqwest` dependency above pins `rustls-no-provider`, which reuses the
 # process-wide ring CryptoProvider we install at startup (see main.rs) and the
 # same rustls-platform-verifier roots, no second crypto backend gets compiled.
 # NOTE 3: the gRPC side is `tls-ring` + `tls-roots`, never `tls-aws-lc`, for the
@@ -95,12 +107,6 @@ opentelemetry-otlp = { version = "0.32", default-features = false, features = [
   "tls-ring",
   "tls-roots",
 ] }
-# Forces the reqwest 0.13 that opentelemetry-otlp pulls onto
-# `rustls-no-provider` (ring, not aws-lc-rs) and the blocking client. Also used
-# directly by the startup OTLP probe, which posts an empty export to check the
-# collector really speaks OTLP/HTTP, reusing the exporter's own client is what
-# makes the probe test the path the exporter will actually take.
-reqwest_otlp = { package = "reqwest", version = "0.13", default-features = false, features = ["rustls-no-provider", "blocking"] }
 tracing-opentelemetry = "0.33"
 opentelemetry-semantic-conventions = "0.32"
 sha1 = "0.10"

@@ -17,7 +17,14 @@ rust-version = "1.87"
 tokio = { version = "1.38", features = ["full"] }
 tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+# 0.13 to match the server's, which had to unify on it because
+# opentelemetry-otlp pulls it. `rustls-no-provider` reuses the ring provider
+# installed in `lib.rs` instead of pulling aws-lc-rs in beside it.
+reqwest = { version = "0.13", default-features = false, features = [
+  "json",
+  "rustls-no-provider",
+  "stream",
+] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 base64 = "0.22"

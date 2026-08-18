@@ -57,6 +57,41 @@ mod tests;
 use service::Shared;
 use tcp::run_tcp_bridge;
 
+/// Install the process-wide rustls crypto provider, once, before anything
+/// builds a TLS client.
+///
+/// Two separate things need this and both are load-bearing. rustls itself is
+/// pulled with `ring` *and* `aws-lc-rs` enabled by workspace feature
+/// unification, and with two providers it refuses to auto-select. And reqwest
+/// is on `rustls-no-provider`, which does not fall back at all: it panics
+/// inside `ClientBuilder::build()` with "No rustls crypto provider is
+/// configured".
+///
+/// So the provider is not merely preferred, it has to exist before the first
+/// client is built. Doing it only in `run()` made that an ordering rule held
+/// up by a panic, which is how the whole unit suite went down the first time
+/// reqwest moved to 0.13: tests build clients without ever entering `run()`.
+/// Every builder in this crate calls this first instead.
+pub(crate) fn ensure_crypto_provider() {
+  static ONCE: std::sync::Once = std::sync::Once::new();
+  ONCE.call_once(|| {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+  });
+}
+
+/// A reqwest client for tests.
+///
+/// `reqwest` is on `rustls-no-provider`, so a bare `Client::new()` panics
+/// unless a crypto provider is already installed, and a unit test never
+/// enters `run()`, which is where the binary installs it. Tests build their
+/// clients through here so that guarantee holds without each of them having
+/// to know about it.
+#[cfg(test)]
+pub(crate) fn test_http_client() -> reqwest::Client {
+  ensure_crypto_provider();
+  reqwest::Client::new()
+}
+
 /// Entry point for the Aperio client, called by the thin binary in
 /// `main.rs`. Resolves the layered configuration, spawns one service task per
 /// exposed target, and supervises them: a config-file change re-resolves
@@ -68,7 +103,7 @@ pub async fn run() {
   // rustls with both `ring` and `aws-lc-rs` enabled (workspace feature
   // unification), and with two providers rustls refuses to auto-select one,
   // every wss:// dial would panic at connect time without this.
-  let _ = rustls::crypto::ring::default_provider().install_default();
+  ensure_crypto_provider();
 
   // Parse CLI first so `--help` and argument errors never emit JSON logs.
   let cli = parse_cli();

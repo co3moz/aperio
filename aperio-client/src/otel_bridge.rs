@@ -343,6 +343,7 @@ pub(crate) async fn run_https_forwarder(
   // been replaced, while the tunnel itself had already followed the change.
   credentials: tokio::sync::watch::Receiver<(String, String)>,
 ) {
+  crate::ensure_crypto_provider();
   let client = reqwest::Client::builder()
     .timeout(std::time::Duration::from_secs(30))
     .build()

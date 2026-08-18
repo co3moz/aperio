@@ -727,7 +727,7 @@ fn a_bare_name_that_two_organizations_carry_is_refused_rather_than_guessed() {
 #[tokio::test]
 async fn discovery_error_answers_are_nothing_not_a_crash() {
   init_tracing();
-  let http = reqwest::Client::new();
+  let http = crate::test_http_client();
   // A rejected token, a garbage body, and a plain server error: each is
   // "nothing from this token", never a panic. (404 is deliberately absent
   // here: it exits the process by design, a server predating discovery.)

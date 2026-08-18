@@ -517,6 +517,7 @@ async fn discover(server: &str, tokens: &[String]) -> Vec<TunnelView> {
       std::process::exit(1);
     }
   };
+  crate::ensure_crypto_provider();
   let http = reqwest::Client::builder()
     .timeout(Duration::from_secs(10))
     .build()

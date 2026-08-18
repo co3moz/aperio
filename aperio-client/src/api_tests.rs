@@ -502,6 +502,7 @@ fn canned_server(
 }
 
 fn http() -> reqwest::Client {
+  crate::ensure_crypto_provider();
   reqwest::Client::builder()
     .redirect(reqwest::redirect::Policy::none())
     .build()
