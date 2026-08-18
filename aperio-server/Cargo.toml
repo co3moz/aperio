@@ -79,6 +79,13 @@ reqwest = { version = "0.13", default-features = false, features = [
   # which is what `bytes_stream()` needs.
   "stream",
 ] }
+# The server dials a WebSocket of its own for a `server_side:` service, and
+# the tests still use it to drive the tunnel handshake as a real client would.
+# Already in the shipped tree through axum at this exact version, so being
+# direct about it adds a line here and nothing to the binary. The version
+# matches the client's deliberately: a second tungstenite would bring back the
+# last consumers of rand 0.8 and rand_chacha 0.3.
+tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 url = "2.5"
 flate2 = "1"
 # OpenTelemetry OTLP trace export (opt-in via APERIO_OTEL). Both transports the
@@ -154,13 +161,6 @@ rmp-serde = "1.3"
 # authenticate ceremonies in webauthn.rs unit tests. Pinned to 0.5.5 so it
 # resolves the same webauthn-rs-proto as webauthn-rs (credential types unify).
 webauthn-authenticator-rs = { version = "=0.5.5", features = ["softpasskey"] }
-# In-process WebSocket client to drive the tunnel handshake in ws/tcp tests.
-# Matches the client's, deliberately. It was 0.24 while the client was on
-# 0.29, which put a second tungstenite in the tree and with it the last
-# consumers of rand 0.8 and rand_chacha 0.3. Nothing ships from here (these
-# are the tests that dial the server as a real client would), but a dev
-# dependency still costs a compile and still shows up in an audit.
-tokio-tungstenite = "0.29"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }

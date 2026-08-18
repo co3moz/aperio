@@ -37,6 +37,7 @@ pub(crate) mod cache;
 pub(crate) mod forward;
 pub(crate) mod gate;
 pub(crate) mod ws;
+pub(crate) mod ws_server_side;
 
 pub(crate) use cache::*;
 pub(crate) use forward::*;

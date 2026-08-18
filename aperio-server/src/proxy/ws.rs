@@ -190,29 +190,14 @@ pub(crate) async fn handle_ws_proxy(
     )
     .await
     {
-      // A service served from this server has no relay for a socket to live
-      // in. Refused rather than quietly sent over the tunnel: the client that
-      // declared it usually cannot reach the target at all, which is why it
-      // asked, so relaying the upgrade would work or not depending on
-      // something neither side can see. Saying so is the predictable answer,
-      // and the HTTP half of the same service keeps working.
+      // Served from this server: the socket is spliced to one this process
+      // opens to the target, rather than carried through the client. Handled
+      // here and returned, because everything below this point is about a
+      // stream id, a pending registration and a tunnel `tx`, none of which
+      // exist on this path.
       crate::routing::PickOutcome::Selected(c) if c.server_side_target.is_some() => {
-        log_request_failure(
-          &state,
-          &method_str,
-          &uri_str,
-          501,
-          std::time::Instant::now().duration_since(start_time),
-          Some("WebSocket upgrade on a server_side service is not supported"),
-          c.org_id.clone(),
-        )
-        .await;
-        return (
-          axum::http::StatusCode::NOT_IMPLEMENTED,
-          "501 Not Implemented - this route is served directly by the server \
-           (server_side), which does not proxy WebSocket upgrades",
-        )
-          .into_response();
+        let target = c.server_side_target.clone().expect("checked by the guard");
+        return server_side_upgrade(state, req, method_str, uri_str, start_time, c, target).await;
       }
       crate::routing::PickOutcome::Selected(c) => {
         (c.id, c.tx, c.request_count, c.org_id, c.service_name)
@@ -663,3 +648,91 @@ async fn relay_ws_stream(
 #[cfg(test)]
 #[path = "ws_tests.rs"]
 mod tests;
+
+/// Upgrades a visitor's socket and splices it to one this server opens.
+///
+/// The `server_side:` counterpart of the tunnel path below. It parts company
+/// at client selection because everything after that point, the stream id, the
+/// pending registration, the `WsOpen` and its acknowledgement, exists to carry
+/// frames through a client. Here there is no client in the middle, so the
+/// upgrade is accepted only once the target has actually answered: a visitor
+/// whose socket opens and then immediately closes because the backend was
+/// unreachable is a worse answer than a refusal it can read.
+async fn server_side_upgrade(
+  state: Arc<AppState>,
+  req: axum::extract::Request<Body>,
+  method_str: String,
+  uri_str: String,
+  start_time: Instant,
+  selected: Box<crate::routing::SelectedClient>,
+  target: String,
+) -> Response {
+  let ws_slot = match state.try_acquire_ws_slot() {
+    Some(s) => s,
+    None => {
+      return (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "503 Service Unavailable - WebSocket connection limit reached",
+      )
+        .into_response();
+    }
+  };
+
+  let Some(url) = crate::proxy::ws_server_side::socket_url(&target, &uri_str) else {
+    log_request_failure(
+      &state,
+      &method_str,
+      &uri_str,
+      502,
+      start_time.elapsed(),
+      Some("server_side target is not a usable WebSocket address"),
+      selected.org_id.clone(),
+    )
+    .await;
+    return (StatusCode::BAD_GATEWAY, "502 Bad Gateway").into_response();
+  };
+
+  let target_ws = match tokio_tungstenite::connect_async(url.as_str()).await {
+    Ok((ws, _resp)) => ws,
+    Err(e) => {
+      log_request_failure(
+        &state,
+        &method_str,
+        &uri_str,
+        502,
+        start_time.elapsed(),
+        Some(&format!("server_side WebSocket dial failed: {e}")),
+        selected.org_id.clone(),
+      )
+      .await;
+      return (
+        StatusCode::BAD_GATEWAY,
+        "502 Bad Gateway - the server could not open a WebSocket to the target",
+      )
+        .into_response();
+    }
+  };
+
+  let (parts, body) = req.into_parts();
+  let req = axum::extract::Request::from_parts(parts, body);
+  match WebSocketUpgrade::from_request(req, &state).await {
+    Ok(ws) => {
+      selected.request_count.fetch_add(1, Ordering::Relaxed);
+      info!(
+        "WebSocket served from this server to {} ({})",
+        target, uri_str
+      );
+      ws.on_upgrade(move |public_ws| async move {
+        // Held for the life of the relay, released when it ends, exactly as
+        // the tunnel path holds it.
+        let _ws_slot = ws_slot;
+        crate::proxy::ws_server_side::relay(public_ws, target_ws).await;
+      })
+    }
+    Err(rejection) => {
+      // The target's socket is already open and nothing will read it now.
+      drop(target_ws);
+      rejection.into_response()
+    }
+  }
+}

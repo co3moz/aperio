@@ -19,25 +19,6 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#141 A WebSocket cannot be served from the server, and now says so.**
-  Split from `#139`, which shipped the refusal rather than the feature: an
-  upgrade on a `server_side:` service answers 501, because a socket has no
-  relay to live in and falling through to the tunnel worked only when the
-  client could reach the target itself, which is usually not why anyone turns
-  this on.
-
-  The refusal is the honest interim answer, not the intended end state. A
-  service whose HTTP works from the server and whose WebSocket does not is a
-  split an operator has to remember, and the failure lands on the visitor.
-
-  What it would take is a server-side socket pump: accept the upgrade here,
-  dial the target with a WebSocket client, and relay frames both ways, with
-  the same idle and lifetime bounds the tunnel path applies. The awkward part
-  is not the pump, it is that `proxy/ws.rs` is written around a `tx` to a
-  client and an id in the pending map, so the seam is further back than the
-  HTTP one was. Worth measuring the crossers before assuming where it cuts,
-  the same way `#139` turned out to need no extraction at all.
-
 - [ ] **#134 Upgrade `webauthn-rs` and `argon2` once they have a stable
   release, and re-run the duplicate sweep behind them.** Both are the newest
   thing standing between the tree and a single version of several crates, and
@@ -428,6 +409,54 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#141 A WebSocket cannot be served from the server, and now says so.**
+  Split from `#139`, which shipped the refusal rather than the feature: an
+  upgrade on a `server_side:` service answers 501, because a socket has no
+  relay to live in and falling through to the tunnel worked only when the
+  client could reach the target itself, which is usually not why anyone turns
+  this on.
+
+  The refusal is the honest interim answer, not the intended end state. A
+  service whose HTTP works from the server and whose WebSocket does not is a
+  split an operator has to remember, and the failure lands on the visitor.
+
+  What it would take is a server-side socket pump: accept the upgrade here,
+  dial the target with a WebSocket client, and relay frames both ways, with
+  the same idle and lifetime bounds the tunnel path applies. The awkward part
+  is not the pump, it is that `proxy/ws.rs` is written around a `tx` to a
+  client and an id in the pending map, so the seam is further back than the
+  HTTP one was. Worth measuring the crossers before assuming where it cuts,
+  the same way `#139` turned out to need no extraction at all.
+
+  **Shipped**, and the entry's warning about the seam was right in shape and
+  wrong in size. `proxy/ws.rs` is indeed written around a stream id, a pending
+  registration and a tunnel `tx`, so nothing after client selection could be
+  reused. But that turned out to argue for parting company *at* selection
+  rather than for cutting anything: everything before it, the per-IP limit,
+  the visitor gate, the organization fence, the socket cap, is shared because
+  the two paths have not separated yet, and everything after it is
+  tunnel-specific and simply not on this path. No extraction, no measurement
+  of crossers needed.
+
+  The relay is the smaller half of its tunnel twin for a reason worth keeping:
+  that one carries frames through a third party, so it registers a stream,
+  waits for a client to confirm the open, encodes each frame in the shape that
+  client's protocol version speaks, and unwinds all of it on close. Here two
+  sockets are spliced, and the only questions left are who closes first and
+  what happens to the other side. Both directions live in one `select!` rather
+  than two tasks, so neither can outlive the other's death.
+
+  The dependency cost was measured rather than assumed: `tokio-tungstenite`
+  0.29 was already in the shipped tree through `axum`, at the version the
+  client uses, so promoting it from a dev dependency changed neither the crate
+  count nor the duplicate count.
+
+  Two decisions worth naming. The upgrade is accepted only *after* the target
+  answers, so an unreachable backend gives the visitor a 502 it can read
+  instead of a socket that opens and closes at once. And the scheme follows
+  the target's, so a target the operator wrote as `https://` gets `wss://`
+  rather than being quietly downgraded.
 
 - [x] **#140 A `server_side:` service buffers what the relayed path streams.**
   `server_side::fetch` reads the whole response with `res.bytes().await` and
