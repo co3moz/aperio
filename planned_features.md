@@ -19,6 +19,53 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
+- [ ] **#133 The server links two complete HTTP stacks, and unifying them
+  changes who it trusts.** `aperio-server` declares `reqwest` twice in
+  `[dependencies]`: 0.12 for our own outbound calls, and 0.13 under the alias
+  `reqwest_otlp` because that is what `opentelemetry-otlp` pulls. OTLP is not
+  optional, so **every server binary carries both**.
+
+  Measured 2026-08-18 rather than assumed. Moving our own calls to 0.13 and
+  deleting the alias compiles with two small changes (`rustls-tls` is spelled
+  `rustls-no-provider` there, and `.form()` needs the `form` feature), removes
+  exactly two crate versions, and takes **414 KB off the release binary, 2.4%**.
+  The client grows 18 KB if it moves too, which is noise beside that.
+
+  **The catch is not the size, it is the trust store.** The two crates removed
+  are `reqwest 0.12` and `webpki-roots`, and the second is the point: 0.12 with
+  `rustls-tls` verifies against the bundled Mozilla root set, while 0.13 pulls
+  `rustls-platform-verifier` and uses the host's store. reqwest 0.13 dropped
+  the `tls_built_in_*` toggles, leaving only `add_root_certificate`, so keeping
+  the bundled set means installing it by hand or building a rustls
+  `ClientConfig` and passing `use_preconfigured_tls`.
+
+  So this is a decision about outbound trust, not a cleanup:
+
+  - **Against.** Bundled roots mean webhook, OIDC, JWKS and autoscaling calls
+    trust exactly Mozilla's set on every machine. Under the platform verifier
+    a CA installed on the host, by an administrator or by something else, can
+    intercept them. That is a real reduction in what the server guarantees
+    about its own outbound calls, in exchange for 2.4%.
+  - **For.** The platform store is what an operator expects to control, and a
+    fleet with an internal CA currently has to work around the bundled set.
+    All three shipped images `apk add ca-certificates`, so containers are
+    unaffected either way; the exposure is a bare static binary on a host with
+    no CA bundle, which would lose outbound HTTPS entirely.
+
+  Not taken. Whoever decides should decide the trust model first and take or
+  leave the 414 KB as a consequence.
+
+  **What was taken, and what is not worth taking.** `tower-http` was our
+  direct 0.5.2 against the 0.6 reqwest already pulls; bumping ours unified it
+  for 16 KB and no behaviour change. Everything else in `cargo tree
+  --duplicates` is upstream and not ours to fix: `base64 0.21` and
+  `thiserror 1` come through `webauthn-rs`, `hashbrown 0.14` through
+  `rusqlite`, `rand_core 0.6` and `getrandom 0.2` through `password-hash`
+  (which pins them regardless of our own direct dependency, so dropping ours
+  buys nothing). And `tokio-tungstenite 0.24` is a **dev-dependency** of the
+  server against the client's 0.29: it shows in the duplicate list and ships
+  in nothing.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
