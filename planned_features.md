@@ -19,41 +19,6 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#135 The backup feature writes snapshots and cannot put one back.**
-  `backup.rs` has `write_snapshot` and `prune_snapshots` and nothing else:
-  there is no restore anywhere in the tree, no CLI subcommand, no admin
-  endpoint. An operator who has to use a backup today opens the encrypted file
-  themselves, works out the format, decrypts it with a key the feature was
-  careful to keep away from the snapshot, and puts the database in place by
-  hand, while the thing they need it for is happening.
-
-  `docs/production-hardening.md` already asks them to prove this works: *"A
-  backup snapshot restores into a working server in a staging test."* That
-  line is a checklist item for a capability the product does not have, which
-  is worse than not offering backups at all, because it reads as though the
-  round trip has been thought through.
-
-  The pieces are mostly here. Each store already has the dump side of a
-  dump-restore path, `store.rs` can replace every row of a table in one
-  transaction, and `import` exists for the stats and activity shapes. What is
-  missing is the operator-facing half and the parts that only matter when
-  somebody is having a bad day:
-
-  - **Refuse the obvious mistakes rather than half-completing them.** Restoring
-    onto a running server, or from a snapshot written by a newer Aperio than
-    the one restoring it, should be refused with a message that says which,
-    not attempted and abandoned partway.
-  - **A `verify` that does not restore.** Decrypt the snapshot, check it is
-    complete and parses, report what is in it and when it was taken. That is
-    what makes the hardening checklist item honest, and it is the operation
-    somebody can safely run on a Tuesday.
-  - **Say what will change before changing it.** How many tokens, users,
-    organizations the snapshot holds against what is there now.
-
-  The encryption that shipped this cycle makes this more urgent rather than
-  less: it is exactly what stops a competent operator from improvising a
-  restore with `sqlite3`.
-
 - [ ] **#136 Nothing checks that data written by an older Aperio still reads.**
   Config files have this and nothing else does. `check_config_tests.rs` runs
   the upgrade mechanism against real old config files, which is the right
@@ -520,6 +485,51 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#135 The restore runbook stops one step before the step that goes
+  wrong.** *(Rewritten 2026-08-18. The original entry claimed there was no
+  restore path at all, which was false on every point: `--decrypt-backup`
+  decrypts a snapshot, `POST /aperio/api/import` applies a logical dump, and
+  both are in `docs/configuration.md` and the book's reference tables. The
+  entry was written from greps that missed them, which is exactly the `#84`
+  failure it claimed to be avoiding. What follows is what is actually
+  missing.)*
+
+  For a physical restore the documentation takes an operator as far as
+  producing a plaintext `.db` and stops:
+
+  > Restore with `aperio-server --decrypt-backup <snapshot.db.enc> [out.db]`.
+
+  Nothing says what to do with that file, and the last step is the one with a
+  trap in it. The store runs in WAL mode, so a live data directory holds
+  `aperio.db` beside `aperio.db-wal` and `aperio.db-shm`, while a snapshot is a
+  single consolidated file, `VACUUM INTO` having produced no sidecars. Copying
+  the restored `.db` over `aperio.db` and leaving the old sidecars in place
+  pairs a new main database with a stale write-ahead log. Doing it while the
+  server is running is worse.
+
+  So this is a runbook, not a feature: stop the server, replace `aperio.db`,
+  remove the two sidecars, start it, and check what came back. It belongs
+  somewhere an operator reaches while their server is down, which argues for
+  `docs/production-hardening.md`, next to the checklist line that already
+  tells them to rehearse a restore in staging.
+
+  Worth saying in the same place: the logical path (`/api/export` to
+  `/api/import`) is the one that works on a running server and across a
+  version change, and the physical path is the one for getting a machine back.
+  They are for different emergencies and the docs currently describe them in
+  different files without ever saying so.
+
+  **Shipped:** the sequence lives in `docs/production-hardening.md` as
+  *Restoring, and which restore you want*, and both reference tables point at
+  it rather than stopping at the decrypt. Five steps, of which the two that
+  matter are the ones nobody writes down: no `-wal` or `-shm` may remain
+  beside the restored file, and the old files are moved aside rather than
+  deleted, because a snapshot older than expected leaves them as the only copy
+  of what was there. The checklist item that already asked for a staging
+  rehearsal now names the whole sequence, since rehearsing the decrypt proves
+  the least: it either works or says why, while the steps around it fail
+  quietly.
 
 - [x] **#133 The server links two complete HTTP stacks, and unifying them
   changes who it trusts.** `aperio-server` declares `reqwest` twice in

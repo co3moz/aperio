@@ -66,8 +66,70 @@ layered configuration (env + `aperio-server.yaml`) without binding a port.
 - [ ] **Schedule physical backups** (`APERIO_BACKUP_INTERVAL` /
       `APERIO_BACKUP_DIR` / `APERIO_BACKUP_KEEP`) and store snapshots off-box.
       Complement them with periodic logical exports (`/aperio/api/export`).
+      The two are for different emergencies; see *Restoring, and which restore
+      you want* below for which one to reach for.
 - [ ] **Keep secret redaction on** (`APERIO_INSPECTOR_REDACT`, on by default) so
       the request inspector never shows credentials to a dashboard viewer.
+
+### Restoring, and which restore you want
+
+There are two, for two different emergencies, and picking the wrong one costs
+time you do not have.
+
+**A logical restore** (`GET /aperio/api/export` to `POST /aperio/api/import`)
+runs against a server that is up. Each section present in the dump replaces
+the corresponding store, it is master super-admin only, and it carries a
+format version, so a dump taken by a different release is either applied or
+refused rather than half-read. This is the one for undoing a bad change, and
+the one that crosses a version boundary safely.
+
+**A physical restore** puts a snapshot back as the database. This is the one
+for getting a machine back, and it is offline by nature. The documented step
+gets you a plaintext file:
+
+```
+aperio-server --decrypt-backup /backups/aperio-1755500000.db.enc /tmp/restored.db
+```
+
+What that step does not say is what comes next, and the next part has a trap
+in it. The store runs in WAL mode, so a live data directory holds three files:
+
+```
+$APERIO_DATA_DIR/aperio.db
+$APERIO_DATA_DIR/aperio.db-wal
+$APERIO_DATA_DIR/aperio.db-shm
+```
+
+A snapshot is one consolidated file with no sidecars, because it was written
+with `VACUUM INTO`. So dropping the restored database over `aperio.db` and
+leaving the other two in place pairs a fresh main database with a stale
+write-ahead log describing a database that no longer exists. Do it with the
+server running and you are also racing its own writes.
+
+The whole sequence:
+
+1. **Stop the server.** Not a reload, a stop. The sequence below is not safe
+   against a process that still holds the database open.
+2. **Keep what is there.** Move the existing `aperio.db`, `aperio.db-wal` and
+   `aperio.db-shm` aside rather than deleting them. If the snapshot turns out
+   to be older than you thought, this is the only copy of what you had.
+3. **Put the restored file in place** as `$APERIO_DATA_DIR/aperio.db`, and make
+   sure **no `-wal` or `-shm` remains beside it**. This is the step that goes
+   wrong.
+4. **Match the ownership** the server runs as, before starting it. A restore
+   performed as root leaves a database the service user cannot write, which
+   surfaces later as a write failure rather than at startup.
+5. **Start the server and check what came back**: the client count and token
+   list on the dashboard, and `aperio-server --check-config` for a clean
+   startup. A snapshot restores the state as of when it was taken, so tokens
+   issued after that moment are gone and the clients holding them will be
+   refused.
+
+Rehearse this in staging before you need it, which is what the checklist item
+below is asking for. The rehearsal that matters is the whole sequence, not the
+decrypt: the decrypt either works or says why, while steps 2 to 4 are the ones
+where a real restore goes wrong quietly.
+
 
 ## Observability & incident response
 
@@ -93,7 +155,9 @@ layered configuration (env + `aperio-server.yaml`) without binding a port.
 
 - [ ] `aperio-server --check-config` is clean (no `FAIL`, warnings reviewed).
 - [ ] `aperio-server --verify-audit` passes on a fresh install.
-- [ ] A backup snapshot restores into a working server in a staging test.
+- [ ] A backup snapshot restores into a working server in a staging test,
+      following the whole sequence in *Restoring, and which restore you want*,
+      not just the decrypt step.
 - [ ] The dashboard is reachable **only** from your operator network.
 - [ ] **The startup log is clean.** The server checks its own capacity settings against the machine once at startup and warns when they do not fit: `max_ws_connections` plus `max_tunnels` against the process's file-descriptor ceiling, and the response cache budget against the container's memory limit. It never changes a setting, only names both numbers, because a value that silently follows the host is the opposite of being able to say which value is in effect. The first of these is the one worth reading: past the descriptor ceiling `accept` fails with `EMFILE` and connections break at a number nobody configured. Raise it with `ulimit -n`, or `LimitNOFILE=` in a systemd unit.
 
