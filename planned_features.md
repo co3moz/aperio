@@ -19,34 +19,6 @@ readable without scrolling past what is already done.
 
 ## Future ideas
 
-- [ ] **#130 A Rust change can break a dashboard check, and nothing runs it.**
-  Rule 14 says a UI-only change may skip the `e2e` suite, and gives the reason:
-  e2e exercises a Rust path a `.tsx` edit cannot affect. The inverse has no
-  rule, and it is the one that bit.
-
-  `explainMessages.test.ts` reads the message codes out of `api/explain.rs` and
-  demands a catalogue entry for each. `#125` added eleven stages to that file,
-  which is Rust, so the work ran `cargo test --workspace`, `clippy` and one
-  `e2e` pass and never ran `vitest`. **The check stayed red across five
-  commits** (`#125`, `#126`, `#127`, `#128`, `#129`) and every gate anybody
-  looked at was green the whole time. It surfaced only because a later sweep
-  happened to open the dashboard.
-
-  **The specific fix is cheaper than the general one.** The general answer is
-  "run the dashboard checks when Rust changes", which means teaching CI which
-  Rust files the dashboard reads and is a rule nobody will remember. The
-  specific answer is already in the repo, pointing the other way:
-  `store/audit_tests.rs` reads `aperio-dashboard/src/lib/auditEvents.ts` from a
-  *Rust* test, so `cargo test --workspace` catches a missing entry. Explain
-  parity should be asserted from Rust for the same reason. The TypeScript test
-  can stay, it is the right place to catch the other direction, a catalogue
-  entry for a code the server stopped sending.
-
-  Then look for the rest of the class rather than fixing the one that hurt:
-  any check that lives on one side of the language boundary and guards the
-  other. Each should be asserted from the side whose change breaks it, which
-  is the side whose test suite that change actually runs.
-
 - [ ] **#131 Four of the five mutation-scoped modules have never been run.**
   `#127` scoped `cargo mutants` to five modules and `#129` cleared `auth.rs`,
   which is 46 of 315 mutants. `visitor_auth.rs` (46), `proxy/gate.rs` (67),
@@ -431,6 +403,65 @@ nothing reuses them.
   what was chosen for export.
 
 ## Completed
+
+- [x] **#130 A Rust change can break a dashboard check, and nothing runs it.**
+  Rule 14 says a UI-only change may skip the `e2e` suite, and gives the reason:
+  e2e exercises a Rust path a `.tsx` edit cannot affect. The inverse has no
+  rule, and it is the one that bit.
+
+  `explainMessages.test.ts` reads the message codes out of `api/explain.rs` and
+  demands a catalogue entry for each. `#125` added eleven stages to that file,
+  which is Rust, so the work ran `cargo test --workspace`, `clippy` and one
+  `e2e` pass and never ran `vitest`. **The check stayed red across five
+  commits** (`#125`, `#126`, `#127`, `#128`, `#129`) and every gate anybody
+  looked at was green the whole time. It surfaced only because a later sweep
+  happened to open the dashboard.
+
+  **The specific fix is cheaper than the general one.** The general answer is
+  "run the dashboard checks when Rust changes", which means teaching CI which
+  Rust files the dashboard reads and is a rule nobody will remember. The
+  specific answer is already in the repo, pointing the other way:
+  `store/audit_tests.rs` reads `aperio-dashboard/src/lib/auditEvents.ts` from a
+  *Rust* test, so `cargo test --workspace` catches a missing entry. Explain
+  parity should be asserted from Rust for the same reason. The TypeScript test
+  can stay, it is the right place to catch the other direction, a catalogue
+  entry for a code the server stopped sending.
+
+  Then look for the rest of the class rather than fixing the one that hurt:
+  any check that lives on one side of the language boundary and guards the
+  other. Each should be asserted from the side whose change breaks it, which
+  is the side whose test suite that change actually runs.
+
+  Shipped 2026-08-18. The class had **two** members, not one, and the second
+  had been broken longer.
+
+  **Explain codes, now asserted from Rust as well.** `explain_tests.rs` reads
+  `explainMessages.ts` and demands an entry for every code, which is the
+  mirror of what `audit_tests.rs` already did for audit events. The
+  TypeScript test stays: it catches the other direction, an entry for a code
+  the server stopped sending, and that is a dashboard change caught by the
+  dashboard's suite. Only having the far one was the bug.
+
+  **The config form's schema snapshot, which nobody had noticed at all.**
+  `configSchema.live.test.ts` proves a new setting reaches the config editor
+  rather than degrading to an `unsupported` row in silence, and it runs against
+  `__schemas.json`, a checked-in dump whose own generator says "Run it after
+  changing aperio-config, or the test keeps answering for the old schema."
+  Nobody ran it. The snapshot was from 2026-08-05 and had spent two weeks
+  answering for a schema with no `multiplex`, `egress_proxy`, `tls_min_version`
+  or `tls_cipher_suites`, which is exactly the four settings somebody would
+  have wanted the form proven for. Regenerated, and `aperio-config` now asserts
+  it is current.
+
+  **One thing the comparison had to be taught.** The snapshot is this crate's
+  output passed through `JSON.stringify`, which writes `10.0` as `10`, and
+  `serde_json` keeps those apart. A byte-faithful comparison failed on three
+  numbers for a reason nobody could fix, so numbers are compared by value and
+  everything else exactly. Worth writing down because a check that fails
+  unfixably is deleted, not fixed.
+
+  Written up as rule 25 rather than left as three tests, since the next
+  cross-boundary check will be written by somebody who was not here.
 
 - [x] **#129 The two survivors `#127` left on the table, one of which is worth
   a test and one of which probably is not.** The first shard the new mutation

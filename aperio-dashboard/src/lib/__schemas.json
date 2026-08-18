@@ -32,13 +32,20 @@
         }
       },
       "auth": {
-        "description": "Gate this client behind your own `user:password` login instead of the server's.",
-        "type": [
-          "string",
-          "null"
+        "description": "Gate this client behind your own visitor login instead of the server's.\nA `user:password` scalar, one `{method: ...}` block, or a list of them.",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/AuthSetting"
+          },
+          {
+            "type": "null"
+          }
         ],
         "examples": [
-          "admin:s3cret"
+          "admin:s3cret",
+          {
+            "method": "none"
+          }
         ]
       },
       "bandwidth": {
@@ -202,6 +209,17 @@
         ],
         "examples": [
           "/var/lib/aperio/device.key"
+        ]
+      },
+      "egress_proxy": {
+        "description": "HTTP proxy to dial the tunnel server through, for a network that allows\nno direct outbound connection: `host:port`, or `http://host:port`, with\nan optional `user:password@` in front. The client sends `CONNECT` and\nthen runs TLS inside the tunnel the proxy opens, so the proxy sees the\nserver's hostname and nothing else. Applies to the tunnel connection\nonly; requests to your own backend never go through it\n(env: APERIO_EGRESS_PROXY). Unset: dial the server directly.",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "proxy.corp:3128",
+          "http://user:password@proxy.corp:3128"
         ]
       },
       "headers": {
@@ -471,6 +489,16 @@
         ],
         "examples": [
           "1.3"
+        ]
+      },
+      "multiplex": {
+        "description": "Carry every service that sets this on one WebSocket, instead of opening a\nconnection per service. The default for the whole file, so forty services\nturn it on once; an entry may still say `multiplex: false` to keep a\nconnection of its own.\n\nWhat it saves is per service and it is the whole cost of a connection: one\nsocket, one TLS session, one reader, one writer and one heartbeat, rather\nthan that many of each on both ends. What it costs is that the services\nthen share a link, so a large response occupies the writer the others send\nthrough, and a dropped connection takes all of them down together.\n\nTwo services are needed for it to do anything, and they must agree on\n`server:` and `token:`, since a connection carries one of each. Every\nmultiplexed service needs a `name:`, which is what the server keeps its\nrouting, ejection and statistics under and what addresses it in the\ndashboard. Needs a server speaking tunnel protocol 8 or newer (Aperio\n0.10.0); against an older one the services are held back and the client\nsays so, rather than being quietly served one at a time. `connections:` is\nnot honored for a multiplexed service, one connection is what multiplexing\nmeans, and the client reports the difference in the dashboard's config\nview. Default: `false` (env: APERIO_MULTIPLEX).",
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "otel_bridge": {
@@ -782,6 +810,26 @@
         ],
         "minimum": 0
       },
+      "tls_cipher_suites": {
+        "description": "Exact cipher suites offered when dialing the tunnel server, by their\nIANA names, comma-separated. Unset leaves rustls'\npreference order alone, which is almost always better; name them only\nwhen something external requires it. An unknown name is refused at\nstartup (env: APERIO_TLS_CIPHER_SUITES).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "TLS13_AES_256_GCM_SHA384,TLS13_CHACHA20_POLY1305_SHA256"
+        ]
+      },
+      "tls_min_version": {
+        "description": "Lowest TLS version offered when dialing the tunnel server over `wss://`:\n`1.2` or `1.3`. Unset leaves rustls' own set (1.2 and 1.3) in place,\nwhich is the right default; pin it when a policy has to name the floor\nrather than inherit it. A value this client cannot offer is refused at\nstartup rather than ignored (env: APERIO_TLS_MIN_VERSION).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "1.3"
+        ]
+      },
       "token": {
         "description": "Deprecated spelling of `server.token`, kept so a token written at the\ntop level still authenticates rather than being silently ignored.",
         "type": [
@@ -857,6 +905,244 @@
       }
     },
     "$defs": {
+      "AuthMethodSpec": {
+        "description": "One entry of an `auth:` policy: which method gates the route, and the\nsettings that method needs.\n\n`method` is deliberately a string here rather than an enum: an unknown one\nshould be refused by name, with the available methods listed, and a serde\n\"unknown variant\" error inside an untagged enum says only that nothing\nmatched. The same reason `alert_rules` parses its `metric` by hand.",
+        "type": "object",
+        "properties": {
+          "audience": {
+            "description": "`jwt`: required `aud` claim, one or a list of accepted values.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Credentials"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "examples": [
+              "aperio",
+              [
+                "aperio",
+                "internal-tools"
+              ]
+            ]
+          },
+          "cache": {
+            "description": "`forward`: seconds to remember a verdict for an identical credential,\nso a busy route does not pay a round trip per request. `0` (the default)\nasks every time.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "default": null,
+            "examples": [
+              30
+            ],
+            "minimum": 0
+          },
+          "claims": {
+            "description": "`jwt`: further claims a token must carry, each as an exact value the\nclaim must equal (`{groups: engineering}`).",
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": null,
+            "examples": [
+              {
+                "groups": "engineering"
+              }
+            ]
+          },
+          "cookie": {
+            "description": "`jwt`: read the token from this cookie instead of the `Authorization`\nheader, which is where an identity-aware proxy in front usually puts it\n(Cloudflare Access writes `CF_Authorization`).",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              "CF_Authorization"
+            ]
+          },
+          "hmac_secret": {
+            "description": "`jwt`: shared secret for HMAC-signed tokens (`HS256`), for an issuer\nthat is your own service rather than a provider with public keys.\nMutually exclusive with `jwks_url`.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              "${JWT_SECRET}"
+            ]
+          },
+          "issuer": {
+            "description": "`jwt`: required `iss` claim. Strongly recommended: without it any issuer\nwhose key the JWKS happens to carry is accepted.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              "https://accounts.example.com"
+            ]
+          },
+          "jwks_url": {
+            "description": "`jwt`: URL of the issuer's JWKS, the public keys its tokens are signed\nwith. Fetched and cached, and re-fetched when a token names a key id\nthat is not in the cache. Subject to the server's outbound policy.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              "https://accounts.example.com/.well-known/jwks.json"
+            ]
+          },
+          "method": {
+            "description": "The gate: `none` (deliberately open) or `basic` (a `user:password`\nlogin). Further methods are their own backlog entries.",
+            "type": "string",
+            "examples": [
+              "basic",
+              "none"
+            ]
+          },
+          "query": {
+            "description": "`bearer`: also accept the secret as `?aperio_token=`, for the callers\nthat cannot set a header. **Off by default**: a query string reaches the\naccess log, the `Referer` header, browser history and every proxy in\nfront, so this is a trade an operator makes on purpose.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              true
+            ]
+          },
+          "request_headers": {
+            "description": "`forward`: request headers copied to the subrequest.\nDefault: `cookie` and `authorization`, the two that carry an identity.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              [
+                "cookie",
+                "authorization",
+                "x-api-key"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "response_headers": {
+            "description": "`forward`: headers of a `2xx` answer copied onto the request that goes\nto the backend. This is how the pattern delivers an identity, and an\nopen list is how it becomes a header injection, so it is named\nexplicitly and empty by default.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              [
+                "x-auth-user",
+                "x-auth-groups"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "secret": {
+            "description": "`bearer`: the secret a caller presents as `Authorization: Bearer <secret>`.\nOne or a list, all alternatives on the same gate, so a key can be\nrotated by adding the new one before withdrawing the old.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Credentials"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "examples": [
+              "${API_SECRET}",
+              [
+                "${API_SECRET}",
+                "${API_SECRET_PREVIOUS}"
+              ]
+            ]
+          },
+          "timeout": {
+            "description": "`forward`: seconds to wait for the endpoint. A timeout **refuses** the\nrequest: an auth gate that opens when its check is unreachable is not a\ngate. Default: `5`.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "default": null,
+            "examples": [
+              5
+            ],
+            "minimum": 0
+          },
+          "url": {
+            "description": "`forward`: the endpoint asked about each request. `2xx` admits it;\nanything else refuses it, and the endpoint's own answer is what the\nvisitor gets, so it can redirect to a login of its own.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              "http://127.0.0.1:7070/_authcheck"
+            ]
+          },
+          "users": {
+            "description": "`basic`: the credentials that open this gate, each `user:password`.\nA single value or a list.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Credentials"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "examples": [
+              "admin:s3cret",
+              [
+                "admin:s3cret",
+                "ops:hunter2"
+              ]
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "method"
+        ]
+      },
+      "AuthSetting": {
+        "description": "How a visitor gate is written, on either side of the tunnel.\n\nThree spellings of one thing. The scalar `auth: \"user:password\"` predates\nthe grammar and keeps working, folding to a single `basic` method; one\nblock names a method with its settings; a list is admitted when **any** of\nits methods admits the visitor, which is what \"a browser signs in, a script\npresents a key\" needs and what a single choice cannot say.\n\nThe variants are ordered for `untagged`: a YAML scalar can only be the\nfirst, a mapping only the second, a sequence only the third, so a value is\nnever read as the wrong shape.",
+        "anyOf": [
+          {
+            "description": "`auth: \"user:password\"`, the spelling that predates the method grammar.",
+            "type": "string"
+          },
+          {
+            "description": "One method: `auth: {method: none}`. Boxed because a method entry grew\nfields as methods were added, and an unboxed variant makes every\n`AuthSetting`, including the one-word scalar, as large as the largest\nmethod's settings.",
+            "$ref": "#/$defs/AuthMethodSpec"
+          },
+          {
+            "description": "Several methods, any one of which admits the visitor.",
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AuthMethodSpec"
+            }
+          }
+        ]
+      },
       "BindTunnelEntry": {
         "description": "What to bind, and where to bind it: one named tunnel (or, in the older\nspelling, every tunnel of one peer client).",
         "type": "object",
@@ -1013,6 +1299,22 @@
           {
             "description": "`connections: {min: 1, max: 8}`, grown and shrunk with load.",
             "$ref": "#/$defs/ConnectionRange"
+          }
+        ]
+      },
+      "Credentials": {
+        "description": "A `basic` method's credentials: one `user:password` or a list of them.",
+        "anyOf": [
+          {
+            "description": "A single `user:password`.",
+            "type": "string"
+          },
+          {
+            "description": "Several, any of which opens the gate.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         ]
       },
@@ -1522,13 +1824,20 @@
             }
           },
           "auth": {
-            "description": "Gate this service behind your own `user:password` login instead of the server's.",
-            "type": [
-              "string",
-              "null"
+            "description": "Gate this service behind your own visitor login instead of the server's.\nA `user:password` scalar, one `{method: ...}` block, or a list of them.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/AuthSetting"
+              },
+              {
+                "type": "null"
+              }
             ],
             "examples": [
-              "admin:s3cret"
+              "admin:s3cret",
+              {
+                "method": "none"
+              }
             ]
           },
           "bandwidth": {
@@ -1821,6 +2130,16 @@
             ],
             "examples": [
               "1.3"
+            ]
+          },
+          "multiplex": {
+            "description": "Carry this service on a WebSocket it shares with the other services that\nset it, instead of opening one of its own. Overrides the top-level\n`multiplex:`, so a file that turns it on for everything can still keep a\nsingle service on a connection of its own with `multiplex: false`.\nDefault: the top-level `multiplex:`.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "examples": [
+              true
             ]
           },
           "name": {
@@ -2521,6 +2840,26 @@
         ],
         "minimum": 0
       },
+      "backup_key": {
+        "description": "Flat spelling of `backup.key` (env: APERIO_BACKUP_KEY).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "${APERIO_BACKUP_KEY}"
+        ]
+      },
+      "backup_key_file": {
+        "description": "Flat spelling of `backup.key_file` (env: APERIO_BACKUP_KEY_FILE).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "/etc/aperio/backup.key"
+        ]
+      },
       "cache": {
         "description": "The server-side GET response cache",
         "anyOf": [
@@ -2632,6 +2971,16 @@
           1073741824
         ],
         "minimum": 0
+      },
+      "default_access": {
+        "description": "What a route nobody gated means: `allow` (today's behaviour, and the\ndefault) or `deny`. With `deny` a route is reachable because something\nsaid so, an `auth:` policy that admits the visitor or an explicit\n`method: none` / `public: true`, rather than because nothing said\notherwise (env: APERIO_DEFAULT_ACCESS). Default: `allow`.",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "deny"
+        ]
       },
       "denied_ips": {
         "description": "Source IPs/CIDRs refused everything, checked before every other rule:\nproxied traffic, the dashboard and its API, and the tunnel endpoints\nalike. The inverse of `allowed_ips`, for blocking an abusive address\nwithout turning on an allowlist that would lock out everyone unnamed.\nAnswers `403`. Hot-reloadable, so an address can be blocked without a\nrestart. An invalid entry refuses startup rather than applying a partial\ndeny list (env: APERIO_DENIED_IPS).",
@@ -2955,6 +3304,44 @@
           "null"
         ],
         "format": "double"
+      },
+      "jwks": {
+        "description": "How far a client-declared `jwt` gate's key-set URL may reach",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/JwksGroup"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "examples": [
+          {
+            "allow_http": false,
+            "allow_private": false
+          }
+        ]
+      },
+      "jwks_allow_http": {
+        "description": "Flat spelling of `jwks.allow_http` (env: APERIO_JWKS_ALLOW_HTTP).",
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "examples": [
+          false
+        ]
+      },
+      "jwks_allow_private": {
+        "description": "Flat spelling of `jwks.allow_private` (env: APERIO_JWKS_ALLOW_PRIVATE).",
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "examples": [
+          false
+        ]
       },
       "lb_strategy": {
         "description": "Load-balancing strategy (env: APERIO_LB_STRATEGY).\nDefault: `round-robin`.",
@@ -3321,6 +3708,32 @@
           true
         ]
       },
+      "outbound_no_proxy": {
+        "description": "Flat spelling of `outbound.no_proxy` (env: APERIO_OUTBOUND_NO_PROXY).",
+        "type": [
+          "array",
+          "null"
+        ],
+        "examples": [
+          [
+            "auth.internal",
+            ".svc.cluster.local"
+          ]
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "outbound_proxy": {
+        "description": "Flat spelling of `outbound.proxy` (env: APERIO_OUTBOUND_PROXY).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "proxy.corp:3128"
+        ]
+      },
       "outlier_eject_secs": {
         "description": "Seconds an ejected client stays out before re-admission\n(env: APERIO_OUTLIER_EJECT_SECS). Default: `30`.",
         "type": [
@@ -3667,9 +4080,13 @@
       },
       "server_auth": {
         "description": "Deprecated spelling of `server.auth` (env: APERIO_SERVER_AUTH).",
-        "type": [
-          "string",
-          "null"
+        "anyOf": [
+          {
+            "$ref": "#/$defs/AuthSetting"
+          },
+          {
+            "type": "null"
+          }
         ]
       },
       "server_token": {
@@ -3871,6 +4288,16 @@
         ],
         "examples": [
           "0.5.0"
+        ]
+      },
+      "visitor_identity_headers": {
+        "description": "Announce to the backend who the *visitor* is, as `x-aperio-visitor-how`\n(`session` / `bearer` / `share`) and `x-aperio-visitor-id` (the email or\nusername behind a session, where there is one). Off by default and the\nsame trust surface as `identity_headers`; an ungated or deliberately\nopen route identifies nobody and sends neither header\n(env: APERIO_VISITOR_IDENTITY_HEADERS).",
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "examples": [
+          true
         ]
       },
       "waf": {
@@ -4086,6 +4513,244 @@
         },
         "additionalProperties": false
       },
+      "AuthMethodSpec": {
+        "description": "One entry of an `auth:` policy: which method gates the route, and the\nsettings that method needs.\n\n`method` is deliberately a string here rather than an enum: an unknown one\nshould be refused by name, with the available methods listed, and a serde\n\"unknown variant\" error inside an untagged enum says only that nothing\nmatched. The same reason `alert_rules` parses its `metric` by hand.",
+        "type": "object",
+        "properties": {
+          "audience": {
+            "description": "`jwt`: required `aud` claim, one or a list of accepted values.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Credentials"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "examples": [
+              "aperio",
+              [
+                "aperio",
+                "internal-tools"
+              ]
+            ]
+          },
+          "cache": {
+            "description": "`forward`: seconds to remember a verdict for an identical credential,\nso a busy route does not pay a round trip per request. `0` (the default)\nasks every time.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "default": null,
+            "examples": [
+              30
+            ],
+            "minimum": 0
+          },
+          "claims": {
+            "description": "`jwt`: further claims a token must carry, each as an exact value the\nclaim must equal (`{groups: engineering}`).",
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": null,
+            "examples": [
+              {
+                "groups": "engineering"
+              }
+            ]
+          },
+          "cookie": {
+            "description": "`jwt`: read the token from this cookie instead of the `Authorization`\nheader, which is where an identity-aware proxy in front usually puts it\n(Cloudflare Access writes `CF_Authorization`).",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              "CF_Authorization"
+            ]
+          },
+          "hmac_secret": {
+            "description": "`jwt`: shared secret for HMAC-signed tokens (`HS256`), for an issuer\nthat is your own service rather than a provider with public keys.\nMutually exclusive with `jwks_url`.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              "${JWT_SECRET}"
+            ]
+          },
+          "issuer": {
+            "description": "`jwt`: required `iss` claim. Strongly recommended: without it any issuer\nwhose key the JWKS happens to carry is accepted.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              "https://accounts.example.com"
+            ]
+          },
+          "jwks_url": {
+            "description": "`jwt`: URL of the issuer's JWKS, the public keys its tokens are signed\nwith. Fetched and cached, and re-fetched when a token names a key id\nthat is not in the cache. Subject to the server's outbound policy.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              "https://accounts.example.com/.well-known/jwks.json"
+            ]
+          },
+          "method": {
+            "description": "The gate: `none` (deliberately open) or `basic` (a `user:password`\nlogin). Further methods are their own backlog entries.",
+            "type": "string",
+            "examples": [
+              "basic",
+              "none"
+            ]
+          },
+          "query": {
+            "description": "`bearer`: also accept the secret as `?aperio_token=`, for the callers\nthat cannot set a header. **Off by default**: a query string reaches the\naccess log, the `Referer` header, browser history and every proxy in\nfront, so this is a trade an operator makes on purpose.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              true
+            ]
+          },
+          "request_headers": {
+            "description": "`forward`: request headers copied to the subrequest.\nDefault: `cookie` and `authorization`, the two that carry an identity.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              [
+                "cookie",
+                "authorization",
+                "x-api-key"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "response_headers": {
+            "description": "`forward`: headers of a `2xx` answer copied onto the request that goes\nto the backend. This is how the pattern delivers an identity, and an\nopen list is how it becomes a header injection, so it is named\nexplicitly and empty by default.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              [
+                "x-auth-user",
+                "x-auth-groups"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "secret": {
+            "description": "`bearer`: the secret a caller presents as `Authorization: Bearer <secret>`.\nOne or a list, all alternatives on the same gate, so a key can be\nrotated by adding the new one before withdrawing the old.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Credentials"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "examples": [
+              "${API_SECRET}",
+              [
+                "${API_SECRET}",
+                "${API_SECRET_PREVIOUS}"
+              ]
+            ]
+          },
+          "timeout": {
+            "description": "`forward`: seconds to wait for the endpoint. A timeout **refuses** the\nrequest: an auth gate that opens when its check is unreachable is not a\ngate. Default: `5`.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "default": null,
+            "examples": [
+              5
+            ],
+            "minimum": 0
+          },
+          "url": {
+            "description": "`forward`: the endpoint asked about each request. `2xx` admits it;\nanything else refuses it, and the endpoint's own answer is what the\nvisitor gets, so it can redirect to a login of its own.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              "http://127.0.0.1:7070/_authcheck"
+            ]
+          },
+          "users": {
+            "description": "`basic`: the credentials that open this gate, each `user:password`.\nA single value or a list.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Credentials"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "examples": [
+              "admin:s3cret",
+              [
+                "admin:s3cret",
+                "ops:hunter2"
+              ]
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "method"
+        ]
+      },
+      "AuthSetting": {
+        "description": "How a visitor gate is written, on either side of the tunnel.\n\nThree spellings of one thing. The scalar `auth: \"user:password\"` predates\nthe grammar and keeps working, folding to a single `basic` method; one\nblock names a method with its settings; a list is admitted when **any** of\nits methods admits the visitor, which is what \"a browser signs in, a script\npresents a key\" needs and what a single choice cannot say.\n\nThe variants are ordered for `untagged`: a YAML scalar can only be the\nfirst, a mapping only the second, a sequence only the third, so a value is\nnever read as the wrong shape.",
+        "anyOf": [
+          {
+            "description": "`auth: \"user:password\"`, the spelling that predates the method grammar.",
+            "type": "string"
+          },
+          {
+            "description": "One method: `auth: {method: none}`. Boxed because a method entry grew\nfields as methods were added, and an unboxed variant makes every\n`AuthSetting`, including the one-word scalar, as large as the largest\nmethod's settings.",
+            "$ref": "#/$defs/AuthMethodSpec"
+          },
+          {
+            "description": "Several methods, any one of which admits the visitor.",
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AuthMethodSpec"
+            }
+          }
+        ]
+      },
       "BackupGroup": {
         "description": "Scheduled snapshots of the SQLite store.\n\nWritten as a `backup:` block; the flat `backup_*` keys mean the same thing\nand still work, with the block winning per field.",
         "type": "object",
@@ -4123,6 +4788,26 @@
               7
             ],
             "minimum": 0
+          },
+          "key": {
+            "description": "Encryption key for snapshots, as 64 hex characters or base64 of 32\nbytes. Unset writes snapshots in the clear, as before. Prefer\n`key_file`: a key written here is a key in a config file, which backups\nand configuration management copy around\n(env: APERIO_BACKUP_KEY).",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "${APERIO_BACKUP_KEY}"
+            ]
+          },
+          "key_file": {
+            "description": "File holding the encryption key, which is what a secret manager mounts.\nRefused when it is inside `dir`: whoever has the backups would have the\nkey, which is the one arrangement encryption cannot survive\n(env: APERIO_BACKUP_KEY_FILE).",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "/etc/aperio/backup.key"
+            ]
           }
         },
         "additionalProperties": false
@@ -4190,6 +4875,22 @@
           {
             "description": "The full block.",
             "$ref": "#/$defs/CacheGroup"
+          }
+        ]
+      },
+      "Credentials": {
+        "description": "A `basic` method's credentials: one `user:password` or a list of them.",
+        "anyOf": [
+          {
+            "description": "A single `user:password`.",
+            "type": "string"
+          },
+          {
+            "description": "Several, any of which opens the gate.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         ]
       },
@@ -4631,6 +5332,33 @@
         },
         "additionalProperties": false
       },
+      "JwksGroup": {
+        "description": "Autoscaling: the server signalling desired capacity to an endpoint you control.\nHow far a **client-declared** `jwt` gate's key-set URL may reach.\n\nA client may declare its own visitor gate, and a `jwt` method names\n`jwks_url`, which this server fetches from this server's network before\nany signature is checked. That is the same shape as a client-declared\nautoscaling endpoint, so it gets the same fence and the same two escapes.\nA `jwt` gate in the server's *own* configuration is not subject to it: an\noperator naming an issuer on their own network is describing their\ndeployment, not aiming the server at something.\n\nWritten as a `jwks:` block; the flat `jwks_*` keys mean the same thing.",
+        "type": "object",
+        "properties": {
+          "allow_http": {
+            "description": "Allow a plain-http `jwks_url` on a client-declared gate.\nDefault: `false`.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "examples": [
+              false
+            ]
+          },
+          "allow_private": {
+            "description": "Allow a client-declared `jwks_url` that resolves to a private, loopback\nor link-local address, for an issuer that genuinely lives on the\ninternal network. Default: `false`.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "examples": [
+              false
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "LoginLockoutGroup": {
         "description": "Dashboard login lockout after repeated failures.\n\nWritten as a `login_lockout:` block; the flat `login_lockout_*` keys mean the same\nthing and still work, with the block winning per field.",
         "type": "object",
@@ -4964,6 +5692,32 @@
             ],
             "examples": [
               true
+            ]
+          },
+          "no_proxy": {
+            "description": "Destinations that skip the proxy and are called directly: exact names,\nor `.suffix` / `*.suffix` for a domain and everything under it. The\nusual case is an auth endpoint or an issuer inside your own network.\nLoopback is always direct, listed or not. These keep the whole policy,\nsince the server chooses their addresses itself.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "examples": [
+              [
+                "auth.internal",
+                ".svc.cluster.local"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "proxy": {
+            "description": "HTTP proxy these callbacks go through, on a network with no direct\noutbound connection: `host:port` or `http://host:port`, with an optional\n`user:password@`. The ambient `HTTP_PROXY` is *not* read; this is the\nonly way to send them through a proxy. Note what it costs the checks\nabove: through a proxy the destination's name is resolved by the proxy,\nso `block_private` covers literal addresses only and CIDR allowlist\nentries cannot admit a named destination. Unset: call directly.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "proxy.corp:3128"
             ]
           }
         },
@@ -5397,7 +6151,7 @@
         }
       },
       "ScalingGroup": {
-        "description": "Autoscaling: the server signalling desired capacity to an endpoint you control.\n\nWritten as a `scaling:` block; the flat `scaling_*` keys mean the same\nthing and still work, with the block winning per field.",
+        "description": "Written as a `scaling:` block; the flat `scaling_*` keys mean the same\nthing and still work, with the block winning per field.",
         "type": "object",
         "properties": {
           "allow_http": {
@@ -5463,13 +6217,25 @@
         "type": "object",
         "properties": {
           "auth": {
-            "description": "Visitor auth `user:password` gate.",
-            "type": [
-              "string",
-              "null"
+            "description": "The server's default visitor gate: a `user:password` scalar, one\n`{method: ...}` block, or a list of them, any of which admits a visitor.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/AuthSetting"
+              },
+              {
+                "type": "null"
+              }
             ],
             "examples": [
-              "admin:s3cret"
+              "admin:s3cret",
+              [
+                {
+                  "method": "basic",
+                  "users": [
+                    "admin:s3cret"
+                  ]
+                }
+              ]
             ]
           },
           "token": {

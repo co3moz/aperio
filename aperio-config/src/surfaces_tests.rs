@@ -208,3 +208,98 @@ fn every_env_exemption_is_for_a_key_that_exists_and_gives_a_reason() {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// The dashboard's config form, which is a config surface too
+// ---------------------------------------------------------------------------
+
+/// Compares two schemas the way the snapshot survives being written.
+///
+/// The snapshot is produced by piping this crate's output through
+/// `JSON.stringify`, which writes `10.0` as `10`. `serde_json` keeps the two
+/// apart, so a byte-faithful comparison fails on a difference that exists only
+/// because the file passed through Node and that nobody can fix. Numbers are
+/// therefore compared by value; everything else exactly.
+fn same(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+  use serde_json::Value;
+  match (a, b) {
+    (Value::Number(x), Value::Number(y)) => match (x.as_f64(), y.as_f64()) {
+      (Some(x), Some(y)) => x == y,
+      _ => x == y,
+    },
+    (Value::Object(x), Value::Object(y)) => {
+      x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| same(v, w)))
+    }
+    (Value::Array(x), Value::Array(y)) => {
+      x.len() == y.len() && x.iter().zip(y).all(|(v, w)| same(v, w))
+    }
+    _ => a == b,
+  }
+}
+
+/// The schema snapshot the dashboard's form tests run against is current.
+///
+/// `configSchema.live.test.ts` exists so a new setting is proven to reach the
+/// config editor rather than degrading to an `unsupported` row in silence. It
+/// runs against `__schemas.json`, a checked-in dump, and its own generator says
+/// what that costs: "Run it after changing aperio-config, or the test keeps
+/// answering for the old schema."
+///
+/// Nobody ran it. Measured 2026-08-18, the snapshot was from 2026-08-05 and had
+/// been answering for a schema without `multiplex`, `egress_proxy`,
+/// `tls_min_version` or `tls_cipher_suites` for two weeks, which is precisely
+/// the four settings somebody would have wanted the form proven for.
+///
+/// This assertion is here rather than in the dashboard because the change that
+/// invalidates the snapshot is a change to *this crate*, and a check belongs on
+/// the side whose test suite the breaking change actually runs. The same
+/// reasoning put the explain-code parity check into `aperio-server`.
+#[test]
+fn the_dashboards_schema_snapshot_is_not_stale() {
+  let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    .join("../aperio-dashboard/src/lib/__schemas.json");
+  let snapshot: serde_json::Value = serde_json::from_str(
+    &std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display())),
+  )
+  .expect("the snapshot is valid JSON");
+
+  for (side, live) in [
+    ("client", crate::schema_json()),
+    ("server", crate::server_schema_json()),
+  ] {
+    let live: serde_json::Value = serde_json::from_str(&live).expect("the schema is valid JSON");
+    let snap = &snapshot[side];
+    let keys = |v: &serde_json::Value| -> Vec<String> {
+      v["properties"]
+        .as_object()
+        .map(|o| o.keys().cloned().collect())
+        .unwrap_or_default()
+    };
+    let (live_keys, snap_keys) = (keys(&live), keys(snap));
+    let missing: Vec<&String> = live_keys
+      .iter()
+      .filter(|k| !snap_keys.contains(k))
+      .collect();
+    let extra: Vec<&String> = snap_keys
+      .iter()
+      .filter(|k| !live_keys.contains(k))
+      .collect();
+    assert!(
+      missing.is_empty() && extra.is_empty(),
+      "the {side} schema snapshot is stale: {} missing, {} left over.\n\n\
+       Regenerate it with `node scripts/dump-schemas.mjs` from aperio-dashboard/ \
+       and commit the result; until then the dashboard's form tests are \
+       answering for a schema that no longer exists.\n  missing: {:?}\n  extra: {:?}",
+      missing.len(),
+      extra.len(),
+      missing,
+      extra
+    );
+    assert!(
+      same(snap, &live),
+      "the {side} schema snapshot has the right keys but differs in shape \
+       (a type, an enum, a description); regenerate it with \
+       `node scripts/dump-schemas.mjs`"
+    );
+  }
+}

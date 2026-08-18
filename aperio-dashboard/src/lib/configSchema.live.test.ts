@@ -120,13 +120,18 @@ describe('every setting reaches an editor', () => {
     // Every one is `map of name → scalar`, which has no editor yet; the map
     // of name → *object* does, which is how `bind-tunnels` itself is edited.
     // The list grows when a setting of that shape is added: `metrics_labels`
-    // and `subscribe.env` joined it this cycle, and went unnoticed until the
-    // snapshot was regenerated, which is the failure mode this test has.
+    // and `subscribe.env` joined it one cycle, `auth.claims` the next, and
+    // both went unnoticed until the snapshot was regenerated. That was the
+    // failure mode this test had, and it is closed: aperio-config now asserts
+    // the snapshot is current, so a stale one fails in Rust rather than
+    // hiding a new hole here.
     expect(unsupported(clientFields).sort()).toEqual([
+      'auth.claims',
       'bind-tunnels.override',
       'headers.request.add',
       'headers.response.add',
       'metrics_labels',
+      'services.auth.claims',
       'services.headers.request',
       'services.headers.response',
       'services.metrics_labels',
@@ -135,12 +140,16 @@ describe('every setting reaches an editor', () => {
   })
 
   it('has only the same holes in the server schema', () => {
-    // `routes.headers.*` is the same shape reached through a policy rule.
+    // `routes.headers.*` is the same shape reached through a policy rule, and
+    // `auth.claims` is the claim map a `jwt` method requires, reached by both
+    // spellings of the server's own gate.
     expect(unsupported(serverFields).sort()).toEqual([
       'headers.request.add',
       'headers.response.add',
       'routes.headers.request',
       'routes.headers.response',
+      'server.auth.claims',
+      'server_auth.claims',
     ])
   })
 })

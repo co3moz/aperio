@@ -905,3 +905,71 @@ async fn the_stages_that_cannot_be_evaluated_say_what_they_are_reporting() {
     step("token_quota")
   );
 }
+
+/// Every code this endpoint can send has an entry in the dashboard's
+/// catalogue.
+///
+/// There is already a test for this, in TypeScript, reading this same Rust
+/// file. It is in the right place for one direction and the wrong place for
+/// the other, and the wrong one is what happened: adding eleven stages here is
+/// a Rust change, so the work ran `cargo test`, `clippy` and `e2e` and never
+/// ran `vitest`. The check stayed red across five commits with every gate
+/// anybody looked at green.
+///
+/// So the same assertion lives on both sides now, because the two catch
+/// different mistakes and only from their own side. This one catches a code
+/// added here with no entry there, which is a Rust change. The TypeScript one
+/// catches an entry there for a code no longer sent from here, which is a
+/// dashboard concern and a dashboard change. Neither is redundant; what was
+/// redundant was having only one of them.
+///
+/// A missing entry is silent by design, the dashboard falls back to the
+/// server's English `detail`, so the screen reads correctly in one language
+/// and wrongly in seven.
+#[test]
+fn every_message_code_has_a_dashboard_entry() {
+  const HANDLER: &str = include_str!("explain.rs");
+  let catalogue = std::fs::read_to_string("../aperio-dashboard/src/lib/explainMessages.ts")
+    .expect("the dashboard's explain catalogue");
+
+  // A code is written as a `"stage.message"` literal. The `#[path = "..."]`
+  // attribute wiring the test module in matches that shape and is not one.
+  let codes: Vec<&str> = HANDLER
+    .match_indices('"')
+    .filter_map(|(i, _)| {
+      let rest = &HANDLER[i + 1..];
+      let end = rest.find('"')?;
+      let lit = &rest[..end];
+      let looks_like_a_code = lit.split_once('.').is_some_and(|(a, b)| {
+        !a.is_empty()
+          && !b.is_empty()
+          && a.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+          && b
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
+      });
+      (looks_like_a_code && !lit.ends_with(".rs")).then_some(lit)
+    })
+    .collect();
+  assert!(
+    codes.len() > 20,
+    "only {} codes found; the scan is looking in the wrong place",
+    codes.len()
+  );
+
+  let mut missing: Vec<&str> = codes
+    .into_iter()
+    .filter(|c| !catalogue.contains(&format!("'{c}'")))
+    .collect();
+  missing.sort_unstable();
+  missing.dedup();
+  assert!(
+    missing.is_empty(),
+    "codes with no entry in aperio-dashboard/src/lib/explainMessages.ts: {}.\n\n\
+     A code with no entry falls back to the server's English sentence, so the \
+     screen still reads and only a reader in another language notices. Add \
+     them to EXPLAIN_MESSAGES (or EXPLAIN_INELIGIBLE / EXPLAIN_SETTINGS), and \
+     to the seven dictionaries in aperio-dashboard/src/i18n.",
+    missing.join(", ")
+  );
+}
