@@ -244,7 +244,7 @@ async function main() {
     APERIO_SERVER_URL: `http://127.0.0.1:${serverPort}`,
     APERIO_SERVER_TOKEN: token,
     APERIO_TARGET: `http://127.0.0.1:${backendPort}`,
-    APERIO_PATH_BIND: '/',
+    APERIO_PATH: '/',
     // Declared open, because these runs grade the *protocol*, not the visitor
     // gate. The server has been closed by default since 0.10.0, so a route
     // that declares nothing is refused before a frame is ever exchanged, and

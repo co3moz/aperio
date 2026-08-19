@@ -177,8 +177,12 @@ async function main() {
     APERIO_SERVER_TOKEN: token,
     APERIO_DATA_DIR: dataDir,
     APERIO_DASHBOARD: '0',
-    // The per-visitor limiter would otherwise be the thing under test.
-    APERIO_RATE_LIMIT: '0',
+    // The per-visitor limiter would otherwise be the thing under test. These
+    // are the names the server actually reads: `APERIO_RATE_LIMIT` was written
+    // here and is not a setting, so this run measured memory with the limiter
+    // on for as long as the line has existed.
+    APERIO_IP_LIMIT_MAX: '1000000',
+    APERIO_IP_LIMIT_REFILL: '100000',
   })
   await waitFor(async () => (await get(serverPort, '/aperio/health')) === 200, 'aperio-server')
 

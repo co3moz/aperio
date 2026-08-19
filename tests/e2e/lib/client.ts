@@ -238,8 +238,15 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
       // `method: none` and would open the very gate the test is about. The
       // other is testing the server's gate or the closed posture itself, and
       // says so by overriding `_public()`.
+      // `APERIO_VISITOR_AUTH` is the env name for yaml `auth:`, and the
+      // spelling matters: `APERIO_AUTH` was checked here and is not a
+      // setting, so a fixture configuring its gate through the environment
+      // read as having none and was handed `APERIO_PUBLIC` instead, which is
+      // precisely the gate-opening this check exists to prevent. No fixture
+      // sets it today, so nothing was wrong yet; the first one to try would
+      // have been tested against an open door.
       const declaresOwnGate =
-        'APERIO_AUTH' in declared || /(^|\n)\s*auth:/.test(yaml ?? '')
+        'APERIO_VISITOR_AUTH' in declared || /(^|\n)\s*auth:/.test(yaml ?? '')
       const isPublic = this._public() && !declaresOwnGate
       this._proc = spawn(CLIENT_BIN, args, {
         env: {

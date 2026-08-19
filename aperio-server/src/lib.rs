@@ -508,3 +508,7 @@ mod test_support;
 #[cfg(test)]
 #[path = "lib_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "harness_env_tests.rs"]
+mod harness_env_tests;

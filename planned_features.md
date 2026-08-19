@@ -441,6 +441,51 @@ so.
 
 ## Completed
 
+- [x] **#148 Three test harnesses set environment variables that nothing
+  reads.** Found while fixing Autobahn, which turned out to be measuring the
+  rate limiter rather than the relay ([[#147]] has that story). A harness that
+  names a setting wrongly does not fail: the variable is ignored, the default
+  applies, and the run goes green while testing something other than what it
+  says.
+
+  **shipped:** all three corrected and a check added that fails on the next
+  one, proved against all three by reintroducing each and watching it go red.
+
+  `tests/soak` set `APERIO_RATE_LIMIT: '0'` believing it turned the per-visitor
+  limiter off. There is no such setting, so every soak run since that line was
+  written measured memory with the limiter on. The names are
+  `APERIO_IP_LIMIT_MAX` and `APERIO_IP_LIMIT_REFILL`.
+
+  `tests/conformance/h2spec` set `APERIO_PATH_BIND`, whose real name is
+  `APERIO_PATH`. It passed anyway, because a client with no bind serves
+  everything, so the suite was exercising a default while its comment
+  explained why a path bind was essential.
+
+  `tests/e2e` is the one that mattered. `lib/client.ts` decided whether a
+  fixture declares its own gate by testing `'APERIO_AUTH' in declared`, and
+  that name was deliberately never used: the env spelling for yaml `auth:` is
+  `APERIO_VISITOR_AUTH`, avoided as `APERIO_AUTH` because it reads as a
+  sibling of the server's `APERIO_SERVER_AUTH`. A fixture configuring its gate
+  through the environment therefore read as having none and was handed
+  `APERIO_PUBLIC`, which opens the gate the test is about, which is the exact
+  outcome the surrounding comment says the check exists to prevent. Latent
+  rather than live: no fixture sets it yet, and the first one to try would
+  have been tested against an open door.
+
+  The check lives in `aperio-server` and not beside the harnesses, per rule 25:
+  the harnesses are JavaScript and nothing type-checks a string they put in an
+  environment, so a rename on the Rust side is what makes one of them wrong,
+  and this is the suite a rename on the Rust side runs. It compares every
+  `APERIO_` name the harnesses use against the names the crates read as string
+  literals plus `docs/configuration.md`, with a four-entry allowlist for the
+  ones that configure the harness rather than the product (two binary paths and
+  two older spellings the compatibility suite sets on purpose). Literals and
+  not raw text on both sides, which the first version got wrong in a way worth
+  keeping: it collected all of the crate's source, so its own doc comment
+  naming `APERIO_RATE_LIMIT` made the counter-example look like a setting and
+  the test passed with the bug reintroduced.
+
+
 - [x] **#147 The six survivors the rate-limiter sweep left everywhere else.**
   [[#146]] took the twenty-two on `state/admission.rs` and left the six the
   same run found in three other modules: two boundaries and an arithmetic
