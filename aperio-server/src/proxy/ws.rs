@@ -197,7 +197,19 @@ pub(crate) async fn handle_ws_proxy(
       // exist on this path.
       crate::routing::PickOutcome::Selected(c) if c.server_side_target.is_some() => {
         let target = c.server_side_target.clone().expect("checked by the guard");
-        return server_side_upgrade(state, req, method_str, uri_str, start_time, c, target).await;
+        return server_side_upgrade(
+          state,
+          req,
+          LoggedRequest {
+            method: method_str,
+            uri: uri_str,
+            start: start_time,
+          },
+          c,
+          target,
+          ws_slot,
+        )
+        .await;
       }
       crate::routing::PickOutcome::Selected(c) => {
         (c.id, c.tx, c.request_count, c.org_id, c.service_name)
@@ -649,6 +661,18 @@ async fn relay_ws_stream(
 #[path = "ws_tests.rs"]
 mod tests;
 
+/// One attempt as the access log describes it.
+///
+/// Three values that are always passed together and always read together, so
+/// they are one argument rather than three. Named rather than a tuple for the
+/// same reason `Counted` is in the metrics: the call site should say what it
+/// is handing over.
+struct LoggedRequest {
+  method: String,
+  uri: String,
+  start: Instant,
+}
+
 /// Upgrades a visitor's socket and splices it to one this server opens.
 ///
 /// The `server_side:` counterpart of the tunnel path below. It parts company
@@ -661,23 +685,23 @@ mod tests;
 async fn server_side_upgrade(
   state: Arc<AppState>,
   req: axum::extract::Request<Body>,
-  method_str: String,
-  uri_str: String,
-  start_time: Instant,
+  // What the access log needs to describe this attempt, which is one thing
+  // rather than three: the method, the uri and when it started always travel
+  // together and are only ever read together.
+  logged: LoggedRequest,
   selected: Box<crate::routing::SelectedClient>,
   target: String,
+  // Taken by the caller, before any of the work, and handed over rather than
+  // taken again here: acquiring a second one would count this upgrade twice
+  // against `max_ws_connections`, so the last free slot would be spent at the
+  // caller and then refused here, answering 503 with a slot available.
+  ws_slot: crate::state::WsSlot,
 ) -> Response {
-  let ws_slot = match state.try_acquire_ws_slot() {
-    Some(s) => s,
-    None => {
-      return (
-        StatusCode::SERVICE_UNAVAILABLE,
-        "503 Service Unavailable - WebSocket connection limit reached",
-      )
-        .into_response();
-    }
-  };
-
+  let LoggedRequest {
+    method: method_str,
+    uri: uri_str,
+    start: start_time,
+  } = logged;
   let Some(url) = crate::proxy::ws_server_side::socket_url(&target, &uri_str) else {
     log_request_failure(
       &state,

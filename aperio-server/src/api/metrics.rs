@@ -48,6 +48,21 @@ fn render_labeled(
   }
 }
 
+/// One service's counter, on the way to becoming a metric line.
+///
+/// A named type rather than a tuple because the sort below reads two of its
+/// fields and the fallback position reads a third, and `a.1` against `b.1` is
+/// not something anybody should have to decode to know whether the ordering
+/// is by service or by connection.
+struct Counted<'a> {
+  /// Only for ordering: the position a nameless service gets must not depend
+  /// on the order a `HashMap` handed it over in.
+  connection: &'a str,
+  service: Option<String>,
+  base_labels: String,
+  count: u64,
+}
+
 /// Prometheus text-format metrics endpoint (`/aperio/metrics`).
 /// Enabled with `APERIO_METRICS=1`. Requires a token, presented either as
 /// `?token=<value>` (convenient for Prometheus scrape configs) or as an
@@ -56,6 +71,7 @@ fn render_labeled(
   description = "Prometheus text-format metrics. Requires the metrics token as `?token=` or `Authorization: Bearer`.",
   params(("token" = Option<String>, Query, description = "Metrics token (alternative to the Authorization header)")),
   responses((status = 200, description = "Prometheus exposition", body = String), (status = 401, description = "Missing/invalid token")))]
+
 pub(crate) async fn metrics_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>,
@@ -110,28 +126,43 @@ pub(crate) async fn metrics_handler(
   // is a duplicate Prometheus rejects rather than a shape it merges.
   // Connections of the *same* named service sum instead, which is what an
   // operator means by "that service's requests".
-  let mut by_process: std::collections::BTreeMap<String, Vec<(Option<String>, String, u64)>> =
+  // The connection id rides along only to order the list below. `clients` is a
+  // `HashMap`, so two scrapes walk it in different orders, and the position
+  // fallback for a service with no name is an index into this list: without a
+  // sort, one process's two unnamed services would swap `service_0` and
+  // `service_1` between scrapes, which is two series each flapping between
+  // two values rather than two series.
+  let mut by_process: std::collections::BTreeMap<String, Vec<Counted<'_>>> =
     std::collections::BTreeMap::new();
   for (id, c) in clients.iter() {
     let process = c.instance_group.clone().unwrap_or_else(|| id.clone());
     for s in &c.services {
-      by_process.entry(process.clone()).or_default().push((
-        s.service_name.clone(),
-        crate::metrics_labels::render(&s.metrics_labels),
-        s.request_count.load(Ordering::SeqCst),
-      ));
+      by_process
+        .entry(process.clone())
+        .or_default()
+        .push(Counted {
+          connection: id.as_str(),
+          service: s.service_name.clone(),
+          base_labels: crate::metrics_labels::render(&s.metrics_labels),
+          count: s.request_count.load(Ordering::SeqCst),
+        });
     }
   }
   let per_client: Vec<(String, u64, String)> = by_process
     .into_iter()
-    .flat_map(|(process, services)| {
+    .flat_map(|(process, mut services)| {
+      // Ordered by what the service is, then by which connection carries it,
+      // so the same set of services yields the same positions every scrape.
+      services.sort_by(|a, b| {
+        (a.service.as_deref(), a.connection).cmp(&(b.service.as_deref(), b.connection))
+      });
       // The position fallback is process-wide, because a service with no name
       // on each of two connections would otherwise be `service_0` twice.
       let mut summed: std::collections::BTreeMap<(String, String), u64> =
         std::collections::BTreeMap::new();
-      for (i, (name, base_labels, count)) in services.into_iter().enumerate() {
-        let (_, value) = crate::metrics_labels::service_label(name.as_deref(), i);
-        *summed.entry((value, base_labels)).or_default() += count;
+      for (i, c) in services.into_iter().enumerate() {
+        let (_, value) = crate::metrics_labels::service_label(c.service.as_deref(), i);
+        *summed.entry((value, c.base_labels)).or_default() += c.count;
       }
       let needs_service_label = summed.len() > 1;
       summed

@@ -802,3 +802,40 @@ async fn a_client_that_announces_no_process_keeps_the_connection_id() {
     "{body}"
   );
 }
+
+/// The position a nameless service gets follows its connection id, not the
+/// order a `HashMap` happened to hand it over in.
+///
+/// What this pins is the intent, and it is worth saying that it is not a
+/// reproduction. Rust seeds a `HashMap` once per process, so two scrapes of
+/// one server walk it identically and the unsorted version passes this too;
+/// the order can only differ across a restart, where these counters reset
+/// anyway. The sort costs nothing and makes the mapping from position to
+/// service depend on the services rather than on an allocation order, which
+/// is what a label ought to do. Without it, the assertion below is a coin
+/// flip that happens to be weighted.
+#[tokio::test]
+async fn a_nameless_services_position_follows_its_connection_id() {
+  let state = build_state(test_config(None));
+  {
+    let mut clients = state.clients.write().await;
+    clients.insert("conn-a".to_string(), conn_of("eu_server_1", None, 4));
+    clients.insert("conn-b".to_string(), conn_of("eu_server_1", None, 6));
+  }
+  let body = scrape(&state).await;
+  let line = |service: &str| -> String {
+    body
+      .lines()
+      .find(|l| l.starts_with("aperio_client_requests_total{") && l.contains(service))
+      .unwrap_or_else(|| panic!("no line for {service} in:\n{body}"))
+      .to_string()
+  };
+  assert!(
+    line("service=\"service_0\"").ends_with(" 4"),
+    "conn-a sorts first, so it is service_0:\n{body}"
+  );
+  assert!(
+    line("service=\"service_1\"").ends_with(" 6"),
+    "conn-b sorts second:\n{body}"
+  );
+}

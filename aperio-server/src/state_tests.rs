@@ -971,3 +971,35 @@ async fn a_widened_grant_keeps_everything_and_leaves_other_tokens_alone() {
   assert_eq!(subscriptions_of(&state, "other").await, vec!["deploy/web"]);
   assert!(theirs.try_recv().is_err());
 }
+
+/// A server-side WebSocket upgrade spends one slot, not two.
+///
+/// `handle_ws_proxy` takes a slot before any of the work, and the server-side
+/// branch used to take a second one of its own. Both were held at once, so
+/// with the cap one away from full the upgrade spent the last slot at the
+/// caller and was then refused by its own acquisition, answering 503 with a
+/// slot free. The caller hands its slot over now, which this pins from the
+/// only side a test can see: the count never exceeds one per upgrade.
+#[tokio::test]
+async fn one_websocket_upgrade_spends_one_slot() {
+  use std::sync::atomic::Ordering;
+  let mut cfg = crate::test_support::test_config();
+  cfg.max_ws_connections = 1;
+  let state = crate::test_support::test_state_with(cfg);
+
+  let first = state.try_acquire_ws_slot().expect("the only slot");
+  assert_eq!(state.active_ws_connections.load(Ordering::SeqCst), 1);
+  // A second acquisition is what the old code did while still holding the
+  // first, and it is what made the refusal spurious.
+  assert!(
+    state.try_acquire_ws_slot().is_none(),
+    "the cap is one, so a second slot must not be available; an upgrade that \
+     needs two cannot run at the cap"
+  );
+  drop(first);
+  assert_eq!(state.active_ws_connections.load(Ordering::SeqCst), 0);
+  assert!(
+    state.try_acquire_ws_slot().is_some(),
+    "the slot returns when the upgrade ends"
+  );
+}
