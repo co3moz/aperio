@@ -27,28 +27,6 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
-- [ ] **#145 `surfaces_tests.rs` cannot fail for a short key.** The check that
-  every setting reaches `docs/configuration.md` and the book's reference table
-  is `text.contains(&key)` over the whole page. That is a substring test, so a
-  key which is a fragment of a common word is documented by any page that uses
-  the word: `name`, added in `#144`, was inside `hostname`, `custom_name` and
-  `service_name` and passed before a row for it existed. `id`, `port`, `path`
-  and `auth` would all behave the same way.
-
-  A first attempt is worth knowing about because it failed in an interesting
-  place. Requiring the key to be bounded by non-identifier characters, and
-  searching only inside code spans (backticks, `\code{}`), is nearly right and
-  reports two false positives: the book documents `maintenance_windows` and
-  `fallbacks` inside verbatim yaml listings rather than in `\code{}`, which is
-  perfectly good documentation. So the extraction has to understand listings
-  too, or the check has to accept them some other way.
-
-  Two boundaries that any version has to keep, both learned by breaking them:
-  a leading `aperio_` is a boundary rather than a prefix that swallows the key,
-  because both tables document most settings in their environment spelling;
-  and a trailing `_` has to be allowed, because a grouped block like
-  `circuit_breaker` is documented through its children.
-
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
@@ -462,6 +440,57 @@ so.
   2025-09, with no rc since March. Neither is close.
 
 ## Completed
+
+- [x] **#145 `surfaces_tests.rs` cannot fail for a short key.** The check that
+  every setting reaches `docs/configuration.md` and the book's reference table
+  is `text.contains(&key)` over the whole page. That is a substring test, so a
+  key which is a fragment of a common word is documented by any page that uses
+  the word: `name`, added in `#144`, was inside `hostname`, `custom_name` and
+  `service_name` and passed before a row for it existed. `id`, `port`, `path`
+  and `auth` would all behave the same way.
+
+  A first attempt is worth knowing about because it failed in an interesting
+  place. Requiring the key to be bounded by non-identifier characters, and
+  searching only inside code spans (backticks, `\code{}`), is nearly right and
+  reports two false positives: the book documents `maintenance_windows` and
+  `fallbacks` inside verbatim yaml listings rather than in `\code{}`, which is
+  perfectly good documentation. So the extraction has to understand listings
+  too, or the check has to accept them some other way.
+
+  Two boundaries that any version has to keep, both learned by breaking them:
+  a leading `aperio_` is a boundary rather than a prefix that swallows the key,
+  because both tables document most settings in their environment spelling;
+  and a trailing `_` has to be allowed, because a grouped block like
+  `circuit_breaker` is documented through its children.
+
+  **Shipped**, and the fix is not the one the entry proposed. Whole-key
+  matching inside code spans was necessary and nowhere near sufficient: `name`
+  is a key of `ServiceEntry` as well, so every yaml example writing `name: web`
+  documented it, and removing the row still left the check green. A flat list
+  of keys from two schemas cannot tell one struct's `name` from another's.
+
+  What made it able to fail is asking for the **environment spelling**.
+  `APERIO_NAME` can only be one setting, while `name:` in an example is not
+  documentation of anything in particular. So the check requires
+  `aperio_<key>` and accepts the bare spelling only where there is genuinely
+  no variable to require.
+
+  That set is derived rather than listed, which matters because a list is a
+  thing to forget. Rule 16's exception is a structured value and the server
+  materializes only scalar keys, so an object or an array has no variable by
+  construction and the schema already says which those are. `host`, `port` and
+  `log_level` are named in the rule itself as taking bare environment names,
+  and are the only hand-written part.
+
+  Spans now cover four places, because all four are real documentation and a
+  stricter reading demanded rows that already existed: Markdown inline code and
+  fenced blocks, LaTeX `\code{}`, and the book's `codecard` and `lstlisting`
+  listings, which is the only place `maintenance_windows` and `fallbacks`
+  appear.
+
+  Verified by deleting a row rather than by reasoning: the short key's row
+  removed from each table, and a structured key's only listing removed from
+  the book. All three fail now and all three passed before.
 
 - [x] **#144 A client is addressed by a UUID, and it is the last thing here
   that is.** Services have a `name` (a validated identifier) and a

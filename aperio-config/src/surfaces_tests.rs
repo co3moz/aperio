@@ -20,6 +20,37 @@ fn keys(schema: &str) -> Vec<String> {
     .collect()
 }
 
+/// Settings with no `APERIO_<KEY>` to be documented by, so their own spelling
+/// is all a table can show.
+///
+/// Derived from the schema rather than listed, because the rule is derivable:
+/// rule 16's stated exception is a structured value, and the server only
+/// materializes *scalar* keys into the environment, so an object or an array
+/// has no variable by construction. `host`, `port` and `log_level` are the
+/// three the rule names as taking bare environment names instead of the
+/// prefix, which is the same thing for this check.
+fn no_env_spelling(schema: &str) -> Vec<String> {
+  let v: serde_json::Value = serde_json::from_str(schema).expect("the schema is valid JSON");
+  let mut out = vec![
+    "host".to_string(),
+    "port".to_string(),
+    "log_level".to_string(),
+  ];
+  if let Some(props) = v["properties"].as_object() {
+    for (k, spec) in props {
+      let structured = match &spec["type"] {
+        serde_json::Value::String(s) => s == "object" || s == "array",
+        serde_json::Value::Array(list) => list.iter().any(|t| t == "object" || t == "array"),
+        _ => spec.get("properties").is_some() || spec.get("items").is_some(),
+      };
+      if structured {
+        out.push(fold(k));
+      }
+    }
+  }
+  out
+}
+
 fn doc(relative: &str) -> String {
   let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
     .join("..")
@@ -27,12 +58,106 @@ fn doc(relative: &str) -> String {
   fold(&std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display())))
 }
 
+/// The parts of a page that are spelling a key, rather than talking about one.
+///
+/// The check used to be `contains` over the whole page, and that cannot fail
+/// for a short key: `name` is inside `hostname`, `custom_name` and
+/// `service_name`, so a setting called `name` was documented by any page that
+/// mentioned a hostname, which is all of them. It passed before a row for it
+/// existed, which is how it was found.
+///
+/// Documentation spells a setting in one of four places, and all four have to
+/// count or the check demands rows that are already there: inline code and
+/// fenced blocks in Markdown, and `\code{}` and the verbatim environments in
+/// LaTeX. The book documents `maintenance_windows` and `fallbacks` only inside
+/// a `codecard`, which a stricter first attempt reported as undocumented.
+fn documented_spans(text: &str) -> String {
+  let mut out = String::new();
+  // Markdown: inline spans and fenced blocks both fall out of splitting on
+  // backticks, since a fence is three of them and its body is the odd part.
+  for (i, part) in text.split('`').enumerate() {
+    if i % 2 == 1 {
+      out.push_str(part);
+      out.push('\n');
+    }
+  }
+  // LaTeX: the argument of `\code{...}`, which does not nest.
+  let mut rest = text;
+  while let Some(at) = rest.find("\\code{") {
+    rest = &rest[at + 6..];
+    if let Some(end) = rest.find('}') {
+      out.push_str(&rest[..end]);
+      out.push('\n');
+      rest = &rest[end..];
+    }
+  }
+  // LaTeX: verbatim listings, which is where a yaml block is written out.
+  for env in ["codecard", "lstlisting"] {
+    let open = format!("\\begin{{{env}}}");
+    let close = format!("\\end{{{env}}}");
+    let mut rest = text;
+    while let Some(at) = rest.find(&open) {
+      rest = &rest[at + open.len()..];
+      if let Some(end) = rest.find(&close) {
+        out.push_str(&rest[..end]);
+        out.push('\n');
+        rest = &rest[end..];
+      } else {
+        break;
+      }
+    }
+  }
+  out
+}
+
+/// Does `spans` spell `key` as a whole key, rather than inside another word?
+///
+/// Two boundaries are deliberately not boundaries, both learned by breaking
+/// them. A leading `aperio_` is one, because both tables document most
+/// settings in their environment spelling, so `APERIO_BACKUP_DIR` is how
+/// `backup_dir` appears. A trailing `_` is the other, because a grouped block
+/// like `circuit_breaker` is documented through its children.
+fn mentions(spans: &str, key: &str) -> bool {
+  let ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
+  let bytes = spans.as_bytes();
+  let mut from = 0;
+  while let Some(rel) = spans[from..].find(key) {
+    let at = from + rel;
+    let before_ok = at == 0 || !ident(bytes[at - 1] as char) || spans[..at].ends_with("aperio_");
+    let end = at + key.len();
+    let after_ok = end >= bytes.len() || !ident(bytes[end] as char) || bytes[end] == b'_';
+    if before_ok && after_ok {
+      return true;
+    }
+    from = at + 1;
+  }
+  false
+}
+
 fn check(table: &str, text: &str, exempt: &[Exempt]) {
   let excused: Vec<String> = exempt.iter().map(|e| fold(e.key)).collect();
+  let spans = documented_spans(text);
   let mut missing: Vec<String> = Vec::new();
   for schema in [crate::schema_json(), crate::server_schema_json()] {
+    let bare = no_env_spelling(&schema);
     for key in keys(&schema) {
-      if !text.contains(&key) && !excused.contains(&key) {
+      // The environment spelling is what a table actually writes, and it is
+      // far more specific than the bare key: `name: web` in a yaml example
+      // is not documentation of a setting called `name`, while
+      // `APERIO_NAME` can only be one. A key with no environment variable
+      // falls back to its own spelling, which is all it has.
+      let env = format!("aperio_{key}");
+      // The bare key is only good enough for a setting that genuinely has no
+      // environment variable, which `CLIENT_ENV_EXEMPT` is the list of. For
+      // everything else the variable is required, and that is what makes this
+      // check able to fail: `name: web` in a yaml example is not
+      // documentation of a setting called `name`, and used to satisfy it.
+      let env_exempt = crate::surfaces::CLIENT_ENV_EXEMPT
+        .iter()
+        .any(|e| fold(e.key) == key)
+        || bare.contains(&key);
+      let found = mentions(&spans, &env) || (env_exempt && mentions(&spans, &key));
+      if !found && !excused.contains(&key) {
         missing.push(key);
       }
     }
