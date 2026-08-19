@@ -87,26 +87,66 @@ pub(crate) async fn metrics_handler(
   // from the metric entirely, and rendered one service's labels over a
   // connection carrying several.
   //
-  // The `service` label appears only on a connection that carries more than
-  // one, which is what keeps this backward compatible. Every deployment before
-  // multiplexing produces exactly the series it produced before, so no
-  // recording rule or dashboard sees its series split; a multiplexed
-  // connection needs the label because two of its services can carry identical
-  // `metrics_labels`, and two samples with the same label set in one scrape is
-  // a duplicate Prometheus rejects rather than a shape it merges.
-  let per_client: Vec<(String, u64, String)> = clients
-    .iter()
-    .flat_map(|(id, c)| {
-      let multiplexed = c.services.len() > 1;
-      c.services.iter().enumerate().map(move |(i, s)| {
-        let mut labels = crate::metrics_labels::render(&s.metrics_labels);
-        if multiplexed {
-          labels.push_str(&crate::metrics_labels::render(&[
-            crate::metrics_labels::service_label(s.service_name.as_deref(), i),
-          ]));
-        }
-        (id.clone(), s.request_count.load(Ordering::SeqCst), labels)
-      })
+  // Keyed by the client *process*, not by the connection.
+  //
+  // It used to be the server's own per-connection UUID, which had two faults
+  // at once. The label is called `client_id`, and that was not the client's
+  // `client_id`: an operator who set one and searched their metrics for it
+  // found nothing. And the value changed on every reconnect, so a flapping
+  // client ended one series and started another from zero rather than
+  // producing the counter reset `rate()` knows how to read. Asking for one
+  // client's rate over an hour was not possible.
+  //
+  // `instance_group` is the client's own `client_id`, sent on the handshake
+  // and shared by every connection of the process, so the label now means
+  // what its name says and survives a reconnect. A client too old to send the
+  // header keeps the connection id, which leaves those deployments exactly
+  // where they were rather than dropping the label.
+  //
+  // The `service` label appears when a process produces more than one series,
+  // which is a wider condition than the old per-connection one and has to be:
+  // three services on three connections used to be three different label
+  // sets and are now one, and two samples with the same label set in a scrape
+  // is a duplicate Prometheus rejects rather than a shape it merges.
+  // Connections of the *same* named service sum instead, which is what an
+  // operator means by "that service's requests".
+  let mut by_process: std::collections::BTreeMap<String, Vec<(Option<String>, String, u64)>> =
+    std::collections::BTreeMap::new();
+  for (id, c) in clients.iter() {
+    let process = c.instance_group.clone().unwrap_or_else(|| id.clone());
+    for s in &c.services {
+      by_process.entry(process.clone()).or_default().push((
+        s.service_name.clone(),
+        crate::metrics_labels::render(&s.metrics_labels),
+        s.request_count.load(Ordering::SeqCst),
+      ));
+    }
+  }
+  let per_client: Vec<(String, u64, String)> = by_process
+    .into_iter()
+    .flat_map(|(process, services)| {
+      // The position fallback is process-wide, because a service with no name
+      // on each of two connections would otherwise be `service_0` twice.
+      let mut summed: std::collections::BTreeMap<(String, String), u64> =
+        std::collections::BTreeMap::new();
+      for (i, (name, base_labels, count)) in services.into_iter().enumerate() {
+        let (_, value) = crate::metrics_labels::service_label(name.as_deref(), i);
+        *summed.entry((value, base_labels)).or_default() += count;
+      }
+      let needs_service_label = summed.len() > 1;
+      summed
+        .into_iter()
+        .map(move |((service, base_labels), count)| {
+          let mut labels = base_labels;
+          if needs_service_label {
+            labels.push_str(&crate::metrics_labels::render(&[(
+              "service".to_string(),
+              service,
+            )]));
+          }
+          (process.clone(), count, labels)
+        })
+        .collect::<Vec<_>>()
     })
     .collect();
   drop(clients);

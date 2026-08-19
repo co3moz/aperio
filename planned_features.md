@@ -27,51 +27,6 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
-- [ ] **#143 `aperio_client_requests_total` is labelled with something that
-  changes every reconnect, and the label is not what its name says.** The
-  exposition is
-  `aperio_client_requests_total{client_id="<uuid>"}`, and that value is not the
-  client's `client_id`. `tunnel/ws.rs` mints a fresh `Uuid::new_v4()` per
-  *connection*, the `clients` map is keyed by it, and `api/metrics.rs` prints
-  that key. The id an operator wrote in their file lands in
-  `declared_client_id` and `instance_group`, and the metric reads neither.
-
-  Two consequences, and the second is the one that hurts:
-
-  - **The label lies about what it is.** `client_id` is the name of a client
-    setting. Somebody who sets `client_id: eu_server_1` and then greps their
-    metrics for it finds nothing, and has no way to learn why from the
-    exposition.
-  - **A reconnect ends one series and starts another.** The counter is
-    documented as "total request count processed by this specific client
-    *connection*" and is created fresh with the connection, so a client that
-    flaps produces a new series each time, each starting at zero, with the old
-    one simply disappearing from the next scrape. Not a counter reset, which
-    `rate()` handles: a different series. "This client's request rate over the
-    last hour" cannot be asked at all.
-
-  `aperio_token_requests_total` in the same file is the counter-example and
-  the proof the shape exists: it comes from the persistent stats and survives
-  restarts.
-
-  **What to label it with is the actual decision**, and both candidates have a
-  catch. `instance_group` (the handshake header) and `reported_instance_id`
-  (self-reported on the Ping) are both process-scoped and both survive
-  reconnects, which is the property wanted. But both are *client-declared*, so
-  two processes can present the same value and their counters would merge,
-  which the server already knows about: `service_connection_over_ceiling` says
-  in as many words that "two clients that happen to choose the same
-  `client_id` base are still two processes". And both are `None` for a client
-  that does not send them, so there has to be an answer for that rather than a
-  missing label.
-
-  A third option is to keep the connection id and rename the label to what it
-  is, which fixes the lie and not the churn. Probably the wrong trade, but it
-  should be rejected on purpose rather than by omission.
-
-  Deliberately **not** about giving clients a name, which is `#144`. This one
-  is wrong today whatever is decided there.
-
 - [ ] **#144 A client is addressed by a UUID, and it is the last thing here
   that is.** Services have a `name` (a validated identifier) and a
   `custom_name` (free text for the screen). Tunnels have exactly the same
@@ -528,6 +483,80 @@ so.
   2025-09, with no rc since March. Neither is close.
 
 ## Completed
+
+- [x] **#143 `aperio_client_requests_total` is labelled with something that
+  changes every reconnect, and the label is not what its name says.** The
+  exposition is
+  `aperio_client_requests_total{client_id="<uuid>"}`, and that value is not the
+  client's `client_id`. `tunnel/ws.rs` mints a fresh `Uuid::new_v4()` per
+  *connection*, the `clients` map is keyed by it, and `api/metrics.rs` prints
+  that key. The id an operator wrote in their file lands in
+  `declared_client_id` and `instance_group`, and the metric reads neither.
+
+  Two consequences, and the second is the one that hurts:
+
+  - **The label lies about what it is.** `client_id` is the name of a client
+    setting. Somebody who sets `client_id: eu_server_1` and then greps their
+    metrics for it finds nothing, and has no way to learn why from the
+    exposition.
+  - **A reconnect ends one series and starts another.** The counter is
+    documented as "total request count processed by this specific client
+    *connection*" and is created fresh with the connection, so a client that
+    flaps produces a new series each time, each starting at zero, with the old
+    one simply disappearing from the next scrape. Not a counter reset, which
+    `rate()` handles: a different series. "This client's request rate over the
+    last hour" cannot be asked at all.
+
+  `aperio_token_requests_total` in the same file is the counter-example and
+  the proof the shape exists: it comes from the persistent stats and survives
+  restarts.
+
+  **What to label it with is the actual decision**, and both candidates have a
+  catch. `instance_group` (the handshake header) and `reported_instance_id`
+  (self-reported on the Ping) are both process-scoped and both survive
+  reconnects, which is the property wanted. But both are *client-declared*, so
+  two processes can present the same value and their counters would merge,
+  which the server already knows about: `service_connection_over_ceiling` says
+  in as many words that "two clients that happen to choose the same
+  `client_id` base are still two processes". And both are `None` for a client
+  that does not send them, so there has to be an answer for that rather than a
+  missing label.
+
+  A third option is to keep the connection id and rename the label to what it
+  is, which fixes the lie and not the churn. Probably the wrong trade, but it
+  should be rejected on purpose rather than by omission.
+
+  Deliberately **not** about giving clients a name, which is `#144`. This one
+  is wrong today whatever is decided there.
+
+  **Shipped:** the label is `instance_group`, which is the client's own
+  `client_id` as sent on the handshake, falling back to the connection id for
+  a client too old to announce it. Both faults go at once, and that is why
+  this candidate won over the others: the label finally *is* what its name
+  says, and being process-scoped it survives a reconnect.
+
+  The rejected third option, keeping the connection id and renaming the label
+  honestly, is recorded as rejected: it fixes the lie and leaves the churn,
+  which was the half that made the metric unusable.
+
+  **The part the entry did not foresee** is that keying by the process forces
+  a second change. Three services on three connections used to be three
+  different label sets and become one, and two samples with the same label set
+  in a scrape is a duplicate Prometheus rejects rather than a shape it merges.
+  So the `service` label, which used to appear only on a multiplexed
+  connection, now appears whenever a *process* produces more than one series,
+  and the position fallback for an unnamed service had to become process-wide
+  for the same reason. Parallel connections of the same named service are
+  summed instead, which is what an operator means by that service's requests
+  and is a better answer than the old one, where they were unrelated clients.
+
+  The collision the entry worried about, two processes presenting the same
+  declared id and merging their counters, is real and left alone: it is what
+  an operator asks for by writing the same `client_id` twice, and the same
+  value already groups them in the dashboard.
+
+  Each of the five tests was checked against the old keying, so none of them
+  is a test that cannot fail.
 
 - [x] **#141 A WebSocket cannot be served from the server, and now says so.**
   Split from `#139`, which shipped the refusal rather than the feature: an

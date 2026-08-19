@@ -652,3 +652,152 @@ async fn a_dropped_delivery_is_counted_because_it_is_the_one_to_alert_on() {
   assert!(body.contains("aperio_messages_dropped_total 1"), "{body}");
   assert!(body.contains("aperio_messages_delivered_total 0"), "{body}");
 }
+
+// ----- what the per-client counter is keyed by -----
+
+/// Builds a connection of `process`, carrying one service called `service`
+/// with `count` requests behind it.
+fn conn_of(process: &str, service: Option<&str>, count: u64) -> ClientHandle {
+  let mut c = mock_client();
+  c.instance_group = Some(process.to_string());
+  c.services[0].service_name = service.map(str::to_string);
+  c.services[0].request_count = Arc::new(AtomicU64::new(count));
+  c
+}
+
+async fn scrape(state: &Arc<AppState>) -> String {
+  let resp = metrics_handler(
+    State(state.clone()),
+    axum::extract::Query(HashMap::new()),
+    HeaderMap::new(),
+  )
+  .await;
+  body_string(resp).await
+}
+
+/// The label carries the client's own id, not the server's connection id.
+///
+/// The label is called `client_id` and used to be neither: it was a UUID the
+/// server minted per connection, so an operator who set `client_id` and
+/// searched their metrics for it found nothing at all.
+#[tokio::test]
+async fn the_per_client_counter_is_labelled_with_the_clients_own_id() {
+  let state = build_state(test_config(None));
+  state
+    .clients
+    .write()
+    .await
+    .insert("conn-uuid-1".to_string(), conn_of("eu_server_1", None, 5));
+
+  let body = scrape(&state).await;
+  assert!(
+    body.contains("aperio_client_requests_total{client_id=\"eu_server_1\"} 5"),
+    "{body}"
+  );
+  assert!(
+    !body.contains("conn-uuid-1"),
+    "the connection id should not appear as a client id:\n{body}"
+  );
+}
+
+/// The same process across a reconnect keeps one series.
+///
+/// This is the whole point. The connection id changes every time a client
+/// comes back, so labelling by it ended one series and started another from
+/// zero, which is not the counter reset `rate()` reads but a different series
+/// entirely: "this client's rate over the last hour" could not be asked.
+#[tokio::test]
+async fn a_reconnect_continues_the_same_series() {
+  let state = build_state(test_config(None));
+  state
+    .clients
+    .write()
+    .await
+    .insert("conn-before".to_string(), conn_of("eu_server_1", None, 7));
+  let before = scrape(&state).await;
+  assert!(before.contains("aperio_client_requests_total{client_id=\"eu_server_1\"} 7"));
+
+  // The client comes back: a new connection id, the same process.
+  {
+    let mut clients = state.clients.write().await;
+    clients.remove("conn-before");
+    clients.insert("conn-after".to_string(), conn_of("eu_server_1", None, 2));
+  }
+  let after = scrape(&state).await;
+  assert!(
+    after.contains("aperio_client_requests_total{client_id=\"eu_server_1\"} 2"),
+    "the label must not have changed with the connection:\n{after}"
+  );
+}
+
+/// A process with two services on two connections is two series, not a
+/// duplicate.
+///
+/// Keying by the process is what makes this necessary: those two used to have
+/// different connection ids and now share a label, and two samples with the
+/// same label set in one scrape is a duplicate Prometheus rejects.
+#[tokio::test]
+async fn two_services_of_one_process_stay_two_series() {
+  let state = build_state(test_config(None));
+  {
+    let mut clients = state.clients.write().await;
+    clients.insert("c1".to_string(), conn_of("eu_server_1", Some("web"), 4));
+    clients.insert("c2".to_string(), conn_of("eu_server_1", Some("api"), 6));
+  }
+  let body = scrape(&state).await;
+  assert!(
+    body.contains("client_id=\"eu_server_1\"") && body.contains("service=\"web\""),
+    "{body}"
+  );
+  assert!(body.contains("service=\"api\""), "{body}");
+
+  // No two `aperio_client_requests_total` lines share a label set.
+  let mut label_sets: Vec<&str> = body
+    .lines()
+    .filter(|l| l.starts_with("aperio_client_requests_total{"))
+    .map(|l| l.rsplit_once(' ').map(|(head, _)| head).unwrap_or(l))
+    .collect();
+  let total = label_sets.len();
+  label_sets.sort_unstable();
+  label_sets.dedup();
+  assert_eq!(total, label_sets.len(), "duplicate label sets:\n{body}");
+}
+
+/// Two connections serving the same named service are summed.
+///
+/// Parallel connections are one service to the operator, and the old keying
+/// reported them as two unrelated clients.
+#[tokio::test]
+async fn parallel_connections_of_one_service_sum() {
+  let state = build_state(test_config(None));
+  {
+    let mut clients = state.clients.write().await;
+    clients.insert("c1".to_string(), conn_of("eu_server_1", Some("web"), 4));
+    clients.insert("c2".to_string(), conn_of("eu_server_1", Some("web"), 6));
+  }
+  let body = scrape(&state).await;
+  assert!(
+    body.contains("aperio_client_requests_total{client_id=\"eu_server_1\"} 10"),
+    "the two connections of one service should be one series of 10:\n{body}"
+  );
+}
+
+/// A client too old to announce its process keeps the connection id.
+#[tokio::test]
+async fn a_client_that_announces_no_process_keeps_the_connection_id() {
+  let state = build_state(test_config(None));
+  let mut c = mock_client();
+  c.instance_group = None;
+  c.services[0].request_count = Arc::new(AtomicU64::new(9));
+  state
+    .clients
+    .write()
+    .await
+    .insert("legacy-conn".to_string(), c);
+
+  let body = scrape(&state).await;
+  assert!(
+    body.contains("aperio_client_requests_total{client_id=\"legacy-conn\"} 9"),
+    "{body}"
+  );
+}
