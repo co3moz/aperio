@@ -27,6 +27,94 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
+- [ ] **#143 `aperio_client_requests_total` is labelled with something that
+  changes every reconnect, and the label is not what its name says.** The
+  exposition is
+  `aperio_client_requests_total{client_id="<uuid>"}`, and that value is not the
+  client's `client_id`. `tunnel/ws.rs` mints a fresh `Uuid::new_v4()` per
+  *connection*, the `clients` map is keyed by it, and `api/metrics.rs` prints
+  that key. The id an operator wrote in their file lands in
+  `declared_client_id` and `instance_group`, and the metric reads neither.
+
+  Two consequences, and the second is the one that hurts:
+
+  - **The label lies about what it is.** `client_id` is the name of a client
+    setting. Somebody who sets `client_id: eu_server_1` and then greps their
+    metrics for it finds nothing, and has no way to learn why from the
+    exposition.
+  - **A reconnect ends one series and starts another.** The counter is
+    documented as "total request count processed by this specific client
+    *connection*" and is created fresh with the connection, so a client that
+    flaps produces a new series each time, each starting at zero, with the old
+    one simply disappearing from the next scrape. Not a counter reset, which
+    `rate()` handles: a different series. "This client's request rate over the
+    last hour" cannot be asked at all.
+
+  `aperio_token_requests_total` in the same file is the counter-example and
+  the proof the shape exists: it comes from the persistent stats and survives
+  restarts.
+
+  **What to label it with is the actual decision**, and both candidates have a
+  catch. `instance_group` (the handshake header) and `reported_instance_id`
+  (self-reported on the Ping) are both process-scoped and both survive
+  reconnects, which is the property wanted. But both are *client-declared*, so
+  two processes can present the same value and their counters would merge,
+  which the server already knows about: `service_connection_over_ceiling` says
+  in as many words that "two clients that happen to choose the same
+  `client_id` base are still two processes". And both are `None` for a client
+  that does not send them, so there has to be an answer for that rather than a
+  missing label.
+
+  A third option is to keep the connection id and rename the label to what it
+  is, which fixes the lie and not the churn. Probably the wrong trade, but it
+  should be rejected on purpose rather than by omission.
+
+  Deliberately **not** about giving clients a name, which is `#144`. This one
+  is wrong today whatever is decided there.
+
+- [ ] **#144 A client is addressed by a UUID, and it is the last thing here
+  that is.** Services have a `name` (a validated identifier) and a
+  `custom_name` (free text for the screen). Tunnels have exactly the same
+  pair, with the name "unique within the organization". Clients have neither:
+  `client_id` is settable but **must parse as a UUID**, the client exits with
+  a `CRITICAL ERROR` otherwise, and unset means a fresh random one per run.
+
+  Everything an operator reads therefore names a UUID. `Tunnel client
+  connected: 21b4538e-7753-4546-a8bd-16c4a53475b3` says nothing about which
+  deployment that is. The dashboard's client row carries `service` and
+  `service_custom_name` for the service and nothing of the sort for the client
+  holding it. `bind-tunnels:` addresses a peer by its UUID.
+
+  **The design question is not whether to relax the UUID rule.** It is that
+  `client_id` is doing two jobs a name cannot do:
+
+  - **Failover `wait` needs uniqueness, not readability.** It narrows the pool
+    to connections whose `reported_instance_id` matches, because "an instance
+    is a client *process*". Three replicas an operator would all like to call
+    `eu_server` are three processes, and a shared name would make the server
+    treat them as one returning client.
+  - **`bind-tunnels:` has one key space for two kinds of thing.** A key is
+    read as a tunnel name and falls back to a peer's client id, and the only
+    thing keeping them apart is shape. `looks_like_client_id` says so
+    outright: a UUID carries `-`, which a name may not, "so this only has to
+    recognize the id form rather than defend the name space". A name-shaped
+    client id collides with every tunnel name.
+
+  So: a name **beside** the id rather than instead of it. The id stays the
+  instance identity, which is what it already is and what the code already
+  treats as untrusted for state changes; the name is a label.
+
+  **One thing that does not break, which is worth knowing before anyone
+  worries about it.** `-` is already reserved: names are `[a-z0-9_]` and
+  cannot contain it, which is why `<base>-<service>-c<N>` can be parsed at all
+  (`service_of`). A client name in the same charset leaves that parsing exactly
+  as it is.
+
+  What still needs deciding is how a named client is addressed in
+  `bind-tunnels:` without reopening the ambiguity above. A namespaced key
+  (`client:eu_server`) keeps every existing UUID key and every existing tunnel
+  name working, which is the property to hold on to.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
