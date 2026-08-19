@@ -197,7 +197,9 @@ pub struct ConfigChange {
 /// recorded here in the same commit that makes it (see CLAUDE.md).
 pub const CONFIG_CHANGES: &[ConfigChange] = &[
   ConfigChange {
-    // The version this ships in; corrected at release time if it slips.
+    // Written mid-cycle before the number was known and confirmed at the
+    // release: 0.11.0 is what was cut, so this fires for the upgrade it was
+    // written for.
     version: "0.11.0",
     surface: ConfigSurface::Client,
     // `Migration`, not `Breaking`. The file already says what it wants and
