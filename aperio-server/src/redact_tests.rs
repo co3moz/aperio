@@ -217,3 +217,53 @@ fn the_dashboards_view_of_a_capture_has_the_secrets_out_of_it() {
   // The original is untouched, because replay re-sends the real bytes.
   assert!(captured.uri.contains("super-secret"));
 }
+
+// --- what the sweep found here (planned_features #147) ----------------------
+
+/// A masked cookie keeps its name and loses only its value.
+///
+/// Deleting the `"set-cookie"` arm survived, and reading that as a leak is the
+/// mistake worth not making: the header is in `SENSITIVE_HEADERS`, so without
+/// its arm it falls to `_ => MASK`, the whole value is masked and the secret
+/// never reaches the view either way. What the arm is *for* is the shape, and
+/// that had no test: an inspector row reading `session=***` says which cookie
+/// was set, and one reading `***` says only that something was, which is the
+/// difference between a trail somebody can follow and one they cannot.
+#[test]
+fn a_masked_cookie_keeps_its_name() {
+  assert_eq!(
+    redact_header_value("set-cookie", "session=zzz; Path=/; HttpOnly"),
+    format!("session={MASK}"),
+    "the name survives and everything after the first `=` does not, \
+     attributes included, since a cookie's flags are not worth a second parser"
+  );
+  assert_eq!(
+    redact_header_value("Set-Cookie", "csrf=abc"),
+    format!("csrf={MASK}"),
+    "the match is on the lowercased name"
+  );
+  assert_eq!(
+    redact_header_value("set-cookie", "novalue"),
+    MASK,
+    "nothing before an `=` means nothing safe to keep"
+  );
+  // The request-side twin, which does the same for each pair it carries.
+  assert_eq!(
+    redact_header_value("cookie", "a=1; b=2"),
+    format!("a={MASK}; b={MASK}"),
+    "every pair keeps its name"
+  );
+}
+
+// `redaction_enabled()` mutated to `true` survives, and is left alive.
+//
+// It cannot be killed in-process and the code above already says why: the
+// switch is read once into a `OnceLock`, so the first caller in a process
+// decides for every later one, which is exactly why the parsing was split into
+// `redaction_setting` and tested there instead. Killing the wrapper would take
+// a second process started with `APERIO_INSPECTOR_REDACT=0`.
+//
+// It is also the one direction that does not matter. The mutant makes
+// redaction *always on*, so the failure it could hide is an operator's opt-out
+// being ignored, and the dangerous direction, redaction off while the operator
+// believes it is on, is the one `redaction_setting`'s tests cover.

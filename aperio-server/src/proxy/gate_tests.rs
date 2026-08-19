@@ -1100,3 +1100,33 @@ fn what_counts_as_aperios_own_header() {
   );
   assert!(!header_is_aperios("content-type", &carried, true));
 }
+
+/// The namespace is stripped including its degenerate member, a header named
+/// exactly `x-aperio-`.
+///
+/// `name.len() > 9` mutated to `>=` survived, and the mutant was the better
+/// spelling: `"x-aperio-"` is nine characters, so under `>` a header with that
+/// exact name is not recognized as Aperio's and travels to the backend, while
+/// every name in the namespace with anything after the dash is stripped. It is
+/// a narrow hole, nothing the server itself sends is named that, but the rule
+/// this function exists to enforce is that the namespace is not forgeable, and
+/// a rule with one name exempted is worth more as a rule without one. The
+/// comparison is `>=` now and this is what says so.
+#[test]
+fn the_bare_namespace_prefix_is_aperios_too() {
+  let carried: Vec<String> = vec![];
+  assert!(
+    header_is_aperios("x-aperio-", &carried, false),
+    "the prefix on its own is in the namespace it names"
+  );
+  assert!(
+    header_is_aperios("X-APERIO-", &carried, false),
+    "and the comparison stays case-insensitive at the boundary"
+  );
+  // One character short is a different header and keeps travelling.
+  assert!(
+    !header_is_aperios("x-aperio", &carried, false),
+    "the prefix is `x-aperio-` with the dash; without it this is somebody \
+     else's header and stripping it would be the opposite mistake"
+  );
+}

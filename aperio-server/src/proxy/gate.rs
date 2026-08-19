@@ -195,7 +195,7 @@ pub(super) fn header_is_aperios(
   carried_names: &[String],
   consumed_authorization: bool,
 ) -> bool {
-  if name.len() > 9 && name[..9].eq_ignore_ascii_case("x-aperio-") {
+  if name.len() >= 9 && name[..9].eq_ignore_ascii_case("x-aperio-") {
     return true;
   }
   if consumed_authorization && name.eq_ignore_ascii_case("authorization") {

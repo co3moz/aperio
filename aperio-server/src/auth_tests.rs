@@ -639,3 +639,134 @@ pub(super) async fn login_no_auth_header_fails() {
     .unwrap_err();
   assert_eq!(err, StatusCode::UNAUTHORIZED);
 }
+
+// --- what the sweep found here (planned_features #147) ----------------------
+
+/// A stale entry survives at the threshold and goes one past it.
+///
+/// `self.map.len() > 1024` mutated to `>=` survived: the tracker's sweep and
+/// the rate limiter's are the same shape, and the same thing was missing, a
+/// case sitting exactly on the number. One entry either side of it is what
+/// separates the two spellings, and nothing else does.
+#[test]
+fn the_lockout_sweep_runs_past_the_threshold_and_not_at_it() {
+  let stale = |now: Instant| LoginFailures {
+    consecutive: 1,
+    lockouts: 0,
+    locked_until: None,
+    last_seen: now - Duration::from_secs(48 * 3600),
+  };
+  let marker: IpAddr = "203.0.113.200".parse().unwrap();
+
+  for (fill, survives) in [(1024usize, true), (1025, false)] {
+    let mut t = LockoutTracker::new(3, Duration::from_secs(60));
+    let now = Instant::now();
+    t.map.insert(marker, stale(now));
+    for i in 0..(fill - 1) as u32 {
+      t.map.insert(
+        IpAddr::V4(std::net::Ipv4Addr::from(0x0a00_0000 + i)),
+        stale(now),
+      );
+    }
+    assert_eq!(
+      t.map.len(),
+      fill,
+      "the fixture holds what the case describes"
+    );
+
+    t.gc(now);
+
+    assert_eq!(
+      t.map.contains_key(&marker),
+      survives,
+      "a map of {fill} against a threshold of 1024"
+    );
+  }
+}
+
+/// Twenty-four hours is the cutoff and it is exclusive.
+///
+/// `< Duration::from_secs(24 * 3600)` mutated to `<=` survived. `gc` takes
+/// `now` as an argument, so unlike the limiter's inline failsafes this
+/// boundary can be asked about exactly, and an entry sitting on it is the only
+/// thing the two spellings disagree about.
+#[test]
+fn the_lockout_sweeps_cutoff_is_exclusive_at_a_day() {
+  let mut t = LockoutTracker::new(3, Duration::from_secs(60));
+  let now = Instant::now();
+  let at_the_cutoff: IpAddr = "203.0.113.201".parse().unwrap();
+  let just_inside: IpAddr = "203.0.113.202".parse().unwrap();
+  let entry = |last_seen: Instant| LoginFailures {
+    consecutive: 1,
+    lockouts: 0,
+    locked_until: None,
+    last_seen,
+  };
+
+  t.map
+    .insert(at_the_cutoff, entry(now - Duration::from_secs(24 * 3600)));
+  t.map
+    .insert(just_inside, entry(now - Duration::from_secs(24 * 3600 - 1)));
+  // Over the threshold, so the retain actually runs.
+  for i in 0..1030u32 {
+    t.map.insert(
+      IpAddr::V4(std::net::Ipv4Addr::from(0x0b00_0000 + i)),
+      entry(now),
+    );
+  }
+
+  t.gc(now);
+
+  assert!(
+    !t.map.contains_key(&at_the_cutoff),
+    "exactly a day is not less than a day, so it is swept"
+  );
+  assert!(
+    t.map.contains_key(&just_inside),
+    "one second inside the cutoff survives"
+  );
+}
+
+/// A session lasts a day, and a day is `now + 86400`.
+///
+/// `crate::store::sessions::now_secs() + 86400` mutated to `*` survived. The
+/// existing tests assert that logging in creates a session, never for how long,
+/// and under the mutant it is created for `now * 86400` seconds, which is a
+/// session that expires around the year 55 million: a stolen cookie is good
+/// forever, and the sessions list shows an expiry nobody reads twice.
+#[tokio::test]
+async fn a_session_is_created_for_exactly_one_day() {
+  let state = Arc::new(test_state());
+  let before = crate::store::sessions::now_secs();
+  let res = call_login(
+    state.clone(),
+    basic_headers("aperio:test", Some("dash.local")),
+    login_query(Some("/aperio/dashboard")),
+  )
+  .await
+  .unwrap();
+  let after = crate::store::sessions::now_secs();
+
+  let cookie = res
+    .headers()
+    .get("set-cookie")
+    .expect("a session cookie is set")
+    .to_str()
+    .expect("the cookie is text");
+  let token = cookie
+    .split(';')
+    .next()
+    .and_then(|first| first.split_once('='))
+    .map(|(_, v)| v.to_string())
+    .expect("the cookie carries a token");
+
+  let sessions = state.sessions.lock().await;
+  let info = sessions.get(&token).expect("the session was persisted");
+  assert!(
+    info.expires_at >= before + 86400 && info.expires_at <= after + 86400,
+    "a session expires one day out, not {} seconds from an epoch nobody \
+     chose: multiplying by 86400 instead of adding it hands out a cookie that \
+     never expires",
+    info.expires_at
+  );
+}

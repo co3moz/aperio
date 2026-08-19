@@ -441,6 +441,44 @@ so.
 
 ## Completed
 
+- [x] **#147 The six survivors the rate-limiter sweep left everywhere else.**
+  [[#146]] took the twenty-two on `state/admission.rs` and left the six the
+  same run found in three other modules: two boundaries and an arithmetic
+  operator in `auth.rs`, the namespace test in `proxy/gate.rs`, and two in
+  `redact.rs`.
+
+  **shipped:** five killed, one left alive on purpose, and one of the five was
+  a bug rather than a missing test. Verified the same way as #146, by applying
+  each mutation by hand and watching the suite go red.
+
+  `auth.rs` had the same two shapes as the limiter: a sweep threshold with no
+  case sitting exactly on it, and a cutoff nothing asked about on the boundary.
+  `LockoutTracker::gc` takes `now` as an argument, so unlike the limiter's
+  inline failsafes its twenty-four hours can be tested exactly. The third was
+  `now_secs() + 86400` mutated to `*`: the existing tests asserted that logging
+  in creates a session and never for how long, and under the mutant a session
+  expires around the year 55 million, which is a stolen cookie that is good
+  forever.
+
+  `proxy/gate.rs` was the bug. `name.len() > 9` against a nine-character
+  `x-aperio-` meant the whole namespace was stripped except the prefix on its
+  own, so a header named exactly `x-aperio-` travelled to the backend. Narrow,
+  nothing sends it, and fixed to `>=` because the rule the function exists to
+  enforce is that the namespace is not forgeable from outside. This one has a
+  changelog entry; the rest are test-only.
+
+  `redact.rs`: deleting the `"set-cookie"` arm is **not** a leak, the header is
+  in `SENSITIVE_HEADERS` and the fallback masks the whole value, so the secret
+  never reaches the view either way. What had no test is the shape the arm
+  exists for, `session=***` rather than `***`, which is the difference between
+  an inspector row somebody can follow and one they cannot. The last,
+  `redaction_enabled()` mutated to `true`, is left alive: the switch is read
+  once into a `OnceLock` so the wrapper cannot be exercised both ways in one
+  process, which is why the parsing was split into `redaction_setting` and
+  tested there, and the mutant's direction is redaction always *on*, the one
+  that cannot hurt anybody.
+
+
 - [x] **#146 The rate limiter's arithmetic is not pinned by anything.** The
   first full mutation sweep to be read rather than merely run came back 264
   caught, 25 unviable, 0 timed out, and 28 survivors, and the survivors are not
