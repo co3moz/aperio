@@ -175,6 +175,19 @@ async function main() {
     APERIO_SERVER_TOKEN: token,
     APERIO_DATA_DIR: dataDir,
     APERIO_DASHBOARD: '0',
+    // Autobahn opens a connection per case, three hundred of them back to
+    // back, and the per-IP limiter answers the later ones with a 429 that the
+    // grader reports as a protocol failure ("connection was never open"). The
+    // limiter is not what this run grades, so it is lifted rather than left to
+    // decide how much of the suite gets to run.
+    APERIO_IP_LIMIT_MAX: '1000000',
+    APERIO_IP_LIMIT_REFILL: '100000',
+    // Section 9 sends messages up to 16 MB, and the tunnel's WebSocket frame
+    // ceiling is derived from `max_body_size`. Left at the default the suite
+    // is measuring that setting rather than the relay: the oversized case is
+    // refused, and every case after it fails too, because Autobahn does not
+    // recover the connection it was using.
+    APERIO_MAX_BODY_SIZE: String(64 * 1024 * 1024),
   })
   await waitFor(async () => (await get(serverPort, '/aperio/health')) === 200, 'aperio-server')
 
