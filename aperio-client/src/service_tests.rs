@@ -1386,3 +1386,84 @@ async fn a_refused_connection_backs_off_instead_of_redialing_flat_out() {
   cancel_tx.send(true).unwrap();
   let _ = tokio::time::timeout(Duration::from_secs(5), svc).await;
 }
+
+/// A service that asks to be served from the server is not announced to a
+/// server that cannot honour it.
+///
+/// The failure this prevents is quieter than the multiplexing one. An older
+/// server does not refuse the field, it ignores it and relays the request
+/// through this client, and a service sets `server_side:` precisely when this
+/// client cannot reach the target itself. So the fallback is not a slower
+/// service, it is connection errors from a backend the operator cannot see
+/// from either side.
+#[tokio::test]
+async fn a_server_that_cannot_serve_from_itself_is_not_asked_to() {
+  let (listener, ws_url) = loopback_ws().await;
+  let mut spec = test_spec(&ws_url, "http://127.0.0.1:9");
+  spec.name = Some("web".to_string());
+  spec.hostnames = vec!["web.example.com".to_string()];
+  spec.server_side_target = Some("http://127.0.0.1:9".to_string());
+  let health = BackendHealth::for_spec(&spec);
+  let (cancel_tx, cancel_rx) = watch::channel(false);
+  let svc = tokio::spawn(run_service(
+    vec![ServiceRuntime::new(spec, health)],
+    test_shared(),
+    cancel_rx,
+    true,
+    1,
+    ConnectionCeiling::new(),
+  ));
+
+  for announced in [None, Some(MIN_SERVER_SIDE_PROTOCOL - 1)] {
+    let (stream, _) = listener.accept().await.unwrap();
+    let mut ws = match announced {
+      // No header at all is every server that predates the ability.
+      None => accept_async(stream).await.unwrap(),
+      Some(p) => accept_announcing(stream, p).await,
+    };
+    assert!(
+      next_ping(&mut ws).await.is_none(),
+      "a server announcing {announced:?} was asked to serve from itself"
+    );
+  }
+
+  cancel_tx.send(true).unwrap();
+  let _ = tokio::time::timeout(Duration::from_secs(5), svc).await;
+}
+
+/// And a server that can is asked normally.
+#[tokio::test]
+async fn a_server_that_can_serve_from_itself_receives_the_declaration() {
+  let (listener, ws_url) = loopback_ws().await;
+  let mut spec = test_spec(&ws_url, "http://127.0.0.1:9");
+  spec.name = Some("web".to_string());
+  spec.hostnames = vec!["web.example.com".to_string()];
+  spec.server_side_target = Some("http://127.0.0.1:9".to_string());
+  let health = BackendHealth::for_spec(&spec);
+  let (cancel_tx, cancel_rx) = watch::channel(false);
+  let svc = tokio::spawn(run_service(
+    vec![ServiceRuntime::new(spec, health)],
+    test_shared(),
+    cancel_rx,
+    true,
+    1,
+    ConnectionCeiling::new(),
+  ));
+
+  let (stream, _) = listener.accept().await.unwrap();
+  let mut ws = accept_announcing(stream, MIN_SERVER_SIDE_PROTOCOL).await;
+  let ping = next_ping(&mut ws).await.expect("a declaration");
+  let asked = match &ping {
+    TunnelMessage::Ping { services, .. } => services
+      .as_ref()
+      .is_some_and(|list| list.iter().any(|s| s.server_side_target.is_some())),
+    _ => false,
+  };
+  assert!(
+    asked,
+    "the ask should travel to a server that can honour it: {ping:?}"
+  );
+
+  cancel_tx.send(true).unwrap();
+  let _ = tokio::time::timeout(Duration::from_secs(5), svc).await;
+}

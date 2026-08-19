@@ -74,8 +74,13 @@ the client already agreed to serve, nor replay a leaked token from elsewhere.
 
 Controls:
 
-- The client dials outbound; the server can never initiate a connection to the
-  client or its network.
+- The client dials outbound, and the server does not connect back to it. The
+  one exception is deliberate and named by the operator: with
+  `server_side_targets:` set, a service may ask the server to reach *its
+  target* directly rather than through the tunnel (see
+  [boundary 6](#6-server--a-clients-target-server_side)). That is a
+  destination the operator listed, never the client's tunnel connection, and
+  it is off unless they list one.
 - Token scoping: a dynamic token only binds the hostnames/paths it was granted,
   with optional source-IP allowlists, TTLs, rate limits, and quotas.
 - Leak detection: `token_new_ip` fires when a token connects from an unseen
@@ -90,7 +95,9 @@ never exposed to the internet directly.
 
 ### 5. Server → Callback destinations
 
-The one boundary where the *server* makes the outbound call. A webhook URL is
+The first of two boundaries where the *server* makes the outbound call; the
+other is [boundary 6](#6-server--a-clients-target-server_side), which is a
+wider capability and has its own rules. A webhook URL is
 supplied by an Operator and an autoscaling URL by a client, both lower-trust
 credentials than the operator running the server, and the delivery log then
 reports how the destination answered. Left open, that is a blind SSRF probe:
@@ -132,6 +139,46 @@ deployments point webhooks at a service on the same network. Controls:
 Both default to off, so this boundary is only as tight as the operator makes
 it. Tighten it wherever webhook creators are not fully trusted, which in
 practice means any multi-tenant deployment.
+
+### 6. Server → a client's target (`server_side:`)
+
+The second boundary where the server makes the outbound call, and the wider of
+the two. A service may set `server_side: true`, and then the server sends the
+visitor's request straight to that service's target instead of dispatching it
+over the tunnel, saving the two hops a relayed request makes.
+
+**This is not the blind probe boundary 5 describes; it is a request and
+response channel a tenant steers.** Any method, any path, any headers, and the
+answer comes back. Aimed at an internal address it is not "did the port
+answer" but "here is the page". That is why its rules are stricter than the
+callback policy's rather than the same:
+
+- **The destination is the operator's to name.** `server_side_targets:`
+  (`APERIO_SERVER_SIDE_TARGETS`) lists the host/CIDR patterns a client may ask
+  for. **Unset permits nothing**, which is the opposite of
+  `outbound.allowlist`'s empty-means-permissive default, and deliberately: an
+  operator who never configured this cannot be pointed anywhere by a client.
+- **The token must allow the asking.** `allow_server_side` on the tunnel
+  token, separate from the list, so an operator can permit a destination
+  without permitting every tenant to reach it.
+- **The list is judged on the target as written, never on what a name
+  resolves to.** A `10.0.0.0/8` entry admits an address, not a hostname that
+  might resolve into the range: the server dials the same target for every
+  request for as long as the client stays connected, so a name admitted at
+  declaration could point elsewhere a second later.
+- **Nothing a visitor sends can move the request.** The path is only ever
+  appended to the target, and the `Host` header is stripped, so a visitor
+  cannot pick a different virtual host on an address the operator allowed for
+  something else. The same hop-by-hop strip the relayed path performs applies
+  here, so this is not a way around it.
+- **A target outside the list is refused, not relayed.** The service is left
+  out of routing and the server says which target and which setting. Falling
+  back to the tunnel would be worse than useless: a client asks for this
+  precisely when it cannot reach the target itself.
+
+The outbound calls this boundary makes leave through the same egress proxy and
+verify against the same certificate store as boundary 5's, which
+[Architecture](architecture.md#outbound-tls-and-what-verifies-it) describes.
 
 ## What Aperio does *not* defend against
 

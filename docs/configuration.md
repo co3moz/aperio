@@ -324,6 +324,29 @@ A key nothing recognizes has always been ignored silently, which is the most exp
 
 `aperio-client check` also warns when a credential (`token`, `psk`, `client_secret`, `password`, `api_key`, `device_key`) is written into the file literally rather than as `${VAR}`. A warning, not a failure: it is a working configuration, and where the file is a private deploy artifact it may be the deliberate one. But a secret typed into a file ends up in a repository, a backup and a support ticket, and the alternative costs one `${VAR}`.
 
+### Serving a service from the server (`server_side:`)
+
+A service whose target the *server* can already reach does not need the two
+hops through this client. `server_side: true` on the entry asks the server to
+send the request straight to `target` instead:
+
+```yaml
+services:
+  - name: internal_api
+    target: http://10.0.0.5:8080
+    hostname: api.example.com
+    server_side: true
+```
+
+It takes two permissions that have to agree: the server's
+`server_side_targets:` must name the address, and the token must carry
+`allow_server_side`. Neither is enough alone, an unset list permits nothing,
+and a target outside it is refused rather than relayed. `serve:` cannot be
+combined with it.
+
+See [Serving From the Server](server-side-services.md) for what it refuses and
+why, the WebSocket half, and what the last hop gives up.
+
 ### Service start order
 
 A `services:` entry can name others it should follow:

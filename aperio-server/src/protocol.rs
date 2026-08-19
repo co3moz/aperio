@@ -17,7 +17,14 @@ use tracing::warn;
 /// v8: a Ping may describe its work as a `services` list instead of the
 /// singular per-service fields; when present it is authoritative and they
 /// are ignored, when absent nothing changes. Additive in both directions.
-pub const PROTOCOL_VERSION: u32 = 8;
+/// v9: a service entry may carry `server_side_target`, which asks the server
+/// to reach that address itself instead of dispatching over the tunnel. The
+/// field is additive, but honouring it is not: a server that ignores it
+/// relays the request instead, and a client that asked usually cannot reach
+/// the target at all, so the ask is negotiated on the handshake rather than
+/// sent hopefully. A Ping may also carry `name`, which needs no negotiation
+/// because a server that ignores it shows the id, as it always did.
+pub const PROTOCOL_VERSION: u32 = 9;
 
 // --- Protocol v2 binary frames: [tag][id_len][id bytes][payload] ---
 // Data-heavy chunk messages skip the base64+JSON encoding entirely. The tag

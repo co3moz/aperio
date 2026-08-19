@@ -232,6 +232,30 @@ pub(crate) async fn run_service(
                 break 'connection;
               }
             }
+            // The same question for `server_side:`, and the answer matters
+            // more. A server that cannot honour it does not say so: it
+            // ignores the field and relays, and a client asks for this
+            // precisely when it cannot reach the target itself, so serving on
+            // would mean connection errors from a backend nobody can see.
+            let asks_server_side = services.iter().any(|s| s.spec.server_side_target.is_some());
+            if asks_server_side {
+              let announced = response
+                .headers()
+                .get(crate::protocol::PROTOCOL_HEADER)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.trim().parse::<u32>().ok());
+              if announced.is_none_or(|p| p < MIN_SERVER_SIDE_PROTOCOL) {
+                error!(
+                  "[{}] This server speaks tunnel protocol {}, and serving a service from the server (server_side: true) needs {}. Not serving: an older server would relay these requests through this client instead, silently, and a service that asked for this usually cannot reach its target from here. Upgrade the server, or remove server_side: to serve it over the tunnel deliberately. Retrying.",
+                  label,
+                  announced
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|| "an older version".to_string()),
+                  MIN_SERVER_SIDE_PROTOCOL
+                );
+                break 'connection;
+              }
+            }
             // The server announces what this token may open for one service.
             // Published for the siblings waiting on it above; refreshed on
             // every reconnect, so raising the number on the server reaches a

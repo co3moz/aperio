@@ -120,6 +120,17 @@ pub(crate) struct LiveDecl {
 /// its version string need not be.
 pub(crate) const MIN_MULTIPLEX_PROTOCOL: u32 = 8;
 
+/// The protocol a server has to speak before a service may ask to be served
+/// from it (`server_side: true`).
+///
+/// Negotiated for the same reason multiplexing is, and more sharply. An older
+/// server does not refuse the field, it ignores it and relays the request,
+/// which is the quiet half-serve: a client asks for this precisely when it
+/// cannot reach the target itself, so the fallback is not a slower service but
+/// connection errors from a backend nobody can see. Reading silence as consent
+/// is the one mistake worth spending a handshake to avoid.
+pub(crate) const MIN_SERVER_SIDE_PROTOCOL: u32 = 9;
+
 /// Most services this client will put on one connection.
 ///
 /// The server's own ceiling, mirrored so the refusal happens where the message

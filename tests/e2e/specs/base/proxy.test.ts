@@ -28,7 +28,7 @@ export class BareServerSpec extends Test({
     if (FOREIGN_SERVER) {
       assert.ok(health.protocol >= 1, 'the server reports a tunnel protocol version')
     } else {
-      assert.equal(health.protocol, 8, 'the tunnel protocol version this build speaks')
+      assert.equal(health.protocol, 9, 'the tunnel protocol version this build speaks')
     }
     assert.ok(health.ui_language, 'the default UI language is reported')
   }

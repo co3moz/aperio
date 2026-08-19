@@ -17,6 +17,7 @@ Prefer one long read? [**The Complete Guide**](book/aperio.tex) is a single-file
 
 - [Routing & Load Balancing](routing-and-load-balancing.md), hostname/path binds, round-robin, primary-standby tiers, sticky sessions, random subdomains.
 - [In-Flight Failover](failover.md), what happens when a tunnel dies mid-request, and how to make it invisible to visitors.
+- [Serving From the Server](server-side-services.md), let the server reach a service's target itself instead of relaying through the client, for the case where it already can: what the two permissions are, what it refuses rather than relaying, and what the last hop gives up.
 - [Tokens & Authentication](tokens-and-auth.md), the master token, scoped dynamic tokens with rate limits and quotas, visitor passwords, and OIDC/SSO.
 - [Organizations (Multi-Tenancy)](organizations.md), isolate one server into separate tenants: per-org clients, tokens, users, traffic, and stats, with a super-admin who can switch between them.
 - [Share Links](share-links.md), hand out temporary access to a protected site without creating accounts.
