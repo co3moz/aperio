@@ -19,19 +19,17 @@ name: Mutants
 # It reports **survivors**, not a score. A survivor is either an assertion
 # nobody wrote or a line that does nothing, and both are worth a look; a
 # percentage is worth nothing and invites gaming.
+# On demand only. This is the slowest thing the project owns, hours across
+# eight runners for a scoped set, and it is a pre-release task run locally now
+# (CLAUDE.md rule 26). The workflow stays because a runner is the right place
+# for the *whole* set when somebody wants it, and because a shard is a
+# convenient way to hand the work to eight machines at once.
 on:
-  schedule:
-    # First of the month, early, well clear of the weekly soak run.
-    - cron: "41 4 1 * *"
   workflow_dispatch:
     inputs:
       files:
         description: "Restrict to these files (glob, default: the scoped set in .cargo/mutants.toml)"
         default: ""
-  push:
-    paths:
-      - ".cargo/mutants.toml"
-      - ".github/workflows/mutants.yml"
 
 permissions:
   contents: read

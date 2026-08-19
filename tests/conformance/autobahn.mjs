@@ -31,7 +31,12 @@ const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..', '..')
 const reportDir = join(here, 'reports')
 
-const IMAGE = 'crossbario/autobahn-testsuite:0.8.2'
+// Pinned to a tag that exists. `0.8.2` was pinned here and is not published:
+// the image moved to date-based tags, so the pull failed with "manifest
+// unknown", which is a failure about somebody else's registry rather than
+// about this project, and is one reason this suite is a local pre-release
+// task rather than a CI job.
+const IMAGE = 'crossbario/autobahn-testsuite:25.10.1'
 
 // 12.x and 13.x are the compression cases. They need `permessage-deflate`,
 // which the tunnel deliberately does not negotiate (planned_features #73,

@@ -173,6 +173,11 @@ services:
     custom_name: "Checkout API"
     target: http://127.0.0.1:${BACKEND_PORT}
     hostname: api.example.com
+    # Declared open, as a public API would be. Without it the server refuses
+    # the route (closed by default since 0.10.0), the demo traffic never
+    # arrives, and every screen is captured as an empty state, which looks
+    # exactly like a successful capture until somebody opens the PDF.
+    public: true
 scaling:
   url: https://api.provider.example/apps/checkout/scale
   min: 0
