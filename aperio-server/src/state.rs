@@ -113,6 +113,11 @@ pub(crate) struct ClientDetail {
   pub(crate) max_concurrent: Option<u32>,
   /// Client build version announced via Ping (None until the first Ping).
   pub(crate) version: Option<String>,
+  /// What the operator calls this client (`name:` in its file), shown instead
+  /// of its id. `None` from a client that sends none, or whose name did not
+  /// validate.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub(crate) name: Option<String>,
   /// Service name announced via Ping (multi-service clients).
   pub(crate) service: Option<String>,
   /// What that service is called on screen, when the client's file said so.

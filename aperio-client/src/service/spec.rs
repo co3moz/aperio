@@ -81,6 +81,10 @@ pub(crate) struct ServiceSpec {
   /// `APERIO_SERVER_URLS`). The reconnect loop rotates to the next one after a
   /// failed connection, so a client can fail over across a server fleet.
   pub(crate) ws_urls: Vec<String>,
+  /// What to call this *client* on screen, from the top-level `name:`.
+  /// Process-wide, so every service of one client reports the same one, and
+  /// deliberately not called `name`: that is the service's, a few lines up.
+  pub(crate) client_name: Option<String>,
   pub(crate) target: String,
   /// Public hostname(s) claimed for this service (first is the primary).
   pub(crate) hostnames: Vec<String>,

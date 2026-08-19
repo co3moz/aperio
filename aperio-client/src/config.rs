@@ -201,6 +201,9 @@ pub(crate) struct ClientSettings {
   /// Persistent client instance id (CLI > local file > env). None = a
   /// random UUID is generated per run.
   pub(crate) client_id: Option<String>,
+  /// What to call this client on screen and in the server's logs. A label,
+  /// never an address: `client_id` stays the identity.
+  pub(crate) name: Option<String>,
   /// Tunnels declared by this client (local config file only).
   pub(crate) tunnels: Vec<TunnelDecl>,
   /// `bind-tunnels:` entries (local config file only).

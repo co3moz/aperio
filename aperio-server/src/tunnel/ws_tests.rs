@@ -129,6 +129,7 @@ pub(super) async fn read_until_pong(ws: &mut Client) -> bool {
 /// fields they care about.
 pub(super) fn base_ping() -> TunnelMessage {
   TunnelMessage::Ping {
+    name: None,
     services: None,
     service_custom_name: None,
     client_id: "self".into(),

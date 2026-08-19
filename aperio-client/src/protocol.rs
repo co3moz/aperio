@@ -424,6 +424,12 @@ pub(crate) enum TunnelMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     services: Option<Vec<ServiceDecl>>,
     client_id: String,
+    /// What to call this client, from `name:` in its file. A label the server
+    /// shows instead of an id, never something it addresses: `client_id`
+    /// above stays the identity, because failover and `bind_tunnels:` need
+    /// one value per process and a name is shared by replicas on purpose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
     timestamp: u64,
     path_bind: Option<String>,
     #[serde(default)]

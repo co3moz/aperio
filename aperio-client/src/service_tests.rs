@@ -53,6 +53,7 @@ use tokio_tungstenite::accept_async;
 /// (usually unused) backend.
 pub(crate) fn test_spec(ws_url: &str, target: &str) -> ServiceSpec {
   ServiceSpec {
+    client_name: None,
     server_side_target: None,
     custom_name: None,
     name: None,

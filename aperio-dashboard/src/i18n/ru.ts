@@ -530,6 +530,7 @@ export const ru: Record<string, string> = {
   'any path': 'любой path',
   'audit.jsonl rotates past this size; 0 = never rotate':
     'audit.jsonl ротируется при превышении этого размера; 0 = никогда',
+  'name': 'имя',
   'client id': 'id клиента',
   connection: 'подключение',
   'custom auth': 'своя аутентификация',

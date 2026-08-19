@@ -501,6 +501,16 @@
           true
         ]
       },
+      "name": {
+        "description": "What to call this client on screen and in the server's logs, e.g.\n`eu_server_1`. Lowercase letters, digits and `_`, like a service name.\n\nA label, not an address: `client_id` above stays the identity that\nfailover and `bind_tunnels:` recognize this process by, because those\nneed something unique and a name is not. Three replicas an operator\nwould happily call `eu_server` are three processes, and sharing a name\nmust not make the server treat them as one. Unset shows the id, as\nbefore (env: APERIO_NAME).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "eu_server_1"
+        ]
+      },
       "otel_bridge": {
         "description": "Accept OpenTelemetry exports from things running next to this client and\ncarry them to the server, which forwards them to the collector it is\nconfigured for. The point is an edge host that is allowed exactly one\noutbound connection, the tunnel: no new firewall rule, no collector\ncredential at the edge.",
         "anyOf": [

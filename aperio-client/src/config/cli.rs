@@ -91,6 +91,11 @@ pub(crate) struct CommonOpts {
   /// run (yaml: client_id, env: APERIO_CLIENT_ID)
   #[arg(long, global = true, value_name = "UUID")]
   pub(crate) client_id: Option<String>,
+  /// What to call this client on screen and in the server's logs, e.g.
+  /// eu_server_1. A label, not an address: client_id stays the identity
+  /// (yaml: name, env: APERIO_NAME)
+  #[arg(long, global = true, value_name = "NAME")]
+  pub(crate) name: Option<String>,
   /// Hostname bind, e.g. app.example.com (yaml: hostname, env: APERIO_HOSTNAME)
   #[arg(long, visible_alias = "host", global = true, value_name = "HOSTNAME")]
   pub(crate) hostname: Option<String>,

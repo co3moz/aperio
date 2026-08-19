@@ -338,6 +338,17 @@ pub struct FileConfig {
   /// can recognize this client; a random one is used when unset.
   #[schemars(extend("examples" = ["3f2504e0-4f89-41d3-9a0c-0305e82c3301"]))]
   pub client_id: Option<String>,
+  /// What to call this client on screen and in the server's logs, e.g.
+  /// `eu_server_1`. Lowercase letters, digits and `_`, like a service name.
+  ///
+  /// A label, not an address: `client_id` above stays the identity that
+  /// failover and `bind_tunnels:` recognize this process by, because those
+  /// need something unique and a name is not. Three replicas an operator
+  /// would happily call `eu_server` are three processes, and sharing a name
+  /// must not make the server treat them as one. Unset shows the id, as
+  /// before (env: APERIO_NAME).
+  #[schemars(extend("examples" = ["eu_server_1"]))]
+  pub name: Option<String>,
   /// Request/response header add-remove rules applied by this client to
   /// proxied HTTP traffic (services may override with their own `headers`).
   #[schemars(extend("examples" = [{

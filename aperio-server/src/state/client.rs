@@ -124,6 +124,7 @@ pub(crate) const CONNECTION_SCOPED: &[&str] = &[
   "draining",
   "drain_secs",
   "declared_client_id",
+  "declared_name",
   "client_version",
   "client_protocol",
   "cpu_percent",
@@ -604,6 +605,13 @@ pub(crate) struct ClientHandle {
   /// the *service* a connection belongs to, which is the unit the
   /// per-service connection ceiling is about.
   pub(crate) declared_client_id: Option<String>,
+  /// What the operator calls this client (`name:` in its file), for the
+  /// dashboard and the logs. A label and never an address: the connection id
+  /// stays what anything addresses, and `instance_group` stays what groups a
+  /// process, because both need to be unique and this is shared by replicas
+  /// on purpose. `None` from a client that sends no name, or one whose name
+  /// did not validate.
+  pub(crate) declared_name: Option<String>,
   /// Seconds this client says it gives its own in-flight requests when asked
   /// to stand down. Advisory: it sizes `shutdown_drain: auto`, under the
   /// operator's cap, and is never trusted on its own.

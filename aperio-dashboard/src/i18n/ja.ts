@@ -528,6 +528,7 @@ export const ja: Record<string, string> = {
   'any path': '任意の Path',
   'audit.jsonl rotates past this size; 0 = never rotate':
     'audit.jsonl はこのサイズを超えるとローテーションします。0 = しない',
+  'name': '名前',
   'client id': 'クライアント ID',
   connection: '接続',
   'custom auth': 'カスタム認証',

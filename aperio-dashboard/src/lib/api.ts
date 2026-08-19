@@ -50,6 +50,9 @@ export interface ClientDetail {
   last_ping_seconds_ago: number | null
   max_concurrent: number | null
   version: string | null
+  /** What the operator calls this client (`name:` in its file), shown instead
+   *  of its id. Absent from a client that sends none. */
+  name?: string | null
   /** Handle of the service this connection exposes. */
   service: string | null
   /** What that service is called on screen, when its file said so. */

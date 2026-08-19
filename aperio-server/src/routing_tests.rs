@@ -18,6 +18,7 @@ pub(super) fn base_handle() -> ClientHandle {
   // receiver can be dropped immediately.
   let (tx, _rx) = mpsc::channel::<Message>(1);
   ClientHandle {
+    declared_name: None,
     tx,
     disconnect: std::sync::Arc::new(tokio::sync::Notify::new()),
     connected_at: std::time::Instant::now(),

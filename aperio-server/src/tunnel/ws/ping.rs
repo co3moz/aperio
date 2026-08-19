@@ -18,6 +18,7 @@ impl ConnCtx {
     let TunnelMessage::Ping {
       services,
       client_id: cid,
+      name: declared_name,
       timestamp,
       visitor_auth_methods,
       path_bind,
@@ -318,6 +319,25 @@ impl ConnCtx {
         // it is what lets the ceiling below be about *one service*
         // instead of the whole process.
         handle.declared_client_id = Some(cid.clone());
+        // What the operator calls this client. Validated here rather than
+        // trusted: it reaches the dashboard, the logs and an audit trail, and
+        // it arrives on every heartbeat from a party the server does not
+        // trust for anything else. An unusable one is dropped rather than
+        // shown, because a name is only worth having if it is the name.
+        let named = declared_name
+          .as_deref()
+          .map(str::trim)
+          .filter(|n| aperio_config::validate_name("client", n).is_ok())
+          .map(str::to_string);
+        // Said once, when it first arrives or changes, rather than on every
+        // heartbeat. The connect line above cannot carry it: a name arrives
+        // on the first Ping, and until then all anyone has is the id.
+        if named != handle.declared_name
+          && let Some(ref n) = named
+        {
+          info!("Client {} calls itself {}", client_id, n);
+        }
+        handle.declared_name = named;
         // Counted after this block: `handle` is a mutable borrow of
         // the map the count has to walk.
         ceiling_ctx = Some((

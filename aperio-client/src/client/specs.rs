@@ -308,6 +308,7 @@ pub(crate) fn build_specs(
       server_addr,
       ws_url,
       ws_urls: ws_urls.clone(),
+      client_name: settings.name.clone(),
       // Not offered on the single-service shape: `server_side:` is a
       // `services:` key, and the top-level spellings are the deprecated form
       // this project is retiring, so a new feature does not grow one.
@@ -443,6 +444,7 @@ pub(crate) fn build_specs(
         server_addr: server_addr.clone(),
         ws_url: ws_url.clone(),
         ws_urls: ws_urls.clone(),
+        client_name: settings.name.clone(),
         // The address travels with the ask, so the server is told where to go
         // only by a service that asked it to go there.
         server_side_target: entry.server_side.unwrap_or(false).then(|| target.clone()),

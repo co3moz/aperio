@@ -27,48 +27,27 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
-- [ ] **#144 A client is addressed by a UUID, and it is the last thing here
-  that is.** Services have a `name` (a validated identifier) and a
-  `custom_name` (free text for the screen). Tunnels have exactly the same
-  pair, with the name "unique within the organization". Clients have neither:
-  `client_id` is settable but **must parse as a UUID**, the client exits with
-  a `CRITICAL ERROR` otherwise, and unset means a fresh random one per run.
+- [ ] **#145 `surfaces_tests.rs` cannot fail for a short key.** The check that
+  every setting reaches `docs/configuration.md` and the book's reference table
+  is `text.contains(&key)` over the whole page. That is a substring test, so a
+  key which is a fragment of a common word is documented by any page that uses
+  the word: `name`, added in `#144`, was inside `hostname`, `custom_name` and
+  `service_name` and passed before a row for it existed. `id`, `port`, `path`
+  and `auth` would all behave the same way.
 
-  Everything an operator reads therefore names a UUID. `Tunnel client
-  connected: 21b4538e-7753-4546-a8bd-16c4a53475b3` says nothing about which
-  deployment that is. The dashboard's client row carries `service` and
-  `service_custom_name` for the service and nothing of the sort for the client
-  holding it. `bind-tunnels:` addresses a peer by its UUID.
+  A first attempt is worth knowing about because it failed in an interesting
+  place. Requiring the key to be bounded by non-identifier characters, and
+  searching only inside code spans (backticks, `\code{}`), is nearly right and
+  reports two false positives: the book documents `maintenance_windows` and
+  `fallbacks` inside verbatim yaml listings rather than in `\code{}`, which is
+  perfectly good documentation. So the extraction has to understand listings
+  too, or the check has to accept them some other way.
 
-  **The design question is not whether to relax the UUID rule.** It is that
-  `client_id` is doing two jobs a name cannot do:
-
-  - **Failover `wait` needs uniqueness, not readability.** It narrows the pool
-    to connections whose `reported_instance_id` matches, because "an instance
-    is a client *process*". Three replicas an operator would all like to call
-    `eu_server` are three processes, and a shared name would make the server
-    treat them as one returning client.
-  - **`bind-tunnels:` has one key space for two kinds of thing.** A key is
-    read as a tunnel name and falls back to a peer's client id, and the only
-    thing keeping them apart is shape. `looks_like_client_id` says so
-    outright: a UUID carries `-`, which a name may not, "so this only has to
-    recognize the id form rather than defend the name space". A name-shaped
-    client id collides with every tunnel name.
-
-  So: a name **beside** the id rather than instead of it. The id stays the
-  instance identity, which is what it already is and what the code already
-  treats as untrusted for state changes; the name is a label.
-
-  **One thing that does not break, which is worth knowing before anyone
-  worries about it.** `-` is already reserved: names are `[a-z0-9_]` and
-  cannot contain it, which is why `<base>-<service>-c<N>` can be parsed at all
-  (`service_of`). A client name in the same charset leaves that parsing exactly
-  as it is.
-
-  What still needs deciding is how a named client is addressed in
-  `bind-tunnels:` without reopening the ambiguity above. A namespaced key
-  (`client:eu_server`) keeps every existing UUID key and every existing tunnel
-  name working, which is the property to hold on to.
+  Two boundaries that any version has to keep, both learned by breaking them:
+  a leading `aperio_` is a boundary rather than a prefix that swallows the key,
+  because both tables document most settings in their environment spelling;
+  and a trailing `_` has to be allowed, because a grouped block like
+  `circuit_breaker` is documented through its children.
 
 ## Withdrawn
 
@@ -483,6 +462,82 @@ so.
   2025-09, with no rc since March. Neither is close.
 
 ## Completed
+
+- [x] **#144 A client is addressed by a UUID, and it is the last thing here
+  that is.** Services have a `name` (a validated identifier) and a
+  `custom_name` (free text for the screen). Tunnels have exactly the same
+  pair, with the name "unique within the organization". Clients have neither:
+  `client_id` is settable but **must parse as a UUID**, the client exits with
+  a `CRITICAL ERROR` otherwise, and unset means a fresh random one per run.
+
+  Everything an operator reads therefore names a UUID. `Tunnel client
+  connected: 21b4538e-7753-4546-a8bd-16c4a53475b3` says nothing about which
+  deployment that is. The dashboard's client row carries `service` and
+  `service_custom_name` for the service and nothing of the sort for the client
+  holding it. `bind-tunnels:` addresses a peer by its UUID.
+
+  **The design question is not whether to relax the UUID rule.** It is that
+  `client_id` is doing two jobs a name cannot do:
+
+  - **Failover `wait` needs uniqueness, not readability.** It narrows the pool
+    to connections whose `reported_instance_id` matches, because "an instance
+    is a client *process*". Three replicas an operator would all like to call
+    `eu_server` are three processes, and a shared name would make the server
+    treat them as one returning client.
+  - **`bind-tunnels:` has one key space for two kinds of thing.** A key is
+    read as a tunnel name and falls back to a peer's client id, and the only
+    thing keeping them apart is shape. `looks_like_client_id` says so
+    outright: a UUID carries `-`, which a name may not, "so this only has to
+    recognize the id form rather than defend the name space". A name-shaped
+    client id collides with every tunnel name.
+
+  So: a name **beside** the id rather than instead of it. The id stays the
+  instance identity, which is what it already is and what the code already
+  treats as untrusted for state changes; the name is a label.
+
+  **One thing that does not break, which is worth knowing before anyone
+  worries about it.** `-` is already reserved: names are `[a-z0-9_]` and
+  cannot contain it, which is why `<base>-<service>-c<N>` can be parsed at all
+  (`service_of`). A client name in the same charset leaves that parsing exactly
+  as it is.
+
+  What still needs deciding is how a named client is addressed in
+  `bind-tunnels:` without reopening the ambiguity above. A namespaced key
+  (`client:eu_server`) keeps every existing UUID key and every existing tunnel
+  name working, which is the property to hold on to.
+
+  **Shipped** as a top-level `name:` (`--name`, `APERIO_NAME`), announced on
+  the heartbeat, validated on arrival, shown by the dashboard in place of the
+  truncated id and logged once when it first appears. The ids stay in the
+  tooltip, and the client list searches by name as well.
+
+  The design held: the name is a label and `client_id` stays the identity. A
+  test pins the part that makes it safe, that two connections calling
+  themselves the same thing stay two connections, since that is exactly what
+  failover and `bind_tunnels:` would break on if a name ever became an
+  address.
+
+  Validation happens on the server rather than being trusted from the wire.
+  The name arrives on every heartbeat from a party the server trusts for
+  nothing else and lands in the dashboard, the logs and an operator's eye, so
+  an unusable one is dropped and that client goes on showing its id. Checked
+  against the validator being removed, so the test is not one that cannot
+  fail.
+
+  `bind_tunnels:` was left alone deliberately. The entry proposed a namespaced
+  key for addressing a named client, and that belongs with the work that
+  actually wants it: nothing addresses a client by name today, so adding the
+  spelling now would be a second way to write something with no reader, which
+  is the shape `#128` was about.
+
+  **A hole in a check turned up while doing this and is not fixed here.**
+  `surfaces_tests.rs` asks whether a table documents a key with
+  `text.contains(&key)`, which cannot fail for a short one: `name` is inside
+  `hostname`, `custom_name` and `service_name`, so the new key was "documented"
+  by every page mentioning a hostname before a row existed. Tightening it to
+  whole-key matches inside code spans was tried and reverted, because the book
+  documents some settings in verbatim yaml listings rather than `\code{}`, so
+  the stricter check demanded rows that are already there. Recorded as `#145`.
 
 - [x] **#143 `aperio_client_requests_total` is labelled with something that
   changes every reconnect, and the label is not what its name says.** The

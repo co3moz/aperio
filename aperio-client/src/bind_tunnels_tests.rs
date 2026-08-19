@@ -12,6 +12,7 @@ fn settings_with(
   bind_tunnels: HashMap<String, BindTunnelValue>,
 ) -> ClientSettings {
   ClientSettings {
+    name: None,
     custom_name: None,
     token: token.map(|t| t.to_string()),
     api_key: None,

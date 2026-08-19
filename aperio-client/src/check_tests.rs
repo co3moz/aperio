@@ -176,6 +176,7 @@ fn handle_conn(mut stream: std::net::TcpStream, cfg: MockCfg) {
 
 fn base_settings() -> ClientSettings {
   ClientSettings {
+    name: None,
     metrics_labels: Default::default(),
     adaptive_concurrency: false,
     multiplex: false,

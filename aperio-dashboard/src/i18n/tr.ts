@@ -530,6 +530,7 @@ export const tr: Record<string, string> = {
   'any path': 'herhangi bir path',
   'audit.jsonl rotates past this size; 0 = never rotate':
     'audit.jsonl bu boyutu aşınca döner; 0 = asla dönme',
+  'name': 'ad',
   'client id': 'istemci kimliği',
   connection: 'bağlantı',
   'custom auth': 'özel kimlik',

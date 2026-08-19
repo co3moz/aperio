@@ -397,6 +397,7 @@ pub mod testkit {
     ) -> tokio::sync::mpsc::Receiver<axum::extract::ws::Message> {
       let (tx, rx) = tokio::sync::mpsc::channel(16);
       let handle = crate::state::ClientHandle {
+        declared_name: None,
         tx,
         disconnect: Arc::new(tokio::sync::Notify::new()),
         connected_at: std::time::Instant::now(),

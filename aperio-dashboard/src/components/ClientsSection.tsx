@@ -427,6 +427,7 @@ export function ClientsSection({
   const needle = search.trim().toLowerCase()
   const matchesConn = (c: ClientDetail) =>
     !needle ||
+    (c.name ?? '').toLowerCase().includes(needle) ||
     (c.instance_id ?? c.id).toLowerCase().includes(needle) ||
     c.ip.toLowerCase().includes(needle) ||
     (c.service ?? '').toLowerCase().includes(needle) ||
@@ -518,12 +519,19 @@ export function ClientsSection({
                       <div className="flex flex-wrap items-center gap-1">
                         <Tooltip>
                           <TooltipTrigger
-                            render={<span className="cursor-default font-mono text-sm" />}
+                            render={
+                              <span
+                                className={
+                                  c.name ? 'cursor-default text-sm font-medium' : 'cursor-default font-mono text-sm'
+                                }
+                              />
+                            }
                           >
-                            {(c.instance_id ?? c.id).slice(0, 8)}…
+                            {c.name ?? `${(c.instance_id ?? c.id).slice(0, 8)}…`}
                           </TooltipTrigger>
                           <TooltipContent>
                             <div className="flex flex-col gap-0.5 font-mono text-xs">
+                              {c.name && <span>{t('name')}: {c.name}</span>}
                               {c.instance_id && <span>{t('client id')}: {c.instance_id}</span>}
                               <span>{t('connection')}: {c.id}</span>
                               <span>{c.token_name ? `${t('token')}: ${c.token_name}` : t('master token')}</span>

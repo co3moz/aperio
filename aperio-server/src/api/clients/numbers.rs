@@ -106,6 +106,7 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
       last_ping_seconds_ago: handle.last_ping_at.map(|t| t.elapsed().as_secs()),
       max_concurrent: service.max_concurrent,
       version: handle.client_version.clone(),
+      name: handle.declared_name.clone(),
       service: service.service_name.clone(),
       service_custom_name: service.service_custom_name.clone(),
       public: service.public,

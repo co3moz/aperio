@@ -674,6 +674,7 @@ pub(crate) async fn handle_socket(
     clients.insert(
       client_id.clone(),
       ClientHandle {
+        declared_name: None,
         tx: tx_write.clone(),
         disconnect: disconnect.clone(),
         connected_at: Instant::now(),

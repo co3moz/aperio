@@ -467,6 +467,13 @@ pub(crate) fn resolve_settings(
       home.client_id.clone(),
     )
     .and_then(nonempty),
+    name: layered(
+      o.name.clone(),
+      local.name.clone(),
+      env_str("APERIO_NAME"),
+      home.name.clone(),
+    )
+    .and_then(nonempty),
     tunnels: local
       .tunnels
       .clone()

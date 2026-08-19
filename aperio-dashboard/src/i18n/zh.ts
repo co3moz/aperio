@@ -511,6 +511,7 @@ export const zh: Record<string, string> = {
   'any hostname': '任意 Hostname',
   'any path': '任意 Path',
   'audit.jsonl rotates past this size; 0 = never rotate': 'audit.jsonl 超过此大小即轮转；0 = 从不轮转',
+  'name': '名称',
   'client id': '客户端 ID',
   connection: '连接',
   'custom auth': '自定义认证',

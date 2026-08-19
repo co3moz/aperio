@@ -10,6 +10,7 @@ use config::ServiceEntry;
 
 pub(crate) fn base_settings() -> ClientSettings {
   ClientSettings {
+    name: None,
     custom_name: None,
     token: Some("apr_test".to_string()),
     api_key: None,

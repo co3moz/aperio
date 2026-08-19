@@ -217,6 +217,7 @@ fn build_state(config: ServerConfig) -> Arc<AppState> {
 fn mock_client() -> ClientHandle {
   let (tx, _rx) = mpsc::channel::<Message>(1);
   ClientHandle {
+    declared_name: None,
     drain_secs: None,
     tx,
     disconnect: Arc::new(tokio::sync::Notify::new()),

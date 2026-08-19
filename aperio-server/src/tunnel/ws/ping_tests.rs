@@ -803,3 +803,95 @@ async fn a_target_outside_the_operators_list_is_refused() {
     "a refused service must not be routed to"
   );
 }
+
+// --- what a client calls itself -------------------------------------------
+
+/// Sends a Ping declaring `name` and returns the handle's stored value.
+async fn name_after_ping(name: Option<&str>) -> (Arc<AppState>, String, Option<String>) {
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    name: ref mut declared,
+    ..
+  } = ping
+  {
+    *declared = name.map(str::to_string);
+  }
+  send(&mut ws, &ping).await;
+  let cid = wait_client_id(&state).await;
+  read_until_pong(&mut ws).await;
+  let stored = state
+    .clients
+    .read()
+    .await
+    .get(&cid)
+    .and_then(|h| h.declared_name.clone());
+  (state, cid, stored)
+}
+
+#[tokio::test]
+async fn a_client_that_names_itself_is_shown_by_that_name() {
+  let (_s, _cid, stored) = name_after_ping(Some("eu_server_1")).await;
+  assert_eq!(stored.as_deref(), Some("eu_server_1"));
+}
+
+/// A name that is not one is dropped rather than shown.
+///
+/// It arrives on every heartbeat from a party the server trusts for nothing
+/// else, and it reaches the dashboard, the logs and an operator's eye. A name
+/// is only worth having if it is the name, so an unusable one leaves the
+/// client showing its id, which is what it did before.
+#[tokio::test]
+async fn a_name_that_does_not_validate_is_dropped_rather_than_shown() {
+  for bad in ["Has Spaces", "UPPER", "with-hyphen", "", "  "] {
+    let (_s, _cid, stored) = name_after_ping(Some(bad)).await;
+    assert_eq!(stored, None, "{bad:?} should not have been kept");
+  }
+}
+
+#[tokio::test]
+async fn a_client_that_sends_no_name_keeps_showing_its_id() {
+  let (_s, _cid, stored) = name_after_ping(None).await;
+  assert_eq!(stored, None);
+}
+
+/// The name is a label, and nothing addresses the client by it.
+///
+/// This is the property the whole design rests on: `client_id` stays the
+/// identity because failover and `bind_tunnels:` need one value per process,
+/// and a name is shared by replicas on purpose. Two connections calling
+/// themselves the same thing must therefore stay two connections.
+#[tokio::test]
+async fn two_clients_may_share_a_name_and_stay_two_clients() {
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut first = connect(&url, "test").await;
+  let mut second = connect(&url, "test").await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    name: ref mut declared,
+    ..
+  } = ping
+  {
+    *declared = Some("eu_server".to_string());
+  }
+  send(&mut first, &ping).await;
+  read_until_pong(&mut first).await;
+  send(&mut second, &ping).await;
+  read_until_pong(&mut second).await;
+
+  let clients = state.clients.read().await;
+  let named: Vec<&String> = clients
+    .iter()
+    .filter(|(_, h)| h.declared_name.as_deref() == Some("eu_server"))
+    .map(|(id, _)| id)
+    .collect();
+  assert_eq!(
+    named.len(),
+    2,
+    "a shared name must not merge two connections into one"
+  );
+}

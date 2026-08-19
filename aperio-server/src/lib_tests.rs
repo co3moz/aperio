@@ -34,6 +34,7 @@ pub(crate) fn mock_client(
 ) -> ClientHandle {
   let (tx, _rx) = mpsc::channel::<Message>(1);
   ClientHandle {
+    declared_name: None,
     drain_secs: None,
     tx,
     disconnect: std::sync::Arc::new(tokio::sync::Notify::new()),

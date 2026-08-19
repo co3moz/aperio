@@ -463,6 +463,7 @@ pub(crate) async fn run_service(
             }
             let tx_ping = tx_write.clone();
             let client_id_ping = spec.client_id.clone();
+            let name_ping = spec.client_name.clone();
             let last_pong_time_ping = last_pong_time.clone();
             let abort_tx_ping = abort_tx.clone();
             let cancel_ping = cancel.clone();
@@ -650,6 +651,7 @@ pub(crate) async fn run_service(
                   jitter_ms,
                   reconnects: Some(reconnects),
                   client_id: client_id_ping.clone(),
+                  name: name_ping.clone(),
                   timestamp: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
