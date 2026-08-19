@@ -444,7 +444,7 @@ so.
 - [x] **#146 The rate limiter's arithmetic is not pinned by anything.** The
   first full mutation sweep to be read rather than merely run came back 264
   caught, 25 unviable, 0 timed out, and 28 survivors, and the survivors are not
-  spread out: **20 of the 28 are in `aperio-server/src/state/admission.rs`**,
+  spread out: **22 of the 28 are in `aperio-server/src/state/admission.rs`**,
   across `charge_rate_limit`, `check_route_rate_limit`, `check_token_limits`
   and `gc_tick_once`. Every boundary flips without a test noticing (`>` to
   `>=`, `<` to `<=`, `<` to `==`, and in two places `>` to `<`, which inverts
@@ -458,7 +458,7 @@ so.
   a 429. Worth a table-driven test over the bucket: exact capacity, one over,
   one under, refill across a known interval, and the gc boundary.
 
-  The other 8 are worth recording but are smaller. Two in `redact.rs`: deleting
+  The other 6 are worth recording but are smaller. Two in `redact.rs`: deleting
   the `"set-cookie"` arm survives, which is **not** a leak, since the header is
   in `SENSITIVE_HEADERS` and the fallback masks the whole value, but it does
   mean nothing asserts the part the arm exists for, that a cookie keeps its
@@ -473,7 +473,10 @@ so.
   on purpose, and two that were never gaps. Verified by applying each mutation
   by hand and watching the suite go red, rather than by rerunning the sweep:
   the local run filled the disk exactly as `.cargo/mutants.toml` warns it does,
-  and the workflow is the place for it.
+  and the workflow is the place for it. Confirmed afterwards by a dispatched
+  run, which came back 282 caught and 10 survivors against the 264 and 28 this
+  entry opened with, and the four it still lists on this module are exactly the
+  four named below.
 
   Two of the four that are not gaps came out of writing the tests, and both
   correct what this entry said before. The burst filter cannot be reached at
