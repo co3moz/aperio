@@ -59,6 +59,25 @@ function start(label, command, argv, env = {}) {
   return child
 }
 
+/**
+ * Waits for the tunnel to serve `/`, and says why when it does not.
+ *
+ * The same helper the conformance harnesses grew, for the same reason: the
+ * timeout alone says the least useful half of what happened, and what broke
+ * this run was written plainly in the server's log.
+ */
+async function routable(serverPort, host) {
+  try {
+    await waitFor(async () => (await get(serverPort, '/', host)) === 200, 'the tunnel')
+  } catch (e) {
+    for (const label of ['server', 'client']) {
+      const child = children.find((c) => c.label === label)
+      if (child) console.error(`--- ${label} log (tail) ---\n${child.log().slice(-3000)}`)
+    }
+    throw e
+  }
+}
+
 async function stopAll() {
   for (const { proc } of children) {
     if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGTERM')
@@ -168,9 +187,14 @@ async function main() {
     APERIO_SERVER_TOKEN: token,
     APERIO_TARGET: `http://127.0.0.1:${backendPort}`,
     APERIO_HOSTNAME: host,
+    // Declared open. This run measures memory under sustained load, not the
+    // visitor gate, and the server has been closed by default since 0.10.0:
+    // a route that declares nothing is refused, and the soak then fails as a
+    // tunnel that never became routable.
+    APERIO_PUBLIC: '1',
     APERIO_CONNECTIONS: '1',
   })
-  await waitFor(async () => (await get(serverPort, '/', host)) === 200, 'the tunnel')
+  await routable(serverPort, host)
 
   let load = null
   if (!noLoad) {

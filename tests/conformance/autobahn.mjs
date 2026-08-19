@@ -105,6 +105,25 @@ async function waitFor(check, label, timeoutMs = 60_000) {
   }
 }
 
+/**
+ * Waits for the tunnel to serve `/`, and says why when it does not.
+ *
+ * The twin of the one in `h2spec.mjs`, added for the same reason: the timeout
+ * alone is the least useful half of what happened, and the answer to why this
+ * suite stopped working was sitting in the server's log.
+ */
+async function routable(serverPort) {
+  try {
+    await waitFor(async () => (await get(serverPort, '/')) === 200, 'the tunnel to become routable')
+  } catch (e) {
+    for (const label of ['server', 'client']) {
+      const child = children.find((c) => c.label === label)
+      if (child) console.error(`--- ${label} log (tail) ---\n${child.log().slice(-3000)}`)
+    }
+    throw e
+  }
+}
+
 async function stopAll() {
   for (const { proc } of children) {
     if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGTERM')
@@ -164,9 +183,14 @@ async function main() {
     // teaching the container to resolve a name that exists nowhere. Bound on
     // `/`, the address Autobahn happens to dial stops mattering.
     APERIO_PATH: '/',
+    // Declared open, because these runs grade the *protocol*, not the visitor
+    // gate. The server has been closed by default since 0.10.0, so a route
+    // that declares nothing is refused before a frame is ever exchanged, and
+    // the grader then reports a transport problem it did not cause.
+    APERIO_PUBLIC: '1',
     APERIO_CONNECTIONS: '1',
   })
-  await waitFor(async () => (await get(serverPort, '/')) === 200, 'the tunnel to become routable')
+  await routable(serverPort)
 
   const { networkArgs, host } = dockerHostAccess()
   const config = {

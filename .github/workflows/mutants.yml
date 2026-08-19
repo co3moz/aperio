@@ -47,6 +47,14 @@ jobs:
     # is the union of the lists, and half a list is worse than none because it
     # reads like a complete one.
     continue-on-error: true
+    # Two bounds, because they catch different failures and neither covers the
+    # other. `--timeout` below stops one mutant that hangs its test run, which
+    # is a thing mutation testing produces on purpose: a mutant can turn a
+    # bounded loop into an unbounded one. This one stops everything else, and
+    # is here because without it a stuck job runs to GitHub's six-hour default
+    # across eight shards, and a run that is merely *sitting* there looks the
+    # same as one that is working. A shard is expected to take under an hour.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -78,6 +86,7 @@ jobs:
             --shard ${{ matrix.shard }}/8 \
             --baseline skip \
             --in-place \
+            --timeout 300 \
             ${{ inputs.files && format('--file {0}', inputs.files) || '' }} \
             --output mutants-out-${{ matrix.shard }}
 

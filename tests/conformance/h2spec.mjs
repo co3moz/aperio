@@ -104,6 +104,27 @@ async function waitFor(check, label, timeoutMs = 60_000) {
   }
 }
 
+/**
+ * Waits for the tunnel to serve `/`, and says why when it does not.
+ *
+ * The wait used to fail with the timeout alone, which is the least useful half
+ * of what happened: both processes are running and both have written down what
+ * they think. This failure took a round trip to diagnose for exactly that
+ * reason, and the answer was in the server's log the whole time ("declares no
+ * gate and is not declared open").
+ */
+async function routable(serverPort) {
+  try {
+    await waitFor(async () => (await get(serverPort, '/')) === 200, 'the tunnel to become routable')
+  } catch (e) {
+    for (const label of ['server', 'client']) {
+      const child = children.find((c) => c.label === label)
+      if (child) console.error(`--- ${label} log (tail) ---\n${child.log().slice(-3000)}`)
+    }
+    throw e
+  }
+}
+
 async function stopAll() {
   for (const { proc } of children) {
     if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGTERM')
@@ -224,9 +245,14 @@ async function main() {
     APERIO_SERVER_TOKEN: token,
     APERIO_TARGET: `http://127.0.0.1:${backendPort}`,
     APERIO_PATH_BIND: '/',
+    // Declared open, because these runs grade the *protocol*, not the visitor
+    // gate. The server has been closed by default since 0.10.0, so a route
+    // that declares nothing is refused before a frame is ever exchanged, and
+    // the grader then reports a transport problem it did not cause.
+    APERIO_PUBLIC: '1',
     APERIO_CONNECTIONS: '1',
   })
-  await waitFor(async () => (await get(serverPort, '/')) === 200, 'the tunnel to become routable')
+  await routable(serverPort)
 
   console.log('Running h2spec against the server itself (baseline)...')
   const baseline = await h2spec(bin, serverPort, '/aperio/health', join(reportDir, 'h2spec-baseline.xml'))
