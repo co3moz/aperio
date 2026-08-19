@@ -75,6 +75,17 @@ export class ServerSideSpec extends Test({
     client: () => DirectClient,
   },
 }) {
+  /**
+   * Waits for the declaration to be applied, not merely for the socket.
+   *
+   * A client is connected a moment before the server has read its heartbeat
+   * and admitted what it declares, and all three tests below ask for a route
+   * that exists only after that. Without this they failed together, in about
+   * a millisecond, in roughly one run in four.
+   */
+  async hookDeclared() {
+    await this.server._waitForLog('from this server')
+  }
 
   async aRequestIsAnsweredByTheBackendTheServerReached() {
     const res = await this.server._fetch('/hello?x=1', { host: 'ss-web.e2e.local' })
