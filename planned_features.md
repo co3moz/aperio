@@ -27,6 +27,33 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
+- [ ] **#146 The rate limiter's arithmetic is not pinned by anything.** The
+  first full mutation sweep to be read rather than merely run came back 264
+  caught, 25 unviable, 0 timed out, and 28 survivors, and the survivors are not
+  spread out: **20 of the 28 are in `aperio-server/src/state/admission.rs`**,
+  across `charge_rate_limit`, `check_route_rate_limit`, `check_token_limits`
+  and `gc_tick_once`. Every boundary flips without a test noticing (`>` to
+  `>=`, `<` to `<=`, `<` to `==`, and in two places `>` to `<`, which inverts
+  the comparison outright), and so does the arithmetic: `+` to `-` and `*` to
+  `+` in `charge_rate_limit`, `*` to `/` in `check_route_rate_limit`. A token
+  bucket is arithmetic and boundaries and nothing else, so what this says is
+  that the limiter is covered for "it exists and roughly works" and not for
+  what it actually computes. An off-by-one here is either a limit that admits
+  one more than it says, or one that refuses a request it should have allowed,
+  and neither shows up in a suite that only asserts a burst eventually gets
+  a 429. Worth a table-driven test over the bucket: exact capacity, one over,
+  one under, refill across a known interval, and the gc boundary.
+
+  The other 8 are worth recording but are smaller. Two in `redact.rs`: deleting
+  the `"set-cookie"` arm survives, which is **not** a leak, since the header is
+  in `SENSITIVE_HEADERS` and the fallback masks the whole value, but it does
+  mean nothing asserts the part the arm exists for, that a cookie keeps its
+  name visible while the value is masked (`session=***`, not `***`); and
+  `redaction_enabled()` mutated to `true` survives because no test runs with
+  redaction off. Three in `auth.rs`, two on `LockoutTracker::gc` boundaries and
+  one `+` to `*` in `auth_login_handler`. One in `proxy/gate.rs`, a `>` to `>=`
+  in `header_is_aperios`.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
