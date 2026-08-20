@@ -492,6 +492,91 @@ jobs:
   # ~15s check. A second lookup-only probe inside each job skips the rebuild
   # entirely if the cache key is nonetheless unchanged.
   # ---------------------------------------------------------------------------
+  # The guide is typeset here, and this job exists because it was not.
+  #
+  # `docs/book/aperio.tex` was only ever compiled during a release, so a LaTeX
+  # error in it could not fail anything until the release was already running.
+  # One did: a row with five cells in a four-column table, added with the
+  # client-name feature, sat on master until the release that tried to publish
+  # it. Typesetting is the only way to find that, since nothing else reads the
+  # file.
+  #
+  # Gated on the book changing, in the shape `detect-deps-change` above
+  # already uses, because the bundle download is not free and the file is
+  # quiet between releases.
+  detect-book-change:
+    name: Detect guide changes
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.filter.outputs.changed }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Did the guide change?
+        id: filter
+        run: |
+          base='${{ github.event.before }}'
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "$base" '${{ github.sha }}' | grep -qE '^docs/book/'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  book:
+    name: Typeset the guide
+    needs: detect-book-change
+    if: needs.detect-book-change.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Tectonic
+        env:
+          TECTONIC_VERSION: 0.17.0
+        run: |
+          curl -fsSL -o tectonic.tar.gz \
+            "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%40${TECTONIC_VERSION}/tectonic-${TECTONIC_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          tar -xzf tectonic.tar.gz
+          sudo install -m 0755 tectonic /usr/local/bin/tectonic
+
+      # Restore only, and save further down only when the compile worked. A
+      # cache written by a failed run is how a half-downloaded bundle outlives
+      # the run that created it and fails every later one.
+      - name: Restore the Tectonic bundle
+        id: bundle
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/Tectonic
+          key: tectonic-${{ runner.os }}-${{ hashFiles('docs/book/aperio.tex') }}
+          restore-keys: tectonic-${{ runner.os }}-
+
+      - name: Typeset
+        working-directory: docs/book
+        run: |
+          # Once, then once more against a cleared cache. A restored bundle
+          # missing a file it claims to have fails as "failed to open input
+          # file", which reads like a broken document and is not one; that
+          # cost a release. A second attempt distinguishes the two.
+          if ! tectonic -X compile aperio.tex --outdir out; then
+            echo "::warning::typesetting failed; retrying against a cleared bundle cache"
+            rm -rf ~/.cache/Tectonic
+            tectonic -X compile aperio.tex --outdir out
+          fi
+
+      - name: Save the Tectonic bundle
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/Tectonic
+          key: tectonic-${{ runner.os }}-${{ hashFiles('docs/book/aperio.tex') }}
+
   detect-deps-change:
     name: Detect dependency changes
     if: github.event_name == 'push'

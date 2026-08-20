@@ -45,8 +45,8 @@ contents:
       mode: 0750
 
 scripts:
-  postinstall: packaging/scripts/postinstall-client.sh
-  preremove: packaging/scripts/preremove-client.sh
+  postinstall: tools/packaging/scripts/postinstall-client.sh
+  preremove: tools/packaging/scripts/preremove-client.sh
 
 overrides:
   rpm:

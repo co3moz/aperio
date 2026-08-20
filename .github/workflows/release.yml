@@ -224,8 +224,15 @@ jobs:
 
       # The TeX package bundle, not the build output: without this every
       # release re-downloads a few hundred files to typeset the same book.
-      - name: Cache the Tectonic bundle
-        uses: actions/cache@v4
+      #
+      # Restore and save are separate so the save can be conditional. A single
+      # `cache@v4` writes in its post step whatever happened, so a run that
+      # died halfway through fetching the bundle stored the half of it that
+      # arrived, and every later release restored that and failed on a file
+      # the cache claimed to have. That is what "failed to open input file
+      # pgfutil-common.tex" was, and it is not a fault in the document.
+      - name: Restore the Tectonic bundle
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/Tectonic
           key: tectonic-${{ runner.os }}-${{ hashFiles('docs/book/aperio.tex') }}
@@ -251,9 +258,24 @@ jobs:
       - name: Build the guide
         run: |
           mkdir -p dist-pkg
-          tectonic -X compile docs/book/aperio.tex --outdir dist-pkg
+          # Once, then once more against a cleared cache. A restored bundle
+          # missing a file it claims to have fails the same way a broken
+          # document does, and telling them apart by hand cost a release.
+          if ! tectonic -X compile docs/book/aperio.tex --outdir dist-pkg; then
+            echo "::warning::typesetting failed; retrying against a cleared bundle cache"
+            rm -rf ~/.cache/Tectonic
+            tectonic -X compile docs/book/aperio.tex --outdir dist-pkg
+          fi
           mv dist-pkg/aperio.pdf "dist-pkg/aperio-guide.${GITHUB_REF_NAME}.pdf"
           cp "dist-pkg/aperio-guide.${GITHUB_REF_NAME}.pdf" dist-pkg/aperio-guide.pdf
+
+      # Only now, when the book actually typeset. See the restore step above.
+      - name: Save the Tectonic bundle
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/Tectonic
+          key: tectonic-${{ runner.os }}-${{ hashFiles('docs/book/aperio.tex') }}
 
       - name: Upload the guide
         uses: actions/upload-artifact@v4

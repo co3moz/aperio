@@ -54,8 +54,8 @@ contents:
       mode: 0750
 
 scripts:
-  postinstall: packaging/scripts/postinstall-server.sh
-  preremove: packaging/scripts/preremove-server.sh
+  postinstall: tools/packaging/scripts/postinstall-server.sh
+  preremove: tools/packaging/scripts/preremove-server.sh
 
 overrides:
   rpm:

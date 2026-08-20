@@ -512,3 +512,7 @@ mod tests;
 #[cfg(test)]
 #[path = "harness_env_tests.rs"]
 mod harness_env_tests;
+
+#[cfg(test)]
+#[path = "packaging_tests.rs"]
+mod packaging_tests;

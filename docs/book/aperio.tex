@@ -3680,7 +3680,7 @@ settings are required: the token, the server URL, and the target.
 \rowsep
 \code{APERIO\_CLIENT\_ID} & \code{--client-id} & \code{client\_id} & Persistent client instance id (a UUID). Keeps the id stable across restarts, useful for failover \code{wait} mode and \code{--bind-tunnels}. \\
 \rowsep
-\code{APERIO\_NAME} & \code{--name} & \code{name} & What to call this client on screen and in the server's logs, e.g. \code{eu\_server\_1}. A label, not an address: \code{client\_id} stays the identity failover and \code{bind\_tunnels:} recognize this process by, because those need something unique and a name is not. & the client id \\
+\code{APERIO\_NAME} & \code{--name} & \code{name} & What to call this client on screen and in the server's logs, e.g. \code{eu\_server\_1}. A label, not an address: \code{client\_id} stays the identity failover and \code{bind\_tunnels:} recognize this process by, because those need something unique and a name is not. \\
 \rowsep
 \code{APERIO\_DEVICE\_KEY} &  & \code{device\_key} & Explicit device key announced for trust-on-first-use token pinning (server \code{APERIO\_TOKEN\_PINNING}): pins the token to this device so a leaked token replayed elsewhere is rejected. \\
 \rowsep
