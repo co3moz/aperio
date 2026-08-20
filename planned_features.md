@@ -568,7 +568,11 @@ so.
 
   **shipped:** five killed, one left alive on purpose, and one of the five was
   a bug rather than a missing test. Verified the same way as #146, by applying
-  each mutation by hand and watching the suite go red.
+  each mutation by hand and watching the suite go red, and confirmed afterwards
+  by a dispatched run: 285 caught and 5 survivors, against the 264 and 28 that
+  opened #146. The five left are precisely the ones these two entries argue
+  should be there, four on `admission.rs` and one on `redact.rs`, and there is
+  nothing else outstanding on the scoped set.
 
   `auth.rs` had the same two shapes as the limiter: a sweep threshold with no
   case sitting exactly on it, and a cutoff nothing asked about on the boundary.
