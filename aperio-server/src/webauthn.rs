@@ -165,6 +165,7 @@ fn webauthn_or_disabled(state: &AppState) -> Result<&Webauthn, Box<Response>> {
 }
 
 /// Resolves the calling session to its named user (id, username).
+#[allow(clippy::result_large_err)] // see api/tokens.rs
 async fn session_user(
   state: &Arc<AppState>,
   headers: &HeaderMap,

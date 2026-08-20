@@ -286,6 +286,7 @@ pub(crate) async fn users_delete_handler(
 /// Resolves the calling session to its user row. The built-in admin
 /// ("aperio", from the master token / dashboard password / OIDC) has no user
 /// row and cannot enroll TOTP.
+#[allow(clippy::result_large_err)] // see api/tokens.rs
 async fn session_user_id(state: &Arc<AppState>, headers: &HeaderMap) -> Result<String, Response> {
   let Some(username) = crate::auth::dashboard_username(state, headers).await else {
     return Err(

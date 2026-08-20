@@ -175,6 +175,7 @@ pub(crate) fn session_token(headers: &HeaderMap) -> Option<String> {
 
 /// Gate for organization-management endpoints: 401 without a session, 403 for
 /// non-master-admins.
+#[allow(clippy::result_large_err)] // see api/tokens.rs
 pub(crate) async fn require_master_admin(
   state: &AppState,
   headers: &HeaderMap,

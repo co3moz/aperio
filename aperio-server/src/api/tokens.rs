@@ -414,6 +414,13 @@ pub(crate) async fn tokens_create_handler(
 /// not own. A wildcard (`*`, or an empty list) stays allowed: it then means
 /// "any hostname within the org's fence", which the connect-time check
 /// narrows.
+// The `Err` is the HTTP answer, which is the whole point: these helpers say
+// "stop, and send this" and the caller writes `?`. `result_large_err` measures
+// a 128-byte `axum::Response` against a 128-byte threshold and asks for it to
+// be boxed, which would put an allocation on the refusal path and a `Box` at
+// every call site to save moving one cache line. Allowed where the pattern is
+// deliberate rather than boxed everywhere it appears.
+#[allow(clippy::result_large_err)]
 async fn check_org_hostname_fence(
   state: &Arc<AppState>,
   org: Option<&str>,
