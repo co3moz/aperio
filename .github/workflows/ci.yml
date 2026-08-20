@@ -560,6 +560,8 @@ jobs:
       - name: Typeset
         working-directory: docs/book
         run: |
+          # tectonic will not create its own output directory.
+          mkdir -p out
           # Once, then once more against a cleared cache. A restored bundle
           # missing a file it claims to have fails as "failed to open input
           # file", which reads like a broken document and is not one; that
