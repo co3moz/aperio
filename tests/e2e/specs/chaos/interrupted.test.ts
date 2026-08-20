@@ -76,13 +76,34 @@ export class ServerRestartMidStreamSpec extends Test({
   }
 
   async theTunnelComesBackWithoutTouchingTheClient() {
+    // Two waits, because they answer different questions. The first is that
+    // the client dialled back on its own, which is the "without touching the
+    // client" half and fails loudly if it never happens.
     await this.server._waitForClients(1)
-    const res = await within(
+
+    // The second is that the route serves again, and it polls rather than
+    // asking once. `connected_clients` counts registrations, so it turns 1 the
+    // moment the socket is back, and the request that follows has to beat the
+    // three-second gateway timeout this fixture sets. On a loaded runner with
+    // instrumented binaries it does not always, and the suite reported a 504
+    // for a tunnel that was about to work: an eventual property asserted at a
+    // single instant. The claim in this class's own words is that the tunnel
+    // "re-forms on its own", and SETTLE_MS is what makes that a claim rather
+    // than a hope, exactly as the comment on `within` says.
+    let res: Awaited<ReturnType<typeof send>> | undefined
+    await within(
       'a request after the restart',
-      send(this.server._url, '/after', { host: CHAOS_HOST }),
+      waitFor(
+        async () => {
+          res = await send(this.server._url, '/after', { host: CHAOS_HOST })
+          return res.status === 200
+        },
+        { timeoutMs: SETTLE_MS, label: 'the tunnel to serve again' },
+      ),
     )
-    assert.equal(res.status, 200)
-    assert.equal(res.body, `backend ${this.backend._port} GET /after`)
+    // Still the assertion that matters: it came back to the *right* backend,
+    // which a bare status could not tell us.
+    assert.equal(res?.body, `backend ${this.backend._port} GET /after`)
   }
 }
 
