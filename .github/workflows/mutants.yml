@@ -38,8 +38,38 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # The unmutated tree, once. If the suite is already failing, every mutant
+  # below is "caught" for a reason that has nothing to do with the mutation,
+  # and the run would report a clean sweep it did not earn.
+  #
+  # One job rather than a step inside each of the thirty-two, which was
+  # measured before it was moved: a shard's baseline step was 3m52s, of which
+  # 2m38s was compiling and 1m10s was running the tests. The compiling does
+  # not move here, because `cargo mutants` has to build the tree to mutate it
+  # and pays that cost in the shard either way; the test run does, which is
+  # about 33 runner-minutes over a run. It also fails better. A broken tree
+  # now stops the shards before they start, instead of being rediscovered
+  # thirty-two times.
+  baseline:
+    name: "Baseline"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Baseline
+        run: cargo test --workspace --no-fail-fast
+
   mutants:
     name: "Shard ${{ matrix.shard }} of 32"
+    needs: baseline
     runs-on: ubuntu-latest
     # A shard that finds survivors must not stop the others: the whole output
     # is the union of the lists, and half a list is worse than none because it
@@ -74,14 +104,13 @@ jobs:
         with:
           tool: cargo-mutants
 
-      # The unmutated tree first. If the suite is already failing, every
-      # mutant below is "caught" for a reason that has nothing to do with the
-      # mutation, and the run would report a clean sweep it did not earn.
-      - name: Baseline
-        run: cargo test --workspace --no-fail-fast
-
       - name: Mutate
         run: |
+          # `--baseline skip` because the `baseline` job above already proved
+          # this tree green, and cargo-mutants would otherwise run its own,
+          # once per shard, which is the duplication that job exists to end.
+          # It is also why `--timeout` is spelled out: without a baseline the
+          # tool has no measured run to derive one from and says so.
           cargo mutants \
             --shard ${{ matrix.shard }}/32 \
             --baseline skip \
