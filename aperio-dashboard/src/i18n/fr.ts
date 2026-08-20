@@ -1086,6 +1086,8 @@ export const fr: Record<string, string> = {
     "les visiteurs doivent se connecter (ou porter un lien de partage) avant que cela n'atteigne un client : OIDC est configuré pour les visiteurs",
   'this hostname is served without a visitor gate':
     'ce hostname est servi sans porte visiteurs',
+  'nothing declares this route reachable and `default_access` is `deny`, so it is refused before any client is asked: the visitor gets the same answer an unclaimed hostname gives':
+    'rien ne déclare cette route joignable et `default_access` vaut `deny`, elle est donc refusée avant que le moindre client soit interrogé : le visiteur reçoit la même réponse que pour un nom de domaine non revendiqué',
   '{count} client(s) would take it: {clients}':
     '{count} client(s) la prendraient : {clients}',
   'no connected client serves this hostname and path':
@@ -1132,6 +1134,8 @@ export const fr: Record<string, string> = {
     'auth: sur le service',
   'server_auth / OIDC':
     'server_auth / OIDC',
+  'default_access':
+    'default_access',
   'server_auth':
     'server_auth',
   'OIDC':

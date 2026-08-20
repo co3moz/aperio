@@ -1090,6 +1090,8 @@ export const tr: Record<string, string> = {
     'ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): ziyaretçiler için OIDC yapılandırılmış',
   'this hostname is served without a visitor gate':
     'bu hostname ziyaretçi kapısı olmadan sunuluyor',
+  'nothing declares this route reachable and `default_access` is `deny`, so it is refused before any client is asked: the visitor gets the same answer an unclaimed hostname gives':
+    'hiçbir şey bu rotayı erişilebilir ilan etmiyor ve `default_access` `deny`, bu yüzden hiçbir istemciye sorulmadan reddediliyor: ziyaretçi, sahipsiz bir hostname icin verilen cevabın aynısını alıyor',
   '{count} client(s) would take it: {clients}':
     '{count} istemci bunu alırdı: {clients}',
   'no connected client serves this hostname and path':
@@ -1136,6 +1138,8 @@ export const tr: Record<string, string> = {
     'hizmetteki auth:',
   'server_auth / OIDC':
     'server_auth / OIDC',
+  'default_access':
+    'default_access',
   'server_auth':
     'server_auth',
   'OIDC':

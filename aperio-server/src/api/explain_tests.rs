@@ -1083,3 +1083,58 @@ async fn the_cache_stage_does_not_call_a_post_cacheable() {
   );
   assert_eq!(post["verdict"], "skipped");
 }
+
+/// Under the closed posture, a route nothing declares is refused, and the
+/// report says so instead of naming the client it would have reached.
+///
+/// This is what the screen said on a real upgrade from 0.9.0: outcome
+/// `client`, "the request reaches a tunnel client", on a server answering the
+/// same request with a 504. The gate is checked before any client is asked,
+/// and the report modelled the posture that existed before `default_access`
+/// flipped in 0.10.0, so the one screen somebody opens when a route has gone
+/// dark was pointing away from the cause.
+#[tokio::test]
+async fn a_route_nothing_declares_is_refused_under_the_closed_posture() {
+  let mut cfg = test_config();
+  cfg.default_access = crate::settings::DefaultAccess::Deny;
+  let state = Arc::new(test_state_with(cfg));
+  state.clients.write().await.insert(
+    "cccccccc-dddd".to_string(),
+    mock_client(None, None, None, None),
+  );
+
+  let headers = admin_headers(&state).await;
+  let body = json_body(explain(&state, headers, q("localhost/", None)).await).await;
+
+  assert_eq!(body["outcome"], "visitor_gate", "{body}");
+  let gate = step(&body, "visitor_gate");
+  assert_eq!(gate["verdict"], "decides", "{gate}");
+  assert_eq!(gate["code"], "visitor_gate.undeclared", "{gate}");
+
+  // The stage after it still reports what it sees. That is the design of this
+  // report and it is the useful half here: the route is fine, the gate is what
+  // answers, and an operator reading the two lines together knows which line
+  // to write.
+  let routing = step(&body, "routing");
+  assert_eq!(routing["verdict"], "passes", "{routing}");
+}
+
+/// The same server, once the service says it is open, reaches the client.
+#[tokio::test]
+async fn declaring_the_service_open_restores_the_route() {
+  let mut cfg = test_config();
+  cfg.default_access = crate::settings::DefaultAccess::Deny;
+  let state = Arc::new(test_state_with(cfg));
+  {
+    let mut clients = state.clients.write().await;
+    let mut open = mock_client(None, None, None, None);
+    open.sole_mut().public = true;
+    clients.insert("cccccccc-eeee".to_string(), open);
+  }
+
+  let headers = admin_headers(&state).await;
+  let body = json_body(explain(&state, headers, q("localhost/", None)).await).await;
+
+  assert_eq!(body["outcome"], "client", "{body}");
+  assert_eq!(step(&body, "visitor_gate")["code"], "visitor_gate.open");
+}

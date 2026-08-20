@@ -1086,6 +1086,8 @@ export const ru: Record<string, string> = {
     'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: для посетителей настроен OIDC',
   'this hostname is served without a visitor gate':
     'этот hostname обслуживается без двери для посетителей',
+  'nothing declares this route reachable and `default_access` is `deny`, so it is refused before any client is asked: the visitor gets the same answer an unclaimed hostname gives':
+    'ничто не объявляет этот маршрут доступным, а `default_access` установлен в `deny`, поэтому он отклоняется до обращения к клиенту: посетитель получает тот же ответ, что и для незанятого имени хоста',
   '{count} client(s) would take it: {clients}':
     'запрос взяли бы {count} клиент(ов): {clients}',
   'no connected client serves this hostname and path':
@@ -1132,6 +1134,8 @@ export const ru: Record<string, string> = {
     'auth: у сервиса',
   'server_auth / OIDC':
     'server_auth / OIDC',
+  'default_access':
+    'default_access',
   'server_auth':
     'server_auth',
   'OIDC':

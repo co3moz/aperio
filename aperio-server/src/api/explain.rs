@@ -655,6 +655,43 @@ pub(crate) async fn explain_handler(
       )
       .from_named(setting, setting_code),
     );
+  } else if cfg.default_access == crate::settings::DefaultAccess::Deny
+    && !crate::routing::route_is_public(&state, &path, Some(&hostname)).await
+    // Only when something would otherwise serve it. Both refusals answer 504,
+    // but they are different sentences to act on: with a client behind the
+    // gate the line to write is `public: true` on that service, and with no
+    // client at all there is nothing to write it on, so `no_client` further
+    // down is the more useful answer and is left to win.
+    && crate::routing::route_exists(&state, &path, Some(&hostname), None).await
+  {
+    // Nothing gates this route and nothing declared it open, which under the
+    // closed posture is a refusal and not an absence. This report used to say
+    // "served without a visitor gate" here and then go on to name the client
+    // that would take it, on a request the server answers with a 504 before
+    // any client sees it: the one screen an operator opens when a route has
+    // gone dark was describing the posture it had before the upgrade.
+    //
+    // Deliberately the same shape as the refusal itself, which answers as an
+    // unclaimed hostname does so that nothing leaks to a caller who was never
+    // going to be let in. The report is for the operator, so here it says
+    // plainly what the wire does not.
+    let detail = "nothing declares this route reachable and `default_access` is `deny`, so it is refused before any client is asked: the visitor gets the same answer an unclaimed hostname gives".to_string();
+    decided(
+      &mut outcome,
+      "visitor_gate",
+      detail.clone(),
+      "visitor_gate.undeclared",
+      None,
+    );
+    steps.push(
+      Step::new(
+        "visitor_gate",
+        Verdict::Decides,
+        "visitor_gate.undeclared",
+        detail,
+      )
+      .from_named("default_access", "setting.default_access"),
+    );
   } else {
     steps.push(Step::new(
       "visitor_gate",
