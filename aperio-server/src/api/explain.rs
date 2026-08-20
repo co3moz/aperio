@@ -675,7 +675,7 @@ pub(crate) async fn explain_handler(
     // unclaimed hostname does so that nothing leaks to a caller who was never
     // going to be let in. The report is for the operator, so here it says
     // plainly what the wire does not.
-    let detail = "nothing declares this route reachable and `default_access` is `deny`, so it is refused before any client is asked: the visitor gets the same answer an unclaimed hostname gives".to_string();
+    let detail = "nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it".to_string();
     decided(
       &mut outcome,
       "visitor_gate",

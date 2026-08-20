@@ -1130,3 +1130,50 @@ fn the_bare_namespace_prefix_is_aperios_too() {
      else's header and stripping it would be the opposite mistake"
   );
 }
+
+/// Under the closed posture an Aperio session reaches an undeclared route,
+/// and a stranger still does not.
+///
+/// `auth:` on a service is the door for third parties, people holding no
+/// Aperio credential. Its absence says nothing about whether this server's own
+/// users may look, and the check that admits them already existed: it sits
+/// two lines below, and every request with a server password or OIDC
+/// configured has always gone through it. Closed-by-default returned before
+/// reaching it, so one identity meant two different things depending on
+/// whether a server password happened to be set, and the operator holding the
+/// master token got the same opaque 504 as a stranger on their own route.
+#[tokio::test]
+async fn an_aperio_session_reaches_an_undeclared_route_and_a_stranger_does_not() {
+  let mut cfg = test_config();
+  cfg.default_access = crate::settings::DefaultAccess::Deny;
+  let state = Arc::new(test_state_with(cfg));
+  let uri: axum::http::Uri = "/anything".parse().unwrap();
+  let call = async |headers: HeaderMap| {
+    check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, None).await
+  };
+
+  match call(admin_headers(&state).await).await {
+    VisitorGate::Allow(_) => {}
+    VisitorGate::Undeclared(_) => panic!("a signed-in Aperio user is not a stranger"),
+    VisitorGate::Deny(_) => panic!("a signed-in Aperio user is not a stranger"),
+  }
+
+  // The posture is unchanged for everyone else, which is the half that must
+  // not move: no session, and a cookie that is not a session.
+  for (what, headers) in [
+    ("no session at all", HeaderMap::new()),
+    (
+      "a cookie that is not a session",
+      cookie_headers("not-a-real-session"),
+    ),
+  ] {
+    match call(headers).await {
+      VisitorGate::Undeclared(resp) => assert_eq!(
+        resp.status(),
+        StatusCode::GATEWAY_TIMEOUT,
+        "{what} still gets the unclaimed-hostname answer"
+      ),
+      _ => panic!("{what} must not reach the route"),
+    }
+  }
+}

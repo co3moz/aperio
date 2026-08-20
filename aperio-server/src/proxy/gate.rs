@@ -511,14 +511,28 @@ pub(crate) async fn check_visitor_gate(
     return VisitorGate::Allow(None);
   }
   if !auth_configured {
-    // Nothing gates this route. Under the default posture that has always
-    // meant "serve it"; under `deny` it means the route was never declared
-    // reachable, and the answer is the one an unclaimed hostname already
-    // gives, so the existence of something here does not leak to a caller who
-    // was never going to be let in.
+    // Nothing gates this route for third parties. Under the default posture
+    // that has always meant "serve it"; under `deny` it means the route was
+    // never declared reachable *by the public*, which is a narrower statement
+    // than it used to make here.
     if config.default_access == crate::settings::DefaultAccess::Deny {
+      // Undeclared means not published, not unreachable. `auth:` on a service
+      // is the door for third parties, people who hold no Aperio credential,
+      // so its absence says nothing about whether this server's own users may
+      // look. They may: the same session check the configured-gate branch
+      // below makes, with the same organization fence, so one identity does
+      // not mean two things depending on whether a server password happens to
+      // be set. Without this the operator holding the master token got the
+      // same opaque 504 as a stranger, on their own route, which is how a
+      // dark site after an upgrade became hard to diagnose.
+      if validate_session_for_visitor(state, headers, host).await {
+        return VisitorGate::Allow(session_identity(state, headers).await);
+      }
+      // For everyone else the posture holds, and the answer is the one an
+      // unclaimed hostname already gives, so the existence of something here
+      // does not leak to a caller who was never going to be let in.
       tracing::debug!(
-        "Nothing declares {} on {} open, and the posture is closed",
+        "Nothing declares {} on {} open, the posture is closed, and the caller carries no Aperio session",
         path,
         host.unwrap_or("-")
       );

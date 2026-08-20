@@ -197,6 +197,35 @@ pub struct ConfigChange {
 /// recorded here in the same commit that makes it (see CLAUDE.md).
 pub const CONFIG_CHANGES: &[ConfigChange] = &[
   ConfigChange {
+    version: "0.11.0",
+    surface: ConfigSurface::Server,
+    // `Migration`, not `Breaking`. This widens what a file already allows, so
+    // nothing has to be edited and nothing that was reachable becomes
+    // unreachable; what is worth reviewing is that "closed" was quietly
+    // narrower than an operator using it as a lockdown may have read it.
+    //
+    // Not `Security`: nobody who could not reach a route before can reach it
+    // now except a caller already holding an Aperio session, which is a
+    // dashboard credential this server issued, fenced to its organization.
+    // `Always`, because `deny` has been the default since 0.10.0, so the
+    // operators affected are precisely the ones who never wrote the key,
+    // which no set of field names can find.
+    severity: ChangeSeverity::Migration,
+    applies: Applies::Always,
+    fields: &["default_access", "public", "auth"],
+    summary: "under `default_access: deny`, a route nothing declares open is no longer refused to \
+              this server's own signed-in users: it is unpublished rather than unreachable",
+    action: "no change is needed, and public visitors are unaffected: a caller with no Aperio \
+              session still gets the answer an unclaimed hostname gives. What changed is that a \
+              signed-in Aperio user now reaches an undeclared route, which is what already \
+              happened on any server with `server_auth` or OIDC configured, so one identity no \
+              longer means two things depending on whether a server password is set. `auth:` on a \
+              service is the door for third parties who hold no Aperio credential, and its absence \
+              was never a statement about the operator. If a route must be closed to everyone \
+              including staff, give it an `auth:` policy that admits nobody rather than relying on \
+              the absence of one.",
+  },
+  ConfigChange {
     // Written mid-cycle before the number was known and confirmed at the
     // release: 0.11.0 is what was cut, so this fires for the upgrade it was
     // written for.

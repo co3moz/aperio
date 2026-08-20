@@ -1084,8 +1084,8 @@ export const ja: Record<string, string> = {
     '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: 訪問者向けに OIDC が設定されています',
   'this hostname is served without a visitor gate':
     'この hostname は訪問者関門なしで配信されています',
-  'nothing declares this route reachable and `default_access` is `deny`, so it is refused before any client is asked: the visitor gets the same answer an unclaimed hostname gives':
-    'このルートを到達可能と宣言するものがなく、`default_access` が `deny` のため、クライアントに問い合わせる前に拒否されます。訪問者には、要求されていないホスト名と同じ応答が返ります',
+  'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
+    'このルートを到達可能と宣言するものがなく、`default_access` が `deny` のため、公開されません。Aperio のセッションを持たない訪問者には、要求されていないホスト名と同じ応答が返り、サインイン済みの Aperio ユーザーは引き続き到達できます',
   '{count} client(s) would take it: {clients}':
     '{count} 個のクライアントが受け取ります: {clients}',
   'no connected client serves this hostname and path':

@@ -1067,8 +1067,8 @@ export const zh: Record<string, string> = {
     '访客必须先登录（或带着分享链接）才能到达客户端：已为访客配置 OIDC',
   'this hostname is served without a visitor gate':
     '这个 hostname 在没有访客门禁的情况下提供服务',
-  'nothing declares this route reachable and `default_access` is `deny`, so it is refused before any client is asked: the visitor gets the same answer an unclaimed hostname gives':
-    '没有任何配置声明该路由可达，且 `default_access` 为 `deny`，因此在询问任何客户端之前就被拒绝：访问者得到的响应与未被认领的主机名相同',
+  'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
+    '没有任何配置声明该路由可达，且 `default_access` 为 `deny`，因此不予发布：没有 Aperio 会话的访问者得到的响应与未被认领的主机名相同，而已登录的 Aperio 用户仍可访问',
   '{count} client(s) would take it: {clients}':
     '{count} 个客户端会接收它：{clients}',
   'no connected client serves this hostname and path':

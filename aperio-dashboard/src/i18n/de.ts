@@ -1088,8 +1088,8 @@ export const de: Record<string, string> = {
     'Besucher müssen sich anmelden (oder einen Freigabelink mitbringen), bevor dies einen Client erreicht: OIDC ist für Besucher konfiguriert',
   'this hostname is served without a visitor gate':
     'dieser hostname wird ohne Besuchertor ausgeliefert',
-  'nothing declares this route reachable and `default_access` is `deny`, so it is refused before any client is asked: the visitor gets the same answer an unclaimed hostname gives':
-    'nichts erklärt diese Route als erreichbar und `default_access` steht auf `deny`, sie wird also abgelehnt, bevor ein Client gefragt wird: der Besucher erhält dieselbe Antwort wie bei einem nicht beanspruchten Hostnamen',
+  'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
+    'nichts erklärt diese Route als erreichbar und `default_access` steht auf `deny`, sie wird also nicht veröffentlicht: ein Besucher ohne Aperio-Sitzung erhält dieselbe Antwort wie bei einem nicht beanspruchten Hostnamen, ein angemeldeter Aperio-Benutzer erreicht sie weiterhin',
   '{count} client(s) would take it: {clients}':
     '{count} Client(s) würden sie annehmen: {clients}',
   'no connected client serves this hostname and path':
