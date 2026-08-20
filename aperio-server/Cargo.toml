@@ -131,7 +131,7 @@ socket2 = "0.6.4"
 # for `aws-lc-rs` or the RustCrypto stack; either would be a third crypto
 # implementation here, and aws-lc-rs would be new build surface on musl and
 # Windows, the two targets #2 records as the openssl pain.
-jsonwebtoken = { version = "9", default-features = false, features = ["use_pem"] }
+jsonwebtoken = { version = "10.3", default-features = false, features = ["rust_crypto", "use_pem"] }
 
 [features]
 # Used by the release workflow: build OpenSSL from source for the target

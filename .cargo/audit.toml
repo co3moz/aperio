@@ -1,0 +1,28 @@
+# `cargo audit` configuration.
+#
+# One entry, and it is here rather than in a CI flag so that a local run and
+# the CI run answer the same thing.
+
+[advisories]
+ignore = [
+  # RUSTSEC-2023-0071, the Marvin attack: a timing sidechannel in the `rsa`
+  # crate that can recover a key from observed *private-key* operations. There
+  # is no fixed version; the crate has carried it since 2023.
+  #
+  # It reaches us through `jsonwebtoken`'s `rust_crypto` provider, which is
+  # there because the alternative provider is `aws_lc_rs`, a C library, and
+  # this project ships static musl binaries and has already gone out of its
+  # way to keep aws-lc-rs out of the tree (see aperio-client/Cargo.toml, where
+  # rustls is pinned to ring for the same reason).
+  #
+  # It does not apply to what this server does. `jsonwebtoken` is used in one
+  # place, `jwt.rs`, and only to *verify* an OIDC token against a provider's
+  # public key. Nothing here holds an RSA private key: `encode`/`EncodingKey`
+  # appear only in tests, and those sign with HMAC. A sidechannel in private
+  # key operations needs a private key operation to observe.
+  #
+  # Revisit when `rsa` publishes a fix, or if anything ever signs or decrypts
+  # with RSA here, at which point this stops being inapplicable and starts
+  # being a bug.
+  "RUSTSEC-2023-0071",
+]

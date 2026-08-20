@@ -341,3 +341,43 @@ async fn a_key_set_url_cannot_redirect_the_server_past_the_outbound_policy() {
     "the redirect target was fetched"
   );
 }
+
+/// A claim of the wrong JSON type is a refusal, not a claim that is absent.
+///
+/// CVE-2026-25537 (GHSA-h395-gr6q-cpjc) in `jsonwebtoken` before 10.3: a
+/// standard claim carrying the wrong type parses to `FailedToParse`, and the
+/// validator treated that identically to "not present", so an enabled check
+/// was skipped for exactly the token that was malformed. The mitigation the
+/// advisory names is listing the claim in `required_spec_claims`, which
+/// `verify` does for `exp` unconditionally and for `iss` and `aud` whenever
+/// the operator configured them.
+///
+/// So this server was never exposed, and that is the sort of claim worth a
+/// test rather than a paragraph: it holds on the old version and the new one,
+/// and it fails if somebody ever decides `exp` need not be required.
+#[tokio::test]
+async fn a_claim_of_the_wrong_type_is_refused_rather_than_ignored() {
+  let state = test_state();
+  for bad in [
+    serde_json::json!({"sub": "u-1", "exp": "9999999999"}),
+    serde_json::json!({"sub": "u-1", "exp": true}),
+    serde_json::json!({"sub": "u-1", "exp": [at(600)]}),
+  ] {
+    let t = token(bad.clone());
+    assert!(
+      verify(&state, &hmac_config(), &t).await.is_none(),
+      "an `exp` of the wrong type must refuse the token, not be read as a \
+       token that never expires: {bad}"
+    );
+  }
+
+  // The same for a configured audience, which is required only because the
+  // operator named one.
+  let mut cfg = hmac_config();
+  cfg.audience = vec!["aperio".to_string()];
+  let t = token(serde_json::json!({"sub": "u-1", "exp": at(600), "aud": 42}));
+  assert!(
+    verify(&state, &cfg, &t).await.is_none(),
+    "an `aud` of the wrong type is not an absent `aud`"
+  );
+}

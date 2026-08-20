@@ -8,6 +8,8 @@ project follows semantic versioning per release tag.
 
 ### Security
 
+- **`jsonwebtoken` updated for CVE-2026-25537, which this server was not exposed to.** The advisory (GHSA-h395-gr6q-cpjc, fixed in 10.3) is a type confusion in claim validation: a standard claim carrying the wrong JSON type parses to "failed", the validator treated that as "absent", and an enabled check was therefore skipped for exactly the malformed token. The mitigation it names is listing the claim in `required_spec_claims`, which the OIDC path has always done for `exp`, and for `iss` and `aud` whenever an operator configures them, so a token with a string `exp` was refused here before the update as it is after. Updated to 10.4 regardless, and the refusal now has a test rather than a paragraph.
+
 - **A header named exactly `x-aperio-` reached the backend.** The strip over Aperio's own namespace tested `name.len() > 9`, and `x-aperio-` is nine characters, so every name in the namespace was removed except the prefix on its own. Nothing the server sends is named that and no exploit needs it, but the rule this check exists to enforce is that the namespace cannot be forged from outside, and a rule with one name exempted is a weaker rule than one without. The comparison is `>=` now.
 
 - **A vulnerable `h2` was in the dependency tree.** `RUSTSEC-2026-0258`, unbounded empty DATA frames, published 2026-08-17 against `h2` 0.4.15. It reaches this project through `hyper`, so both binaries carry it: the server accepts HTTP/2 from visitors and the client speaks it to a backend. Updated to 0.4.16, which is the fixed release, and `cargo audit` is clean again.
