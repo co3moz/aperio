@@ -441,6 +441,43 @@ so.
 
 ## Completed
 
+- [x] **#149 A flaky e2e spec, and the hostname was the reason.**
+  `ProxyEnvironmentSpec` failed roughly one full-suite run in six, always with
+  `502 !== 200`, and never when its own file was run alone (twelve for twelve).
+  Noticed while verifying [[#148]] and chased from there.
+
+  **shipped:** the routing key is per fixture now. Thirty-one full-suite runs
+  since, and this spec has not failed once, against a rate that would have been
+  expected to show five or six.
+
+  One of those thirty-one failed *seven* tests at once, which is not this bug:
+  the signature here is one spec, one or two tests, a 502. A whole-suite
+  collapse is something else, most likely contention from running the suite
+  back to back, and its failure names were not captured, so it is recorded as
+  seen and not as diagnosed. If it returns, capture the names first: that is
+  the thing this entry had to do twice for want of doing it once.
+
+  Every client fixture in `specs/base/egress.test.ts` bound the same `HOST` on
+  the same shared `EgressServer`: `ProxiedEnvClient`, `ProxiedClient` and
+  `AuthProxiedClient`, serving three different specs with three different
+  backends and three independent lifecycles. One name, one server, three
+  claimants, so which client answered a request for `app.e2e.local` was
+  whichever the server happened to hold at that instant. Under a loaded suite
+  that is a client being torn down by a neighbouring spec, and the visitor gets
+  a 502.
+
+  What made it hard to read is that the failing spec's own client is *healthy*:
+  its log shows a clean connect, a hostname bind and nothing else, because it
+  was never asked. The 502 comes from the server, about a different client. The
+  giveaway was a run where two specs sharing `EgressServer` failed together.
+
+  Each fixture now binds its own name under `HOST` and each spec fetches
+  `this.client._hostname()` rather than the shared constant, so a request can
+  only reach the client the spec started. `RefusedClient` keeps its deliberate
+  `null`, and `ClientThrough` builds `APERIO_HOSTNAME` from `_hostname()` so a
+  subclass choosing a name is enough.
+
+
 - [x] **#148 Three test harnesses set environment variables that nothing
   reads.** Found while fixing Autobahn, which turned out to be measuring the
   rate limiter rather than the relay ([[#147]] has that story). A harness that

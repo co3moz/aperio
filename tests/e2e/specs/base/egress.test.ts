@@ -37,9 +37,12 @@ class ProxiedEnvClient extends BaseClientFor(
   () => EgressServer,
   () => EgressBackend,
 ) {
+  _hostname() {
+    return `proxyenv.${HOST}`
+  }
   _env() {
     return {
-      APERIO_HOSTNAME: HOST,
+      APERIO_HOSTNAME: this._hostname(),
       // Both spellings, because a real machine has both and reqwest reads
       // whichever it finds first.
       HTTP_PROXY: BLACK_HOLE,
@@ -149,7 +152,7 @@ export class ProxyEnvironmentSpec extends Test({
   dependencies: { server: () => EgressServer, client: () => ProxiedEnvClient },
 }) {
   async theBackendIsReachedDirectlyDespiteTheProxyEnvironment() {
-    const res = await this.server._fetch('/hello', { headers: { host: HOST } })
+    const res = await this.server._fetch('/hello', { headers: { host: this.client._hostname() } })
     assert.equal(
       res.status,
       200,
@@ -162,7 +165,7 @@ export class ProxyEnvironmentSpec extends Test({
     // client fails every request the same way, so a second one passing is
     // what says the first was not luck.
     for (const path of ['/hello', '/hello?again=1']) {
-      const res = await this.server._fetch(path, { headers: { host: HOST } })
+      const res = await this.server._fetch(path, { headers: { host: this.client._hostname() } })
       assert.equal(res.status, 200, `${path} was served from the backend`)
     }
   }
@@ -266,19 +269,39 @@ function ClientThrough(proxy: () => new () => { _port: number }, value: (port: n
       return '/hello'
     }
     _env() {
+      const host = this._hostname()
       return {
-        APERIO_HOSTNAME: HOST,
+        ...(host ? { APERIO_HOSTNAME: host } : {}),
         APERIO_EGRESS_PROXY: value(this.proxy._port),
       }
     }
   }
 }
 
-class ProxiedClient extends ClientThrough(() => OpenProxy, (p) => `127.0.0.1:${p}`) {}
+/**
+ * One hostname each, and they are not decorative.
+ *
+ * Every client in this file used to bind the shared `HOST` on the shared
+ * `EgressServer`, so three specs claimed one routing key and which client
+ * served a request was whichever the server had for that name at that instant.
+ * Under a loaded suite that is a client being torn down by a neighbouring spec,
+ * and the visitor gets a 502 from a test whose own client is healthy and has
+ * logged nothing wrong. The hostname is the routing key; two fixtures that are
+ * not the same service should not share one.
+ */
+class ProxiedClient extends ClientThrough(() => OpenProxy, (p) => `127.0.0.1:${p}`) {
+  _hostname() {
+    return `proxied.${HOST}`
+  }
+}
 class AuthProxiedClient extends ClientThrough(
   () => AuthProxy,
   (p) => `alice:s3cret@127.0.0.1:${p}`,
-) {}
+) {
+  _hostname() {
+    return `authproxied.${HOST}`
+  }
+}
 /** Never comes up: the proxy refuses. Started by the test, not by the harness.
  *
  *  `_hostname()` is null on purpose, so `_start` does not spend the routable
@@ -305,7 +328,7 @@ export class EgressProxySpec extends Test({
   async aVisitorIsServedThroughTheTunnelTheProxyOpened() {
     // The whole path, not a log line: the tunnel is only up if a visitor's
     // request comes back from the backend at the other end of it.
-    const res = await this.server._fetch('/hello', { headers: { host: HOST } })
+    const res = await this.server._fetch('/hello', { headers: { host: this.client._hostname() } })
     assert.equal(res.status, 200)
     assert.ok(
       this.proxy._seen.some((l) => l.startsWith('CONNECT ')),
@@ -329,7 +352,7 @@ export class AuthenticatedEgressProxySpec extends Test({
   },
 }) {
   async aCredentialedProxyAdmitsTheTunnel() {
-    const res = await this.server._fetch('/hello', { headers: { host: HOST } })
+    const res = await this.server._fetch('/hello', { headers: { host: this.client._hostname() } })
     assert.equal(res.status, 200, 'the proxy accepted the credential and opened the tunnel')
   }
 
