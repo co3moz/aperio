@@ -19,11 +19,11 @@ name: Mutants
 # It reports **survivors**, not a score. A survivor is either an assertion
 # nobody wrote or a line that does nothing, and both are worth a look; a
 # percentage is worth nothing and invites gaming.
-# On demand only. This is the slowest thing the project owns, hours across
-# eight runners for a scoped set, and it is a pre-release task run locally now
-# (CLAUDE.md rule 26). The workflow stays because a runner is the right place
-# for the *whole* set when somebody wants it, and because a shard is a
-# convenient way to hand the work to eight machines at once.
+# On demand only, and this is where it runs: it is a pre-release task started
+# by hand from the Run button (CLAUDE.md rule 26), never on this project's own
+# machines, where it fills a disk. It is the slowest thing here, so the work is
+# handed to thirty-two runners at once rather than eight; a shard is cheap and
+# a runner is idle either way.
 on:
   workflow_dispatch:
     inputs:
@@ -39,7 +39,7 @@ env:
 
 jobs:
   mutants:
-    name: "Shard ${{ matrix.shard }} of 8"
+    name: "Shard ${{ matrix.shard }} of 32"
     runs-on: ubuntu-latest
     # A shard that finds survivors must not stop the others: the whole output
     # is the union of the lists, and half a list is worse than none because it
@@ -50,13 +50,15 @@ jobs:
     # is a thing mutation testing produces on purpose: a mutant can turn a
     # bounded loop into an unbounded one. This one stops everything else, and
     # is here because without it a stuck job runs to GitHub's six-hour default
-    # across eight shards, and a run that is merely *sitting* there looks the
-    # same as one that is working. A shard is expected to take under an hour.
-    timeout-minutes: 120
+    # on every shard at once, and a run that is merely *sitting* there looks
+    # the same as one that is working. A shard was an hour at eight of them and
+    # is a fraction of that at thirty-two, so this is loose by design: it
+    # bounds a hang, it does not police a slow runner.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -81,7 +83,7 @@ jobs:
       - name: Mutate
         run: |
           cargo mutants \
-            --shard ${{ matrix.shard }}/8 \
+            --shard ${{ matrix.shard }}/32 \
             --baseline skip \
             --in-place \
             --timeout 300 \
