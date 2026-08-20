@@ -88,13 +88,48 @@ export function AperioServerBase(options: Parameters<typeof Test>[0] & ServerOpt
     }
 
     async hookStartServer() {
-      this._port = await freePort()
       this._token = `e2e-master-${randomUUID()}`
-      this._url = `http://127.0.0.1:${this._port}`
       this._dataDir = await this._makeDataDir()
       const yaml = this._configFile()
       if (yaml !== null) await this._writeConfig(yaml)
-      await this._spawn()
+      await this._spawnOnAFreePort()
+    }
+
+    /**
+     * Starts on a free port, and tries again on another when that port turns
+     * out not to have been free after all.
+     *
+     * `freePort()` binds a socket, closes it, and reports the number, so what
+     * it returns is a port that was free a moment ago. Between that moment and
+     * this server binding it, another fixture's probe can hand out the same
+     * number, and with four workers and a fixture per spec that happens: the
+     * loser logs `Failed to bind 0.0.0.0:PORT: Address already in use` and
+     * exits, and every spec sharing it then fails on ECONNREFUSED. One run in
+     * about thirty, fifteen tests at a time, all of them collateral
+     * (`planned_features.md` #150).
+     *
+     * Retried rather than eliminated, because the alternative is having the
+     * server bind `:0` and parse the port back out of its log, which makes
+     * every fixture depend on a log line's wording. A collision is rare and
+     * independent, so a second draw is enough.
+     */
+    async _spawnOnAFreePort(): Promise<void> {
+      let last: unknown
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        this._port = await freePort()
+        this._url = `http://127.0.0.1:${this._port}`
+        try {
+          await this._spawn()
+          return
+        } catch (e) {
+          last = e
+          await this._stop()
+          // Only a lost race is worth a new port. Anything else is this
+          // server failing to start, and retrying hides it.
+          if (!this._output.includes('Address already in use')) break
+        }
+      }
+      throw last
     }
 
     /** Stops and starts on the same port, token and data directory, which is
@@ -138,9 +173,33 @@ export function AperioServerBase(options: Parameters<typeof Test>[0] & ServerOpt
       }
       this._proc.stdout?.on('data', collect)
       this._proc.stderr?.on('data', collect)
-      await waitFor(async () => (await this._fetch('/aperio/health')).status === 200, {
-        label: `${this.constructor.name} to come up`,
+      // Raced against the child's exit rather than checked inside the poll,
+      // because `waitFor` swallows what its check throws. A server that could
+      // not bind is gone in milliseconds, and the twenty seconds after that
+      // are spent proving what it has already written down.
+      let settled = false
+      const died = new Promise<never>((_, reject) => {
+        this._proc?.once('exit', (code) => {
+          if (!settled) reject(new Error(`the server exited (${code ?? 0}) before answering`))
+        })
       })
+      died.catch(() => {})
+      try {
+        await Promise.race([
+          waitFor(async () => (await this._fetch('/aperio/health')).status === 200, {
+            label: `${this.constructor.name} to come up`,
+          }),
+          died,
+        ])
+        settled = true
+      } catch (e) {
+        settled = true
+        // With what it said. The timeout alone is the least useful half of
+        // what happened, and the server writes the reason down every time.
+        throw new Error(
+          `${(e as Error).message}\n--- ${this.constructor.name} log ---\n${this._output.slice(-2000)}`,
+        )
+      }
     }
 
     _fetch(path: string, options: Options = {}): Promise<Fetched> {

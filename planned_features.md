@@ -441,6 +441,43 @@ so.
 
 ## Completed
 
+- [x] **#150 A whole spec file collapsing at once, and the port was free
+  when it was handed out.** The other flake, caught while verifying [[#149]]:
+  about one full-suite run in thirty failed fifteen tests together, and the
+  fifteen were one failure with fourteen symptoms.
+
+  **shipped:** the server fixture draws another port when it loses the race,
+  and says what the server said when it gives up.
+
+  Every failure in the caught run was `connect ECONNREFUSED 127.0.0.1:51087`,
+  one port, plus two hook failures naming the cause: `IsolationServer` timed
+  out coming up and `IsolationClient` could not become routable without it.
+  Thirteen specs depending on that server then failed on a port nothing was
+  listening on.
+
+  `freePort()` binds a socket, closes it and reports the number, so what it
+  returns is a port that *was* free. Between that and the server binding it,
+  another fixture's probe can hand out the same number, and with four workers
+  and a fixture per spec it eventually does. The loser logs `Failed to bind
+  0.0.0.0:PORT: Address already in use` and exits.
+
+  The harness never showed that line. It waited twenty seconds for
+  `/aperio/health` and reported a timeout, which is the same half-a-story the
+  conformance harnesses told before #148, and the reason this took a
+  thirty-three-run hunt to see. The start now races the health check against
+  the child's exit, so a server that cannot bind fails in milliseconds rather
+  than at the end of the budget, and the error carries the server's own log.
+  The race had to be a race and not a check inside the poll, because `waitFor`
+  swallows what its check throws.
+
+  Retried rather than eliminated: the alternative is binding `:0` and parsing
+  the port back out of a log line, which makes every fixture depend on that
+  line's wording. A collision is rare and independent, so a second draw is
+  enough. Proved both ways by stealing the port a fixture was about to use:
+  without the change that file goes 0 passed and 15 failed, which is the
+  signature exactly, and with it 13 passed.
+
+
 - [x] **#149 A flaky e2e spec, and the hostname was the reason.**
   `ProxyEnvironmentSpec` failed roughly one full-suite run in six, always with
   `502 !== 200`, and never when its own file was run alone (twelve for twelve).
