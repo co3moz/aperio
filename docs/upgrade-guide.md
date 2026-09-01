@@ -111,7 +111,8 @@ deliberately not the whole suite, which asserts features that did not exist in
 every past release, and would report the absence of a feature as an
 incompatibility.
 
-After each release is published, a second workflow pairs the **newly released
+After a release is published, the Chore workflow's compatibility report
+(`.github/workflows/chore.yml`, started by hand) pairs the **newly released
 server with the client binary of every previous release** and prints the result
 as a table, so the wider claim is measured too rather than inferred from the
 narrow one. It is deliberately not a gate: an old client failing against a new

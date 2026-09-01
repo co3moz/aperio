@@ -1,0 +1,414 @@
+name: Chore
+
+# The by-hand jobs, in one place. Four workflows used to live here as four
+# files, each with its own Run button, its own schedule and its own paths
+# filter, and none of them a gate: the conformance suite, the memory soak,
+# the mutation sweep and the post-release compatibility report. They share
+# nothing at runtime, which is exactly why they can share a file: each is a
+# job below, picked by a checkbox on the Run button, and skipping one costs
+# nothing.
+#
+# Nothing here runs on its own. No schedule, no paths filter, no release
+# hook: a run is somebody deciding to have one, which for three of the four is
+# the pre-release checklist (CLAUDE.md rule 26) and for the fourth is the
+# afternoon after a release is published. That is a change from before, when
+# conformance and soak ran weekly and the report ran itself after a release,
+# and it is deliberate: a weekly job nobody reads is a green badge, not a
+# check, and the pre-release list is read.
+#
+# None of these may fail a push, because none of them is on one. `ci.yml` is
+# the gate; this is what the gate does not have time for.
+on:
+  workflow_dispatch:
+    inputs:
+      conformance:
+        description: "h2spec (HTTP/2, RFC 9113) against the relay"
+        type: boolean
+        default: true
+      soak:
+        description: "Memory over a plateau, failing on a trend"
+        type: boolean
+        default: true
+      plateau:
+        description: "Soak: how long to hold the plateau (e.g. 5m)"
+        default: "5m"
+      mutants:
+        description: "Mutation sweep over the scoped set, thirty-two shards"
+        type: boolean
+        default: true
+      files:
+        description: "Mutants: restrict to these files (glob, default: the scoped set in .cargo/mutants.toml)"
+        default: ""
+      compat:
+        description: "Compatibility report: every released client against the released server (after a release is published)"
+        type: boolean
+        default: false
+      tag:
+        description: "Compatibility report: release tag to report on (defaults to the latest)"
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Conformance: an external suite, run against the product rather than written
+  # for it.
+  #
+  # Only h2spec runs here. Autobahn needs a Docker image, and the tag this
+  # pinned stopped existing upstream, which is a CI failure about somebody
+  # else's registry rather than about this project. It is a pre-release task
+  # now, run locally (CLAUDE.md rule 26). A failure here is a bug in the relay,
+  # not a flaky test, which is why it is not allowed to fail quietly.
+  h2spec:
+    name: h2spec (HTTP/2, RFC 9113)
+    if: ${{ inputs.conformance }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build the binaries
+        run: cargo build --locked -p aperio-server -p aperio-client
+
+      # No Docker, unlike Autobahn: h2spec is a single Go binary the runner
+      # downloads for itself.
+      - name: Run the suite
+        run: node tests/conformance/h2spec.mjs
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h2spec-report
+          path: tests/conformance/reports
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Soak: the memory curve (planned_features #98).
+  #
+  # The README says neither binary grows with request count. That is a claim
+  # about a shape over time, against a stack this job brings up itself. It
+  # fails on a **trend**, never on a threshold: an absolute limit passes a leak
+  # that has not run long enough and fails a build that legitimately caches
+  # more. The rule that decides is in tests/soak/trend.mjs and is unit-tested
+  # against series whose answer is known.
+  soak:
+    name: Memory over a plateau
+    if: ${{ inputs.soak }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      # The rule first, and without any load: if the judge is wrong, the run
+      # that follows means nothing.
+      - name: Check the trend rule
+        run: node --test 'tests/soak/*.test.mjs'
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update && sudo apt-get install -y k6
+
+      # Release, because a soak measures the binary people run and a debug
+      # build's allocation behaviour is not it.
+      - name: Build the binaries
+        run: cargo build --release --locked -p aperio-server -p aperio-client
+
+      - name: Soak
+        run: node tests/soak/run.mjs --plateau ${{ inputs.plateau || '5m' }}
+
+      # Uploaded either way: the curve is the artifact, and a pass is what
+      # keeps the README's claim standing.
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-report
+          path: tests/soak/reports
+          retention-days: 90
+
+  # ---------------------------------------------------------------------------
+  # Mutants: mutation testing on the modules where a wrong answer is a security
+  # answer (planned_features #127).
+  #
+  # A passing suite says the tests ran, not that they check anything. This repo
+  # has three reasons to take that literally: the #123 sweep found four tests
+  # that had silently lost their `#[test]` attribute while the suite stayed
+  # green, #124 found a test whose comment described a mechanism that does not
+  # exist, and #128 found a check that passed on a variable which was
+  # documented and never read. All three were caught by breaking the behaviour
+  # and looking, which is what this does mechanically.
+  #
+  # Never on push. One full test suite per mutant is the cost, and 300-odd
+  # mutants against a suite that takes a minute is hours of runner time. It
+  # runs here and never on this project's own machines, where it fills a disk;
+  # the work is handed to thirty-two runners at once, because a shard is cheap
+  # and a runner is idle either way.
+  #
+  # It reports **survivors**, not a score. A survivor is either an assertion
+  # nobody wrote or a line that does nothing, and both are worth a look; a
+  # percentage is worth nothing and invites gaming.
+  #
+  # The unmutated tree, once. If the suite is already failing, every mutant
+  # below is "caught" for a reason that has nothing to do with the mutation,
+  # and the run would report a clean sweep it did not earn.
+  #
+  # One job rather than a step inside each of the thirty-two, which was
+  # measured before it was moved: a shard's baseline step was 3m52s, of which
+  # 2m38s was compiling and 1m10s was running the tests. The compiling does
+  # not move here, because `cargo mutants` has to build the tree to mutate it
+  # and pays that cost in the shard either way; the test run does, which is
+  # about 33 runner-minutes over a run. It also fails better. A broken tree
+  # now stops the shards before they start, instead of being rediscovered
+  # thirty-two times.
+  baseline:
+    name: "Mutants: baseline"
+    if: ${{ inputs.mutants }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Baseline
+        run: cargo test --workspace --no-fail-fast
+
+  mutants:
+    name: "Mutants: shard ${{ matrix.shard }} of 32"
+    needs: baseline
+    if: ${{ inputs.mutants }}
+    runs-on: ubuntu-latest
+    # A shard that finds survivors must not stop the others: the whole output
+    # is the union of the lists, and half a list is worse than none because it
+    # reads like a complete one.
+    continue-on-error: true
+    # Two bounds, because they catch different failures and neither covers the
+    # other. `--timeout` below stops one mutant that hangs its test run, which
+    # is a thing mutation testing produces on purpose: a mutant can turn a
+    # bounded loop into an unbounded one. This one stops everything else, and
+    # is here because without it a stuck job runs to GitHub's six-hour default
+    # on every shard at once, and a run that is merely *sitting* there looks
+    # the same as one that is working. A shard was an hour at eight of them and
+    # is a fraction of that at thirty-two, so this is loose by design: it
+    # bounds a hang, it does not police a slow runner.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants
+
+      - name: Mutate
+        run: |
+          # `--baseline skip` because the `baseline` job above already proved
+          # this tree green, and cargo-mutants would otherwise run its own,
+          # once per shard, which is the duplication that job exists to end.
+          # It is also why `--timeout` is spelled out: without a baseline the
+          # tool has no measured run to derive one from and says so.
+          cargo mutants \
+            --shard ${{ matrix.shard }}/32 \
+            --baseline skip \
+            --in-place \
+            --timeout 300 \
+            ${{ inputs.files && format('--file {0}', inputs.files) || '' }} \
+            --output mutants-out-${{ matrix.shard }}
+
+      # Runs whether or not survivors were found, because the list is the
+      # product of this job and a failed step that uploads nothing leaves
+      # somebody reading raw logs.
+      - name: Report survivors
+        if: always()
+        run: |
+          out="mutants-out-${{ matrix.shard }}"
+          missed="$out/missed.txt"
+          {
+            echo "## Shard ${{ matrix.shard }}"
+            if [ -s "$missed" ]; then
+              echo
+              echo "Survivors, each an assertion nobody wrote or a line that does nothing:"
+              echo
+              echo '```'
+              cat "$missed"
+              echo '```'
+            else
+              echo
+              echo "No survivors in this shard."
+            fi
+            if [ -s "$out/timeout.txt" ]; then
+              echo
+              echo "Timed out (unproven either way, not caught):"
+              echo
+              echo '```'
+              cat "$out/timeout.txt"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutants-shard-${{ matrix.shard }}
+          path: mutants-out-${{ matrix.shard }}
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # Compatibility report: the post-release half (planned_features #90).
+  #
+  # `ci.yml`'s `compat` job is the gate: N-1 in both directions, and a failure
+  # there stops the build. This is the wider half, and it is deliberately
+  # **not** a gate. It pairs a released server with the client binary of
+  # *every* previous release and prints the result as a table.
+  #
+  # It must never fail anything, and the reason is not politeness: an old
+  # client failing against a new server is information, not a regression. The
+  # point is to be able to say "0.11.0's server was tested against clients 0.1
+  # through 0.11, and these are the ones that worked" instead of guessing.
+  #
+  # The pairing is old client against new server, not the reverse, because
+  # that is the one a deployment actually produces: the server is one box and
+  # the clients are a fleet, so the server is upgraded first and then runs for
+  # a while ahead of them.
+  #
+  # Off by default, because it reports on *published* binaries: run before a
+  # release it can only repeat the previous release's table. Tick it once the
+  # release exists.
+  compat-report:
+    name: Released clients against the released server
+    if: ${{ inputs.compat }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node.js (the E2E suite runs on it)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      # Only the helper crate: both sides of every pairing are downloaded
+      # binaries, because the report is about the artifacts people actually
+      # install, not about a tree rebuilt with today's toolchain.
+      - name: Build the suite's helper binary
+        run: cargo build -p mock-h2
+
+      - name: Install the E2E suite's dependencies
+        working-directory: tests/e2e
+        run: npm ci
+
+      # One job looping rather than a matrix: each pairing is seconds of tests
+      # behind two minutes of setup, so nineteen matrix legs would spend almost
+      # all of their runtime installing Node. Looping also puts the whole table
+      # in one place, which is the output that matters here.
+      - name: Pair every released client with the released server
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -uo pipefail
+          asset() { # <tag> <binary> -> path, or empty when that release has none
+            local tag="$1" bin="$2" dir="binaries/$tag"
+            mkdir -p "$dir"
+            if [ ! -x "$dir/$bin" ]; then
+              gh release download "$tag" --dir "$dir" --clobber \
+                --pattern "${bin}-x86_64-unknown-linux-musl.tar.gz" >/dev/null 2>&1 || return 1
+              tar xzf "$dir/${bin}-x86_64-unknown-linux-musl.tar.gz" -C "$dir" || return 1
+              chmod +x "$dir/$bin"
+            fi
+            printf '%s/%s' "$PWD/$dir" "$bin"
+          }
+
+          released="${INPUT_TAG:-$(gh release list --limit 1 --json tagName --jq '.[0].tagName')}"
+          server="$(asset "$released" aperio-server)" || {
+            echo "::warning::$released has no linux-musl server binary, nothing to report against."
+            exit 0
+          }
+
+          # Oldest first, so the table reads as history.
+          mapfile -t tags < <(gh release list --limit 100 --json tagName --jq '.[].tagName' | tac)
+
+          {
+            echo "## Clients paired with the \`$released\` server"
+            echo
+            echo "Proxying a request end to end, plus the admin API. A ✗ is"
+            echo "information rather than a regression: it means that client"
+            echo "needs its server no newer than the release before this one."
+            echo
+            echo "| Client | Result |"
+            echo "| --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for tag in "${tags[@]}"; do
+            client="$(asset "$tag" aperio-client)" || {
+              echo "| \`$tag\` | not published for this platform |" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            }
+            echo "::group::$tag client against the $released server"
+            # The same slice `ci.yml` gates on, named once in package.json.
+            # `--ignore-scripts` skips its pretest, which would build the two
+            # binaries from this tree that the whole point is to not use.
+            if APERIO_CLIENT_BIN="$client" APERIO_SERVER_BIN="$server" \
+                 npm --prefix tests/e2e run test:compat --ignore-scripts; then
+              result="✓"
+            else
+              result="✗"
+            fi
+            echo "::endgroup::"
+            echo "| \`$tag\` | $result |" >> "$GITHUB_STEP_SUMMARY"
+          done

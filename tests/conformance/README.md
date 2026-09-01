@@ -66,9 +66,9 @@ The HTML report lands in `reports/` and is published as a CI artifact.
 
 ## In CI
 
-[`conformance.yml`](../../.github/workflows/conformance.yml) runs this
-weekly and on demand, not per push: it is minutes long and the thing it
-checks changes rarely. A failure is a bug in the relay, not a flaky test.
+[`chore.yml`](../../.github/workflows/chore.yml) runs this on demand, not
+per push: it is minutes long and the thing it checks changes rarely. A failure is a bug in the relay, not a flaky
+test.
 
 ## h2spec (HTTP/2)
 
