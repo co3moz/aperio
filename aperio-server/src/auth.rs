@@ -240,7 +240,7 @@ pub(crate) async fn auth_login_handler(
   let mut identity: (Option<String>, Role) = (None, Role::Admin);
   if let Some(auth_header) = headers.get("authorization")
     && let Ok(auth_str) = auth_header.to_str()
-    && let Some(stripped) = auth_str.strip_prefix("Basic ")
+    && let Some(stripped) = credentials_for_scheme(auth_str, "Basic")
   {
     use base64::prelude::*;
     if let Ok(decoded) = BASE64_STANDARD.decode(stripped)

@@ -56,7 +56,7 @@ fn authorize(
   let bearer_ok = headers
     .get("authorization")
     .and_then(|v| v.to_str().ok())
-    .and_then(|v| v.strip_prefix("Bearer "))
+    .and_then(|v| crate::auth::credentials_for_scheme(v, "Bearer"))
     .is_some_and(|t| constant_time_eq_str(t, token));
   let query_ok = query
     .get("token")

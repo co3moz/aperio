@@ -7,11 +7,35 @@ use std::net::IpAddr;
 use super::*;
 use crate::state::AppState;
 
+/// The credentials after `scheme` in an `Authorization` value, when that is
+/// the scheme the value names, and `None` otherwise.
+///
+/// The scheme is compared without regard to case, which is what RFC 7235
+/// says it is and what clients act on: `bearer x` from a script and
+/// `Bearer x` from a browser are the same credential. Every reader of the
+/// header used to spell `strip_prefix("Bearer ")` for itself, seven of them,
+/// and each admitted one spelling and silently refused the other; a caller
+/// refused that way is sent to a login page or told its token is wrong,
+/// which is a message about a different problem. One function, so the
+/// answer cannot differ by endpoint.
+///
+/// The remainder is returned as written, after the single space the grammar
+/// puts between the two; what a caller trims or rejects stays its own rule.
+pub(crate) fn credentials_for_scheme<'a>(value: &'a str, scheme: &str) -> Option<&'a str> {
+  // `get` rather than a slice: a multi-byte character straddling the cut is
+  // a value that names no scheme, not a panic.
+  let head = value.get(..scheme.len())?;
+  if !head.eq_ignore_ascii_case(scheme) {
+    return None;
+  }
+  value[scheme.len()..].strip_prefix(' ')
+}
+
 /// Extracts a Bearer token or `x-auth-token` value from request headers.
 pub(crate) fn extract_token(headers: &HeaderMap) -> Option<String> {
   if let Some(auth_header) = headers.get("authorization")
     && let Ok(auth_str) = auth_header.to_str()
-    && let Some(stripped) = auth_str.strip_prefix("Bearer ")
+    && let Some(stripped) = credentials_for_scheme(auth_str, "Bearer")
   {
     return Some(stripped.to_string());
   }

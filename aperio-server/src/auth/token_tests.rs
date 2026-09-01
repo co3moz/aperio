@@ -139,3 +139,34 @@ pub(crate) fn test_token_authentication() {
   assert!(extract_and_verify_token(&headers, "secret"));
   assert!(!extract_and_verify_token(&headers, "wrong_secret"));
 }
+
+#[test]
+fn the_scheme_is_matched_without_regard_to_case() {
+  // RFC 7235 makes the scheme case-insensitive, and every reader here used to
+  // spell `strip_prefix("Bearer ")` for itself, so `bearer x` was refused as
+  // if nothing had been sent.
+  assert_eq!(credentials_for_scheme("Bearer abc", "Bearer"), Some("abc"));
+  assert_eq!(credentials_for_scheme("bearer abc", "Bearer"), Some("abc"));
+  assert_eq!(credentials_for_scheme("BEARER abc", "Bearer"), Some("abc"));
+  assert_eq!(
+    credentials_for_scheme("basic dXNlcjpwdw==", "Basic"),
+    Some("dXNlcjpwdw==")
+  );
+  // Another scheme, a scheme with nothing after it, the scheme run into the
+  // credentials, and a value shorter than the scheme.
+  assert_eq!(credentials_for_scheme("Basic abc", "Bearer"), None);
+  assert_eq!(credentials_for_scheme("Bearer", "Bearer"), None);
+  assert_eq!(credentials_for_scheme("Bearerabc", "Bearer"), None);
+  assert_eq!(credentials_for_scheme("Bea", "Bearer"), None);
+  // A multi-byte character straddling the cut is no scheme and no panic.
+  assert_eq!(credentials_for_scheme("Beareé abc", "Bearer"), None);
+  // What follows the space comes back as written; trimming is the caller's.
+  assert_eq!(
+    credentials_for_scheme("Bearer  abc ", "Bearer"),
+    Some(" abc ")
+  );
+
+  let mut h = HeaderMap::new();
+  h.insert("authorization", HeaderValue::from_static("bearer lower"));
+  assert_eq!(extract_token(&h).as_deref(), Some("lower"));
+}

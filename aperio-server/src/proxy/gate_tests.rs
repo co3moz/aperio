@@ -1064,7 +1064,9 @@ pub(crate) async fn visitor_gate_traversal_honors_the_closed_posture() {
 
   match call(HeaderMap::new()).await {
     VisitorGate::Undeclared(resp) => assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT),
-    VisitorGate::Allow(_) => panic!("a traversal path under `deny` must not be served to a stranger"),
+    VisitorGate::Allow(_) => {
+      panic!("a traversal path under `deny` must not be served to a stranger")
+    }
     VisitorGate::Deny(_) => panic!("a stranger is held as undeclared, not refused outright"),
   }
 
@@ -1185,6 +1187,37 @@ async fn an_aperio_session_reaches_an_undeclared_route_and_a_stranger_does_not()
         "{what} still gets the unclaimed-hostname answer"
       ),
       _ => panic!("{what} must not reach the route"),
+    }
+  }
+}
+
+#[tokio::test]
+async fn the_bearer_scheme_opens_the_gate_however_it_is_capitalised() {
+  // RFC 7235 makes the scheme case-insensitive and clients act on it. The gate
+  // compared `Bearer ` byte for byte, so `bearer x` from a script was refused
+  // exactly as if no credential had been sent, and the caller was told to log
+  // in rather than that its header was misspelt, which it was not.
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::compile(
+    &serde_yaml::from_str("{method: bearer, secret: \"0123456789abcdef-secret\"}").unwrap(),
+  );
+  let state = Arc::new(test_state_with(cfg));
+  let uri: axum::http::Uri = "/api/items".parse().unwrap();
+
+  for spelling in [
+    "bearer 0123456789abcdef-secret",
+    "BEARER 0123456789abcdef-secret",
+  ] {
+    let mut headers = HeaderMap::new();
+    headers.insert("authorization", HeaderValue::from_static(spelling));
+    match check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, None).await {
+      VisitorGate::Allow(Some(identity)) => {
+        assert_eq!(identity.how, "bearer", "{spelling}");
+        // And it is still Aperio's own credential, stripped before the
+        // backend sees it, whichever way it was spelt.
+        assert!(identity.consumed_authorization, "{spelling}");
+      }
+      _ => panic!("{spelling} must open the gate"),
     }
   }
 }

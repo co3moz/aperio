@@ -117,7 +117,7 @@ fn presented_secret(
   if let Some(secret) = headers
     .get("authorization")
     .and_then(|v| v.to_str().ok())
-    .and_then(|v| v.strip_prefix("Bearer "))
+    .and_then(|v| crate::auth::credentials_for_scheme(v, "Bearer"))
     .map(str::trim)
     .filter(|s| !s.is_empty())
   {
@@ -275,7 +275,7 @@ fn jwt_token_from_request(headers: &HeaderMap, cfg: &crate::jwt::JwtConfig) -> O
     None => headers
       .get("authorization")
       .and_then(|v| v.to_str().ok())
-      .and_then(|v| v.strip_prefix("Bearer "))
+      .and_then(|v| crate::auth::credentials_for_scheme(v, "Bearer"))
       .map(str::trim)
       .filter(|s| !s.is_empty())
       .map(str::to_string),
