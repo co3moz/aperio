@@ -388,7 +388,12 @@ pub(crate) fn check_share_access(
       );
       let resp = Response::builder()
         .status(StatusCode::FOUND)
-        .header("Location", clean_url)
+        // Through the same filter every other redirect here passes. The clean
+        // address is the visitor's own path with one parameter removed, and
+        // `//evil.example/` is a path a whole-site link covers and a browser
+        // reads as another origin, so without this a valid link was also an
+        // open redirect on the host it was minted for.
+        .header("Location", crate::auth::safe_redirect_path(&clean_url))
         .header("Set-Cookie", cookie)
         .body(Body::empty())
         .unwrap();

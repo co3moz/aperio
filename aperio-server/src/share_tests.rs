@@ -547,3 +547,32 @@ pub(crate) fn test_share_token_roundtrip() {
   let forever_token = sign_share_claims(&forever, &key);
   assert!(verify_share_token(&forever_token, &key).is_some());
 }
+
+#[tokio::test]
+async fn the_first_click_redirect_cannot_leave_the_host() {
+  // `//evil.example/x` is an origin-form path as far as the request line is
+  // concerned: no traversal segment, so a whole-site link covers it, and the
+  // clean address used to be handed back verbatim. A browser reads a
+  // `Location` starting with `//` as another origin, so a valid link on
+  // `app.example.com` was also an open redirect from `app.example.com`.
+  let state = test_state();
+  let token = sign_share_claims(&claims("app.example.com", None, Some(future())), &key());
+  let u = uri(&format!("//evil.example/x?aperio_share={token}"));
+  assert_eq!(u.path(), "//evil.example/x");
+  let resp = check_share_access(&state, &HeaderMap::new(), &u, Some("app.example.com"))
+    .expect("share credential present")
+    .expect("redirect response");
+  assert_eq!(resp.status(), StatusCode::FOUND);
+  assert_eq!(resp.headers().get("location").unwrap(), "/");
+  // The cookie is still minted: the link itself was valid, only the address
+  // it was clicked on was not one to follow.
+  assert!(
+    resp
+      .headers()
+      .get("set-cookie")
+      .unwrap()
+      .to_str()
+      .unwrap()
+      .starts_with("aperio_share=")
+  );
+}
