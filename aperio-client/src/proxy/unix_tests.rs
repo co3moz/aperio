@@ -5,10 +5,6 @@
 use super::*;
 
 use crate::proxy::http::HeaderTransform;
-use http_body_util::{BodyExt, Full, StreamBody};
-use hyper::body::Frame;
-use hyper::service::service_fn;
-use hyper::{Request, Response};
 use tokio_tungstenite::tungstenite::protocol::Message;
 
 #[test]
@@ -58,12 +54,12 @@ async fn test_build_origin_uri() {
 }
 
 // ---- Integration tests over a real Unix-socket HTTP/1 backend ----
-
-type SrvBody = http_body_util::combinators::BoxBody<Bytes, std::io::Error>;
-
-fn full(b: impl Into<Bytes>) -> SrvBody {
-  http_body_util::combinators::BoxBody::new(Full::new(b.into()).map_err(|never| match never {}))
-}
+//
+// The socket-backed half is under `cfg(unix)` as a block: `dial_and_send` has
+// a stub on other platforms that refuses every unix target, so nothing in it
+// could pass there, and `tokio::net::UnixListener` does not exist there at
+// all, which made the whole crate's tests fail to compile on Windows rather
+// than skip these.
 
 /// Drains the tunnel channel in the background.
 fn drained_tx() -> mpsc::Sender<Message> {
@@ -93,369 +89,385 @@ fn base_ctx(socket_path: &str, tunnel_tx: mpsc::Sender<Message>) -> ForwardConte
   }
 }
 
-fn req(id: &str, method: &str, uri: &str) -> ForwardRequest {
-  ForwardRequest {
-    id: id.to_string(),
-    method: method.to_string(),
-    uri: uri.to_string(),
-    headers: vec![],
-    body: None,
-    raw_body: None,
+#[cfg(unix)]
+mod over_a_socket {
+  use super::*;
+  use http_body_util::{BodyExt, Full, StreamBody};
+  use hyper::body::Frame;
+  use hyper::service::service_fn;
+  use hyper::{Request, Response};
+
+  type SrvBody = http_body_util::combinators::BoxBody<Bytes, std::io::Error>;
+
+  fn full(b: impl Into<Bytes>) -> SrvBody {
+    http_body_util::combinators::BoxBody::new(Full::new(b.into()).map_err(|never| match never {}))
   }
-}
 
-async fn unix_handler(
-  req: Request<hyper::body::Incoming>,
-) -> Result<Response<SrvBody>, std::convert::Infallible> {
-  let path = req.uri().path().to_string();
-  let resp = match path.as_str() {
-    "/big" => {
-      let payload = vec![0x7Eu8; 600 * 1024];
-      Response::builder()
+  fn req(id: &str, method: &str, uri: &str) -> ForwardRequest {
+    ForwardRequest {
+      id: id.to_string(),
+      method: method.to_string(),
+      uri: uri.to_string(),
+      headers: vec![],
+      body: None,
+      raw_body: None,
+    }
+  }
+
+  async fn unix_handler(
+    req: Request<hyper::body::Incoming>,
+  ) -> Result<Response<SrvBody>, std::convert::Infallible> {
+    let path = req.uri().path().to_string();
+    let resp = match path.as_str() {
+      "/big" => {
+        let payload = vec![0x7Eu8; 600 * 1024];
+        Response::builder()
+          .status(200)
+          .header("content-type", "application/octet-stream")
+          .body(full(payload))
+          .unwrap()
+      }
+      "/big-multiframe" => {
+        // Multiple data frames whose combined size crosses the threshold.
+        let frames = futures_util::stream::iter(vec![
+          Ok::<_, std::io::Error>(Frame::data(Bytes::from(vec![1u8; 200 * 1024]))),
+          Ok(Frame::data(Bytes::from(vec![2u8; 200 * 1024]))),
+          Ok(Frame::data(Bytes::from(vec![3u8; 200 * 1024]))),
+        ]);
+        Response::builder()
+          .status(200)
+          .body(SrvBody::new(StreamBody::new(frames)))
+          .unwrap()
+      }
+      "/teapot" => Response::builder()
+        .status(418)
+        .body(full("teapot"))
+        .unwrap(),
+      "/echo" => {
+        let body = req.into_body().collect().await.unwrap().to_bytes();
+        Response::builder().status(200).body(full(body)).unwrap()
+      }
+      "/reflect-host" => {
+        let host = req
+          .headers()
+          .get(hyper::header::HOST)
+          .and_then(|v| v.to_str().ok())
+          .unwrap_or("")
+          .to_string();
+        Response::builder().status(200).body(full(host)).unwrap()
+      }
+      "/hang" => {
+        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+        Response::builder().status(200).body(full("")).unwrap()
+      }
+      _ => Response::builder()
         .status(200)
-        .header("content-type", "application/octet-stream")
-        .body(full(payload))
-        .unwrap()
-    }
-    "/big-multiframe" => {
-      // Multiple data frames whose combined size crosses the threshold.
-      let frames = futures_util::stream::iter(vec![
-        Ok::<_, std::io::Error>(Frame::data(Bytes::from(vec![1u8; 200 * 1024]))),
-        Ok(Frame::data(Bytes::from(vec![2u8; 200 * 1024]))),
-        Ok(Frame::data(Bytes::from(vec![3u8; 200 * 1024]))),
-      ]);
-      Response::builder()
-        .status(200)
-        .body(SrvBody::new(StreamBody::new(frames)))
-        .unwrap()
-    }
-    "/teapot" => Response::builder()
-      .status(418)
-      .body(full("teapot"))
-      .unwrap(),
-    "/echo" => {
-      let body = req.into_body().collect().await.unwrap().to_bytes();
-      Response::builder().status(200).body(full(body)).unwrap()
-    }
-    "/reflect-host" => {
-      let host = req
-        .headers()
-        .get(hyper::header::HOST)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
-      Response::builder().status(200).body(full(host)).unwrap()
-    }
-    "/hang" => {
-      tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
-      Response::builder().status(200).body(full("")).unwrap()
-    }
-    _ => Response::builder()
-      .status(200)
-      .header("x-served", "unix")
-      .body(full("hello unix"))
-      .unwrap(),
-  };
-  Ok(resp)
-}
+        .header("x-served", "unix")
+        .body(full("hello unix"))
+        .unwrap(),
+    };
+    Ok(resp)
+  }
 
-/// Starts a unix-socket HTTP/1 backend at a fresh temp path and returns it.
-async fn start_unix_backend() -> String {
-  let dir = std::env::temp_dir();
-  let path = dir.join(format!("aperio-test-{}.sock", uuid::Uuid::new_v4()));
-  let path_str = path.to_string_lossy().to_string();
-  let _ = std::fs::remove_file(&path);
-  let listener = tokio::net::UnixListener::bind(&path).unwrap();
-  tokio::spawn(async move {
-    while let Ok((stream, _)) = listener.accept().await {
-      let io = hyper_util::rt::TokioIo::new(stream);
-      tokio::spawn(async move {
-        let _ = hyper::server::conn::http1::Builder::new()
-          .serve_connection(io, service_fn(unix_handler))
-          .await;
-      });
-    }
-  });
-  path_str
-}
+  /// Starts a unix-socket HTTP/1 backend at a fresh temp path and returns it.
+  async fn start_unix_backend() -> String {
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!("aperio-test-{}.sock", uuid::Uuid::new_v4()));
+    let path_str = path.to_string_lossy().to_string();
+    let _ = std::fs::remove_file(&path);
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    tokio::spawn(async move {
+      while let Ok((stream, _)) = listener.accept().await {
+        let io = hyper_util::rt::TokioIo::new(stream);
+        tokio::spawn(async move {
+          let _ = hyper::server::conn::http1::Builder::new()
+            .serve_connection(io, service_fn(unix_handler))
+            .await;
+        });
+      }
+    });
+    path_str
+  }
 
-#[tokio::test]
-async fn test_unix_buffered_success() {
-  let sock = start_unix_backend().await;
-  let ctx = base_ctx(&sock, drained_tx());
-  let mut r = req("u-ok", "GET", "/");
-  // Exercise connection-header stripping and host capture.
-  r.headers = vec![
-    ("connection".to_string(), "keep-alive".to_string()),
-    ("host".to_string(), "visitor.example".to_string()),
-    ("x-fwd".to_string(), "1".to_string()),
-  ];
-  let result = handle_incoming_request_unix(&ctx, r, None, false)
-    .await
-    .expect("buffered response");
-  let TunnelMessage::Response {
-    status,
-    headers,
-    body,
-    ..
-  } = result
-  else {
-    panic!("expected Response");
-  };
-  assert_eq!(status, 200);
-  assert!(headers.iter().any(|(k, v)| k == "x-served" && v == "unix"));
-  let decoded = BASE64_STANDARD.decode(body.unwrap()).unwrap();
-  assert_eq!(String::from_utf8(decoded).unwrap(), "hello unix");
-}
-
-#[tokio::test]
-async fn test_unix_pass_hostname() {
-  let sock = start_unix_backend().await;
-  let mut ctx = base_ctx(&sock, drained_tx());
-  ctx.pass_hostname = true;
-  let mut r = req("u-host", "GET", "/reflect-host");
-  r.headers = vec![("host".to_string(), "app.example.com".to_string())];
-  let result = handle_incoming_request_unix(&ctx, r, None, false)
-    .await
-    .expect("buffered response");
-  let TunnelMessage::Response { body, .. } = result else {
-    panic!("expected Response");
-  };
-  let decoded = BASE64_STANDARD.decode(body.unwrap()).unwrap();
-  assert_eq!(String::from_utf8(decoded).unwrap(), "app.example.com");
-}
-
-#[tokio::test]
-async fn test_unix_default_host_localhost() {
-  let sock = start_unix_backend().await;
-  let ctx = base_ctx(&sock, drained_tx());
-  // No pass_hostname and no Host header → "localhost" stands in.
-  let result =
-    handle_incoming_request_unix(&ctx, req("u-host2", "GET", "/reflect-host"), None, false)
+  #[tokio::test]
+  async fn test_unix_buffered_success() {
+    let sock = start_unix_backend().await;
+    let ctx = base_ctx(&sock, drained_tx());
+    let mut r = req("u-ok", "GET", "/");
+    // Exercise connection-header stripping and host capture.
+    r.headers = vec![
+      ("connection".to_string(), "keep-alive".to_string()),
+      ("host".to_string(), "visitor.example".to_string()),
+      ("x-fwd".to_string(), "1".to_string()),
+    ];
+    let result = handle_incoming_request_unix(&ctx, r, None, false)
       .await
       .expect("buffered response");
-  let TunnelMessage::Response { body, .. } = result else {
-    panic!("expected Response");
-  };
-  let decoded = BASE64_STANDARD.decode(body.unwrap()).unwrap();
-  assert_eq!(String::from_utf8(decoded).unwrap(), "localhost");
-}
-
-#[tokio::test]
-async fn test_unix_non_2xx_passthrough() {
-  let sock = start_unix_backend().await;
-  let ctx = base_ctx(&sock, drained_tx());
-  let result = handle_incoming_request_unix(&ctx, req("u-418", "GET", "/teapot"), None, false)
-    .await
-    .expect("buffered response");
-  let TunnelMessage::Response { status, .. } = result else {
-    panic!("expected Response");
-  };
-  assert_eq!(status, 418);
-}
-
-#[tokio::test]
-async fn test_unix_echo_body() {
-  let sock = start_unix_backend().await;
-  let ctx = base_ctx(&sock, drained_tx());
-  let mut r = req("u-echo", "POST", "/echo");
-  r.body = Some(BASE64_STANDARD.encode(b"unix-body"));
-  let result = handle_incoming_request_unix(&ctx, r, None, false)
-    .await
-    .expect("buffered response");
-  let TunnelMessage::Response { body, .. } = result else {
-    panic!("expected Response");
-  };
-  let decoded = BASE64_STANDARD.decode(body.unwrap()).unwrap();
-  assert_eq!(String::from_utf8(decoded).unwrap(), "unix-body");
-}
-
-#[tokio::test]
-async fn test_unix_echo_streamed_request_body() {
-  let sock = start_unix_backend().await;
-  let ctx = base_ctx(&sock, drained_tx());
-  let (btx, brx) = mpsc::channel::<Result<bytes::Bytes, std::io::Error>>(4);
-  btx.send(Ok(b"aaa".to_vec().into())).await.unwrap();
-  btx.send(Ok(b"bbb".to_vec().into())).await.unwrap();
-  drop(btx);
-  let result = handle_incoming_request_unix(&ctx, req("u-sreq", "POST", "/echo"), Some(brx), false)
-    .await
-    .expect("buffered response");
-  let TunnelMessage::Response { body, .. } = result else {
-    panic!("expected Response");
-  };
-  let decoded = BASE64_STANDARD.decode(body.unwrap()).unwrap();
-  assert_eq!(String::from_utf8(decoded).unwrap(), "aaabbb");
-}
-
-#[tokio::test]
-async fn test_unix_streams_large_body() {
-  let sock = start_unix_backend().await;
-  let (tx, mut rx) = mpsc::channel::<Message>(512);
-  let ctx = base_ctx(&sock, tx);
-  let result = handle_incoming_request_unix(&ctx, req("u-big", "GET", "/big"), None, false).await;
-  assert!(result.is_none(), "large body streams");
-
-  let mut got_start = false;
-  let mut got_end = false;
-  let mut total = 0usize;
-  while let Some(Message::Text(json)) = rx.recv().await {
-    match serde_json::from_str::<TunnelMessage>(&json).unwrap() {
-      TunnelMessage::ResponseStart { status, .. } => {
-        assert_eq!(status, 200);
-        got_start = true;
-      }
-      TunnelMessage::ResponseChunk { data, .. } => {
-        total += BASE64_STANDARD.decode(data).unwrap().len();
-      }
-      TunnelMessage::ResponseEnd { .. } => {
-        got_end = true;
-        break;
-      }
-      other => panic!("unexpected: {:?}", other),
-    }
+    let TunnelMessage::Response {
+      status,
+      headers,
+      body,
+      ..
+    } = result
+    else {
+      panic!("expected Response");
+    };
+    assert_eq!(status, 200);
+    assert!(headers.iter().any(|(k, v)| k == "x-served" && v == "unix"));
+    let decoded = BASE64_STANDARD.decode(body.unwrap()).unwrap();
+    assert_eq!(String::from_utf8(decoded).unwrap(), "hello unix");
   }
-  assert!(got_start && got_end);
-  assert_eq!(total, 600 * 1024);
-}
 
-#[tokio::test]
-async fn test_unix_streams_multiframe_binary_chunks() {
-  let sock = start_unix_backend().await;
-  let (tx, mut rx) = mpsc::channel::<Message>(512);
-  let ctx = base_ctx(&sock, tx);
-  // binary_chunks=true exercises the raw-frame chunk path plus a data frame
-  // arriving after streaming has already begun.
-  let result =
-    handle_incoming_request_unix(&ctx, req("u-mf", "GET", "/big-multiframe"), None, true).await;
-  assert!(result.is_none());
+  #[tokio::test]
+  async fn test_unix_pass_hostname() {
+    let sock = start_unix_backend().await;
+    let mut ctx = base_ctx(&sock, drained_tx());
+    ctx.pass_hostname = true;
+    let mut r = req("u-host", "GET", "/reflect-host");
+    r.headers = vec![("host".to_string(), "app.example.com".to_string())];
+    let result = handle_incoming_request_unix(&ctx, r, None, false)
+      .await
+      .expect("buffered response");
+    let TunnelMessage::Response { body, .. } = result else {
+      panic!("expected Response");
+    };
+    let decoded = BASE64_STANDARD.decode(body.unwrap()).unwrap();
+    assert_eq!(String::from_utf8(decoded).unwrap(), "app.example.com");
+  }
 
-  let mut total = 0usize;
-  let mut got_end = false;
-  while let Some(msg) = rx.recv().await {
-    match msg {
-      Message::Binary(bytes) => {
-        let (_t, _i, payload) = crate::protocol::decode_binary_frame(&bytes).unwrap();
-        total += payload.len();
-      }
-      Message::Text(json) => match serde_json::from_str::<TunnelMessage>(&json).unwrap() {
-        TunnelMessage::ResponseStart { .. } => {}
+  #[tokio::test]
+  async fn test_unix_default_host_localhost() {
+    let sock = start_unix_backend().await;
+    let ctx = base_ctx(&sock, drained_tx());
+    // No pass_hostname and no Host header → "localhost" stands in.
+    let result =
+      handle_incoming_request_unix(&ctx, req("u-host2", "GET", "/reflect-host"), None, false)
+        .await
+        .expect("buffered response");
+    let TunnelMessage::Response { body, .. } = result else {
+      panic!("expected Response");
+    };
+    let decoded = BASE64_STANDARD.decode(body.unwrap()).unwrap();
+    assert_eq!(String::from_utf8(decoded).unwrap(), "localhost");
+  }
+
+  #[tokio::test]
+  async fn test_unix_non_2xx_passthrough() {
+    let sock = start_unix_backend().await;
+    let ctx = base_ctx(&sock, drained_tx());
+    let result = handle_incoming_request_unix(&ctx, req("u-418", "GET", "/teapot"), None, false)
+      .await
+      .expect("buffered response");
+    let TunnelMessage::Response { status, .. } = result else {
+      panic!("expected Response");
+    };
+    assert_eq!(status, 418);
+  }
+
+  #[tokio::test]
+  async fn test_unix_echo_body() {
+    let sock = start_unix_backend().await;
+    let ctx = base_ctx(&sock, drained_tx());
+    let mut r = req("u-echo", "POST", "/echo");
+    r.body = Some(BASE64_STANDARD.encode(b"unix-body"));
+    let result = handle_incoming_request_unix(&ctx, r, None, false)
+      .await
+      .expect("buffered response");
+    let TunnelMessage::Response { body, .. } = result else {
+      panic!("expected Response");
+    };
+    let decoded = BASE64_STANDARD.decode(body.unwrap()).unwrap();
+    assert_eq!(String::from_utf8(decoded).unwrap(), "unix-body");
+  }
+
+  #[tokio::test]
+  async fn test_unix_echo_streamed_request_body() {
+    let sock = start_unix_backend().await;
+    let ctx = base_ctx(&sock, drained_tx());
+    let (btx, brx) = mpsc::channel::<Result<bytes::Bytes, std::io::Error>>(4);
+    btx.send(Ok(b"aaa".to_vec().into())).await.unwrap();
+    btx.send(Ok(b"bbb".to_vec().into())).await.unwrap();
+    drop(btx);
+    let result =
+      handle_incoming_request_unix(&ctx, req("u-sreq", "POST", "/echo"), Some(brx), false)
+        .await
+        .expect("buffered response");
+    let TunnelMessage::Response { body, .. } = result else {
+      panic!("expected Response");
+    };
+    let decoded = BASE64_STANDARD.decode(body.unwrap()).unwrap();
+    assert_eq!(String::from_utf8(decoded).unwrap(), "aaabbb");
+  }
+
+  #[tokio::test]
+  async fn test_unix_streams_large_body() {
+    let sock = start_unix_backend().await;
+    let (tx, mut rx) = mpsc::channel::<Message>(512);
+    let ctx = base_ctx(&sock, tx);
+    let result = handle_incoming_request_unix(&ctx, req("u-big", "GET", "/big"), None, false).await;
+    assert!(result.is_none(), "large body streams");
+
+    let mut got_start = false;
+    let mut got_end = false;
+    let mut total = 0usize;
+    while let Some(Message::Text(json)) = rx.recv().await {
+      match serde_json::from_str::<TunnelMessage>(&json).unwrap() {
+        TunnelMessage::ResponseStart { status, .. } => {
+          assert_eq!(status, 200);
+          got_start = true;
+        }
+        TunnelMessage::ResponseChunk { data, .. } => {
+          total += BASE64_STANDARD.decode(data).unwrap().len();
+        }
         TunnelMessage::ResponseEnd { .. } => {
           got_end = true;
           break;
         }
         other => panic!("unexpected: {:?}", other),
-      },
-      other => panic!("unexpected: {:?}", other),
+      }
     }
+    assert!(got_start && got_end);
+    assert_eq!(total, 600 * 1024);
   }
-  assert!(got_end);
-  assert_eq!(total, 600 * 1024);
-}
 
-#[tokio::test]
-async fn test_unix_backend_unreachable() {
-  // Nonexistent socket path → connection error → 502.
-  let ctx = base_ctx("/tmp/aperio-does-not-exist.sock", drained_tx());
-  let result = handle_incoming_request_unix(&ctx, req("u-refused", "GET", "/"), None, false)
-    .await
-    .expect("buffered error");
-  let TunnelMessage::Response { status, .. } = result else {
-    panic!("expected Response");
-  };
-  assert_eq!(status, 502);
-}
+  #[tokio::test]
+  async fn test_unix_streams_multiframe_binary_chunks() {
+    let sock = start_unix_backend().await;
+    let (tx, mut rx) = mpsc::channel::<Message>(512);
+    let ctx = base_ctx(&sock, tx);
+    // binary_chunks=true exercises the raw-frame chunk path plus a data frame
+    // arriving after streaming has already begun.
+    let result =
+      handle_incoming_request_unix(&ctx, req("u-mf", "GET", "/big-multiframe"), None, true).await;
+    assert!(result.is_none());
 
-#[tokio::test]
-async fn test_unix_missing_socket_is_bug_500() {
-  let mut ctx = base_ctx("/tmp/x.sock", drained_tx());
-  ctx.unix_socket = None;
-  let result = handle_incoming_request_unix(&ctx, req("u-bug", "GET", "/"), None, false)
-    .await
-    .expect("buffered error");
-  let TunnelMessage::Response { status, .. } = result else {
-    panic!("expected Response");
-  };
-  assert_eq!(status, 500);
-}
-
-#[tokio::test]
-async fn test_unix_invalid_method_400() {
-  let ctx = base_ctx("/tmp/x.sock", drained_tx());
-  let result = handle_incoming_request_unix(&ctx, req("u-badm", "BAD METHOD", "/"), None, false)
-    .await
-    .expect("buffered error");
-  let TunnelMessage::Response { status, .. } = result else {
-    panic!("expected Response");
-  };
-  assert_eq!(status, 400);
-}
-
-#[tokio::test]
-async fn test_unix_bad_base64_body_400() {
-  let ctx = base_ctx("/tmp/x.sock", drained_tx());
-  let mut r = req("u-b64", "POST", "/echo");
-  r.body = Some("!!not-base64!!".to_string());
-  let result = handle_incoming_request_unix(&ctx, r, None, false)
-    .await
-    .expect("buffered error");
-  let TunnelMessage::Response { status, .. } = result else {
-    panic!("expected Response");
-  };
-  assert_eq!(status, 400);
-}
-
-#[tokio::test]
-async fn test_unix_timeout() {
-  let sock = start_unix_backend().await;
-  let mut ctx = base_ctx(&sock, drained_tx());
-  ctx.timeout_secs = 1;
-  let result = handle_incoming_request_unix(&ctx, req("u-hang", "GET", "/hang"), None, false)
-    .await
-    .expect("buffered error");
-  let TunnelMessage::Response { status, .. } = result else {
-    panic!("expected Response");
-  };
-  assert_eq!(status, 504);
-}
-
-#[tokio::test]
-async fn a_stalled_unix_backend_is_retried_like_any_other_pre_response_failure() {
-  use tokio::io::AsyncReadExt;
-
-  // Same as the HTTP/2 path: a timeout on the head answered 504 at once and
-  // skipped the retry loop it was standing in, although retry.attempts is
-  // documented to cover a failure before any response arrived.
-  // Flat in the temp dir: a nested one pushes the path past SUN_LEN.
-  let sock = std::env::temp_dir().join(format!("aperio-stall-{}.sock", uuid::Uuid::new_v4()));
-  let listener = tokio::net::UnixListener::bind(&sock).unwrap();
-  let accepted = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-  let counter = accepted.clone();
-  tokio::spawn(async move {
-    // Accept and read, but never answer.
-    while let Ok((mut stream, _)) = listener.accept().await {
-      counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-      tokio::spawn(async move {
-        let mut buf = [0u8; 1024];
-        let _ = stream.read(&mut buf).await;
-        std::future::pending::<()>().await;
-      });
+    let mut total = 0usize;
+    let mut got_end = false;
+    while let Some(msg) = rx.recv().await {
+      match msg {
+        Message::Binary(bytes) => {
+          let (_t, _i, payload) = crate::protocol::decode_binary_frame(&bytes).unwrap();
+          total += payload.len();
+        }
+        Message::Text(json) => match serde_json::from_str::<TunnelMessage>(&json).unwrap() {
+          TunnelMessage::ResponseStart { .. } => {}
+          TunnelMessage::ResponseEnd { .. } => {
+            got_end = true;
+            break;
+          }
+          other => panic!("unexpected: {:?}", other),
+        },
+        other => panic!("unexpected: {:?}", other),
+      }
     }
-  });
+    assert!(got_end);
+    assert_eq!(total, 600 * 1024);
+  }
 
-  let (tx, _rx) = mpsc::channel::<Message>(64);
-  let mut ctx = base_ctx(&sock.to_string_lossy(), tx);
-  ctx.timeout_secs = 1;
-  ctx.resilience = crate::proxy::http::BackendResilience::new(2, 1, false, 0, 30);
-  let result = handle_incoming_request_unix(&ctx, req("slow", "GET", "/"), None, false).await;
-  assert!(
-    matches!(result, Some(TunnelMessage::Response { status: 504, .. })),
-    "a stalled backend is still a 504 in the end, got {result:?}"
-  );
-  assert_eq!(
-    accepted.load(std::sync::atomic::Ordering::SeqCst),
-    2,
-    "the timeout skipped the retry: only one connection was made"
-  );
-  let _ = std::fs::remove_file(&sock);
+  #[tokio::test]
+  async fn test_unix_backend_unreachable() {
+    // Nonexistent socket path → connection error → 502.
+    let ctx = base_ctx("/tmp/aperio-does-not-exist.sock", drained_tx());
+    let result = handle_incoming_request_unix(&ctx, req("u-refused", "GET", "/"), None, false)
+      .await
+      .expect("buffered error");
+    let TunnelMessage::Response { status, .. } = result else {
+      panic!("expected Response");
+    };
+    assert_eq!(status, 502);
+  }
+
+  #[tokio::test]
+  async fn test_unix_missing_socket_is_bug_500() {
+    let mut ctx = base_ctx("/tmp/x.sock", drained_tx());
+    ctx.unix_socket = None;
+    let result = handle_incoming_request_unix(&ctx, req("u-bug", "GET", "/"), None, false)
+      .await
+      .expect("buffered error");
+    let TunnelMessage::Response { status, .. } = result else {
+      panic!("expected Response");
+    };
+    assert_eq!(status, 500);
+  }
+
+  #[tokio::test]
+  async fn test_unix_invalid_method_400() {
+    let ctx = base_ctx("/tmp/x.sock", drained_tx());
+    let result = handle_incoming_request_unix(&ctx, req("u-badm", "BAD METHOD", "/"), None, false)
+      .await
+      .expect("buffered error");
+    let TunnelMessage::Response { status, .. } = result else {
+      panic!("expected Response");
+    };
+    assert_eq!(status, 400);
+  }
+
+  #[tokio::test]
+  async fn test_unix_bad_base64_body_400() {
+    let ctx = base_ctx("/tmp/x.sock", drained_tx());
+    let mut r = req("u-b64", "POST", "/echo");
+    r.body = Some("!!not-base64!!".to_string());
+    let result = handle_incoming_request_unix(&ctx, r, None, false)
+      .await
+      .expect("buffered error");
+    let TunnelMessage::Response { status, .. } = result else {
+      panic!("expected Response");
+    };
+    assert_eq!(status, 400);
+  }
+
+  #[tokio::test]
+  async fn test_unix_timeout() {
+    let sock = start_unix_backend().await;
+    let mut ctx = base_ctx(&sock, drained_tx());
+    ctx.timeout_secs = 1;
+    let result = handle_incoming_request_unix(&ctx, req("u-hang", "GET", "/hang"), None, false)
+      .await
+      .expect("buffered error");
+    let TunnelMessage::Response { status, .. } = result else {
+      panic!("expected Response");
+    };
+    assert_eq!(status, 504);
+  }
+
+  #[tokio::test]
+  async fn a_stalled_unix_backend_is_retried_like_any_other_pre_response_failure() {
+    use tokio::io::AsyncReadExt;
+
+    // Same as the HTTP/2 path: a timeout on the head answered 504 at once and
+    // skipped the retry loop it was standing in, although retry.attempts is
+    // documented to cover a failure before any response arrived.
+    // Flat in the temp dir: a nested one pushes the path past SUN_LEN.
+    let sock = std::env::temp_dir().join(format!("aperio-stall-{}.sock", uuid::Uuid::new_v4()));
+    let listener = tokio::net::UnixListener::bind(&sock).unwrap();
+    let accepted = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = accepted.clone();
+    tokio::spawn(async move {
+      // Accept and read, but never answer.
+      while let Ok((mut stream, _)) = listener.accept().await {
+        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        tokio::spawn(async move {
+          let mut buf = [0u8; 1024];
+          let _ = stream.read(&mut buf).await;
+          std::future::pending::<()>().await;
+        });
+      }
+    });
+
+    let (tx, _rx) = mpsc::channel::<Message>(64);
+    let mut ctx = base_ctx(&sock.to_string_lossy(), tx);
+    ctx.timeout_secs = 1;
+    ctx.resilience = crate::proxy::http::BackendResilience::new(2, 1, false, 0, 30);
+    let result = handle_incoming_request_unix(&ctx, req("slow", "GET", "/"), None, false).await;
+    assert!(
+      matches!(result, Some(TunnelMessage::Response { status: 504, .. })),
+      "a stalled backend is still a 504 in the end, got {result:?}"
+    );
+    assert_eq!(
+      accepted.load(std::sync::atomic::Ordering::SeqCst),
+      2,
+      "the timeout skipped the retry: only one connection was made"
+    );
+    let _ = std::fs::remove_file(&sock);
+  }
 }

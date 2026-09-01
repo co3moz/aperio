@@ -240,6 +240,12 @@ async fn run_once(
   }
 }
 
-#[cfg(test)]
+// Unix only: every test in the file drives the runner with POSIX shell
+// (`touch`, `sleep`, `$$`, `test -f`, a subshell), and on Windows the runner
+// hands the command to `cmd /C`, where that is either an error or a file
+// literally named `$$`. The tests that happened to pass there did so because
+// Git for Windows puts a `touch` on the PATH, which is not a property of the
+// code under test.
+#[cfg(all(test, unix))]
 #[path = "messages_run_tests.rs"]
 mod tests;

@@ -276,21 +276,28 @@ async fn the_faces_edges_answer_with_the_right_statuses() {
   // Headers that never end are cut off at the cap. Written by hand rather
   // than through `request`: the server answers 431 and closes while the
   // padding is still being written, and that broken pipe is expected.
-  let mut stream = TcpStream::connect(&addr).await.unwrap();
-  let mut endless = String::from("GET /subscribe?topic=t HTTP/1.1\r\n");
-  for i in 0..40_000 {
-    endless.push_str(&format!("x-pad-{i}: aaaaaaaaaaaaaaaa\r\n"));
+  //
+  // Unix only: Windows reports the close as a reset and discards what was
+  // already received, so the 431 the server did write never reaches a
+  // reader there. The cap is the same code on both; only what a client
+  // gets to see of it differs.
+  if cfg!(unix) {
+    let mut stream = TcpStream::connect(&addr).await.unwrap();
+    let mut endless = String::from("GET /subscribe?topic=t HTTP/1.1\r\n");
+    for i in 0..40_000 {
+      endless.push_str(&format!("x-pad-{i}: aaaaaaaaaaaaaaaa\r\n"));
+    }
+    let _ = stream.write_all(endless.as_bytes()).await;
+    let mut buf = Vec::new();
+    use tokio::io::AsyncReadExt;
+    let _ = tokio::time::timeout(Duration::from_secs(2), stream.read_to_end(&mut buf)).await;
+    let refused = String::from_utf8_lossy(&buf).to_string();
+    assert!(
+      refused.contains("431"),
+      "{}",
+      &refused[..refused.len().min(120)]
+    );
   }
-  let _ = stream.write_all(endless.as_bytes()).await;
-  let mut buf = Vec::new();
-  use tokio::io::AsyncReadExt;
-  let _ = tokio::time::timeout(Duration::from_secs(2), stream.read_to_end(&mut buf)).await;
-  let refused = String::from_utf8_lossy(&buf).to_string();
-  assert!(
-    refused.contains("431"),
-    "{}",
-    &refused[..refused.len().min(120)]
-  );
 }
 
 #[tokio::test]
