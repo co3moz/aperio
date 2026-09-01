@@ -1047,20 +1047,31 @@ pub(crate) async fn a_query_token_cookie_is_scoped_to_the_route_that_admitted_it
 #[tokio::test]
 pub(crate) async fn visitor_gate_traversal_honors_the_closed_posture() {
   // `deny` is checked in section 2, and a traversal path returns before it,
-  // so a `.` in the path was the one way to switch the posture off.
+  // so a `.` in the path was the one way to switch the posture off. It has
+  // to give section 2's two answers, not a third of its own: a stranger is
+  // held as undeclared, so a sleeping client can still wake and declare the
+  // route, and a signed-in Aperio user is admitted, because `..` changes
+  // what the route covers and nothing about who is asking. Before this it
+  // returned a flat `Deny`, which switched cold start off and gave the
+  // operator holding the master token the same 504 as a stranger.
   let mut cfg = test_config();
   cfg.default_access = crate::settings::DefaultAccess::Deny;
   let state = Arc::new(test_state_with(cfg));
   let uri: axum::http::Uri = "/a/../b".parse().unwrap();
-  let gate = check_visitor_gate(
-    &state,
-    &axum::http::Method::GET,
-    &HeaderMap::new(),
-    &uri,
-    None,
-  )
-  .await;
-  assert!(matches!(gate, VisitorGate::Deny(_)));
+  let call = async |headers: HeaderMap| {
+    check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, None).await
+  };
+
+  match call(HeaderMap::new()).await {
+    VisitorGate::Undeclared(resp) => assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT),
+    VisitorGate::Allow(_) => panic!("a traversal path under `deny` must not be served to a stranger"),
+    VisitorGate::Deny(_) => panic!("a stranger is held as undeclared, not refused outright"),
+  }
+
+  match call(admin_headers(&state).await).await {
+    VisitorGate::Allow(_) => {}
+    _ => panic!("a signed-in Aperio user reaches an undeclared route, traversal or not"),
+  }
 }
 
 /// Aperio's own headers are stripped, and the Authorization strip is

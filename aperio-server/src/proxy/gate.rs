@@ -419,16 +419,24 @@ pub(crate) async fn check_visitor_gate(
       // The closed posture is decided here too, not only in section 2 below.
       // Section 2 is where it used to be checked and a traversal path returns
       // before ever reaching it, so `deny` was the one posture a `.` in the
-      // path could switch off. The answer is the one an unclaimed hostname
-      // gives, as it is there: a route nothing declared reachable does not
-      // announce its existence to a caller who was never going to be let in.
+      // path could switch off. It gives the same two answers section 2 gives,
+      // because a `..` in the path changes what the route covers and nothing
+      // about who is asking: this server's own signed-in users reach an
+      // undeclared route there and reach it here, and for everyone else the
+      // answer is held rather than returned, so a sleeping client still gets
+      // its chance to wake and declare the route. Until it did both, a
+      // traversal path was the one place where the same session meant a 504
+      // and where the posture had quietly switched cold start off.
       if state.config().default_access == crate::settings::DefaultAccess::Deny {
+        if validate_session_for_visitor(state, headers, host).await {
+          return VisitorGate::Allow(session_identity(state, headers).await);
+        }
         tracing::debug!(
-          "Nothing declares {} on {} open, and the posture is closed",
+          "Nothing declares {} on {} open, the posture is closed, and the caller carries no Aperio session",
           path,
           host.unwrap_or("-")
         );
-        return VisitorGate::Deny(gateway_timeout_response(
+        return VisitorGate::Undeclared(gateway_timeout_response(
           state,
           host,
           "504 Gateway Timeout - No client connected in time",
