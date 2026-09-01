@@ -25,6 +25,14 @@ if (!unsupported) disk = await smallFs(12)
 class DiskServer extends AperioServerBase() {
   _outDir = ''
 
+  // Nothing to start when no small filesystem could be made. The spec below
+  // is skipped then, but nole still brings up what a skipped test depends
+  // on, so a server whose data directory would be `null.dir` was two fixture
+  // failures on a machine that had been reported unsupported, not one skip.
+  async hookStartServer() {
+    if (disk) await super.hookStartServer()
+  }
+
   // The data directory is the small filesystem: the SQLite store, its WAL and
   // the access log all land on the thing that will run out of space. The
   // somewhere-else for the log is made here too, because this is the one hook
@@ -58,6 +66,10 @@ class DiskClient extends ClientFor(
   () => DiskServer,
   () => DiskBackend,
 ) {
+  // Same reason as the server: no filesystem, no tunnel to wait for.
+  _autoStart() {
+    return disk !== null
+  }
   _hostname() {
     return DISK_HOST
   }
