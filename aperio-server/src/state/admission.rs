@@ -379,9 +379,12 @@ impl AppState {
         )
       })
     });
+    // No fast path for an empty `rate_limits:` list: `matched` over no rules
+    // is `None` already, and the guard that used to say so was a line the
+    // mutation sweep could delete without a test noticing, because it did
+    // nothing.
     let matched = match inline {
       Some(found) => Some(found),
-      None if cfg.route_limits.is_empty() => None,
       None => cfg
         .route_limits
         .matched(host, path, Some(method))

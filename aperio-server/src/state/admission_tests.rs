@@ -813,5 +813,57 @@ async fn a_token_with_no_daily_quota_is_not_given_one_of_zero() {
 // The other two from that sweep are also not gaps, and are recorded where the
 // question comes up rather than here: the burst filter is unreachable behind
 // `compile`'s validation (see the zero-burst test above), and the
-// `route_limits.is_empty()` match guard is a fast path whose absence changes
-// nothing, since `matched()` over an empty rule list returns `None` anyway.
+// `route_limits.is_empty()` match guard was a fast path whose absence changed
+// nothing, since `matched()` over an empty rule list returns `None` anyway;
+// it has since been deleted, which is the honest answer to a survivor that
+// is a line doing nothing.
+
+/// The inline size failsafe in the route limiter fires *above* the threshold,
+/// not at it.
+///
+/// `buckets.len() > TOKEN_MAP_GC_THRESHOLD` mutated to `>=` survived the
+/// sweep. The beat is what normally drops stale buckets; this is the bound
+/// between beats, and nothing pinned which side of the line it sits on. It
+/// matters less for the one entry than for what the number means: the
+/// threshold is documented as the size the map may reach, and a sweep at
+/// exactly that size makes it one smaller than it says.
+#[tokio::test]
+async fn the_route_limiters_size_failsafe_fires_above_the_threshold_not_at_it() {
+  let state = route_state(0.001, 3.0);
+  let stale = std::time::Instant::now() - std::time::Duration::from_secs(601);
+  {
+    let mut route = state.route_rate.lock().await;
+    for i in 0..TOKEN_MAP_GC_THRESHOLD {
+      route.insert(
+        format!("stale-{i}"),
+        RateLimitState {
+          tokens: 1.0,
+          last_updated: stale,
+        },
+      );
+    }
+  }
+
+  // Exactly at the threshold: no sweep, and the request's own bucket makes
+  // the map one larger than the line.
+  assert!(state.check_route_rate_limit(None, "/", "GET").await);
+  assert_eq!(
+    state.route_rate.lock().await.len(),
+    TOKEN_MAP_GC_THRESHOLD + 1,
+    "a map at the threshold is left alone"
+  );
+
+  // One over it: the failsafe sweeps every stale bucket and keeps the live
+  // one the request just touched.
+  assert!(state.check_route_rate_limit(None, "/", "GET").await);
+  let route = state.route_rate.lock().await;
+  assert_eq!(
+    route.len(),
+    1,
+    "a map over the threshold is swept down to what is live"
+  );
+  assert!(
+    route.contains_key("test"),
+    "the live bucket is the one kept"
+  );
+}

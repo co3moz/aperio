@@ -72,11 +72,6 @@ pub(crate) struct RouteLimits {
 }
 
 impl RouteLimits {
-  /// True when no route limits are configured (the fast path).
-  pub(crate) fn is_empty(&self) -> bool {
-    self.rules.is_empty()
-  }
-
   /// The first rule matching a request's host, path and method (first-match,
   /// file order), if any. `method: None` ignores method filters, for callers
   /// reasoning about a route rather than about one request.

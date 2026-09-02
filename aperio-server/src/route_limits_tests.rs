@@ -56,7 +56,7 @@ fn matches_first_rule_by_host_and_path() {
   );
   // Host-specific rule does not fire for a different host.
   assert!(limits.matched(Some("nope.com"), "/login", None).is_none());
-  assert!(!limits.is_empty());
+  assert!(!limits.rules.is_empty());
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn sub_one_burst_is_floored_to_one() {
 #[test]
 fn from_config_file_absent_section_is_default() {
   with_config("other: 1\n", || {
-    assert!(from_config_file().is_empty());
+    assert!(from_config_file().rules.is_empty());
   });
 }
 
@@ -121,7 +121,7 @@ fn from_config_file_parses_and_compiles() {
 #[test]
 fn from_config_file_malformed_section_disables_feature() {
   with_config("rate_limits: nope\n", || {
-    assert!(from_config_file().is_empty());
+    assert!(from_config_file().rules.is_empty());
   });
 }
 
