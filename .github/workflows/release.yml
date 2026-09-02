@@ -7,16 +7,36 @@ name: Release
 # `releases/latest/download/...` URLs. The Docker images reuse the Linux musl
 # binaries this same run already built (see the `docker` job) instead of
 # recompiling the Rust code a second time.
+#
+# It can also be **rehearsed** from the Run button, with the tag it is about to
+# be given. A rehearsal does everything a release does, builds, packages,
+# typesets the guide, checksums and signs, and publishes nothing: no GitHub
+# Release, no image push, no attestation, no tap commit. The assembled asset
+# set is uploaded as a workflow artifact instead, to be looked at. It exists
+# because 0.10.0 failed on two steps that only ever run here, the guide and
+# the .deb/.rpm packaging, and both had been broken on master for weeks with
+# every other check green. Rehearse before tagging; the tag is the one run
+# that cannot be retried under the same name.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Rehearse the release for this tag (e.g. v0.11.0). Nothing is published."
+        required: true
+
+# The tag under release, or the one being rehearsed. Every step that names the
+# version reads this rather than the ref, so a rehearsal produces the same
+# asset names and versions the release will.
+env:
+  CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  REHEARSAL: ${{ github.event_name == 'workflow_dispatch' }}
 
 permissions:
   contents: write
   actions: read
-
-env:
-  CARGO_TERM_COLOR: always
 
 jobs:
   build:
@@ -131,7 +151,7 @@ jobs:
             aarch64-*) export NFPM_ARCH=arm64 ;;
           esac
           # Tag without the leading v: neither format accepts it.
-          export NFPM_VERSION="${GITHUB_REF_NAME#v}"
+          export NFPM_VERSION="${RELEASE_TAG#v}"
 
           # nfpm globs `src` before expanding variables in it, so the binary is
           # staged at a fixed path rather than named through the environment.
@@ -188,10 +208,10 @@ jobs:
       - name: Generate config schemas (versioned + stable names)
         run: |
           mkdir -p dist-pkg
-          cargo run --locked -p aperio-config > "dist-pkg/aperio-client.${GITHUB_REF_NAME}.json"
-          cp "dist-pkg/aperio-client.${GITHUB_REF_NAME}.json" dist-pkg/aperio-client.schema.json
-          cargo run --locked -p aperio-config -- --server > "dist-pkg/aperio-server.${GITHUB_REF_NAME}.json"
-          cp "dist-pkg/aperio-server.${GITHUB_REF_NAME}.json" dist-pkg/aperio-server.schema.json
+          cargo run --locked -p aperio-config > "dist-pkg/aperio-client.${RELEASE_TAG}.json"
+          cp "dist-pkg/aperio-client.${RELEASE_TAG}.json" dist-pkg/aperio-client.schema.json
+          cargo run --locked -p aperio-config -- --server > "dist-pkg/aperio-server.${RELEASE_TAG}.json"
+          cp "dist-pkg/aperio-server.${RELEASE_TAG}.json" dist-pkg/aperio-server.schema.json
 
       - name: Upload schema artifact
         uses: actions/upload-artifact@v4
@@ -245,7 +265,7 @@ jobs:
       - name: Check the book's version matches the tag
         run: |
           declared="$(grep -o 'Version [0-9][0-9.]*' docs/book/aperio.tex | head -1 | cut -d' ' -f2)"
-          expected="${GITHUB_REF_NAME#v}"
+          expected="${RELEASE_TAG#v}"
           if [ "${declared}" != "${expected}" ]; then
             echo "::error::docs/book/aperio.tex says Version ${declared}, the tag says ${expected}"
             exit 1
@@ -266,8 +286,8 @@ jobs:
             rm -rf ~/.cache/Tectonic
             tectonic -X compile docs/book/aperio.tex --outdir dist-pkg
           fi
-          mv dist-pkg/aperio.pdf "dist-pkg/aperio-guide.${GITHUB_REF_NAME}.pdf"
-          cp "dist-pkg/aperio-guide.${GITHUB_REF_NAME}.pdf" dist-pkg/aperio-guide.pdf
+          mv dist-pkg/aperio.pdf "dist-pkg/aperio-guide.${RELEASE_TAG}.pdf"
+          cp "dist-pkg/aperio-guide.${RELEASE_TAG}.pdf" dist-pkg/aperio-guide.pdf
 
       # Only now, when the book actually typeset. See the restore step above.
       - name: Save the Tectonic bundle
@@ -344,12 +364,13 @@ jobs:
           images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
           flavor: latest=auto
           tags: |
-            type=raw,value=${{ github.ref_name }}
+            type=raw,value=${{ env.RELEASE_TAG }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
 
       - name: Login to GitHub Container Registry
+        if: env.REHEARSAL != 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -362,7 +383,9 @@ jobs:
         with:
           context: .
           file: ./${{ matrix.image }}/Dockerfile.workflow
-          push: true
+          # A rehearsal builds both platforms and exports nothing, which is
+          # the whole build short of the push.
+          push: ${{ env.REHEARSAL != 'true' }}
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -374,6 +397,7 @@ jobs:
       # by hand, so it is the one where "where did this come from" is hardest
       # to answer any other way.
       - name: Attest image provenance
+        if: env.REHEARSAL != 'true'
         uses: actions/attest-build-provenance@v2
         with:
           subject-name: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
@@ -448,7 +472,7 @@ jobs:
       # SHA256SUMS and under the same signature as everything else.
       - name: Render the Homebrew formulae and Scoop manifests
         run: |
-          tools/packaging/render-manifests.sh "${GITHUB_REF_NAME#v}" dist-pkg dist-pkg
+          tools/packaging/render-manifests.sh "${RELEASE_TAG#v}" dist-pkg dist-pkg
           cat dist-pkg/aperio-client.rb
 
       # The tap is a second repository, so this is the one step that cannot be
@@ -456,6 +480,7 @@ jobs:
       # when no token is configured: a release must not fail because an
       # optional distribution channel is not set up.
       - name: Publish the formulae to the tap
+        if: env.REHEARSAL != 'true'
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO }}
@@ -473,10 +498,10 @@ jobs:
           git config user.email "noreply@github.com"
           git add Formula
           if git diff --cached --quiet; then
-            echo "Tap already at ${GITHUB_REF_NAME}."
+            echo "Tap already at ${RELEASE_TAG}."
             exit 0
           fi
-          git commit -m "aperio ${GITHUB_REF_NAME}"
+          git commit -m "aperio ${RELEASE_TAG}"
           git push
 
       # One manifest over every asset, rather than trusting the per-asset
@@ -507,6 +532,7 @@ jobs:
             dist-pkg/SHA256SUMS
 
       - name: Attest build provenance
+        if: env.REHEARSAL != 'true'
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
@@ -517,7 +543,19 @@ jobs:
             dist-pkg/SHA256SUMS
 
       - name: Create GitHub Release
+        if: env.REHEARSAL != 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: dist-pkg/**/*
           generate_release_notes: true
+
+      # What the release would have attached, for a rehearsal: every asset,
+      # the checksum manifest and its signature, laid out as the release
+      # would lay them out. Look through it before tagging.
+      - name: Upload the rehearsed release
+        if: env.REHEARSAL == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-rehearsal-${{ env.RELEASE_TAG }}
+          path: dist-pkg
+          retention-days: 7
