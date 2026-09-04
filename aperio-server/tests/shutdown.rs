@@ -6,6 +6,11 @@
 //! binary either would be sabotage (the fallback would `exit(0)` a suite that
 //! runs longer than ten seconds); in a one-test process that finishes in
 //! under a second, both are contained, the process is about to exit anyway.
+//!
+//! SIGTERM is a Unix signal; on Windows the binary has nothing to test and
+//! compiles to nothing rather than to a `libc::kill` that does not exist.
+
+#![cfg(unix)]
 
 #[test]
 fn sigterm_drains_notifies_clients_and_returns() {

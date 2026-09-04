@@ -159,6 +159,9 @@ fn warn_if_world_readable(path: &Path) {
       }
     }
   }
+  // Windows has no mode bits; ACLs are the operator's business there.
+  #[cfg(not(unix))]
+  let _ = path;
 }
 
 /// Encrypts `plaintext_path` to `out_path`, streaming.
