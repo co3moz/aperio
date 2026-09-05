@@ -128,6 +128,27 @@ there is nothing to build, whatever *Recurring checks* holds.
   names it. And the panel hostname needs a certificate like any bind does,
   so it belongs in the TLS set before the setting is written.
 
+  **`aperio.<domain>` is the default, not the rule.** The tempting shape is
+  a convention with no field at all: every fenced organization gets its
+  panel at `aperio.<its domain>`, all requests on that host are the panel,
+  and a tenant with wildcard DNS and a wildcard certificate has a dashboard
+  the moment its fence is written. That last part is worth keeping, and the
+  rest is not. A fence is a pattern list, not a domain: `acme.com` does not
+  cover `aperio.acme.com`, so the convention would open a panel *outside*
+  the fence; `*-pi.acme.com` yields nothing; two entries yield two panels.
+  `aperio.<domain>` is not reserved today, so a tenant already binding it
+  would have the name turned into a login form underneath a client. A
+  tenant that does not want a login page under its brand could not decline.
+  And a panel is a door: derived from the fence, a pattern edit opens a new
+  login hostname that nobody wrote down, while a stored field is a list an
+  audit, an export and a reviewer can read. So the server routes only on
+  the stored value, and the convention lives one layer up as the suggested
+  default: when an organization's fence holds exactly one `*.<domain>`
+  entry, the org form and `aperio-client api org create` offer
+  `aperio.<domain>` as the panel, one click to accept, editable, and empty
+  is an answer. The wildcard tenant gets the instant dashboard; nothing is
+  derived at request time.
+
   **What it buys.** No path to type, for the super-admin and for a tenant's
   staff alike. A tenant can hand its people a hostname that is theirs, with
   their org's name on the login form and no other tenant's credentials
