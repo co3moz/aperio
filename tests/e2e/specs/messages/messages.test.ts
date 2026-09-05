@@ -1,6 +1,6 @@
 import { Test } from 'nole'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -307,11 +307,34 @@ export class SubscriptionRunSpec extends Test({
   async thePayloadReachesTheCommandOnStdinAndIsNeverInterpreted() {
     const dir = await mkdtemp(join(tmpdir(), 'aperio-run-'))
     this.runner._runDir = dir
+    // What the subscription runs: stdin to `payload`, the topic from the
+    // environment to `topic`, both beside the script. Node rather than
+    // `cat`/`printf` so the same command runs under `sh -c` and `cmd /C`.
+    await writeFile(
+      join(dir, 'run.mjs'),
+      [
+        "import { writeFileSync } from 'node:fs'",
+        "import { dirname, join } from 'node:path'",
+        "import { fileURLToPath } from 'node:url'",
+        'const here = dirname(fileURLToPath(import.meta.url))',
+        'const chunks = []',
+        "process.stdin.on('data', (c) => chunks.push(c))",
+        "process.stdin.on('end', () => {",
+        "  writeFileSync(join(here, 'topic'), process.env.APERIO_MESSAGE_TOPIC ?? '')",
+        "  writeFileSync(join(here, 'payload'), Buffer.concat(chunks))",
+        '})',
+        '',
+      ].join('\n'),
+    )
     await this.runner._start()
     await this.runner._waitRoutable('msgrun.e2e.local', '/hello')
 
-    // A payload built to break out of a shell command.
-    const hostile = `'; touch ${join(dir, 'PWNED')} ; echo '`
+    // A payload built to break out of a shell command, in the dialect of
+    // each shell the runner uses: a quote-and-semicolon for `sh -c`, an
+    // ampersand for `cmd /C`. It must reach the script as bytes on stdin,
+    // and neither shell must ever see it.
+    const pwned = join(dir, 'PWNED')
+    const hostile = `'; touch ${pwned} ; echo '" & type nul > "${pwned}" & echo "`
     await this.server._api('/aperio/api/publish', {
       method: 'POST',
       body: JSON.stringify({ topic: 'deploy/run', payload: hostile }),

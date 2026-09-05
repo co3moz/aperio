@@ -137,6 +137,9 @@ export class RunnerClient extends MessageClient {
   _autoStart() {
     return false
   }
+  _cwd() {
+    return this._runDir
+  }
   _hostname() {
     return 'msgrun.e2e.local'
   }
@@ -153,8 +156,15 @@ export class RunnerClient extends MessageClient {
       '    hostname: msgrun.e2e.local',
       'subscribe:',
       '  - topic: deploy/run',
-      // Single-quoted so the client, not this file, expands the variable.
-      `    run: 'cat > ${this._runDir}/payload; printf "%s" "$APERIO_MESSAGE_TOPIC" > ${this._runDir}/topic'`,
+      // A script the spec writes into the run directory, run by the node
+      // this suite already runs on. The runner hands the line to `sh -c` on
+      // unix and `cmd /C` on Windows, and `cat`/`printf` only exist for the
+      // first, so the command is the one program both shells can start. The
+      // path is relative to the process's working directory, which `_cwd`
+      // points at the run directory, so it needs no quoting: a quoted path
+      // survives both shells but not every `node` on a PATH (a version
+      // manager's shim has been seen handing the quotes on to node).
+      "    run: 'node run.mjs'",
       '    timeout: 10',
       '',
     ].join('\n')

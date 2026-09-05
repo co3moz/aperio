@@ -208,6 +208,13 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
     _readyPath(): string {
       return READY_PATH
     }
+    /** Working directory of the spawned process; the suite's own by default.
+     *  A fixture whose config names files relative to it (a `run:` script,
+     *  say) can point this at where it wrote them, which keeps the paths
+     *  out of the config and the config out of shell quoting. */
+    _cwd(): string | undefined {
+      return undefined
+    }
 
     async hookStartClient() {
       if (this._autoStart()) await this._start()
@@ -249,6 +256,7 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
         'APERIO_VISITOR_AUTH' in declared || /(^|\n)\s*auth:/.test(yaml ?? '')
       const isPublic = this._public() && !declaresOwnGate
       this._proc = spawn(CLIENT_BIN, args, {
+        cwd: this._cwd(),
         env: {
           ...process.env,
           APERIO_CONNECTIONS: '1',
