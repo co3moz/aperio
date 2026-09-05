@@ -116,7 +116,7 @@ Three things deliberately do **not** trigger a cold start:
 
 A burst of a hundred requests against a sleeping service makes **one** call. Everyone else waits on the same signal.
 
-After a call the bind cools down for `cooldown`, because a new instance needs time to appear and asking again while it starts just costs money. A failed call backs off exponentially instead, and after five consecutive failures the record is **disarmed**: it stops being called at all, and an alert lands in the audit log. Re-announcing the declaration (or editing it) re-arms it, so restarting a fixed client is enough to recover.
+After a call the bind cools down for `cooldown`, because a new instance needs time to appear and asking again while it starts just costs money. A failed call backs off exponentially instead, and a visitor arriving during that backoff is not held, since nothing was started; after five consecutive failures the record is **disarmed**: it stops being called at all, and an alert lands in the audit log. Re-announcing the declaration (or editing it) re-arms it, so restarting a fixed client is enough to recover.
 
 Across all binds, at most eight calls are ever in flight at once, so a server restart with many armed records cannot turn into a burst against your provider's API.
 

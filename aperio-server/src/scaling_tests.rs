@@ -351,6 +351,54 @@ async fn a_failing_endpoint_does_not_hold_and_the_last_failure_disarms() {
   assert_eq!(ask, Ask::DoNotHold);
 }
 
+/// The backoff after a failed call is a cooldown during which nothing was
+/// started, so a visitor arriving inside it must not be held. It was: the
+/// skip that a cooldown produces answered "hold" for any record the breaker
+/// had not yet tripped, and the backoff doubles with every failure, so the
+/// hold got more likely as the endpoint got less likely to answer. The e2e
+/// SSRF fence spec saw it as a 504 that took the whole cold-start budget
+/// whenever its refused calls had piled up under load.
+#[tokio::test]
+async fn a_failure_backoff_does_not_hold_the_visitor() {
+  let addr = canned_endpoint(500).await;
+  let state = std::sync::Arc::new(crate::test_support::test_state_with(local_call_config()));
+  let mut rec = record("backing-off.example.com");
+  rec.url = format!("http://{addr}/scale");
+  rec.cooldown_secs = 60;
+
+  // The first call fails and sets a backoff of minutes.
+  let ask = request_capacity(&state, &rec, Reason::ColdStart, 0).await;
+  assert_eq!(ask, Ask::DoNotHold);
+  {
+    let mut runtime = state.scaling_runtime.lock().await;
+    assert!(
+      !runtime.is_disarmed(&rec.id),
+      "one failure does not trip the breaker"
+    );
+    assert!(runtime.is_backing_off(&rec.id));
+    assert!(matches!(runtime.begin(&rec, Instant::now()), Begin::Skip));
+  }
+
+  // A visitor inside that backoff is not held: nothing is starting.
+  let ask = request_capacity(&state, &rec, Reason::ColdStart, 0).await;
+  assert_eq!(ask, Ask::DoNotHold);
+
+  // The cooldown after a success is the other kind, and still holds.
+  let ok = canned_endpoint(200).await;
+  let mut good = record("arriving.example.com");
+  good.url = format!("http://{ok}/scale");
+  good.cooldown_secs = 60;
+  assert_eq!(
+    request_capacity(&state, &good, Reason::ColdStart, 0).await,
+    Ask::Hold
+  );
+  assert!(!state.scaling_runtime.lock().await.is_backing_off(&good.id));
+  assert_eq!(
+    request_capacity(&state, &good, Reason::ColdStart, 0).await,
+    Ask::Hold
+  );
+}
+
 #[tokio::test]
 async fn an_absent_endpoint_is_a_failure_not_a_hang() {
   let state = std::sync::Arc::new(crate::test_support::test_state_with(local_call_config()));

@@ -169,6 +169,13 @@ impl ScalingRuntime {
     self.binds.get(id).is_some_and(|s| s.disarmed)
   }
 
+  /// True while the record is inside the backoff a failed call set, which is
+  /// the one kind of cooldown during which nothing is on its way. A success
+  /// clears the failure count, so this is false for the cooldown after one.
+  pub(crate) fn is_backing_off(&self, id: &str) -> bool {
+    self.binds.get(id).is_some_and(|s| s.failures > 0)
+  }
+
   /// Re-arms a record after a config change or an operator action.
   pub(crate) fn rearm(&mut self, id: &str) {
     let state = self.binds.entry(id.to_string()).or_default();
@@ -416,10 +423,16 @@ pub(crate) async fn request_capacity(
     // Somebody else is already calling: wait on their result rather than
     // making a second call.
     Begin::AlreadyWaking => return Ask::Hold,
-    // Cooling down after a recent call (an instance may still be arriving) is
-    // worth holding for; a disarmed record is not.
+    // Cooling down after a successful call (an instance may still be
+    // arriving) is worth holding for. Backing off after a failed one is not:
+    // nothing was started, so a visitor arriving inside that window would
+    // wait the whole cold-start budget for an instance nobody asked for. The
+    // window grows with each failure, so this held visitors for longer
+    // precisely as the endpoint got less likely to answer. A disarmed record
+    // is the end of that road and is not held for either.
     Begin::Skip => {
-      return if state.scaling_runtime.lock().await.is_disarmed(&record.id) {
+      let runtime = state.scaling_runtime.lock().await;
+      return if runtime.is_disarmed(&record.id) || runtime.is_backing_off(&record.id) {
         Ask::DoNotHold
       } else {
         Ask::Hold
