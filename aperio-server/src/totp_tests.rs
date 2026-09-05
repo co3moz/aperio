@@ -82,3 +82,39 @@ fn test_otpauth_url() {
     "otpauth://totp/Aperio:ops%20user?secret=ABC234&issuer=Aperio&algorithm=SHA1&digits=6&period=30"
   );
 }
+
+/// The window is evaluated whole: a code valid at any of its steps matches
+/// and reports that step, whichever position it holds, and the codes of two
+/// adjacent steps stay told apart. This is what the branch-free selection has
+/// to preserve; before it, a short-circuiting search returned the same.
+#[test]
+fn every_step_of_the_window_is_reported_and_only_the_matching_one() {
+  let secret = "JBSWY3DPEHPK3PXP";
+  let now = 1_700_000_000u64;
+  let step = (now / STEP_SECS) as i64;
+  for delta in -SKEW_STEPS..=SKEW_STEPS {
+    let counter = step + delta;
+    let code = format!(
+      "{:06}",
+      code_at(&base32_decode(secret).unwrap(), counter as u64)
+    );
+    assert_eq!(
+      verify_step(secret, &code, now),
+      Some(counter),
+      "delta {delta}"
+    );
+  }
+  let outside = format!(
+    "{:06}",
+    code_at(
+      &base32_decode(secret).unwrap(),
+      (step + SKEW_STEPS + 1) as u64
+    )
+  );
+  assert_eq!(verify_step(secret, &outside, now), None);
+  // A code is never accepted at a step it was not generated for, so a code
+  // off by one digit is refused everywhere in the window.
+  let current = code_at(&base32_decode(secret).unwrap(), step as u64);
+  let wrong = format!("{:06}", (current + 1) % 1_000_000);
+  assert_eq!(verify_step(secret, &wrong, now), None);
+}

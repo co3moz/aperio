@@ -5,6 +5,7 @@
 
 use hmac::{Hmac, Mac};
 use sha1::Sha1;
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
 /// TOTP time step in seconds (the universal authenticator-app default).
 const STEP_SECS: u64 = 30;
@@ -91,9 +92,23 @@ pub(crate) fn verify_step(secret_b32: &str, code: &str, now_secs: u64) -> Option
   }
   let entered = code.parse::<u32>().ok()?;
   let step = (now_secs / STEP_SECS) as i64;
-  (-SKEW_STEPS..=SKEW_STEPS)
-    .map(|delta| step + delta)
-    .find(|&counter| counter >= 0 && code_at(&secret, counter as u64) == entered)
+  // Every step in the window is computed and compared in constant time, and
+  // the match is selected without a branch, so neither the comparison nor an
+  // early return says anything about the code. Six digits and the lockout
+  // make a timing oracle impractical here; keeping the comparison of a
+  // credential constant-time is still the rule, the same one the token and
+  // password checks follow.
+  let mut found = Choice::from(0u8);
+  let mut hit: i64 = 0;
+  for counter in (-SKEW_STEPS..=SKEW_STEPS).map(|delta| step + delta) {
+    if counter < 0 {
+      continue;
+    }
+    let eq = code_at(&secret, counter as u64).ct_eq(&entered);
+    hit = i64::conditional_select(&hit, &counter, eq);
+    found |= eq;
+  }
+  bool::from(found).then_some(hit)
 }
 
 /// True when the code is valid at `now_secs` (ignoring replay). Used where no
