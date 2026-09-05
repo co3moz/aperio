@@ -135,6 +135,28 @@ export class TunnelDiscoverySpec extends Test({
     })
     assert.ok(listed.some((t) => t.name === 'echo_main'))
   }
+
+  /** The listing names every tunnel's internal target and the tenant behind
+   *  it. It sits outside the dashboard's session middleware, next to the
+   *  provisioning routes that take the master token in a header, so its own
+   *  check is the only gate it has: a call with no credential at all, and one
+   *  with a tunnel token rather than a dashboard credential, must both be
+   *  refused before a byte of the map goes out. */
+  async theListingIsRefusedWithoutADashboardCredential() {
+    const anonymous = await this.server._fetch('/aperio/api/tunnels')
+    assert.equal(anonymous.status, 401, `anonymous listing answered ${anonymous.status}: ${anonymous.body}`)
+    assert.ok(!anonymous.body.includes(this.echo._address()), 'the refusal must not carry the targets')
+
+    const tunnelToken = await this.server._fetch('/aperio/api/tunnels', {
+      headers: { authorization: `Bearer ${TunnelDiscoverySpec.bindToken}` },
+    })
+    assert.equal(tunnelToken.status, 401, 'a tunnel token is not a dashboard credential')
+
+    const master = await this.server._json<TunnelView[]>('/aperio/api/tunnels', {
+      headers: { authorization: `Bearer ${this.server._token}` },
+    })
+    assert.ok(master.some((t) => t.name === 'echo_main'), 'the master token in a header still lists')
+  }
 }
 
 /** Binding a declared tunnel, three ways, each carrying bytes end to end. */

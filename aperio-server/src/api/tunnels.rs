@@ -14,6 +14,7 @@ use crate::auth::{constant_time_eq_str, extract_token};
 use crate::routing::{extract_client_ip, normalize_hostname_bind, random_subdomain_hostname};
 use crate::state::AppState;
 use crate::store::tokens::{NotWritten, TokenSpec};
+use crate::store::users::Role;
 
 /// Payload for the programmatic tunnel provisioning endpoint
 /// (`POST /aperio/api/tunnels`).
@@ -38,10 +39,19 @@ const TUNNEL_MAX_TTL_SECS: u64 = 7 * 24 * 3_600;
 
 /// Authorizes programmatic tunnel API calls: the master server token
 /// presented as `Authorization: Bearer` / `x-auth-token`, or a dashboard
-/// session (or admin key) of at least the Operator role, minting a tunnel
-/// credential is an operator-level action, so a read-only Viewer is refused.
-/// Header auth makes the endpoint usable from CI without a browser login flow.
-async fn tunnel_api_authorized(state: &AppState, headers: &HeaderMap) -> bool {
+/// session (or admin key) of at least `floor`. Minting or revoking a tunnel
+/// credential is an operator-level action, so those pass `Operator` and a
+/// read-only Viewer is refused; listing what exists is a read and passes
+/// `Viewer`. Header auth makes the endpoints usable from CI without a browser
+/// login flow.
+///
+/// These routes sit outside the dashboard's session middleware so the master
+/// token works with the dashboard disabled, which means this function is the
+/// only gate they have: every handler on `/aperio/api/tunnels` must call it
+/// before touching state, including the read. An unauthenticated caller has
+/// no organization, and "no organization" is the master view, so a read that
+/// skipped this check listed every organization's tunnels to anyone.
+async fn tunnel_api_authorized(state: &AppState, headers: &HeaderMap, floor: Role) -> bool {
   if let Some(presented) = extract_token(headers)
     && constant_time_eq_str(&presented, &state.config().token)
   {
@@ -49,7 +59,7 @@ async fn tunnel_api_authorized(state: &AppState, headers: &HeaderMap) -> bool {
   }
   crate::auth::dashboard_role(state, headers)
     .await
-    .is_some_and(|role| role >= crate::store::users::Role::Operator)
+    .is_some_and(|role| role >= floor)
 }
 
 /// Lists the tunnels declared by the clients of the caller's organization,
@@ -57,16 +67,50 @@ async fn tunnel_api_authorized(state: &AppState, headers: &HeaderMap) -> bool {
 ///
 /// Read-only and organization-scoped, so a Viewer may see what exists without
 /// being able to bind anything: binding needs a tunnel token, which is a
-/// separate credential with its own capability.
+/// separate credential with its own capability. The listing names each
+/// tunnel's target, the address the client dials on its own network, and the
+/// client, token and organization behind it, so it is a map of the tenants'
+/// internal topology and is refused without a credential.
 #[utoipa::path(get, path = "/aperio/api/tunnels", tag = "tunnels",
-  description = "Lists the tunnels declared by this organization's connected clients.",
-  responses((status = 200, description = "Declared tunnels", body = serde_json::Value)))]
+  description = "Lists the tunnels declared by this organization's connected clients. Master token (header) or dashboard session.",
+  responses((status = 200, description = "Declared tunnels", body = serde_json::Value), (status = 401, description = "Unauthorized")))]
 pub(crate) async fn tunnels_declared_handler(
   State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
-) -> Json<Vec<crate::tunnel::registry::TunnelView>> {
+) -> Response {
+  let client_ip = extract_client_ip(
+    &headers,
+    addr.ip(),
+    state.config().trust_proxy,
+    state.config().real_ip_header.as_deref(),
+    &state.config().trusted_proxies,
+  );
+  // A read, priced like one, but charged before auth so a wrong master token
+  // presented here is throttled like one presented to the tunnel handshake.
+  if !state
+    .check_rate_limit_cost(client_ip, crate::state::RateCost::Cheap)
+    .await
+  {
+    return StatusCode::TOO_MANY_REQUESTS.into_response();
+  }
+  if !tunnel_api_authorized(&state, &headers, Role::Viewer).await {
+    state
+      .audit(
+        "tunnel_denied",
+        "-",
+        &client_ip.to_string(),
+        "invalid credentials",
+      )
+      .await;
+    return (
+      StatusCode::UNAUTHORIZED,
+      "Bearer master token or dashboard session required",
+    )
+      .into_response();
+  }
   let org = crate::auth::effective_org(&state, &headers).await;
-  Json(crate::tunnel::registry::visible_in_org(&state, org.as_deref()).await)
+  Json(crate::tunnel::registry::visible_in_org(&state, org.as_deref()).await).into_response()
 }
 
 /// Provisions an ephemeral tunnel: mints a short-lived, hostname-scoped
@@ -98,7 +142,7 @@ pub(crate) async fn tunnels_create_handler(
   {
     return StatusCode::TOO_MANY_REQUESTS.into_response();
   }
-  if !tunnel_api_authorized(&state, &headers).await {
+  if !tunnel_api_authorized(&state, &headers, Role::Operator).await {
     state
       .audit(
         "tunnel_denied",
@@ -297,7 +341,7 @@ pub(crate) async fn tunnels_delete_handler(
   {
     return StatusCode::TOO_MANY_REQUESTS.into_response();
   }
-  if !tunnel_api_authorized(&state, &headers).await {
+  if !tunnel_api_authorized(&state, &headers, Role::Operator).await {
     state
       .audit(
         "tunnel_denied",

@@ -14,9 +14,9 @@ use utoipa::OpenApi;
     description = "Administrative API of the Aperio tunnel server: statistics, traffic \
       inspection, dynamic tokens, ephemeral tunnels, webhooks, maintenance mode, share \
       links, and server settings.\n\nAuthentication: dashboard endpoints require an \
-      `aperio_session` cookie (log in at `/aperio/auth`). `POST /aperio/api/tunnels` also \
-      accepts the master token as a Bearer header; `POST /aperio/api/tokens/refresh` \
-      authenticates with the dynamic token secret itself.",
+      `aperio_session` cookie (log in at `/aperio/auth`). `/aperio/api/tunnels` (GET, POST \
+      and DELETE) also accepts the master token as a Bearer header; `POST \
+      /aperio/api/tokens/refresh` authenticates with the dynamic token secret itself.",
     version = env!("CARGO_PKG_VERSION"),
     license(name = "MIT")
   ),

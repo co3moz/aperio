@@ -4,6 +4,12 @@ All notable changes to Aperio are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project follows semantic versioning per release tag.
 
+## [Unreleased]
+
+### Security
+
+- **The dashboard's tunnel listing answered without a credential, and answered for every organization.** `GET /aperio/api/tunnels` is registered next to the provisioning routes, outside the dashboard's session middleware and the admin IP fence, so that the master token works from a CI job with the dashboard disabled. `POST` and `DELETE` on that path check the credential themselves; the `GET` handler did not, and an anonymous caller has no organization, which the listing reads as the master view. The response named every connected client's tunnels across all organizations: the tunnel name, the target address the client dials on its own network, the client and token behind it, the organization and whether it was reachable. No secret travelled, but the tenants' internal topology did, to anyone who could reach the server. The listing now requires the master token in a header or a dashboard session of at least the Viewer role, refuses everything else with `401`, records the refusal as `tunnel_denied` like the other two methods, and spends a rate-limit token before checking so a guessed master token is throttled here as it is at the tunnel handshake. The dashboard is unaffected, it always sent its session.
+
 ## [0.11.0] - 2026-09-02
 
 ### Security

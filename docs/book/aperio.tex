@@ -3806,6 +3806,8 @@ complete list, it is authoritative, and it always matches the running build.
 \rowsep
 \code{GET/PUT /aperio/api/settings} & Read / edit runtime server settings (persisted overrides on top of env defaults). & master super-admin \\
 \rowsep
+\code{GET /aperio/api/tunnels} & Lists the tunnels declared by the connected clients of the caller's organization (name, target, client, token, protocol, availability), the dashboard's Tunnels view. & master token (Bearer) or dashboard session \\
+\rowsep
 \code{POST /aperio/api/tunnels}, \code{DELETE /aperio/api/tunnels/:id} & Programmatic ephemeral tunnel provisioning. See \emph{Ephemeral Tunnels}. & master token (Bearer) or dashboard session \\
 \rowsep
 \code{GET/POST /aperio/auth} & Login page / login API. &  \\

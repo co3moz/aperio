@@ -1,6 +1,9 @@
-//! Tests for the programmatic tunnel provisioning API (create + delete).
+//! Tests for the programmatic tunnel API: the listing's gate and scope, and
+//! provisioning (create + delete).
 
 use super::*;
+use crate::protocol::TunnelDecl;
+use crate::state::ClientPerms;
 use crate::store::tokens::TokenSpec;
 use crate::store::users::Role;
 use crate::test_support::{
@@ -21,6 +24,145 @@ fn req(
     allowed_ips,
     ttl_seconds: ttl,
   })
+}
+
+/// A connected client in `org` announcing one tunnel named `name`, keyed by
+/// `cid` in the client map.
+async fn declare(state: &Arc<AppState>, cid: &str, org: &str, name: &str) {
+  let mut c = crate::test_support::mock_client(None, None, None, None);
+  c.perms = ClientPerms {
+    master: false,
+    hostnames: Vec::new(),
+    paths: Vec::new(),
+    token_name: Some(format!("tok-{cid}")),
+    token_id: Some(cid.to_string()),
+    allow_public: false,
+    allow_server_side: false,
+    allow_bind: false,
+    allow_otel: false,
+    topics: Vec::new(),
+    org_id: Some(org.to_string()),
+    org_hostnames: Vec::new(),
+    max_connections: None,
+  };
+  c.sole_mut().tunnels = vec![TunnelDecl {
+    custom_name: None,
+    name: Some(name.to_string()),
+    target: "10.4.7.19:5432".to_string(),
+    protocol: "tcp".to_string(),
+    encrypt: false,
+    idle_timeout: None,
+    expose: None,
+  }];
+  state.clients.write().await.insert(cid.to_string(), c);
+}
+
+async fn listed_names(state: &Arc<AppState>, headers: HeaderMap) -> (StatusCode, Vec<String>) {
+  let resp =
+    tunnels_declared_handler(State(state.clone()), ConnectInfo(test_peer()), headers).await;
+  let status = resp.status();
+  if status != StatusCode::OK {
+    return (status, Vec::new());
+  }
+  let body = json_body(resp).await;
+  let names = body
+    .as_array()
+    .expect("the listing is an array")
+    .iter()
+    .map(|t| t["name"].as_str().unwrap_or_default().to_string())
+    .collect();
+  (status, names)
+}
+
+/// The listing sits outside the dashboard's session middleware, so the
+/// handler's own check is its only gate. Without one, an anonymous caller had
+/// no organization, no organization is the master view, and the response was
+/// every tenant's internal targets.
+#[tokio::test]
+async fn list_requires_auth() {
+  let state = Arc::new(test_state());
+  declare(&state, "a1", "org-a", "pg_main").await;
+  declare(&state, "b1", "org-b", "redis").await;
+
+  let (status, names) = listed_names(&state, HeaderMap::new()).await;
+  assert_eq!(status, StatusCode::UNAUTHORIZED);
+  assert!(names.is_empty());
+
+  // A wrong master token is refused like no token at all.
+  let mut wrong = HeaderMap::new();
+  wrong.insert("authorization", "Bearer not-the-token".parse().unwrap());
+  let (status, _) = listed_names(&state, wrong).await;
+  assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+  // A visitor session (a proxied site's own password) is not a dashboard
+  // session either, even though it carries the same cookie name.
+  let now = crate::store::sessions::now_secs();
+  let visitor = "visitor-session".to_string();
+  state.sessions.lock().await.insert(
+    &visitor,
+    crate::store::sessions::SessionInfo {
+      plane: crate::store::sessions::Plane::Visitor,
+      expires_at: now + 86400,
+      created_at: now,
+      ip: None,
+      user_agent: None,
+      scope_host: None,
+      username: None,
+      role: Role::Viewer,
+      selected_org: None,
+      bound_org: None,
+    },
+  );
+  let (status, _) = listed_names(&state, cookie_headers(&visitor)).await;
+  assert_eq!(status, StatusCode::UNAUTHORIZED);
+  assert!(
+    state
+      .audit
+      .lock()
+      .await
+      .recent()
+      .iter()
+      .any(|e| e.event == "tunnel_denied"),
+    "a refused listing is audited like a refused provisioning"
+  );
+}
+
+/// Reading is a Viewer's right: the listing shows what exists, binding it
+/// needs a tunnel token, which is a separate credential.
+#[tokio::test]
+async fn list_admits_a_viewer_session() {
+  let state = Arc::new(test_state());
+  declare(&state, "a1", "org-a", "pg_main").await;
+  let token = seed_session(&state, Role::Viewer, None, None).await;
+  let (status, names) = listed_names(&state, cookie_headers(&token)).await;
+  assert_eq!(status, StatusCode::OK);
+  assert_eq!(names, vec!["pg_main".to_string()]);
+}
+
+/// The master token in a header lists everything, the same way it provisions:
+/// CI reaches this endpoint with no browser login.
+#[tokio::test]
+async fn list_admits_the_master_token() {
+  let state = Arc::new(test_state());
+  declare(&state, "a1", "org-a", "pg_main").await;
+  declare(&state, "b1", "org-b", "redis").await;
+  let (status, mut names) = listed_names(&state, master_token_headers()).await;
+  assert_eq!(status, StatusCode::OK);
+  names.sort();
+  assert_eq!(names, vec!["pg_main".to_string(), "redis".to_string()]);
+}
+
+/// A session acting in one organization sees that organization's tunnels and
+/// not its neighbour's.
+#[tokio::test]
+async fn list_is_scoped_to_the_callers_organization() {
+  let state = Arc::new(test_state());
+  declare(&state, "a1", "org-a", "pg_main").await;
+  declare(&state, "b1", "org-b", "redis").await;
+  let token = seed_session(&state, Role::Admin, None, Some("org-a".to_string())).await;
+  let (status, names) = listed_names(&state, cookie_headers(&token)).await;
+  assert_eq!(status, StatusCode::OK);
+  assert_eq!(names, vec!["pg_main".to_string()]);
 }
 
 #[tokio::test]

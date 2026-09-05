@@ -1096,6 +1096,7 @@ Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup
 | `GET/POST /aperio/api/maintenance` | List / toggle maintenance mode for a hostname, a `*.example.com` subdomain wildcard, or `*` (master only). `reason` and `ttl_seconds` are optional: the reason reaches the 503 page, the window lifts the flag by itself. | dashboard session |
 | `POST /aperio/api/share` | Generate a signed share link (see [Share Links](share-links.md)). | dashboard session |
 | `GET/PUT /aperio/api/settings` | Read / edit runtime server settings (persisted overrides on top of env defaults). | master super-admin |
+| `GET /aperio/api/tunnels` | Lists the tunnels declared by the connected clients of the caller's organization (name, target, client, token, protocol, availability), the dashboard's Tunnels view. | master token (Bearer) or dashboard session |
 | `POST /aperio/api/tunnels`, `DELETE /aperio/api/tunnels/:id` | Programmatic ephemeral tunnel provisioning. See [Ephemeral Tunnels](ephemeral-tunnels.md). | master token (Bearer) or dashboard session |
 | `GET/POST /aperio/auth` | Login page / login API. |  |
 | `GET /aperio/oidc/login`, `/aperio/oidc/callback` | OIDC flow. |  |

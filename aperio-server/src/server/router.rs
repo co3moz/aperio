@@ -474,17 +474,20 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
     "/aperio/auth/passkey/finish",
     axum::routing::post(crate::webauthn::passkey_login_finish_handler),
   );
-  // Programmatic tunnel provisioning. Registered outside the dashboard
-  // session middleware on purpose: it authenticates with the master token in
-  // a header (or a session cookie), so CI jobs can mint ephemeral tunnels
-  // even when the dashboard is disabled.
-  // Token self-refresh. Also outside the session middleware: it authenticates
+  // Token self-refresh. Outside the session middleware: it authenticates
   // with the token secret itself, so a CI job or client can keep its
   // short-lived token alive without dashboard credentials.
   app = app.route(
     "/aperio/api/tokens/refresh",
     axum::routing::post(tokens_refresh_handler),
   );
+  // Programmatic tunnel API. Registered outside the dashboard session
+  // middleware on purpose: it authenticates with the master token in a header
+  // (or a session cookie), so CI jobs can mint ephemeral tunnels even when
+  // the dashboard is disabled. That places every method here, the listing
+  // included, outside the session check and the admin IP fence, so each
+  // handler carries its own gate (`tunnel_api_authorized`); a method added
+  // to this route without one is open to the internet.
   app = app.route(
     "/aperio/api/tunnels",
     get(tunnels_declared_handler).post(tunnels_create_handler),
