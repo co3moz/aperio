@@ -224,7 +224,15 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
   if let Some(server) = &server {
     match build_http_url(server, "/aperio/health") {
       Err(e) => fail("server health", e, &mut failures),
-      Ok(health_url) => match http.get(&health_url).send().await {
+      // The version, protocol and client count are answered to a credential,
+      // so the token goes along when there is one; without it the server
+      // still says whether it is up.
+      Ok(health_url) => match token
+        .iter()
+        .fold(http.get(&health_url), |req, t| req.bearer_auth(t))
+        .send()
+        .await
+      {
         Err(e) => fail(
           "server health",
           format!("{health_url} unreachable: {e}"),
@@ -261,6 +269,12 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
                 "server speaks v{p}, this client speaks v{PROTOCOL_VERSION}, update the older side"
               ),
               &mut failures,
+            ),
+            None if token.is_none() => pass(
+              "protocol",
+              "not reported to a check without a token (the server keeps its version and protocol \
+               for credentialed callers); configure the token to compare"
+                .to_string(),
             ),
             None => pass(
               "protocol",

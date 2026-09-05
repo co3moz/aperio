@@ -3816,7 +3816,7 @@ complete list, it is authoritative, and it always matches the running build.
 \rowsep
 \code{GET /aperio/metrics} & Prometheus metrics. & metrics token \\
 \rowsep
-\code{GET /aperio/health} & Liveness probe (status, client count, uptime). & none \\
+\code{GET /aperio/health} & Liveness probe. Without a credential: \code{status} and the default \code{ui\_language}. With the master token, a tunnel token, a dashboard session or an admin key: also the server version, protocol version, connected client count, uptime and request total. & none for liveness; a credential for the numbers \\
 \rowsep
 \code{GET /aperio/healthz} & Liveness probe for a container runtime: \code{200} with an empty body, no locks taken. For a Docker \code{HEALTHCHECK} or a Kubernetes \code{livenessProbe}. & none \\
 \rowsep

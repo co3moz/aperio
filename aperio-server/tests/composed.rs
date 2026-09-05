@@ -53,9 +53,17 @@ fn the_server_composes_serves_and_authenticates_over_a_real_socket() {
     assert_eq!(composed.connected_clients().await, 0);
     let (addr, server) = composed.serve_ephemeral().await;
 
-    // Liveness, over the wire.
+    // Liveness, over the wire. The bare probe answers, and the numbers come
+    // out for the master token.
     let health = http(addr, get("/aperio/health", "")).await;
     assert!(health.starts_with("HTTP/1.1 200"), "{health}");
+    assert!(health.contains("\"status\":\"healthy\""), "{health}");
+    assert!(!health.contains("connected_clients"), "{health}");
+    let health = http(
+      addr,
+      get("/aperio/health", &format!("authorization: Bearer {TOKEN}\r\n")),
+    )
+    .await;
     assert!(health.contains("\"connected_clients\":0"), "{health}");
 
     // The admin API refuses a session-less caller.

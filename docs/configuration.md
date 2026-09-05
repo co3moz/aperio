@@ -1101,7 +1101,7 @@ Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup
 | `GET/POST /aperio/auth` | Login page / login API. |  |
 | `GET /aperio/oidc/login`, `/aperio/oidc/callback` | OIDC flow. |  |
 | `GET /aperio/metrics` | Prometheus metrics. | metrics token |
-| `GET /aperio/health` | Liveness probe (status, client count, uptime). | none |
+| `GET /aperio/health` | Liveness probe. Without a credential the body is `status` and the default `ui_language` (the login page reads it before any session exists). With the master token, a tunnel token, a dashboard session or an admin key it also carries the server version, the tunnel protocol version, the connected client count, uptime and the request total, which is what `aperio check` and `aperio api health` send. | none for liveness; a credential for the numbers |
 | `GET /aperio/healthz` | Liveness probe for a container runtime: `200` with an empty body, no locks taken. Use this for a Docker `HEALTHCHECK` or a Kubernetes `livenessProbe`; `/aperio/health` builds a JSON document and takes two locks, and a probe that waits on a lock reports a busy process as a dead one. | none |
 | `GET /aperio/readyz` | Readiness probe: `200` while the server should receive traffic, `503` from the moment a shutdown signal arrives. Pair it with `APERIO_SHUTDOWN_DRAIN`: readiness turns off so the load balancer stops sending new requests, and the drain gives the ones already in flight time to finish. Never wire this to a `livenessProbe`, restarting on it would kill the drain it exists to protect. | none |
 | `GET /aperio/api/openapi.json` | OpenAPI 3.1 document describing this whole API (generated from the handlers; point Swagger UI or a client generator at it). | dashboard session |

@@ -35,6 +35,9 @@ struct MockCfg {
   protocol: Option<i64>,
   /// Whether the health JSON carries a `version` field.
   version: bool,
+  /// Answer `/aperio/health` with `status` only unless the request carries
+  /// an Authorization header, the way a current server does.
+  health_needs_auth: bool,
   /// How the `/aperio/ws` upgrade is answered.
   ws: Ws,
   /// Status for the auxiliary health path (`/h`, `/badhealth`).
@@ -47,6 +50,7 @@ impl Default for MockCfg {
       health_status: 200,
       protocol: Some(PROTOCOL_VERSION as i64),
       version: true,
+      health_needs_auth: false,
       ws: Ws::Accept,
       aux_status: 200,
     }
@@ -143,6 +147,18 @@ fn handle_conn(mut stream: std::net::TcpStream, cfg: MockCfg) {
   }
 
   if path == "/aperio/health" {
+    let authorized = head
+      .lines()
+      .any(|l| l.to_ascii_lowercase().starts_with("authorization: bearer "));
+    if cfg.health_needs_auth && !authorized {
+      write_resp(
+        &mut stream,
+        200,
+        "application/json",
+        "{\"status\":\"healthy\",\"ui_language\":\"en\"}",
+      );
+      return;
+    }
     if (200..300).contains(&cfg.health_status) {
       let mut fields: Vec<String> = Vec::new();
       if cfg.version {
@@ -425,6 +441,24 @@ async fn drive(scenario: &str) -> ! {
       });
       s.server = Some(format!("http://127.0.0.1:{port}"));
     }
+    // A current server: the numbers come out for the token the check sends.
+    "healthwithtoken" => {
+      let port = spawn_mock(MockCfg {
+        health_needs_auth: true,
+        ..Default::default()
+      });
+      s.server = Some(format!("http://127.0.0.1:{port}"));
+      s.token = Some("tok".to_string());
+    }
+    // The same server, no token configured: liveness only, and the report
+    // says why the protocol was not compared instead of guessing.
+    "healthwithouttoken" => {
+      let port = spawn_mock(MockCfg {
+        health_needs_auth: true,
+        ..Default::default()
+      });
+      s.server = Some(format!("http://127.0.0.1:{port}"));
+    }
     "wsreject" => {
       let port = spawn_mock(MockCfg {
         ws: Ws::Reject,
@@ -577,6 +611,25 @@ fn protocol_mismatch_fails() {
 #[test]
 fn protocol_absent_is_assumed_compatible() {
   assert_eq!(run_scenario("protonone"), 1);
+}
+
+#[test]
+fn the_health_numbers_come_out_for_the_configured_token() {
+  let (_, out) = run_scenario_output("healthwithtoken");
+  assert!(out.contains("server v9.9.9"), "{out}");
+  assert!(out.contains("3 client(s) connected"), "{out}");
+  assert!(out.contains("on both sides"), "{out}");
+}
+
+#[test]
+fn a_check_without_a_token_is_told_the_protocol_was_withheld() {
+  let (_, out) = run_scenario_output("healthwithouttoken");
+  assert!(out.contains("healthy"), "{out}");
+  assert!(
+    out.contains("not reported to a check without a token"),
+    "{out}"
+  );
+  assert!(!out.contains("predates protocol reporting"), "{out}");
 }
 
 #[test]

@@ -1,26 +1,94 @@
 //! Tests for the top-level dashboard/static handlers in `api.rs`.
 
 use super::*;
-use crate::test_support::{json_body, mock_client, test_state};
+use crate::store::users::Role;
+use crate::test_support::{
+  cookie_headers, json_body, master_token_headers, mock_client, seed_session, test_peer, test_state,
+};
 use axum::extract::State;
 
-#[tokio::test]
-async fn health_reports_status_and_counts() {
-  let state = Arc::new(test_state());
-  state.clients.write().await.insert(
-    "c1".to_string(),
-    mock_client(Some("app.example.com"), None, None, None),
-  );
+async fn health(state: &Arc<AppState>, headers: HeaderMap) -> (StatusCode, serde_json::Value) {
+  let resp = health_handler(State(state.clone()), ConnectInfo(test_peer()), headers).await;
+  let status = resp.status();
+  (status, json_body(resp).await)
+}
 
-  let resp = health_handler(State(state.clone())).await.into_response();
-  assert_eq!(resp.status(), StatusCode::OK);
-  let body = json_body(resp).await;
+async fn with_one_client() -> Arc<AppState> {
+  let state = Arc::new(test_state());
+  let c = mock_client(Some("app.example.com"), None, None, None);
+  state.clients.write().await.insert("c1".to_string(), c);
+  state
+}
+
+fn assert_full(body: &serde_json::Value) {
   assert_eq!(body["status"], "healthy");
   assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+  assert_eq!(body["protocol"], PROTOCOL_VERSION);
   assert_eq!(body["connected_clients"], 1);
   assert_eq!(body["ui_language"], "en");
   assert!(body["uptime_seconds"].is_number());
   assert!(body["total_requests"].is_number());
+}
+
+/// A credential opens the numbers: the master token in a header, a tunnel
+/// token, a dashboard session of any role, and an admin key are all ways of
+/// having been let in, and each gets the same body.
+#[tokio::test]
+async fn health_reports_status_and_counts_to_a_credential() {
+  let state = with_one_client().await;
+  let (status, body) = health(&state, master_token_headers()).await;
+  assert_eq!(status, StatusCode::OK);
+  assert_full(&body);
+
+  let token = seed_session(&state, Role::Viewer, None, None).await;
+  let (status, body) = health(&state, cookie_headers(&token)).await;
+  assert_eq!(status, StatusCode::OK);
+  assert_full(&body);
+
+  let (_, secret) = state
+    .token_store
+    .lock()
+    .await
+    .create(crate::store::tokens::TokenSpec {
+      name: "probe".to_string(),
+      ..Default::default()
+    })
+    .expect("the test store can be written to");
+  let mut h = HeaderMap::new();
+  h.insert("x-auth-token", secret.parse().unwrap());
+  let (status, body) = health(&state, h).await;
+  assert_eq!(status, StatusCode::OK);
+  assert_full(&body);
+}
+
+/// Without a credential the body is the liveness answer and the default UI
+/// language the login page needs, and nothing that describes the server: no
+/// version, no protocol, no client count, no uptime, no request total. A
+/// credential that does not verify is treated the same, not refused, so a
+/// monitor holding a stale token still sees the server is up.
+#[tokio::test]
+async fn health_withholds_the_numbers_from_an_anonymous_caller() {
+  let state = with_one_client().await;
+  for headers in [
+    HeaderMap::new(),
+    {
+      let mut h = HeaderMap::new();
+      h.insert("authorization", "Bearer not-the-token".parse().unwrap());
+      h
+    },
+    {
+      let mut h = HeaderMap::new();
+      h.insert("cookie", "aperio_session=not-a-session".parse().unwrap());
+      h
+    },
+  ] {
+    let (status, body) = health(&state, headers).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["status"], "healthy");
+    assert_eq!(body["ui_language"], "en");
+    let keys: Vec<&String> = body.as_object().unwrap().keys().collect();
+    assert_eq!(keys.len(), 2, "only status and ui_language: {keys:?}");
+  }
 }
 
 #[test]

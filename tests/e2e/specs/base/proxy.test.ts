@@ -19,7 +19,7 @@ export class BareServerSpec extends Test({
       status: string
       protocol: number
       ui_language: string
-    }>('/aperio/health')
+    }>('/aperio/health', { headers: { authorization: `Bearer ${this.server._token}` } })
     assert.equal(health.status, 'healthy')
     // The exact number is this build's, so it is only asserted when the
     // server *is* this build. Against a released binary (`test:compat`) the
@@ -31,6 +31,19 @@ export class BareServerSpec extends Test({
       assert.equal(health.protocol, 9, 'the tunnel protocol version this build speaks')
     }
     assert.ok(health.ui_language, 'the default UI language is reported')
+  }
+
+  /** Without a credential the probe says the server is up and which language
+   *  the login page should open in, and nothing that describes the server. A
+   *  released binary from before this answered everything to everyone, so
+   *  the withholding is only asserted against this build. */
+  async healthWithholdsTheNumbersFromAnAnonymousCaller() {
+    const health = await this.server._json<Record<string, unknown>>('/aperio/health')
+    assert.equal(health.status, 'healthy')
+    assert.ok(health.ui_language, 'the login page still learns the default language')
+    if (!FOREIGN_SERVER) {
+      assert.deepEqual(Object.keys(health).sort(), ['status', 'ui_language'])
+    }
   }
 
   async aFreshInstallSendsTheBareRootToTheDashboard() {

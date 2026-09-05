@@ -1,10 +1,11 @@
 use axum::{
   Json,
-  extract::State,
-  http::StatusCode,
+  extract::{ConnectInfo, State},
+  http::{HeaderMap, StatusCode},
   response::{IntoResponse, Response},
 };
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::protocol::PROTOCOL_VERSION;
@@ -96,25 +97,73 @@ pub(crate) async fn dashboard_asset_handler(
   serve_embedded(&format!("assets/{path}"), true)
 }
 
-/// Health check endpoint returning status, active connection counts, and uptime.
+/// Health check: liveness for anyone, the numbers for a credential.
+///
+/// Without a credential the body is `status` and `ui_language`, nothing
+/// else. A monitor reads the status, and the login page reads the default
+/// language before any session exists, which is why that one field stays
+/// public. The version, the tunnel protocol version, the connected client
+/// count, the uptime and the request total are answered to the master token,
+/// a tunnel token, a dashboard session or an admin key, which is what `aperio
+/// check`, `aperio api health` and the dashboard present. They used to be
+/// public, and a version and a client count are the first two lines of
+/// anyone's notes on a server they are sizing up.
+///
+/// A credential presented here is checked, so the request pays the tunnel
+/// handshake's rate-limit price; a bare probe pays nothing, since a probe that
+/// runs every few seconds must never be the thing that empties the bucket. A
+/// credential that does not verify gets the anonymous body rather than a
+/// refusal: this is a liveness endpoint, and a monitor with a stale token
+/// should still see the server is up.
 #[utoipa::path(get, path = "/aperio/health", tag = "public",
-  description = "Liveness probe: server version, tunnel protocol version, and connected client count. No authentication.",
+  description = "Liveness probe. Without a credential: status and the default UI language. With the master token, a tunnel token, a dashboard session or an admin key: also the server version, tunnel protocol version, connected client count, uptime and request total.",
   responses((status = 200, description = "Server is up", body = serde_json::Value)))]
-pub(crate) async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+pub(crate) async fn health_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+) -> Response {
+  let mut health_info = HashMap::new();
+  health_info.insert("status", serde_json::json!("healthy"));
+  health_info.insert("ui_language", serde_json::json!(state.config().ui_language));
+
+  let presented = crate::auth::extract_token(&headers).is_some() || headers.contains_key("cookie");
+  if !presented {
+    return (StatusCode::OK, Json(health_info)).into_response();
+  }
+  let cfg = state.config();
+  let client_ip = crate::routing::extract_client_ip(
+    &headers,
+    addr.ip(),
+    cfg.trust_proxy,
+    cfg.real_ip_header.as_deref(),
+    &cfg.trusted_proxies,
+  );
+  if !state
+    .check_rate_limit_cost(client_ip, crate::state::RateCost::Cheap)
+    .await
+  {
+    return StatusCode::TOO_MANY_REQUESTS.into_response();
+  }
+  let disclose = crate::auth::dashboard_role(&state, &headers)
+    .await
+    .is_some()
+    || crate::auth::authorize_tunnel_token(&state, &headers, client_ip)
+      .await
+      .is_some();
+  if !disclose {
+    return (StatusCode::OK, Json(health_info)).into_response();
+  }
+
   let clients_count = state.clients.read().await.len();
   let stats = state.stats.lock().await;
   let uptime = state.server_start_time.elapsed().as_secs();
-
-  let mut health_info = HashMap::new();
-  health_info.insert("status", serde_json::json!("healthy"));
   health_info.insert("version", serde_json::json!(env!("CARGO_PKG_VERSION")));
   health_info.insert("protocol", serde_json::json!(PROTOCOL_VERSION));
-  health_info.insert("ui_language", serde_json::json!(state.config().ui_language));
   health_info.insert("connected_clients", serde_json::json!(clients_count));
   health_info.insert("uptime_seconds", serde_json::json!(uptime));
   health_info.insert("total_requests", serde_json::json!(stats.total_requests));
-
-  (StatusCode::OK, Json(health_info))
+  (StatusCode::OK, Json(health_info)).into_response()
 }
 
 /// Liveness probe for a container runtime: no body, no locks.

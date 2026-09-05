@@ -60,10 +60,19 @@ async fn drive(app: &Router, mut request: axum::http::Request<ComposedBody>) -> 
 }
 
 fn get_req(path: &str) -> axum::http::Request<ComposedBody> {
-  axum::http::Request::builder()
+  let mut req = axum::http::Request::builder()
     .uri(path)
     .body(ComposedBody::empty())
-    .unwrap()
+    .unwrap();
+  // What the real listener attaches: the handlers that read a peer address
+  // (health, the tunnel API) extract it from here.
+  req
+    .extensions_mut()
+    .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+      [127, 0, 0, 1],
+      40000,
+    ))));
+  req
 }
 
 #[test]

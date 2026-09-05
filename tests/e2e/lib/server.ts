@@ -268,7 +268,11 @@ export function AperioServerBase(options: Parameters<typeof Test>[0] & ServerOpt
     async _waitForClients(n: number): Promise<void> {
       await waitFor(
         async () => {
-          const health = await this._json<{ connected_clients: number }>('/aperio/health')
+          // The count is answered to a credential; a bare probe gets the
+          // status only.
+          const health = await this._json<{ connected_clients: number }>('/aperio/health', {
+            headers: { authorization: `Bearer ${this._token}` },
+          })
           return health.connected_clients === n
         },
         { label: `${n} connected client(s)` },
