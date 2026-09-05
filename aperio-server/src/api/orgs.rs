@@ -185,7 +185,7 @@ pub(crate) async fn orgs_select_handler(
       Some(id.to_string())
     }
   };
-  let Some(token) = crate::auth::session_token(&headers) else {
+  let Some(token) = crate::auth::session_token(&state, &headers) else {
     return (StatusCode::UNAUTHORIZED, "no session").into_response();
   };
   state

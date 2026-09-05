@@ -499,16 +499,6 @@ fn session_org(
   }
 }
 
-/// Reads the caller's `aperio_session` cookie value (to mark or exempt the
-/// current session in the management endpoints).
-fn own_session_token(headers: &HeaderMap) -> Option<String> {
-  let cookie_str = headers.get("cookie")?.to_str().ok()?;
-  cookie_str.split(';').find_map(|part| {
-    let (k, v) = part.trim().split_once('=')?;
-    (k == "aperio_session").then(|| v.to_string())
-  })
-}
-
 /// Lists live sessions (admin): who is signed in from where. Ids are the
 /// SHA-256 of the session token, usable for revocation, useless for
 /// hijacking.
@@ -519,7 +509,7 @@ pub(crate) async fn sessions_list_handler(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
 ) -> Json<Vec<serde_json::Value>> {
-  let own = own_session_token(&headers);
+  let own = crate::auth::session_token(&state, &headers);
   let org = crate::auth::effective_org(&state, &headers).await;
   let user_orgs = username_org_map(&state).await;
   let mut entries = state.sessions.lock().await.entries();
@@ -597,7 +587,7 @@ pub(crate) async fn sessions_clear_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
 ) -> Response {
-  let own = own_session_token(&headers);
+  let own = crate::auth::session_token(&state, &headers);
   let org = crate::auth::effective_org(&state, &headers).await;
   let user_orgs = username_org_map(&state).await;
   let mut sessions = state.sessions.lock().await;

@@ -54,14 +54,23 @@ pub(crate) fn session_cookie_name(secure: bool) -> &'static str {
   }
 }
 
-/// Reads the session token out of the Cookie header, if present.
+/// Reads the session token out of the Cookie header, if present. `secure` is
+/// the deployment's `secure_cookies` setting, the same flag that chose the
+/// name the cookie was issued under.
 ///
-/// The prefixed name wins when both are there. That is the whole defence: a
-/// cookie set by a neighbouring host can only ever be the unprefixed one, so
-/// it cannot displace a session issued with the prefix, it is simply not
-/// looked at. The unprefixed name is still accepted on its own, so sessions
-/// issued before this (and every plain-http deployment) keep working.
-pub(crate) fn session_cookie(headers: &HeaderMap) -> Option<&str> {
+/// The rule is to read only the name this deployment issues. A cookie set by
+/// a neighbouring host can only ever be the unprefixed one, since `__Host-`
+/// is host-only by the browser's own rule, so on https the unprefixed name
+/// is not looked at, whether or not a prefixed one is beside it. Preferring
+/// the prefixed name when both were present used to be the whole defence,
+/// and it left a gap: an operator with no live session carried nothing to
+/// win with, and the neighbour's cookie was read on its own, which walks the
+/// operator into a session someone else chose. Nothing legitimate is lost by
+/// closing it: an https deployment has issued only the prefixed name since
+/// it existed, and a session lives a day, so no plain cookie of its own can
+/// still be out there. A plain-http deployment cannot set `Secure`, issues
+/// the plain name, and keeps reading it.
+pub(crate) fn session_cookie(headers: &HeaderMap, secure: bool) -> Option<&str> {
   let cookie_str = headers.get("cookie")?.to_str().ok()?;
   let read = |want: &str| {
     cookie_str.split(';').find_map(|part| {
@@ -69,7 +78,11 @@ pub(crate) fn session_cookie(headers: &HeaderMap) -> Option<&str> {
       (k == want).then_some(v)
     })
   };
-  read(SESSION_COOKIE_SECURE).or_else(|| read(SESSION_COOKIE_PLAIN))
+  if secure {
+    read(SESSION_COOKIE_SECURE)
+  } else {
+    read(SESSION_COOKIE_SECURE).or_else(|| read(SESSION_COOKIE_PLAIN))
+  }
 }
 
 /// Logs out the current dashboard session: drops it from the session store and
@@ -81,7 +94,7 @@ pub(crate) async fn auth_logout_handler(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
 ) -> Response {
-  if let Some(token) = session_cookie(&headers) {
+  if let Some(token) = session_cookie(&headers, state.config().secure_cookies) {
     state.sessions.lock().await.remove(token);
   }
   let secure_flag = if state.config().secure_cookies {
@@ -130,7 +143,7 @@ pub(crate) async fn auth_session_handler(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
 ) -> Response {
-  let (remaining, username, role) = match session_cookie(&headers) {
+  let (remaining, username, role) = match session_cookie(&headers, state.config().secure_cookies) {
     Some(token) => {
       let sessions = state.sessions.lock().await;
       match sessions.get(token) {

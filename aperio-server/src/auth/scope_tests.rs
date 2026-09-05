@@ -422,8 +422,21 @@ async fn require_master_admin_gate() {
 
 #[tokio::test]
 async fn session_token_reads_cookie() {
+  let state = test_state();
   let mut h = HeaderMap::new();
   h.insert("cookie", "aperio_session=tok-123".parse().unwrap());
-  assert_eq!(session_token(&h), Some("tok-123".to_string()));
-  assert_eq!(session_token(&HeaderMap::new()), None);
+  assert_eq!(session_token(&state, &h), Some("tok-123".to_string()));
+  assert_eq!(session_token(&state, &HeaderMap::new()), None);
+
+  // With `secure_cookies` on, only the prefixed name is the caller's own.
+  let mut cfg = test_config();
+  cfg.secure_cookies = true;
+  let secure = test_state_with(cfg);
+  assert_eq!(session_token(&secure, &h), None);
+  let mut prefixed = HeaderMap::new();
+  prefixed.insert("cookie", "__Host-aperio_session=tok-123".parse().unwrap());
+  assert_eq!(
+    session_token(&secure, &prefixed),
+    Some("tok-123".to_string())
+  );
 }

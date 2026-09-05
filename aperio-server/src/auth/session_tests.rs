@@ -1,6 +1,7 @@
-//! The session cookie: which name it takes on http and https, that the
-//! `__Host-` prefix keeps a neighbouring host from displacing it, and what
-//! logout and the session-status endpoint answer.
+//! The session cookie: which name it takes on http and https, that on https
+//! only the `__Host-` name is read so a neighbouring host can neither
+//! displace a session nor plant one, and what logout and the session-status
+//! endpoint answer.
 
 use super::super::tests::*;
 use super::*;
@@ -16,19 +17,19 @@ fn session_cookie_parses_named_value_among_others() {
     "cookie",
     "foo=1; aperio_session=abc-123; bar=2".parse().unwrap(),
   );
-  assert_eq!(session_cookie(&h), Some("abc-123"));
+  assert_eq!(session_cookie(&h, false), Some("abc-123"));
 
   // Only the aperio_session cookie is returned; other cookies are ignored.
   let mut other = HeaderMap::new();
   other.insert("cookie", "foo=1; bar=2".parse().unwrap());
-  assert_eq!(session_cookie(&other), None);
+  assert_eq!(session_cookie(&other, false), None);
 
   // A leading cookie without spaces is still matched after trimming.
   let mut lead = HeaderMap::new();
   lead.insert("cookie", "aperio_session=xyz".parse().unwrap());
-  assert_eq!(session_cookie(&lead), Some("xyz"));
+  assert_eq!(session_cookie(&lead, false), Some("xyz"));
 
-  assert_eq!(session_cookie(&HeaderMap::new()), None);
+  assert_eq!(session_cookie(&HeaderMap::new(), false), None);
 }
 
 #[test]
@@ -45,7 +46,7 @@ fn a_prefixed_session_cookie_cannot_be_displaced_by_a_neighbour() {
       .parse()
       .unwrap(),
   );
-  assert_eq!(session_cookie(&both), Some("mine"));
+  assert_eq!(session_cookie(&both, false), Some("mine"));
 
   // Order on the wire is not a promise either.
   let mut reversed = HeaderMap::new();
@@ -55,16 +56,82 @@ fn a_prefixed_session_cookie_cannot_be_displaced_by_a_neighbour() {
       .parse()
       .unwrap(),
   );
-  assert_eq!(session_cookie(&reversed), Some("mine"));
+  assert_eq!(session_cookie(&reversed, false), Some("mine"));
 
-  // On its own the old name still works: sessions issued before the prefix,
-  // and every deployment that cannot set `Secure`, keep logging in.
+  // On its own the old name still works where it is the name being issued:
+  // a deployment that cannot set `Secure` keeps logging in.
   let mut legacy = HeaderMap::new();
   legacy.insert("cookie", "aperio_session=legacy".parse().unwrap());
-  assert_eq!(session_cookie(&legacy), Some("legacy"));
+  assert_eq!(session_cookie(&legacy, false), Some("legacy"));
 
   assert_eq!(session_cookie_name(true), SESSION_COOKIE_SECURE);
   assert_eq!(session_cookie_name(false), SESSION_COOKIE_PLAIN);
+}
+
+#[test]
+fn on_https_a_plain_cookie_on_its_own_is_not_a_session() {
+  // The gap the prefix rule left open. Preferring `__Host-` when both names
+  // arrive protects an operator who is signed in; an operator who is not
+  // carries nothing to win with, and the neighbour's unprefixed cookie was
+  // then read on its own, which is cookie tossing into a session the
+  // neighbour chose. An https deployment has only ever issued the prefixed
+  // name, so the plain one is never its own and is not read at all.
+  let mut planted = HeaderMap::new();
+  planted.insert("cookie", "aperio_session=attacker".parse().unwrap());
+  assert_eq!(session_cookie(&planted, true), None);
+
+  let mut both = HeaderMap::new();
+  both.insert(
+    "cookie",
+    "aperio_session=attacker; __Host-aperio_session=mine"
+      .parse()
+      .unwrap(),
+  );
+  assert_eq!(session_cookie(&both, true), Some("mine"));
+
+  // The prefixed name is read under either setting: a browser only sends it
+  // over https, so its presence is itself the proof it was issued here.
+  let mut prefixed = HeaderMap::new();
+  prefixed.insert("cookie", "__Host-aperio_session=mine".parse().unwrap());
+  assert_eq!(session_cookie(&prefixed, true), Some("mine"));
+  assert_eq!(session_cookie(&prefixed, false), Some("mine"));
+}
+
+/// The same rule seen from the handlers: with `secure_cookies` on, a planted
+/// plain cookie carrying a real session token opens nothing, while the same
+/// token under the prefixed name does.
+#[tokio::test]
+async fn a_planted_plain_cookie_opens_no_session_on_https() {
+  let mut cfg = test_config();
+  cfg.secure_cookies = true;
+  let state = test_state_with(cfg);
+  let token = seed_session(&state, Role::Admin, None, None).await;
+
+  let mut planted = HeaderMap::new();
+  planted.insert(
+    "cookie",
+    format!("{SESSION_COOKIE_PLAIN}={token}").parse().unwrap(),
+  );
+  assert!(!validate_session(&state, &planted).await);
+  assert_eq!(dashboard_role(&state, &planted).await, None);
+
+  let mut own = HeaderMap::new();
+  own.insert(
+    "cookie",
+    format!("{SESSION_COOKIE_SECURE}={token}").parse().unwrap(),
+  );
+  assert!(validate_session(&state, &own).await);
+  assert_eq!(dashboard_role(&state, &own).await, Some(Role::Admin));
+
+  // Under plain http the same plain cookie is the deployment's own.
+  let plain = test_state();
+  let token = seed_session(&plain, Role::Admin, None, None).await;
+  let mut h = HeaderMap::new();
+  h.insert(
+    "cookie",
+    format!("{SESSION_COOKIE_PLAIN}={token}").parse().unwrap(),
+  );
+  assert!(validate_session(&plain, &h).await);
 }
 
 #[test]
@@ -141,7 +208,14 @@ async fn logout_clears_session_and_cookie() {
   cfg.secure_cookies = true;
   let state = Arc::new(test_state_with(cfg));
   let token = seed_session(&state, Role::Admin, None, None).await;
-  let resp = auth_logout_handler(State(state.clone()), cookie_headers(&token)).await;
+  // On https the browser holds the session under the prefixed name, and that
+  // is the one logout reads; a plain cookie is never this deployment's own.
+  let mut headers = HeaderMap::new();
+  headers.insert(
+    "cookie",
+    format!("{SESSION_COOKIE_SECURE}={token}").parse().unwrap(),
+  );
+  let resp = auth_logout_handler(State(state.clone()), headers).await;
   assert_eq!(resp.status(), StatusCode::OK);
   let cookie = resp.headers().get("set-cookie").unwrap().to_str().unwrap();
   assert!(cookie.contains("Max-Age=0"));

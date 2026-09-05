@@ -15,7 +15,7 @@ async fn session_scope(state: &AppState, headers: &HeaderMap) -> Option<Option<S
   // Expired sessions are swept by the background gc beat (`gc_tick_once`);
   // the lookup below still refuses an expired entry on its own, so a session
   // never outlives its expiry between beats, it only occupies memory.
-  let token = session_cookie(headers)?;
+  let token = session_cookie(headers, state.config().secure_cookies)?;
   // Reject cookie values that are not valid UUIDs (session tokens are always
   // generated with uuid::Uuid::new_v4). This avoids unnecessary HashMap lookups
   // and prevents injection of malformed keys.
@@ -115,7 +115,7 @@ pub(crate) async fn validate_session_for_visitor(
 /// `None` for callers without a valid global session too (they can't act).
 pub(crate) async fn caller_org(state: &AppState, headers: &HeaderMap) -> Option<String> {
   // A per-org OIDC session is fixed to its org and never reaches master.
-  if let Some(token) = session_cookie(headers) {
+  if let Some(token) = session_cookie(headers, state.config().secure_cookies) {
     let sessions = state.sessions.lock().await;
     if let Some(info) = sessions.get(token)
       && info.expires_at > crate::store::sessions::now_secs()
@@ -157,7 +157,7 @@ pub(crate) async fn is_master_admin(state: &AppState, headers: &HeaderMap) -> bo
 pub(crate) async fn effective_org(state: &AppState, headers: &HeaderMap) -> Option<String> {
   if is_master_admin(state, headers).await {
     // The super-admin views the org selected on their session.
-    if let Some(token) = session_cookie(headers)
+    if let Some(token) = session_cookie(headers, state.config().secure_cookies)
       && let Some(sel) = state.sessions.lock().await.selected_org(token)
     {
       return sel;
@@ -167,10 +167,12 @@ pub(crate) async fn effective_org(state: &AppState, headers: &HeaderMap) -> Opti
   caller_org(state, headers).await
 }
 
-/// The raw `aperio_session` cookie value, for endpoints that mutate the
-/// session (e.g. switching organizations).
-pub(crate) fn session_token(headers: &HeaderMap) -> Option<String> {
-  session_cookie(headers).map(str::to_string)
+/// The raw session cookie value, for endpoints that mutate or exempt the
+/// caller's own session (switching organizations, signing out everywhere
+/// else). Read under the name this deployment issues, like every other
+/// lookup, so on https it is the `__Host-` cookie and nothing a neighbour set.
+pub(crate) fn session_token(state: &AppState, headers: &HeaderMap) -> Option<String> {
+  session_cookie(headers, state.config().secure_cookies).map(str::to_string)
 }
 
 /// Gate for organization-management endpoints: 401 without a session, 403 for
@@ -218,7 +220,7 @@ pub(crate) async fn admin_key_identity(
 /// Role of the presented caller: a global dashboard session cookie, or a
 /// programmatic admin API key (Bearer). None when neither is valid.
 pub(crate) async fn dashboard_role(state: &AppState, headers: &HeaderMap) -> Option<Role> {
-  if let Some(token) = session_cookie(headers) {
+  if let Some(token) = session_cookie(headers, state.config().secure_cookies) {
     let identity = {
       let sessions = state.sessions.lock().await;
       sessions
@@ -251,7 +253,7 @@ pub(crate) async fn dashboard_role(state: &AppState, headers: &HeaderMap) -> Opt
 /// Username of the presented global dashboard session; None for a missing/
 /// host-scoped session or the built-in admin (which has no user row).
 pub(crate) async fn dashboard_username(state: &AppState, headers: &HeaderMap) -> Option<String> {
-  let token = session_cookie(headers)?;
+  let token = session_cookie(headers, state.config().secure_cookies)?;
   let username = {
     let sessions = state.sessions.lock().await;
     let info = sessions.get(token)?;
@@ -279,7 +281,7 @@ pub(crate) async fn session_username_any_scope(
   state: &AppState,
   headers: &HeaderMap,
 ) -> Option<String> {
-  let token = session_cookie(headers)?;
+  let token = session_cookie(headers, state.config().secure_cookies)?;
   let sessions = state.sessions.lock().await;
   let info = sessions.get(token)?;
   if info.expires_at <= crate::store::sessions::now_secs() {

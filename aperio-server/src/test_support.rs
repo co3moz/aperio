@@ -461,7 +461,15 @@ pub(crate) fn cookie_headers(token: &str) -> HeaderMap {
 /// and returns its Cookie header.
 pub(crate) async fn admin_headers(state: &AppState) -> HeaderMap {
   let token = seed_session(state, Role::Admin, None, None).await;
-  cookie_headers(&token)
+  // Under the name this configuration issues: with `secure_cookies` on, only
+  // the `__Host-` cookie is read, and a plain one is not the caller's own.
+  let name = crate::auth::session_cookie_name(state.config().secure_cookies);
+  let mut h = HeaderMap::new();
+  h.insert(
+    "cookie",
+    HeaderValue::from_str(&format!("{name}={token}")).unwrap(),
+  );
+  h
 }
 
 /// A header map carrying the master bearer token (`test`).
