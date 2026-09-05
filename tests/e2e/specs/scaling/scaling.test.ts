@@ -1,6 +1,7 @@
 import { Test } from 'nole'
 import assert from 'node:assert/strict'
 import { spawn, type ChildProcess } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import { AperioServerBase } from '../../lib/server.js'
 import { StandardBackendBase } from '../../lib/backend.js'
@@ -96,6 +97,9 @@ class ArmingClient extends AperioClientBase({
   },
 }) {
   _host = 'scale.e2e.local'
+  /** Declared to the server, so a spec can tell this client from the one
+   *  the hook cold-starts for the same hostname. */
+  readonly _id = randomUUID()
 
   _autoStart() {
     return false
@@ -108,6 +112,7 @@ class ArmingClient extends AperioClientBase({
   }
   _config() {
     return [
+      `client_id: ${this._id}`,
       'server:',
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
@@ -166,6 +171,9 @@ export class StrictArmingClient extends AperioClientBase({
 interface ClientView {
   id: string
   hostname_binds?: string[] | null
+  /** The client's declared `client_id`, shared by every connection of one
+   *  process; `id` is the single connection the server addresses. */
+  instance_group?: string | null
 }
 
 export class ColdStartSpec extends Test({
@@ -224,7 +232,12 @@ export class ColdStartSpec extends Test({
 
     await this.arming._start()
     await this.arming._waitRoutable('scale.e2e.local', '/hello')
-    const [armedId] = await this._serving('scale.e2e.local')
+    // The arming client by its declared id, not "whichever client is listed
+    // first": the probes above may already have had the hook cold-start a
+    // second client for the same hostname, and watching that one leave
+    // routing waits forever.
+    const stats = await this.server._api<{ active_clients: ClientView[] }>('/aperio/api/stats')
+    const armedId = stats.active_clients.find((c) => c.instance_group === this.arming._id)?.id
     assert.ok(armedId, 'the arming client is listed before it is killed')
     await this.arming._kill()
     await waitFor(() => this._goneById(armedId), {
