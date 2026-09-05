@@ -69,7 +69,66 @@ there is nothing to build, whatever *Recurring checks* holds.
   entry; yaml key, env var, the docs table and the book together, per the
   configuration rules. Once the fence holds, the login page can show the
   organization's `custom_name`, which is the white-label the hostname was
-  implying all along.
+  implying all along. [[#152]] is the same axis from the other end, a
+  hostname for the admin surface itself; if that ships first, this entry
+  shrinks to an optional panel hostname per organization.
+
+- [ ] **#152 Give the admin surface its own hostname, `panel.example.com`
+  instead of `/aperio` on every tenant's domain.** Today `/aperio` is
+  nested once and answers on every hostname the server serves, so the
+  dashboard, its API and the login form sit under each tenant's own domain,
+  `acme.com/aperio`, and `/aperio/*` is a reserved path on every site behind
+  the server. A dedicated hostname is the shape every other multi-tenant
+  proxy ended up with: the admin plane at `panel.example.com/`, the tenant
+  domains carrying traffic and nothing else. It is also the natural home of
+  the master super-admin once [[#151]] sends each tenant to its own
+  hostname, and the two compose: with a panel hostname per organization,
+  `panel.acme.com`, #151's rule stops being "which fence is this hostname
+  in" and becomes "whose panel is this", which is simpler to state and to
+  test. Whichever ships first, the other shrinks to a field.
+
+  **Shape.** A server-wide `dashboard_hostname` (`APERIO_DASHBOARD_HOSTNAME`).
+  On that host the admin surface is served at the root, by a layer early in
+  the stack that prefixes `/aperio` onto the request path when `Host`
+  matches, so the router, the auth middleware, the API and the 404 catch-all
+  stay exactly as they are and `/aperio/...` keeps resolving there too,
+  which is what `aperio-client api` needs, since it spells every call as
+  `/aperio/api/...` against `server.url`. A second, separate switch withdraws
+  the human surface, dashboard, API, auth and OIDC, from the other
+  hostnames once the panel exists; off by default, because turning it on
+  changes where an operator's bookmarks and scripts point. The machine
+  endpoints, `/aperio/ws`, `/aperio/health`, `/aperio/healthz`, `/aperio/otlp`,
+  stay on every hostname regardless: a client fleet connects wherever its
+  `server.url` says, and moving that door is a fleet-wide change, which the
+  protocol rule reserves for the operator.
+
+  **The dashboard has `/aperio/` baked in.** Vite's `base` is `/aperio/`,
+  ten source files spell `/aperio/api` by hand and the sign-out path is a
+  literal. Served at the root, that works but shows `panel.example.com/aperio/clients`
+  in the address bar. The fix is a runtime base, one helper the ten files go
+  through and a `<base href>` the server writes into `index.html` for the
+  host it is answering on, so the same bundle serves both spellings.
+
+  **What moves with the hostname, and has to be said in the docs.** Passkeys
+  are bound to the origin: `APERIO_WEBAUTHN_ORIGIN` names one host, and a
+  panel on a new name invalidates every passkey registered on the old one
+  unless `APERIO_WEBAUTHN_RP_ID` is a parent domain covering both, which it
+  can be only when they share a registrable domain. The OIDC redirect URI is
+  derived from `Host`, so the identity provider's registered callback has to
+  gain the new one, or `redirect_url_override` has to name it. And the panel
+  hostname needs a certificate like any other, so it belongs in whatever the
+  TLS set is before the switch is flipped, not after. None of these are
+  reasons not to do it; they are the three things an operator will hit in
+  the first ten minutes, and each is a sentence in the configuration page.
+
+  **What it buys beyond tidiness.** The session cookie is already `__Host-`
+  prefixed and already stripped before a request is proxied, so nothing
+  leaks to a tenant's backend today; the win is elsewhere. `/aperio/*`
+  stops being reserved on tenant sites. The login form stops appearing on
+  domains whose owners never asked for one, which is the phishing-shaped
+  surface #151 also narrows. And the admin plane's rate limits, lockouts and
+  IP allowlist ([[#106]] separated the planes; this separates the doors) can
+  be reasoned about per hostname, with a tenant domain having none of them.
 
 ## Withdrawn
 
