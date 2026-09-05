@@ -111,6 +111,11 @@ export class MultiServiceClient extends AperioClientBase({
 }
 
 export class UnixSocketClient extends ClientFor(() => FeatureServer, () => UdsBackend) {
+  // No socket to point at on Windows (see the backend), so no client either:
+  // the spec is skipped there and this fixture must not be the failure.
+  _autoStart() {
+    return process.platform !== 'win32'
+  }
   _hostname() {
     return 'uds.e2e.local'
   }

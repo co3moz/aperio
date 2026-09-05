@@ -14,6 +14,13 @@ export function UnixBackendBase(options: Parameters<typeof Test>[0] = {}) {
     _server?: Server
 
     async hookListen() {
+      // Nothing to listen on where there are no unix sockets. The spec that
+      // depends on this is skipped on Windows, but nole still brings up what
+      // a skipped test depends on, and a `listen()` on a filesystem path
+      // there never produces the socket file this hook waits for: thirty
+      // seconds of waiting and a fixture failure on a platform the spec had
+      // already reported unsupported.
+      if (process.platform === 'win32') return
       this._dir = await mkdtemp(join(tmpdir(), 'aperio-uds-'))
       this._socket = join(this._dir, 'backend.sock')
       this._server = createServer((req, res) => {
