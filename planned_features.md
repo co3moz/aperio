@@ -27,6 +27,139 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
+- [ ] **#160 The first ten minutes: a newcomer is told nothing.** Found in the
+  UX review of 2026-09-06. The login form says "Sign in to continue" and not
+  that the username is `aperio` and the password the master token, which is
+  the first place a new operator stalls. An Overview with no client shows six
+  zero tiles and a flat chart and asks for nothing; the only call to action is
+  the *Connect a new client* button two pages away, and the dashboard has no
+  zero-state copy at all (the one "No clients" string is the search filter's).
+  Nothing in the panel links to the thirty documents that exist. Do three
+  things: one line of hint on the login form (which credential, and where a
+  named user comes from); an empty-Overview card with the three steps that make
+  a tunnel (mint a token, run the client with it, watch it appear here), each
+  step linking to the page that does it and disappearing once a client has
+  connected; and a small docs link on every page header, pointing at the
+  article for that page, so the panel is the way into the documentation rather
+  than a thing beside it.
+
+- [ ] **#161 Say each thing once: the explanatory paragraphs are read on every
+  visit.** Thirty-three UI strings run past 120 characters; Topology's opening
+  paragraph is 555 characters over four lines, and Autoscaling, Share Links,
+  the overrule dialog and Maintenance's empty state are in the same range.
+  They are good text and they are in the wrong place: a paragraph that
+  explains a page is useful the first time and noise the fiftieth, and it
+  pushes the table it explains below the fold. The same page is also
+  described three times, the sidebar hint, the header's subtitle and the
+  page's own paragraph ("Requests in real time, table or console" and "Live
+  Tunnel Traffic" say one thing twice on one screen). Move every page
+  paragraph into a collapsible "About this page" block, open on the first
+  visit and remembered closed (localStorage is enough, it is a per-viewer
+  convenience), and drop the header subtitle, since the sidebar hint already
+  carries it. Keep the one-sentence form where a sentence is all there is.
+
+- [ ] **#162 Six panes have no door: navigation hides half the product.** Twelve
+  full pages sit in the sidebar; Organizations, Users, Webhooks, the Inbox,
+  Messages and Export live inside the Settings dialog and Audit, the API
+  explorer and the Config builder inside Tools, reachable only by knowing they
+  are there (the code says so itself: "the only way to Organizations is to
+  open Settings and know it is in there"). "Tools" is a grab-bag whose id is
+  `audit`. Breakdown stacks seven unrelated sections into one three-screen
+  scroll (history, route trends, bandwidth, slow endpoints, stage latencies,
+  cache, self-health). Give the dialogs' panes their own sidebar rows as
+  children of Settings and Tools (a collapsible group, the dialog still opens
+  over the page, so nothing about the URL model changes), split Breakdown into
+  tabs with the traffic history first, and move Cache and Self-health under
+  System where an operator looks for the server rather than the traffic.
+
+- [ ] **#163 A glossary for the six words nobody outside the project knows.**
+  The UI says "bind" eleven times and "drain", "eject", "canary", "expose" and
+  "overrule" with no definition next to any of them, and the Tunnels page
+  explains itself with a CLI flag (`--bind-tunnels`). The *Overrule* button on
+  a client row does not say what it does; "Redirect hostname" would. Add a
+  glossary component, a dotted underline with a tooltip carrying one sentence
+  and a docs link, wire it to those terms wherever they appear in UI copy (the
+  i18n layer can carry the definitions so the seven languages get them too),
+  and rename the actions whose verb is project slang.
+
+- [ ] **#164 The small inconsistencies: confirmations, freshness, search,
+  dates.** Four things a second pass would have caught, cheap to fix and worth
+  fixing together. Revoking a token or deleting a user asks first; clearing
+  the whole webhook inbox, purging the cache, clearing the traffic view and
+  resetting a settings group do not, and those are the wider blasts. Seven
+  pages carry a *Refresh* button while Clients and Live Traffic are pushed
+  live, so nothing tells a reader which pages are current; replace the button
+  with an "updated 12 s ago" stamp that turns into the button only when the
+  stream is down (and see #167, which removes most of the polls the button
+  exists for). A search box exists on three lists and not on Tokens, Users
+  or Webhooks, which grow. Dates render as `9/18/2026, 5:56:50 AM` in every
+  language; use the viewer's locale and the UI language, and relative time
+  where the column is "when".
+
+- [ ] **#165 Keyboard, colour and the phone.** Twenty-one `aria-label`s, three
+  `onKeyDown`s and one `autoFocus` across forty-five components: the tables
+  and dialogs are mouse-only, focus is not moved into an opened dialog or
+  back on close, and a row's actions cannot be reached with Tab in any useful
+  order. Status is carried by colour alone (the green, amber and red dots), so
+  a colour-blind operator reads nothing; every dot needs a text or shape
+  twin, at least in a tooltip and in the accessible name. Below 768 px twelve
+  tables fall back to horizontal scroll, and the one question a phone is
+  pulled out for, "is it up", has no answer smaller than the Overview: give
+  the Clients and Traffic tables a card layout under the breakpoint, and
+  make the Overview's tiles the mobile home.
+
+- [ ] **#166 Four things the panel stops one step short of.** A hostname is
+  plain text everywhere it appears (Clients, Tokens, Topology); make it a link
+  that opens the site, since that is what an operator does next. Creating a
+  token shows the secret and stops; the wizard's "run the client like this"
+  snippet belongs on that screen too, filled in with the token. A changed
+  setting says what it is now and not who changed it or when, although the
+  audit log knows; show the last `settings_updated` actor and time beside an
+  overridden field. The notification bell is live and forgets: an alert that
+  fired while the tab was closed is gone, and the bell never says "3 alerts in
+  the last 24 hours"; back the bell with the audit log's alert events so the
+  count survives a reload.
+
+- [ ] **#167 One stream, not one stream plus twenty polls.** The dashboard
+  pushes stats, traffic and notifications over `/aperio/api/stream` and then
+  polls everything else: tokens, users, sessions, webhooks and their
+  deliveries, the inbox, maintenance flags, scaling records, topology, stage
+  latencies, uptime, organizations, subscribers, tunnels, route trends, slow
+  endpoints, the audit ring, the session's own lifetime, twenty `usePoll` and
+  `setInterval` sites at five to sixty seconds. A viewer sitting on the Users
+  pane with Breakdown open fires roughly ten requests every fifteen seconds
+  against a server that already holds an open connection to them, each one a
+  session validation, an organization fence and a lock, for a table that
+  changed once this week. Fold them into the stream: the URL names the
+  topics it wants (`/aperio/api/stream?topics=orgs,uptime,session`; the
+  bare-key form `?orgs&uptime&session` reads well too, pick one and accept
+  it), the server sends each as a named SSE event, and the dashboard opens
+  one EventSource per mounted set of topics through a `useStream(topic)`
+  hook that replaces `usePoll` (an EventSource cannot change its
+  subscription, so a changed topic set reopens the connection, which is one
+  request rather than twenty a minute). Two kinds of topic: **change-driven**
+  ones (tokens, users, sessions, webhooks, inbox, maintenance, scaling,
+  organizations, subscribers) are pushed when the store behind them is
+  written, which the server already knows since every write is an audit
+  event, so a table updates the moment a colleague edits it instead of up to
+  fifteen seconds later; **tick-driven** ones (uptime, topology, stage
+  latencies, route trends, slow endpoints, tunnels) ride the existing
+  two-second tick at a coarser cadence of their own, since they change
+  continuously and a push per change would be a push per request. `session`
+  is a third shape: one event on connect with the expiry and the grants, and
+  another whenever the session's row changes (a grant taken away, a
+  revocation), which is also what lets the stream close itself when the
+  session ends rather than the client noticing on its next poll. Rules: an
+  unnamed topic set means today's three events, so an older dashboard keeps
+  working; a topic the caller's role may not read is refused at the upgrade
+  with the topic named, not silently omitted; every event carries the same
+  organization fence its polled twin has; and the polling fallback stays,
+  per topic, for a proxy that buffers SSE. `health` at five minutes can stay
+  a poll, it is the one thing worth checking over a *second* connection.
+  Measure before and after with the access log: requests per viewer-minute
+  on an idle dashboard is the number, and it should drop from tens to about
+  one.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
