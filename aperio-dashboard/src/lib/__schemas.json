@@ -1012,11 +1012,12 @@
             ]
           },
           "method": {
-            "description": "The gate: `none` (deliberately open) or `basic` (a `user:password`\nlogin). Further methods are their own backlog entries.",
+            "description": "The gate: `none` (deliberately open), `basic` (a `user:password`\nlogin), `bearer`, `jwt`, `forward`, or `aperio` (this server's own\nsign-in: a dashboard session reaching the hostname's organization, with\nno credential to invent).",
             "type": "string",
             "examples": [
               "basic",
-              "none"
+              "none",
+              "aperio"
             ]
           },
           "query": {
@@ -4707,11 +4708,12 @@
             ]
           },
           "method": {
-            "description": "The gate: `none` (deliberately open) or `basic` (a `user:password`\nlogin). Further methods are their own backlog entries.",
+            "description": "The gate: `none` (deliberately open), `basic` (a `user:password`\nlogin), `bearer`, `jwt`, `forward`, or `aperio` (this server's own\nsign-in: a dashboard session reaching the hostname's organization, with\nno credential to invent).",
             "type": "string",
             "examples": [
               "basic",
-              "none"
+              "none",
+              "aperio"
             ]
           },
           "query": {

@@ -1223,3 +1223,209 @@ async fn the_bearer_scheme_opens_the_gate_however_it_is_capitalised() {
     }
   }
 }
+
+// --- the aperio method (planned_features.md #155) ----------------------------
+
+use crate::store::users::Role;
+
+/// A server gate that is `aperio` alone.
+fn aperio_gate_state() -> Arc<AppState> {
+  let mut cfg = test_config();
+  cfg.visitor_auth =
+    crate::visitor_auth::Policy::compile(&serde_yaml::from_str("{method: aperio}").unwrap());
+  Arc::new(test_state_with(cfg))
+}
+
+fn browser_headers() -> HeaderMap {
+  let mut h = HeaderMap::new();
+  h.insert("accept", "text/html,application/xhtml+xml".parse().unwrap());
+  h
+}
+
+fn deny_status(gate: &VisitorGate) -> Option<(StatusCode, Option<String>)> {
+  match gate {
+    VisitorGate::Deny(resp) => Some((
+      resp.status(),
+      resp
+        .headers()
+        .get("location")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string),
+    )),
+    _ => None,
+  }
+}
+
+#[tokio::test]
+async fn the_aperio_gate_sends_a_browser_to_the_login_and_a_script_a_401() {
+  let state = aperio_gate_state();
+  let uri: axum::http::Uri = "/private?x=1".parse().unwrap();
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &browser_headers(),
+    &uri,
+    Some("site.test"),
+  )
+  .await;
+  let (status, location) = deny_status(&gate).expect("refused");
+  assert_eq!(status, StatusCode::FOUND);
+  assert!(
+    location
+      .as_deref()
+      .unwrap_or("")
+      .starts_with("/aperio/auth?redirect="),
+    "{location:?}"
+  );
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    Some("site.test"),
+  )
+  .await;
+  let (status, _) = deny_status(&gate).expect("refused");
+  assert_eq!(status, StatusCode::UNAUTHORIZED);
+  if let VisitorGate::Deny(resp) = &gate {
+    assert!(
+      resp.headers().get("www-authenticate").is_none(),
+      "nothing a script could answer with"
+    );
+  }
+}
+
+#[tokio::test]
+async fn the_aperio_gate_admits_a_dashboard_session_and_not_the_site_password() {
+  let state = aperio_gate_state();
+  let uri: axum::http::Uri = "/private".parse().unwrap();
+  // The built-in account, signed in to the dashboard.
+  let headers = admin_headers(&state).await;
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &headers,
+    &uri,
+    Some("site.test"),
+  )
+  .await;
+  match gate {
+    VisitorGate::Allow(Some(identity)) => assert_eq!(identity.how, "session"),
+    _ => panic!("an Aperio session should be admitted"),
+  }
+  // A visitor-plane session, what the site's own password mints: it has no
+  // host scope, so every other gate reads it as global, and this one does
+  // not, since a site password is not an Aperio sign-in.
+  let visitor = uuid::Uuid::new_v4().to_string();
+  let now = crate::store::sessions::now_secs();
+  state.sessions.lock().await.insert(
+    &visitor,
+    crate::state::SessionInfo {
+      plane: crate::store::sessions::Plane::Visitor,
+      expires_at: now + 100,
+      created_at: now,
+      ip: None,
+      user_agent: None,
+      scope_host: None,
+      username: None,
+      role: Role::Viewer,
+      selected_org: None,
+      bound_org: None,
+      login_host: None,
+    },
+  );
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &cookie_headers(&visitor),
+    &uri,
+    Some("site.test"),
+  )
+  .await;
+  assert!(
+    matches!(gate, VisitorGate::Deny(_)),
+    "the site password is not an Aperio sign-in"
+  );
+  // A named user of another organization, fenced away from this hostname.
+  let acme = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", vec!["*.acme.test".to_string()], None)
+    .unwrap()
+    .id;
+  state
+    .users
+    .lock()
+    .await
+    .create("acme-viewer", "password1", Role::Viewer, Some(acme))
+    .unwrap();
+  let token = seed_session(&state, Role::Viewer, Some("acme-viewer"), None).await;
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &cookie_headers(&token),
+    &uri,
+    Some("site.test"),
+  )
+  .await;
+  assert!(
+    matches!(gate, VisitorGate::Deny(_)),
+    "not this organization's hostname"
+  );
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &cookie_headers(&token),
+    &uri,
+    Some("www.acme.test"),
+  )
+  .await;
+  assert!(matches!(gate, VisitorGate::Allow(_)), "its own hostname");
+}
+
+#[tokio::test]
+async fn beside_a_bearer_the_aperio_gate_keeps_the_wider_reading() {
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::visitor_auth::Policy::compile(
+    &serde_yaml::from_str("[{method: aperio}, {method: bearer, secret: 0123456789abcdef}]")
+      .unwrap(),
+  );
+  let state = Arc::new(test_state_with(cfg));
+  let uri: axum::http::Uri = "/private".parse().unwrap();
+  let mut h = HeaderMap::new();
+  h.insert("authorization", "Bearer 0123456789abcdef".parse().unwrap());
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &h,
+    &uri,
+    Some("site.test"),
+  )
+  .await;
+  match gate {
+    VisitorGate::Allow(Some(identity)) => assert_eq!(identity.how, "bearer"),
+    _ => panic!("the key should open it"),
+  }
+  // A script without the key gets the bearer challenge, as before.
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    Some("site.test"),
+  )
+  .await;
+  if let VisitorGate::Deny(resp) = &gate {
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+      resp
+        .headers()
+        .get("www-authenticate")
+        .and_then(|v| v.to_str().ok()),
+      Some("Bearer")
+    );
+  } else {
+    panic!("refused");
+  }
+}

@@ -60,7 +60,7 @@ pub(crate) const VISITOR_AUTH_METHODS_HEADER: &str = "x-aperio-visitor-auth-meth
 /// the server's localhost and not its own: a footgun whose safe version
 /// carries the check over the tunnel, and that is a feature rather than a
 /// field (#111).
-pub(crate) const CLIENT_DECLARABLE_METHODS: &[&str] = &["none", "basic", "bearer", "jwt"];
+pub(crate) const CLIENT_DECLARABLE_METHODS: &[&str] = &["none", "basic", "bearer", "jwt", "aperio"];
 /// Other servers a client may fall back to (planned_features #52),
 /// comma-separated.
 pub(crate) const ALTERNATE_SERVERS_HEADER: &str = "x-aperio-alternate-servers";

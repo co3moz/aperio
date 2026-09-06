@@ -46,6 +46,12 @@ pub(crate) enum Method {
   /// Delegated: an endpoint the operator runs is asked about each request.
   /// The escape hatch that lets this set stay closed.
   Forward(Box<crate::forward_auth::ForwardConfig>),
+  /// This server's own sign-in (`planned_features.md` #155): a dashboard
+  /// session, on the admin plane, reaching the hostname's organization. The
+  /// admission the closed posture already makes for a signed-in user, with a
+  /// way to say it, so a route can be shown the door rather than the stealth
+  /// answer without inventing a password nobody will type.
+  Aperio,
 }
 
 /// A route's visitor gate: the methods that may admit a visitor, in the order
@@ -87,6 +93,7 @@ impl Policy {
       .filter_map(
         |spec| match spec.method.trim().to_ascii_lowercase().as_str() {
           "none" => Some(Method::Open),
+          "aperio" => Some(Method::Aperio),
           "basic" => Some(Method::Basic {
             users: spec
               .users
@@ -202,8 +209,24 @@ impl Policy {
         Method::Bearer { .. } => "bearer",
         Method::Jwt(_) => "jwt",
         Method::Forward(_) => "forward",
+        Method::Aperio => "aperio",
       })
       .collect()
+  }
+
+  /// True when the `aperio` method is here: an Aperio sign-in opens this
+  /// gate, and a caller without a browser is told `401` rather than sent to
+  /// a login form.
+  pub(crate) fn has_aperio(&self) -> bool {
+    self.methods.iter().any(|m| matches!(m, Method::Aperio))
+  }
+
+  /// True when the `aperio` method is the only one: then the site's own
+  /// visitor password, which mints a session too, does not count. The plane
+  /// distinction of #106 is exactly this, and a mixed policy keeps the
+  /// wider reading its other methods always had.
+  pub(crate) fn aperio_only(&self) -> bool {
+    !self.methods.is_empty() && self.methods.iter().all(|m| matches!(m, Method::Aperio))
   }
 
   /// Does a presented bearer secret open this gate?

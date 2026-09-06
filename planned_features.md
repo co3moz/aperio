@@ -27,86 +27,6 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
-- [ ] **#155 A gate that is Aperio's own login, so a route can say "sign in"
-  without inventing a password.** [[#108]] abolished the throwaway
-  `auth: DUMMY:DUMMY`, and it came back through the other door. Under
-  `default_access: deny` a route nothing declares answers with the
-  unclaimed-hostname 504, on purpose, so its existence does not leak; and
-  since 0.11.0 a signed-in Aperio user is admitted through exactly that
-  route. So the admission already exists and there is no way to *say* it:
-  an operator who wants a visitor to be shown the door rather than the
-  stealth answer has to invent an `admin:s3cret` nobody will ever type,
-  which is the same lie the closed posture was built to retire. The
-  operator who reported this had upgraded from 0.9.0, where a dummy
-  `uuid:uuid` was the only reason a login page appeared at all, dropped it
-  because the posture made it unnecessary, and got a Cloudflare error page.
-
-  **The method.** `auth: {method: aperio}`, in the same grammar as
-  [[#105]]'s other four. The credential it accepts is a valid Aperio
-  session fenced to the hostname's organization, which is the check the
-  deny branch already makes (`validate_session_for_visitor`), so this
-  invents no authentication path: it borrows `/aperio/auth`, which is
-  already served on every hostname the server answers on and already
-  accepts the master token, a named dashboard user, a passkey or OIDC.
-
-  **What changes is the shape of the refusal, not who gets in.** A browser
-  navigation is sent to the login (the OIDC one where that is configured),
-  anything else gets `401`, which is what every other method already does.
-  The admitted set is identical to what the posture admits today. Second
-  effect, worth as much: the route becomes *declared*, so the dashboard and
-  `/api/explain` can name what gates it instead of reporting that nothing
-  does.
-
-  **Why a method and not a switch on the posture.** Making `deny` redirect
-  everywhere would take stealth away from the deployments that chose it,
-  server-wide, with no way back per route. As a method, the leak is chosen
-  by whoever owns that route, which is the shape every other gate has.
-
-  **Both surfaces.** It belongs in `server.auth` and in a `routes:` policy
-  entry as much as on a client's service, and that half may be the bigger
-  one: "everything this server proxies is behind the Aperio login" today
-  requires inventing a visitor password for a server that already has
-  accounts. It composes with the list form, so
-  `[{method: aperio}, {method: bearer, secret: ...}]` is a person signing
-  in and a script presenting a key, which is what the list is for.
-
-  **What to decide before writing it.**
-
-  *The name.* `aperio` names the identity provider, which is the thing that
-  distinguishes this gate; `session` names the credential but not whose;
-  `login` names the effect rather than what is checked. A scalar shorthand
-  (`auth: login`) is tempting and should probably wait: the scalar slot
-  means `user:password` today, and a second meaning there is a value that
-  is a credential in one file and a method name in another.
-
-  *Which sessions count.* A visitor password mints a session too, and
-  admitting it would mean the site password opens the route that says
-  Aperio-only. The plane distinction from [[#106]] is exactly this, and the
-  check to reuse is the admin-plane, org-fenced one.
-
-  *The permission.* Declaring this widens nothing for third parties, since
-  those sessions are admitted by the posture already, so requiring
-  `allow_public` is arguable. Consistency argues the other way and probably
-  wins: under `default_access: allow` the method does change what a route
-  serves, the mechanism is [[#111]]'s, and a special case here is a second
-  rule for an operator to remember.
-
-  *The per-hostname sign-in, which is the real cost.* The session cookie is
-  `__Host-` prefixed and therefore host-only, so three services behind this
-  gate is three sign-ins, each at that hostname's own `/aperio/auth`, even
-  for someone already signed in to the dashboard. Decide whether this entry
-  also carries a way to mint a host session from a dashboard session, or
-  whether that is its own id; the feature is usable without it and
-  irritating without it.
-
-  **No protocol break.** The method is announced and negotiated through
-  [[#111]]'s existing `x-aperio-visitor-auth-methods` header, so a client
-  declaring it against a server that does not know it holds the service
-  back and says which side has to move, exactly as an unknown method does
-  today. Additive on the wire, and additive in config, so no
-  `CONFIG_CHANGES` entry; `CHANGELOG.md`, the docs table, the book and the
-  `AUTH_METHODS` list are the surfaces.
-
 - [ ] **#156 A configuration reload takes a service off the air for minutes,
   and the connection it replaced is never reaped.** Reported from a running
   deployment and reproduced in the code by reading: a client with three
@@ -745,6 +665,101 @@ so.
   2025-09, with no rc since March. Neither is close.
 
 ## Completed
+
+- [x] **#155 A gate that is Aperio's own login, so a route can say "sign in"
+  without inventing a password.** shipped as `auth: {method: aperio}` in
+  the shared grammar (`AUTH_METHODS`, validated to take no credential),
+  compiled to `Method::Aperio`, admitted by `admin_session_reaches`, the
+  admin-plane, organization-fenced half of the check the deny branch
+  already makes, so the site's visitor password does not open it when it
+  stands alone; a browser goes to the login, anything else gets `401`
+  with no challenge; declarable by a client and announced in
+  `CLIENT_DECLARABLE_METHODS`, so an older server holds the service back;
+  named by `/api/explain` as `visitor_gate.aperio_login`; docs, book,
+  changelog, and unit and e2e coverage. The decisions: the name is
+  `aperio`, no scalar shorthand; the permission is the same one every
+  client-declared gate needs, for consistency; and the per-hostname
+  sign-in is left as it is rather than given its own id, since the
+  session is `__Host-` scoped and, under [[#151]], bound to the hostname it
+  was minted on, so a session that opened several hostnames at once is the
+  shape both of those were built to refuse. The original entry: [[#108]] abolished the throwaway
+  `auth: DUMMY:DUMMY`, and it came back through the other door. Under
+  `default_access: deny` a route nothing declares answers with the
+  unclaimed-hostname 504, on purpose, so its existence does not leak; and
+  since 0.11.0 a signed-in Aperio user is admitted through exactly that
+  route. So the admission already exists and there is no way to *say* it:
+  an operator who wants a visitor to be shown the door rather than the
+  stealth answer has to invent an `admin:s3cret` nobody will ever type,
+  which is the same lie the closed posture was built to retire. The
+  operator who reported this had upgraded from 0.9.0, where a dummy
+  `uuid:uuid` was the only reason a login page appeared at all, dropped it
+  because the posture made it unnecessary, and got a Cloudflare error page.
+
+  **The method.** `auth: {method: aperio}`, in the same grammar as
+  [[#105]]'s other four. The credential it accepts is a valid Aperio
+  session fenced to the hostname's organization, which is the check the
+  deny branch already makes (`validate_session_for_visitor`), so this
+  invents no authentication path: it borrows `/aperio/auth`, which is
+  already served on every hostname the server answers on and already
+  accepts the master token, a named dashboard user, a passkey or OIDC.
+
+  **What changes is the shape of the refusal, not who gets in.** A browser
+  navigation is sent to the login (the OIDC one where that is configured),
+  anything else gets `401`, which is what every other method already does.
+  The admitted set is identical to what the posture admits today. Second
+  effect, worth as much: the route becomes *declared*, so the dashboard and
+  `/api/explain` can name what gates it instead of reporting that nothing
+  does.
+
+  **Why a method and not a switch on the posture.** Making `deny` redirect
+  everywhere would take stealth away from the deployments that chose it,
+  server-wide, with no way back per route. As a method, the leak is chosen
+  by whoever owns that route, which is the shape every other gate has.
+
+  **Both surfaces.** It belongs in `server.auth` and in a `routes:` policy
+  entry as much as on a client's service, and that half may be the bigger
+  one: "everything this server proxies is behind the Aperio login" today
+  requires inventing a visitor password for a server that already has
+  accounts. It composes with the list form, so
+  `[{method: aperio}, {method: bearer, secret: ...}]` is a person signing
+  in and a script presenting a key, which is what the list is for.
+
+  **What to decide before writing it.**
+
+  *The name.* `aperio` names the identity provider, which is the thing that
+  distinguishes this gate; `session` names the credential but not whose;
+  `login` names the effect rather than what is checked. A scalar shorthand
+  (`auth: login`) is tempting and should probably wait: the scalar slot
+  means `user:password` today, and a second meaning there is a value that
+  is a credential in one file and a method name in another.
+
+  *Which sessions count.* A visitor password mints a session too, and
+  admitting it would mean the site password opens the route that says
+  Aperio-only. The plane distinction from [[#106]] is exactly this, and the
+  check to reuse is the admin-plane, org-fenced one.
+
+  *The permission.* Declaring this widens nothing for third parties, since
+  those sessions are admitted by the posture already, so requiring
+  `allow_public` is arguable. Consistency argues the other way and probably
+  wins: under `default_access: allow` the method does change what a route
+  serves, the mechanism is [[#111]]'s, and a special case here is a second
+  rule for an operator to remember.
+
+  *The per-hostname sign-in, which is the real cost.* The session cookie is
+  `__Host-` prefixed and therefore host-only, so three services behind this
+  gate is three sign-ins, each at that hostname's own `/aperio/auth`, even
+  for someone already signed in to the dashboard. Decide whether this entry
+  also carries a way to mint a host session from a dashboard session, or
+  whether that is its own id; the feature is usable without it and
+  irritating without it.
+
+  **No protocol break.** The method is announced and negotiated through
+  [[#111]]'s existing `x-aperio-visitor-auth-methods` header, so a client
+  declaring it against a server that does not know it holds the service
+  back and says which side has to move, exactly as an unknown method does
+  today. Additive on the wire, and additive in config, so no
+  `CONFIG_CHANGES` entry; `CHANGELOG.md`, the docs table, the book and the
+  `AUTH_METHODS` list are the surfaces.
 
 - [x] **#151 Fence the dashboard login to the organization whose hostname
   it is reached on.** shipped: `dashboard.fenced_login` /

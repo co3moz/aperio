@@ -70,9 +70,11 @@ pub enum AuthSetting {
 #[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq, Eq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AuthMethodSpec {
-  /// The gate: `none` (deliberately open) or `basic` (a `user:password`
-  /// login). Further methods are their own backlog entries.
-  #[schemars(extend("examples" = ["basic", "none"]))]
+  /// The gate: `none` (deliberately open), `basic` (a `user:password`
+  /// login), `bearer`, `jwt`, `forward`, or `aperio` (this server's own
+  /// sign-in: a dashboard session reaching the hostname's organization, with
+  /// no credential to invent).
+  #[schemars(extend("examples" = ["basic", "none", "aperio"]))]
   pub method: String,
   /// `basic`: the credentials that open this gate, each `user:password`.
   /// A single value or a list.
@@ -232,7 +234,7 @@ impl AuthMethodSpec {
 /// Deliberately a closed set: the open version was considered and withdrawn
 /// (`planned_features.md` #103). Further methods each arrive as their own
 /// entry rather than as a plugin interface.
-pub const AUTH_METHODS: &[&str] = &["none", "basic", "bearer", "jwt", "forward"];
+pub const AUTH_METHODS: &[&str] = &["none", "basic", "bearer", "jwt", "forward", "aperio"];
 
 /// Shortest `bearer` secret accepted.
 ///
@@ -296,6 +298,19 @@ pub fn validate_auth_setting(setting: &AuthSetting) -> Result<(), String> {
         {
           return Err(at(
             "`method: none` is the open gate and takes no credentials".to_string(),
+          ));
+        }
+      }
+      "aperio" => {
+        if spec.users.is_some()
+          || spec.secret.is_some()
+          || spec.jwks_url.is_some()
+          || spec.hmac_secret.is_some()
+          || spec.url.is_some()
+        {
+          return Err(at(
+            "`method: aperio` is this server's own sign-in and takes no credentials: the visitor signs in at /aperio/auth"
+              .to_string(),
           ));
         }
       }

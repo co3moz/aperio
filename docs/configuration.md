@@ -493,7 +493,7 @@ auth:                                             # several: any one admits
     users: [admin:s3cret, ops:hunter2]
 ```
 
-The list is **any-of**: a visitor is admitted by the first method that admits them, which is what lets one route say "a browser signs in, a script presents a key". Five methods exist, simplest first:
+The list is **any-of**: a visitor is admitted by the first method that admits them, which is what lets one route say "a browser signs in, a script presents a key". Six methods exist, simplest first:
 
 | `method:` | What it does | Where it may be written |
 | --- | --- | --- |
@@ -502,12 +502,13 @@ The list is **any-of**: a visitor is admitted by the first method that admits th
 | `bearer` | An opaque secret presented as `Authorization: Bearer <secret>`. `secret:` takes one or a list, so a key rotates by adding the new one before withdrawing the old. | both |
 | `jwt` | A token the visitor already holds, verified against the keys its issuer publishes (`jwks_url:`) or a shared secret (`hmac_secret:`). No round trip per request. | both |
 | `forward` | Ask an endpoint you run about each request: `2xx` admits it, anything else refuses it and the endpoint's own answer is what the visitor gets. | server only |
+| `aperio` | This server's own sign-in: a dashboard session (the master token, a named user, a passkey or OIDC) reaching the hostname's organization. No credential to invent, which is what `auth: DUMMY:DUMMY` was standing in for. Alone, it admits the admin plane only, so the site's visitor password does not open it; beside `bearer`, a person signs in and a script presents a key. | both |
 
 The set is closed on purpose rather than being a plugin interface, and `forward` is what lets it stay closed: anything deliberately left out (LDAP, SAML, a rule nobody anticipated) is thirty lines behind that URL, in a process that is not Aperio's, with a contract that is two HTTP messages rather than an ABI. A `method:` this build does not know **refuses the start** and names the ones it does, so a gate is never silently absent. `oidc` as a visitor method is still its own piece of work.
 
 #### How a refusal is shaped
 
-A browser navigation (a `GET` carrying `Accept: text/html`) is sent to the login page. Anything else, where the gate has a method a caller can satisfy on the request itself (`bearer` or `jwt`), is answered `401` with `WWW-Authenticate: Bearer`. Redirecting a script to an HTML login form answers a question it did not ask, and it is why a gated route could not be reached with `curl` at all. A `forward` refusal is the endpoint's own answer, whatever it chose.
+A browser navigation (a `GET` carrying `Accept: text/html`) is sent to the login page, the OIDC one where that is configured. Anything else, where the gate has a method a caller can satisfy on the request itself (`bearer` or `jwt`), is answered `401` with `WWW-Authenticate: Bearer`; where the gate is `aperio`, `401` without a challenge, since there is no header a script could answer with. Redirecting a script to an HTML login form answers a question it did not ask, and it is why a gated route could not be reached with `curl` at all. A `forward` refusal is the endpoint's own answer, whatever it chose.
 
 So one route serves a person and a script each in the form they can act on:
 

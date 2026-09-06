@@ -1105,6 +1105,8 @@ export const tr: Record<string, string> = {
     'ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): ziyaretçiler için OIDC yapılandırılmış',
   'this hostname is served without a visitor gate':
     'bu hostname ziyaretçi kapısı olmadan sunuluyor',
+  "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization":
+    'Ziyaretçiler bu istek bir istemciye ulaşmadan önce giriş yapmalı (ya da bir paylaşım bağlantısı taşımalı): bu rota bir Aperio girişi istiyor, bu hostname’in organizasyonuna erişen bir panel oturumu',
   'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
     'hiçbir şey bu rotayı erişilebilir ilan etmiyor ve `default_access` `deny`, bu yüzden yayınlanmıyor: Aperio oturumu taşımayan bir ziyaretçi, sahipsiz bir hostname icin verilen cevabın aynısını alır, oturum açmış bir Aperio kullanıcısı ise yine erişir',
   '{count} client(s) would take it: {clients}':

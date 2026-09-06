@@ -1809,6 +1809,11 @@ line already written. Two methods exist today:
   \item[\code{forward}] Ask an endpoint you run about each request:
         \code{2xx} admits it, anything else refuses it and the endpoint's
         own answer is what the visitor gets.
+  \item[\code{aperio}] This server's own sign-in: a dashboard session
+        reaching the hostname's organisation, with no credential to invent.
+        Alone, it admits the admin plane only, so the site's visitor
+        password does not open it; beside \code{bearer}, a person signs in
+        and a script presents a key. Both sides may write it.
   \item[\code{jwt}] A token the visitor already holds, verified against
         keys the issuer publishes (\code{jwks\_url:}) or a shared secret
         (\code{hmac\_secret:}). No round trip per request, which is the

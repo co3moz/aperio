@@ -614,8 +614,29 @@ pub(crate) async fn explain_handler(
   let client_gate = crate::routing::host_has_visitor_auth(&state, Some(&hostname)).await;
   let server_gate = cfg.visitor_auth.gates();
   let oidc_gate = state.oidc.is_some();
+  // The `aperio` method on either side: the route asks for this server's
+  // own sign-in, which is the one gate an operator wrote without inventing a
+  // credential, and worth naming as such.
+  let client_aperio = crate::routing::route_visitor_policy(&state, &path, Some(&hostname))
+    .await
+    .is_some_and(|p| p.has_aperio());
+  let server_aperio = cfg.visitor_auth.has_aperio();
   if client_gate || server_gate || oidc_gate {
-    let (why, code, setting, setting_code) = if client_gate {
+    let (why, code, setting, setting_code) = if client_aperio {
+      (
+        "the serving client declared this route behind an Aperio sign-in: a dashboard session reaching this hostname's organization",
+        "visitor_gate.aperio_login",
+        "auth: {method: aperio} on the service",
+        "setting.service_auth",
+      )
+    } else if server_aperio && !client_gate {
+      (
+        "the server's gate asks for an Aperio sign-in: a dashboard session reaching this hostname's organization",
+        "visitor_gate.aperio_login",
+        "server_auth",
+        "setting.server_auth",
+      )
+    } else if client_gate {
       (
         "the serving client declared a visitor password for this route, which supersedes the server's own gate",
         "visitor_gate.client_password",

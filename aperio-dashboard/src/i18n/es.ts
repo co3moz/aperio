@@ -1101,6 +1101,8 @@ export const es: Record<string, string> = {
     'los visitantes deben iniciar sesión (o llevar un enlace compartido) antes de que esto llegue a un cliente: OIDC está configurado para visitantes',
   'this hostname is served without a visitor gate':
     'este hostname se sirve sin puerta de visitantes',
+  "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization":
+    'Los visitantes deben iniciar sesión (o traer un enlace compartido) antes de que esto llegue a un cliente: esta ruta pide un inicio de sesión de Aperio, una sesión del panel que alcance la organización de este host',
   'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
     'nada declara que esta ruta sea alcanzable y `default_access` es `deny`, así que no se publica: un visitante sin sesión de Aperio recibe la misma respuesta que da un hostname sin reclamar, y un usuario de Aperio con sesión iniciada sigue llegando',
   '{count} client(s) would take it: {clients}':

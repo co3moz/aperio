@@ -54,6 +54,8 @@ export const EXPLAIN_MESSAGES: Record<string, string> = {
     "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set",
   'visitor_gate.oidc':
     'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors',
+  'visitor_gate.aperio_login':
+    "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization",
   'visitor_gate.open': 'this hostname is served without a visitor gate',
   'visitor_gate.undeclared':
     'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it',

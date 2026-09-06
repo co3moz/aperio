@@ -1101,6 +1101,8 @@ export const ru: Record<string, string> = {
     'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: для посетителей настроен OIDC',
   'this hostname is served without a visitor gate':
     'этот hostname обслуживается без двери для посетителей',
+  "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization":
+    'Посетители должны войти (или принести ссылку общего доступа), прежде чем это дойдёт до клиента: этот маршрут требует входа Aperio, сессии панели, достигающей организации этого имени хоста',
   'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
     'ничто не объявляет этот маршрут доступным, а `default_access` установлен в `deny`, поэтому он не публикуется: посетитель без сессии Aperio получает тот же ответ, что и для незанятого имени хоста, а вошедший пользователь Aperio по-прежнему до него доходит',
   '{count} client(s) would take it: {clients}':

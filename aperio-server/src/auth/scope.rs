@@ -108,6 +108,31 @@ pub(crate) async fn validate_session_for_visitor(
   let Some(caller) = resolve_caller(state, headers).await else {
     return true;
   };
+  caller_reaches(state, &caller, host).await
+}
+
+/// Does this session get past a gate that asks for an Aperio sign-in
+/// (`auth: {method: aperio}`, `planned_features.md` #155)? The same question
+/// as [`validate_session_for_visitor`] with the visitor plane left out: the
+/// site's own password mints a session too, and it must not open a route
+/// that says Aperio-only.
+pub(crate) async fn admin_session_reaches(
+  state: &AppState,
+  headers: &HeaderMap,
+  host: Option<&str>,
+) -> bool {
+  if !validate_session(state, headers).await {
+    return false;
+  }
+  match resolve_caller(state, headers).await {
+    Some(caller) => caller_reaches(state, &caller, host).await,
+    None => false,
+  }
+}
+
+/// Whether a resolved caller reaches `host`: master and `*` everywhere, a
+/// child organization on the hostnames it may act on.
+async fn caller_reaches(state: &AppState, caller: &Caller, host: Option<&str>) -> bool {
   // Any granted organization will do, not only the selected one, and Viewer
   // is enough: the question is whether the site is one of theirs.
   let Some(host) = host else {

@@ -1099,6 +1099,8 @@ export const ja: Record<string, string> = {
     '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: 訪問者向けに OIDC が設定されています',
   'this hostname is served without a visitor gate':
     'この hostname は訪問者関門なしで配信されています',
+  "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization":
+    'これがクライアントに届く前に訪問者はサインインする（または共有リンクを持つ）必要があります: このルートは Aperio のサインイン、つまりこのホスト名の組織に到達できるダッシュボードセッションを求めます',
   'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
     'このルートを到達可能と宣言するものがなく、`default_access` が `deny` のため、公開されません。Aperio のセッションを持たない訪問者には、要求されていないホスト名と同じ応答が返り、サインイン済みの Aperio ユーザーは引き続き到達できます',
   '{count} client(s) would take it: {clients}':

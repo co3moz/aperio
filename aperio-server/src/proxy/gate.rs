@@ -256,6 +256,15 @@ fn refuse_visitor(
       .header("WWW-Authenticate", scheme)
       .body(Body::empty())
       .unwrap(),
+    // An Aperio sign-in has no header a script could answer with, so there
+    // is no challenge to name, and a redirect to an HTML form is still the
+    // wrong answer for something that speaks in headers.
+    _ if !navigation && policy.has_aperio() => Response::builder()
+      .status(StatusCode::UNAUTHORIZED)
+      .body(Body::from(
+        "401 Unauthorized - this route asks for an Aperio sign-in",
+      ))
+      .unwrap(),
     _ => login_redirect(login_path, uri_str),
   }
 }
@@ -463,7 +472,15 @@ pub(crate) async fn check_visitor_gate(
     if declared.admits_everyone() {
       return VisitorGate::Allow(None);
     }
-    if validate_session_for_host(state, headers, host).await {
+    // A policy that is `aperio` alone asks for a dashboard session: the
+    // site's own visitor password mints a session too, and admitting it
+    // would let the site password open the route that says Aperio-only.
+    let session_ok = if declared.aperio_only() {
+      crate::auth::admin_session_reaches(state, headers, host).await
+    } else {
+      validate_session_for_host(state, headers, host).await
+    };
+    if session_ok {
       return VisitorGate::Allow(session_identity(state, headers).await);
     }
     if let Some(decided) =
@@ -552,7 +569,12 @@ pub(crate) async fn check_visitor_gate(
     }
     return VisitorGate::Allow(None);
   }
-  if validate_session_for_visitor(state, headers, host).await {
+  let session_ok = if policy.aperio_only() {
+    crate::auth::admin_session_reaches(state, headers, host).await
+  } else {
+    validate_session_for_visitor(state, headers, host).await
+  };
+  if session_ok {
     return VisitorGate::Allow(session_identity(state, headers).await);
   }
   // The methods that live on the request itself, which is the only way a

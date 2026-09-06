@@ -416,3 +416,29 @@ fn every_sibling_test_file_says_what_it_pins_down() {
     missing.join("\n  ")
   );
 }
+
+/// `aperio` is a method like the others in the grammar, and like `none` it
+/// takes no credential: the visitor signs in at the server's own login
+/// (`planned_features.md` #155).
+#[test]
+fn the_aperio_method_is_accepted_and_takes_no_credential() {
+  assert!(validate_auth_setting(&auth_of("{method: aperio}")).is_ok());
+  assert!(
+    validate_auth_setting(&auth_of(
+      "[{method: aperio}, {method: bearer, secret: 0123456789abcdef}]"
+    ))
+    .is_ok()
+  );
+  for bad in [
+    "{method: aperio, users: [a:b]}",
+    "{method: aperio, secret: 0123456789abcdef}",
+    "{method: aperio, url: http://x/}",
+    "[{method: aperio}, {method: none}]",
+  ] {
+    assert!(
+      validate_auth_setting(&auth_of(bad)).is_err(),
+      "{bad} should be refused"
+    );
+  }
+  assert!(AUTH_METHODS.contains(&"aperio"));
+}

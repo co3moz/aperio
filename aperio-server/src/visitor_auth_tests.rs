@@ -217,3 +217,25 @@ fn a_gate_written_in_the_file_is_read_from_it() {
     .expect("the flat `server_auth:` spelling is a gate too");
   assert!(matches!(flat, AuthSetting::One(_) | AuthSetting::Any(_)));
 }
+
+#[test]
+fn the_aperio_method_gates_without_a_credential_and_says_so() {
+  let alone = policy("{method: aperio}");
+  assert_eq!(alone.method_names(), vec!["aperio"]);
+  assert!(alone.gates());
+  assert!(!alone.admits_everyone());
+  assert!(alone.has_aperio());
+  assert!(alone.aperio_only());
+  // No credential of any kind opens it from the request itself.
+  assert!(!alone.admits_credential("a:b"));
+  assert!(!alone.admits_bearer("whatever-secret-this-is", false));
+  assert!(!alone.has_direct_method());
+  assert_eq!(alone.challenge(), None);
+  // Beside a bearer it is one of two doors, and no longer alone.
+  let mixed = policy("[{method: aperio}, {method: bearer, secret: 0123456789abcdef}]");
+  assert_eq!(mixed.method_names(), vec!["aperio", "bearer"]);
+  assert!(mixed.has_aperio());
+  assert!(!mixed.aperio_only());
+  assert!(mixed.has_direct_method());
+  assert!(!policy("{method: basic, users: [a:b]}").has_aperio());
+}
