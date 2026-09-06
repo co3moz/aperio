@@ -1,4 +1,5 @@
 import {
+  BookOpenIcon,
   Building2Icon,
   MoonIcon,
   SearchIcon,
@@ -23,6 +24,7 @@ import type { PaneFocus } from '@/lib/paneFocus'
 import type { SettingsPayload } from './lib/api'
 import { logoDataUri } from '@/lib/logo'
 import { ActivityChart } from './components/ActivityChart'
+import { DOCS_BASE, GetStartedCard } from './components/GetStartedCard'
 import { ClientsSection } from './components/ClientsSection'
 import { TunnelsSection } from './components/TunnelsSection'
 import { UptimeSection } from './components/UptimeSection'
@@ -484,6 +486,19 @@ export default function App() {
               {t(active.hint)}
             </span>
           </div>
+          {active.docs && (
+            // The article for this page, one click away: the panel is the
+            // way into the documentation rather than a thing beside it.
+            <a
+              className="hidden items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground sm:inline-flex"
+              href={`${DOCS_BASE}${active.docs}`}
+              target="_blank"
+              rel="noreferrer"
+              title={t('Documentation for this page')}
+            >
+              <BookOpenIcon className="size-3.5" /> {t('Docs')}
+            </a>
+          )}
           <div className="ml-auto flex items-center gap-2">
             <Button
               variant="outline"
@@ -541,6 +556,9 @@ export default function App() {
             <>
               {page === 'overview' && (
                 <>
+                  {stats && stats.connected_clients_count === 0 && (
+                    <GetStartedCard onNavigate={goto} />
+                  )}
                   <StatsCards stats={stats} />
                   <ActivityChart history={history} />
                 </>

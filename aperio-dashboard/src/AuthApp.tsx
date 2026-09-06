@@ -194,6 +194,11 @@ export function AuthApp() {
           <CardDescription>
             {totpStep ? t('Enter the code from your authenticator app') : t('Sign in to continue')}
           </CardDescription>
+          {!totpStep && !panelName && (
+            <p className="text-xs text-muted-foreground">
+              {t('The built-in account is aperio, with the master token as its password; a named user signs in with their own.')}
+            </p>
+          )}
         </CardHeader>
         <CardContent>
           {/* Enter in a field has to submit. Implicit submission should give

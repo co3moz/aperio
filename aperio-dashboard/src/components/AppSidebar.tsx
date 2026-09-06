@@ -72,6 +72,8 @@ export interface PageSpec {
   label: string
   icon: typeof GlobeIcon
   hint: string
+  /** The article under docs/ for this page, linked from the page header. */
+  docs?: string
   /** Minimum role that may see/open this page (default: viewer). */
   minRole?: Role
   /** Only visible to the built-in `aperio` super-admin (organization mgmt). */
@@ -82,26 +84,26 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
   {
     label: 'Overview',
     pages: [
-      { id: 'overview', label: 'Overview', icon: LayoutDashboardIcon, hint: 'Stats & live activity' },
-      { id: 'clients', label: 'Clients', icon: ServerIcon, hint: 'Active tunnel connections' },
-      { id: 'tunnels', label: 'Tunnels', icon: CableIcon, hint: 'Private services reachable with --bind-tunnels' },
+      { id: 'overview', label: 'Overview', icon: LayoutDashboardIcon, hint: 'Stats & live activity', docs: 'dashboard.md#live-overview' },
+      { id: 'clients', label: 'Clients', icon: ServerIcon, hint: 'Active tunnel connections', docs: 'dashboard.md#clients-table' },
+      { id: 'tunnels', label: 'Tunnels', icon: CableIcon, hint: 'Private services reachable with --bind-tunnels', docs: 'emergency-tunnels.md' },
     ],
   },
   {
     label: 'Traffic',
     pages: [
-      { id: 'traffic', label: 'Live Traffic', icon: ActivityIcon, hint: 'Requests in real time, table or console' },
-      { id: 'breakdown', label: 'Breakdown', icon: ChartPieIcon, hint: 'Traffic by token & hostname' },
-      { id: 'topology', label: 'Topology', icon: WaypointsIcon, hint: 'Routes, clients & backends as a live map' },
+      { id: 'traffic', label: 'Live Traffic', icon: ActivityIcon, hint: 'Requests in real time, table or console', docs: 'dashboard.md#live-traffic-table' },
+      { id: 'breakdown', label: 'Breakdown', icon: ChartPieIcon, hint: 'Traffic by token & hostname', docs: 'observability.md#persistent-statistics' },
+      { id: 'topology', label: 'Topology', icon: WaypointsIcon, hint: 'Routes, clients & backends as a live map', docs: 'dashboard.md#topology' },
     ],
   },
   {
     label: 'Access',
     pages: [
-      { id: 'tokens', label: 'API Tokens', icon: KeyRoundIcon, hint: 'Scoped tunnel credentials' },
-      { id: 'share', label: 'Share Links', icon: Link2Icon, hint: 'Temporary visitor access' },
-      { id: 'maintenance', label: 'Maintenance', icon: ConstructionIcon, hint: 'Per-hostname 503 switch' },
-      { id: 'scaling', label: 'Autoscaling', icon: GaugeIcon, hint: 'Cold start & scale-out records' },
+      { id: 'tokens', label: 'API Tokens', icon: KeyRoundIcon, hint: 'Scoped tunnel credentials', docs: 'tokens-and-auth.md#dynamic-tokens' },
+      { id: 'share', label: 'Share Links', icon: Link2Icon, hint: 'Temporary visitor access', docs: 'share-links.md' },
+      { id: 'maintenance', label: 'Maintenance', icon: ConstructionIcon, hint: 'Per-hostname 503 switch', docs: 'dashboard.md#maintenance-mode' },
+      { id: 'scaling', label: 'Autoscaling', icon: GaugeIcon, hint: 'Cold start & scale-out records', docs: 'autoscaling.md' },
     ],
   },
   {
@@ -111,8 +113,8 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
       // than as a full-screen page, so the sidebar should not read as if they
       // were eight destinations. The pages themselves still exist, which is
       // what keeps their links working.
-      { id: 'settings', label: 'Settings', icon: Settings2Icon, hint: 'Server, organizations and users', minRole: 'admin' },
-      { id: 'audit', label: 'Tools', icon: WrenchIcon, hint: 'Audit log, API explorer and config builder' },
+      { id: 'settings', label: 'Settings', icon: Settings2Icon, hint: 'Server, organizations and users', docs: 'dashboard.md#settings-dialog', minRole: 'admin' },
+      { id: 'audit', label: 'Tools', icon: WrenchIcon, hint: 'Audit log, API explorer and config builder', docs: 'dashboard.md#tools' },
     ],
   },
 ]

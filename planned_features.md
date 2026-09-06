@@ -27,22 +27,6 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
-- [ ] **#160 The first ten minutes: a newcomer is told nothing.** Found in the
-  UX review of 2026-09-06. The login form says "Sign in to continue" and not
-  that the username is `aperio` and the password the master token, which is
-  the first place a new operator stalls. An Overview with no client shows six
-  zero tiles and a flat chart and asks for nothing; the only call to action is
-  the *Connect a new client* button two pages away, and the dashboard has no
-  zero-state copy at all (the one "No clients" string is the search filter's).
-  Nothing in the panel links to the thirty documents that exist. Do three
-  things: one line of hint on the login form (which credential, and where a
-  named user comes from); an empty-Overview card with the three steps that make
-  a tunnel (mint a token, run the client with it, watch it appear here), each
-  step linking to the page that does it and disappearing once a client has
-  connected; and a small docs link on every page header, pointing at the
-  article for that page, so the panel is the way into the documentation rather
-  than a thing beside it.
-
 - [ ] **#161 Say each thing once: the explanatory paragraphs are read on every
   visit.** Thirty-three UI strings run past 120 characters; Topology's opening
   paragraph is 555 characters over four lines, and Autoscaling, Share Links,
@@ -534,6 +518,28 @@ so.
   2025-09, with no rc since March. Neither is close.
 
 ## Completed
+
+- [x] **#160 The first ten minutes: a newcomer is told nothing.** Found in the
+  UX review of 2026-09-06. The login form says "Sign in to continue" and not
+  that the username is `aperio` and the password the master token, which is
+  the first place a new operator stalls. An Overview with no client shows six
+  zero tiles and a flat chart and asks for nothing; the only call to action is
+  the *Connect a new client* button two pages away, and the dashboard has no
+  zero-state copy at all (the one "No clients" string is the search filter's).
+  Nothing in the panel links to the thirty documents that exist. Do three
+  things: one line of hint on the login form (which credential, and where a
+  named user comes from); an empty-Overview card with the three steps that make
+  a tunnel (mint a token, run the client with it, watch it appear here), each
+  step linking to the page that does it and disappearing once a client has
+  connected; and a small docs link on every page header, pointing at the
+  article for that page, so the panel is the way into the documentation rather
+  than a thing beside it. shipped: the three
+  things as written, the login hint (hidden on an organization's panel,
+  whose form already names the organization), a `GetStartedCard` on an
+  Overview whose stats say zero clients, and a `docs:` field on every
+  `PageSpec` rendered as a *Docs* link in the header. Where it differed:
+  the card also carries the client's command line with this server's
+  origin filled in, since that is the line a newcomer is about to type.
 
 - [x] **#167 One stream, not one stream plus twenty polls.** The dashboard
   pushes stats, traffic and notifications over `/aperio/api/stream` and then
