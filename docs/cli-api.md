@@ -162,8 +162,9 @@ aperio-client api user revoke <session-id> | --all
 aperio-client api user reset-totp <user-id>
 
 aperio-client api org list
-aperio-client api org create --name acme [--hostname acme.com,*.acme.example.com]
+aperio-client api org create --name acme [--hostname acme.com,*.acme.example.com] [--panel-hostname aperio.acme.example.com]
 aperio-client api org hostnames <id> [--hostname "*.acme.example.com"]
+aperio-client api org panel <id> [--hostname aperio.acme.example.com]   # a name inside the fence whose root is the org's dashboard; omit to clear
 aperio-client api org quota <id> [--max-clients 10] [--max-tokens 20] [--max-users 5] [--max-bytes-month 0]
 aperio-client api org custom-name <id> [--name "Acme Inc."]   # omit --name to show the handle again
 aperio-client api org oidc <id> [--issuer https://idp.example.com --client-id ... --client-secret ... --allowed-email a@acme.com] [--default-role none] [--group-grant acme-ops=operator]

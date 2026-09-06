@@ -54,6 +54,7 @@ mod webauthn;
 // would mean half-built structs handed between the stages.
 mod server {
   pub(crate) mod background;
+  pub(crate) mod panel;
   pub(crate) mod router;
   pub(crate) mod shutdown;
   pub(crate) mod startup;

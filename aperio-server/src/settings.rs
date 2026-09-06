@@ -67,6 +67,12 @@ pub(crate) struct ServerConfig {
   /// its APIs are network-fenced. Proxy traffic and tunnel connections are
   /// never affected.
   pub(crate) admin_allowed_ips: Vec<(IpAddr, u32)>,
+  /// A hostname whose root is the dashboard (APERIO_DASHBOARD_HOSTNAME,
+  /// `planned_features.md` #152): `panel.example.com` opens the panel the
+  /// way `panel.example.com/aperio` does, and `/aperio` stays on every
+  /// hostname regardless. The name serves the panel and nothing else, so no
+  /// bind may claim it. `None` = no such hostname.
+  pub(crate) dashboard_hostname: Option<String>,
   /// When true, session cookies include the `Secure` flag so browsers only
   /// send them over HTTPS connections. Defaults to the value of `trust_proxy`
   /// (i.e. enabled when running behind a TLS-terminating reverse proxy).

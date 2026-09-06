@@ -153,6 +153,7 @@ pub(crate) fn test_uptime_store() -> crate::store::uptime::UptimeStore {
 /// `"test"`; rate limiting is generous; auth and TLS features are off.
 pub(crate) fn test_config() -> ServerConfig {
   ServerConfig {
+    dashboard_hostname: None,
     server_side_targets: Vec::new(),
     token: "test".to_string(),
     gateway_timeout: Duration::from_secs(1),
@@ -281,6 +282,7 @@ pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
       uuid::Uuid::new_v4()
     )),
     dashboard_enabled: true,
+    panel_hostnames: std::sync::RwLock::new(Vec::new()),
     shutdown: watch::channel(false).0,
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
     active_ws_connections: Arc::new(AtomicUsize::new(0)),

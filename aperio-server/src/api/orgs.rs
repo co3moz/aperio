@@ -85,6 +85,7 @@ pub(crate) async fn orgs_list_handler(
       "users": c.0,
       "tokens": c.1,
       "hostnames": org.hostnames,
+      "panel_hostname": org.panel_hostname,
     }));
   }
   Json(out).into_response()
@@ -105,6 +106,173 @@ pub(crate) struct OrgCreateRequest {
   /// Absent or empty = unrestricted.
   #[serde(default)]
   pub(crate) hostnames: Vec<String>,
+  /// Optional panel hostname, a name inside the allowlist whose root is this
+  /// organization's dashboard (`planned_features.md` #152).
+  #[serde(default)]
+  pub(crate) panel_hostname: Option<String>,
+}
+
+/// Body of the set-panel call: the hostname whose root is the organization's
+/// dashboard, or empty to have none.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub(crate) struct OrgPanelRequest {
+  #[serde(default)]
+  pub(crate) hostname: Option<String>,
+}
+
+/// Checks a panel hostname for organization `id` against everything that
+/// can refuse it: the spelling, the fence (a panel is a name the tenant
+/// claims, so it is fenced like a bind, and an unfenced organization has
+/// nothing to check it against), the server's own panel, and every other
+/// organization's. `Ok(None)` clears.
+#[allow(clippy::result_large_err)] // see api/tokens.rs
+async fn check_panel_hostname(
+  state: &Arc<AppState>,
+  id: &str,
+  fence: &[String],
+  raw: Option<&str>,
+) -> Result<Option<String>, Response> {
+  let Some(raw) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
+    return Ok(None);
+  };
+  let Some(host) = crate::store::orgs::normalize_panel_hostname(raw) else {
+    return Err(
+      (
+        StatusCode::BAD_REQUEST,
+        format!("panel hostname {raw:?} is not a hostname: one exact name, no pattern"),
+      )
+        .into_response(),
+    );
+  };
+  if fence.is_empty() {
+    return Err(
+      (
+        StatusCode::BAD_REQUEST,
+        "a panel hostname is a name the organization claims, so the organization needs a \
+         hostname allowlist first; there is nothing to check it against",
+      )
+        .into_response(),
+    );
+  }
+  if !crate::store::orgs::hostname_in_org_allowlist(&host, fence) {
+    return Err(
+      (
+        StatusCode::FORBIDDEN,
+        format!(
+          "panel hostname {} is outside this organization's allowlist ({})",
+          host,
+          fence.join(", ")
+        ),
+      )
+        .into_response(),
+    );
+  }
+  if state.config().dashboard_hostname.as_deref() == Some(host.as_str()) {
+    return Err(
+      (
+        StatusCode::CONFLICT,
+        format!("{host} is the server's own dashboard hostname"),
+      )
+        .into_response(),
+    );
+  }
+  let taken = state
+    .org_store
+    .lock()
+    .await
+    .panel_org_for(&host)
+    .is_some_and(|o| o.id != id);
+  if taken {
+    return Err(
+      (
+        StatusCode::CONFLICT,
+        format!("{host} is already another organization's panel"),
+      )
+        .into_response(),
+    );
+  }
+  Ok(Some(host))
+}
+
+/// Sets or clears an organization's panel hostname. Open to an Admin of that
+/// organization, which the master super-admin is through `*`: a tenant
+/// picks a subdomain it owns and gets its own dashboard at the root of it.
+/// A bind currently serving the name is dropped, as when a fence changes.
+#[utoipa::path(put, path = "/aperio/api/orgs/{id}/panel", tag = "orgs",
+  description = "Sets or clears an organization's panel hostname, a name inside its allowlist whose root is its dashboard (Admin of that organization).",
+  request_body = OrgPanelRequest,
+  responses((status = 200, description = "Updated org"), (status = 400, description = "Not a hostname, or the organization has no allowlist"), (status = 403, description = "Outside the allowlist, or not an Admin of the organization"), (status = 404, description = "Unknown org"), (status = 409, description = "Already a panel elsewhere")))]
+pub(crate) async fn orgs_panel_handler(
+  State(state): State<Arc<AppState>>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  headers: HeaderMap,
+  Path(id): Path<String>,
+  Json(payload): Json<OrgPanelRequest>,
+) -> Response {
+  let Some(caller) = crate::auth::resolve_caller(&state, &headers).await else {
+    return (StatusCode::UNAUTHORIZED, "Authentication required").into_response();
+  };
+  if id == MASTER_ID {
+    return (
+      StatusCode::BAD_REQUEST,
+      "the master organization's panel is the server's dashboard_hostname setting",
+    )
+      .into_response();
+  }
+  if caller.role_in(Some(&id)) != Some(crate::store::users::Role::Admin) {
+    return (
+      StatusCode::FORBIDDEN,
+      "setting an organization's panel takes Admin in that organization",
+    )
+      .into_response();
+  }
+  let fence = match state.org_store.lock().await.find(&id) {
+    Some(org) => org.hostnames.clone(),
+    None => return (StatusCode::NOT_FOUND, "unknown organization id").into_response(),
+  };
+  let host = match check_panel_hostname(&state, &id, &fence, payload.hostname.as_deref()).await {
+    Ok(h) => h,
+    Err(resp) => return resp,
+  };
+  let updated = state
+    .org_store
+    .lock()
+    .await
+    .set_panel_hostname(&id, host.clone());
+  match updated {
+    Ok(org) => {
+      let dropped = state.apply_panel_hostnames().await;
+      if dropped > 0 {
+        info!(
+          "Dropped {} connection(s) serving {}, which is now a dashboard panel",
+          dropped,
+          host.as_deref().unwrap_or("-")
+        );
+      }
+      let ip = actor_ip(&state, &headers, addr);
+      state
+        .audit_in(
+          "org_panel_set",
+          &caller.actor(),
+          &ip,
+          Some(id.clone()),
+          &format!(
+            "id={} panel_hostname={} dropped_clients={}",
+            id,
+            host.as_deref().unwrap_or("(cleared)"),
+            dropped
+          ),
+        )
+        .await;
+      Json(serde_json::json!({
+        "id": org.id,
+        "name": org.name,
+        "panel_hostname": org.panel_hostname,
+      }))
+      .into_response()
+    }
+    Err(e) => org_error(e),
+  }
 }
 
 /// Body of the set-hostnames call: the full replacement allowlist (an empty
@@ -226,11 +394,33 @@ pub(crate) async fn orgs_create_handler(
     Ok(v) => v,
     Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
   };
+  // Checked before the record exists, against the fence being written, so
+  // a refusal leaves nothing behind. The conflict check uses a placeholder
+  // id nothing carries, which every existing panel differs from.
+  let panel =
+    match check_panel_hostname(&state, "", &hostnames, payload.panel_hostname.as_deref()).await {
+      Ok(h) => h,
+      Err(resp) => return resp,
+    };
   let created = state.org_store.lock().await.create(
     &payload.name,
     hostnames.clone(),
     payload.custom_name.clone(),
   );
+  let created = match (created, panel) {
+    (Ok(org), Some(host)) => {
+      let set = state
+        .org_store
+        .lock()
+        .await
+        .set_panel_hostname(&org.id, Some(host));
+      if set.is_ok() {
+        state.apply_panel_hostnames().await;
+      }
+      set
+    }
+    (other, _) => other,
+  };
   match created {
     Ok(org) => {
       let ip = actor_ip(&state, &headers, addr);
@@ -348,6 +538,32 @@ pub(crate) async fn orgs_hostnames_handler(
     .lock()
     .await
     .set_hostnames(&id, hostnames.clone());
+  // A panel is a name inside the fence; a fence that no longer covers it
+  // takes it away, rather than leaving a dashboard on a name the tenant no
+  // longer claims.
+  let panel_cleared = {
+    let mut orgs = state.org_store.lock().await;
+    let stale = orgs
+      .find(&id)
+      .and_then(|o| o.panel_hostname.clone())
+      .filter(|panel| {
+        hostnames.is_empty() || !crate::store::orgs::hostname_in_org_allowlist(panel, &hostnames)
+      });
+    match stale {
+      Some(panel) => {
+        let _ = orgs.set_panel_hostname(&id, None);
+        Some(panel)
+      }
+      None => None,
+    }
+  };
+  if let Some(panel) = &panel_cleared {
+    info!(
+      "Organization {} no longer claims {}, so it is no longer its panel",
+      id, panel
+    );
+    state.refresh_panel_hostnames().await;
+  }
   match updated {
     Ok(org) => {
       // Push the new fence onto the org's live connections so it really does
@@ -443,6 +659,8 @@ pub(crate) async fn orgs_delete_handler(
   // empty, which reads as "everything is gone" rather than as "you are
   // looking at nothing".
   state.sessions.lock().await.clear_selected_org(&id);
+  // Its panel hostname, if it had one, is nobody's now.
+  state.refresh_panel_hostnames().await;
   // And off every user it was granted to. The organization had no users of
   // its own (refused above), but a user living in master may reach it by a
   // grant, and a grant naming nothing is a row that says something false.
@@ -724,6 +942,10 @@ pub(crate) async fn orgs_usage_handler(
       "max_bytes_month": q.max_bytes_month,
     })),
     "hostnames": quota.as_ref().map(|q| q.hostnames.clone()).unwrap_or_default(),
+    "panel_hostname": match org_key {
+      Some(oid) => state.org_store.lock().await.find(oid).and_then(|o| o.panel_hostname.clone()),
+      None => state.config().dashboard_hostname.clone(),
+    },
   });
   // Billing signal: subscribers to `org_usage` receive the same figures.
   state

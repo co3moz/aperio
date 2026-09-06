@@ -497,11 +497,24 @@ pub(crate) enum OrgCmd {
     /// Organization name
     #[arg(long, value_name = "NAME")]
     name: String,
+    /// A hostname inside the fence whose root is the organization's dashboard
+    #[arg(long = "panel-hostname", value_name = "HOSTNAME")]
+    panel_hostname: Option<String>,
   },
   /// Replace an organization's hostname allowlist (no --hostname clears it)
   Hostnames {
     /// Organization id
     id: String,
+  },
+  /// Set an organization's panel hostname, a name inside its fence whose root
+  /// is its dashboard (omit --hostname to clear). Takes Admin in that
+  /// organization
+  Panel {
+    /// Organization id
+    id: String,
+    /// The hostname; omit to clear
+    #[arg(long, value_name = "HOSTNAME")]
+    hostname: Option<String>,
   },
   /// Delete an organization
   Delete {

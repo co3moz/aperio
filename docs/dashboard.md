@@ -129,7 +129,7 @@ A subdomain wildcard is the answer to "take everything under this domain down": 
 
 ## Organizations
 
-When a session's grants reach more than one organization, the built-in `aperio` super-admin's always do, an **organization picker** appears at the top of the sidebar listing exactly those, and an Admin of the master organization also gets the **Organizations** page (create / delete child organizations, with live user and token counts). Switching organizations re-scopes every page, clients, tokens, users, traffic, stats, webhooks, audit, to the selected tenant, and the role enforced is the one granted there. A named user granted one organization sees no picker. See [Organizations](organizations.md).
+When a session's grants reach more than one organization, the built-in `aperio` super-admin's always do, an **organization picker** appears at the top of the sidebar listing exactly those, and an Admin of the master organization also gets the **Organizations** page (create / delete child organizations, with live user and token counts). Switching organizations re-scopes every page, clients, tokens, users, traffic, stats, webhooks, audit, to the selected tenant, and the role enforced is the one granted there. A named user granted one organization sees no picker. The dashboard can also be the root of a hostname of its own, `panel.example.com` for the server and `aperio.<tenant-domain>` for an organization, with `/aperio` staying everywhere, see [Panel hostname](organizations.md#panel-hostname). See [Organizations](organizations.md).
 
 ## Settings dialog
 

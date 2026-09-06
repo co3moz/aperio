@@ -742,3 +742,33 @@ async fn update_cannot_widen_a_token_past_the_org_allowlist() {
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
 }
+
+/// A panel hostname serves the panel and nothing else, so no token may be
+/// permitted to bind it, master's included (`planned_features.md` #152).
+#[tokio::test]
+async fn a_token_cannot_be_permitted_a_panel_hostname() {
+  let mut cfg = crate::test_support::test_config();
+  cfg.dashboard_hostname = Some("panel.test".to_string());
+  let state = Arc::new(crate::test_support::test_state_with(cfg));
+  state.refresh_panel_hostnames().await;
+  let mut req = create_req("ci");
+  req.hostnames = vec!["panel.test".to_string()];
+  let resp = tokens_create_handler(
+    State(state.clone()),
+    ConnectInfo(crate::test_support::test_peer()),
+    crate::test_support::admin_headers(&state).await,
+    Json(req),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  let mut req = create_req("ci");
+  req.hostnames = vec!["www.test".to_string()];
+  let resp = tokens_create_handler(
+    State(state.clone()),
+    ConnectInfo(crate::test_support::test_peer()),
+    crate::test_support::admin_headers(&state).await,
+    Json(req),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK, "any other name is as before");
+}

@@ -208,6 +208,22 @@ pub(crate) fn resolve() -> Option<Resolved> {
       admin_allowed_ips.len()
     );
   }
+  // A hostname whose root is the dashboard. A name that is not one refuses
+  // the start: the alternative is a panel nobody can reach and a bind that
+  // was meant to be refused being admitted.
+  let dashboard_hostname = match std::env::var("APERIO_DASHBOARD_HOSTNAME") {
+    Ok(raw) if !raw.trim().is_empty() => match crate::store::orgs::normalize_panel_hostname(&raw) {
+      Some(host) => {
+        info!("Dashboard panel hostname: {host} (the root of that name is the dashboard)");
+        Some(host)
+      }
+      None => {
+        error!("APERIO_DASHBOARD_HOSTNAME is not a hostname ({raw:?}); one exact name, no pattern");
+        return None;
+      }
+    },
+    _ => None,
+  };
   // The deny list is read from the live config document (so it hot-reloads),
   // falling back to the environment. A malformed entry refuses the start
   // rather than applying a partial block list: an operator who wrote a deny
@@ -753,6 +769,7 @@ pub(crate) fn resolve() -> Option<Resolved> {
     real_ip_header,
     trusted_proxies,
     admin_allowed_ips,
+    dashboard_hostname,
     secure_cookies,
     server_side_targets,
     outbound_policy,

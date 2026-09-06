@@ -87,6 +87,13 @@ pub(crate) async fn client_override_handler(
   // Organization fence: an overrule is the one place a bind is set without a
   // token permission behind it, so a fenced org must not be able to point one
   // of its clients at a hostname it does not own.
+  if let Some(panel) = new_hostnames.iter().find(|h| state.is_panel_hostname(h)) {
+    return (
+      StatusCode::FORBIDDEN,
+      format!("hostname {panel} is a dashboard panel and cannot be bound"),
+    )
+      .into_response();
+  }
   if !new_hostnames.is_empty() {
     let allowlist = state.org_store.lock().await.hostnames_of(org.as_deref());
     for host in &new_hostnames {

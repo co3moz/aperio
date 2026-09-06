@@ -126,6 +126,28 @@ pub(crate) async fn health_handler(
   let mut health_info = HashMap::new();
   health_info.insert("status", serde_json::json!("healthy"));
   health_info.insert("ui_language", serde_json::json!(state.config().ui_language));
+  // Whose panel this hostname is, for the login page to say so. An
+  // organization's handle and display name are what its own people already
+  // know; nothing about the server travels here.
+  let panel_host = crate::server::panel::request_host(&headers);
+  match state.panel_org(panel_host.as_deref()).await {
+    Some(None) => {
+      health_info.insert(
+        "panel",
+        serde_json::json!({ "org": crate::store::orgs::MASTER_ID }),
+      );
+    }
+    Some(Some(org_id)) => {
+      let named =
+        state.org_store.lock().await.find(&org_id).map(
+          |o| serde_json::json!({ "org": o.id, "name": o.name, "custom_name": o.custom_name }),
+        );
+      if let Some(named) = named {
+        health_info.insert("panel", named);
+      }
+    }
+    None => {}
+  }
 
   let presented = crate::auth::extract_token(&headers).is_some() || headers.contains_key("cookie");
   if !presented {

@@ -147,6 +147,7 @@ fn test_import_replaces_and_persists() {
 
   let now = crate::store::tokens::now_secs();
   let mk = |name: &str| Organization {
+    panel_hostname: None,
     custom_name: None,
     id: uuid::Uuid::new_v4().to_string(),
     name: name.to_string(),
@@ -575,5 +576,56 @@ fn a_fence_that_cannot_be_saved_is_not_reported_as_moved() {
     vec!["a.example.com".to_string()],
     "the fence is where it was"
   );
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_panel_hostname_is_one_exact_name() {
+  assert_eq!(
+    normalize_panel_hostname(" Panel.Example.com:8443 "),
+    Some("panel.example.com".to_string())
+  );
+  assert_eq!(
+    normalize_panel_hostname("panel.example.com."),
+    Some("panel.example.com".to_string())
+  );
+  for bad in [
+    "",
+    "*.example.com",
+    "pa nel.example.com",
+    "-panel.example.com",
+    "a..b",
+    "*",
+  ] {
+    assert_eq!(normalize_panel_hostname(bad), None, "{bad:?}");
+  }
+}
+
+#[test]
+fn the_panel_is_set_cleared_and_found() {
+  let dir = temp_dir();
+  let mut store = OrgStore::load(&dir);
+  let acme = store
+    .create("acme", vec!["*.acme.test".into()], None)
+    .unwrap();
+  assert!(store.panel_hostnames().is_empty());
+  store
+    .set_panel_hostname(&acme.id, Some("panel.acme.test".into()))
+    .unwrap();
+  assert_eq!(store.panel_hostnames(), vec!["panel.acme.test"]);
+  assert_eq!(
+    store.panel_org_for("panel.acme.test").map(|o| o.id.clone()),
+    Some(acme.id.clone())
+  );
+  assert!(store.panel_org_for("www.acme.test").is_none());
+  assert!(matches!(
+    store.set_panel_hostname("nope", None),
+    Err(OrgError::NoSuchOrg)
+  ));
+  // Persisted, and cleared.
+  let mut again = OrgStore::load(&dir);
+  assert_eq!(again.panel_hostnames(), vec!["panel.acme.test"]);
+  again.set_panel_hostname(&acme.id, None).unwrap();
+  assert!(again.panel_hostnames().is_empty());
   let _ = std::fs::remove_dir_all(&dir);
 }

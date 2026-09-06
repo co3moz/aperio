@@ -6,7 +6,12 @@ import { BaseServerFor, BaseBackendFor, BaseClientFor } from './fixtures.js'
 
 /** This file's own server: the specs below change it, so it is not
  *  shared with another file. See `fixtures.ts`. */
-class OrgsServer extends BaseServerFor() {}
+class OrgsServer extends BaseServerFor() {
+  // The server's own panel hostname, for `PanelSpec`.
+  _env() {
+    return { ...super._env(), APERIO_DASHBOARD_HOSTNAME: 'panel.e2e.local' }
+  }
+}
 class OrgsBackend extends BaseBackendFor() {}
 class OrgsClient extends BaseClientFor(() => OrgsServer, () => OrgsBackend) {}
 
@@ -530,5 +535,106 @@ export class GrantsSpec extends Test({
       }),
     })
     assert.equal(res.status, 403)
+  }
+}
+
+/** A hostname whose root is the dashboard: the server's own from the
+ *  environment, an organization's chosen inside its fence. `/aperio` stays
+ *  everywhere; a bind may not claim the name; the organization's login admits
+ *  its own people and the super-admin. */
+export class PanelSpec extends Test({
+  after: () => [GrantsSpec],
+  timeout: 120_000,
+  dependencies: { server: () => OrgsServer },
+}) {
+  async _signInOn(host: string, user: string, password: string): Promise<number> {
+    const res = await this.server._fetch('/aperio/auth', {
+      method: 'POST',
+      host,
+      headers: {
+        authorization: `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`,
+      },
+    })
+    return res.status
+  }
+
+  async theServersOwnPanelServesTheDashboardAtItsRoot() {
+    // Anonymous: the dashboard sends the browser to the login, and back to
+    // `/` afterwards rather than to `/aperio`.
+    const root = await this.server._fetch('/', { host: 'panel.e2e.local' })
+    assert.equal(root.status, 302)
+    assert.equal(root.headers['location'], '/aperio/auth?redirect=/')
+    // With a session: the same page `/aperio` serves.
+    const cookie = await this.server._login()
+    const panel = await this.server._fetch('/', { host: 'panel.e2e.local', headers: { cookie } })
+    assert.equal(panel.status, 200)
+    assert.ok(panel.body.includes('<html'), 'the dashboard page')
+    const api = await this.server._fetch('/api/session', {
+      host: 'panel.e2e.local',
+      headers: { cookie },
+    })
+    assert.equal(api.status, 200)
+    assert.equal(JSON.parse(api.body).username, 'aperio')
+    // And `/aperio/...` keeps resolving there too.
+    const long = await this.server._fetch('/aperio/api/session', {
+      host: 'panel.e2e.local',
+      headers: { cookie },
+    })
+    assert.equal(long.status, 200)
+    // The login page knows whose panel it is on.
+    const health = await this.server._json<{ panel?: { org: string } }>('/aperio/health', {
+      host: 'panel.e2e.local',
+    })
+    assert.equal(health.panel?.org, 'master')
+  }
+
+  async anOrganizationPicksAPanelInsideItsFenceAndItsLoginIsItsOwn() {
+    const acmeId = OrganizationsApiSpec.acmeId
+    await this.server._api(`/aperio/api/orgs/${acmeId}/hostnames`, {
+      method: 'PUT',
+      body: JSON.stringify({ hostnames: ['*.acme.e2e.local'] }),
+    })
+    // Outside the fence: refused. Inside: taken.
+    const outside = await this.server._fetch(`/aperio/api/orgs/${acmeId}/panel`, {
+      method: 'PUT',
+      headers: { cookie: await this.server._login(), 'content-type': 'application/json' },
+      body: JSON.stringify({ hostname: 'panel.beta.e2e.local' }),
+    })
+    assert.equal(outside.status, 403)
+    const set = await this.server._api<{ panel_hostname: string }>(`/aperio/api/orgs/${acmeId}/panel`, {
+      method: 'PUT',
+      body: JSON.stringify({ hostname: 'aperio.acme.e2e.local' }),
+    })
+    assert.equal(set.panel_hostname, 'aperio.acme.e2e.local')
+
+    // The root is the login, and the login page names the organization.
+    const root = await this.server._fetch('/', { host: 'aperio.acme.e2e.local' })
+    assert.equal(root.status, 302)
+    const health = await this.server._json<{ panel?: { org: string; name: string } }>('/aperio/health', {
+      host: 'aperio.acme.e2e.local',
+    })
+    assert.equal(health.panel?.name, 'acme')
+
+    // Acme's admin (from the isolation spec) and the two-org user (Admin in
+    // Acme) get in; an Admin of master alone does not, with the answer a
+    // wrong password gets; the built-in account always does.
+    assert.equal(await this._signInOn('aperio.acme.e2e.local', 'acme-admin', 'acmepass123'), 200)
+    assert.equal(await this._signInOn('aperio.acme.e2e.local', 'two-orgs', 'twoorgs123'), 200)
+    assert.equal(await this._signInOn('aperio.acme.e2e.local', 'master-admin', 'masteradmin1'), 401)
+    assert.equal(await this._signInOn('aperio.acme.e2e.local', 'master-admin', 'wrong-password'), 401)
+    assert.equal(
+      await this._signInOn('aperio.acme.e2e.local', 'aperio', this.server._token),
+      200,
+    )
+    // Elsewhere the master admin is still let in.
+    assert.equal(await this._signInOn('tunnel.e2e.local', 'master-admin', 'masteradmin1'), 200)
+
+    // A panel serves the panel and nothing else: no token may bind it.
+    const bind = await this.server._fetch('/aperio/api/tokens', {
+      method: 'POST',
+      headers: { cookie: await this.server._login(), 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'on-panel', hostnames: ['aperio.acme.e2e.local'] }),
+    })
+    assert.equal(bind.status, 403)
   }
 }

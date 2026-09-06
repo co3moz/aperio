@@ -161,6 +161,7 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     message_metrics: Default::default(),
     client_connected: client_connected_tx,
     dashboard_enabled,
+    panel_hostnames: std::sync::RwLock::new(Vec::new()),
     shutdown: shutdown_tx,
     connection_state: Mutex::new(ConnectionState {
       connected: false,
@@ -290,6 +291,10 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
       )
       .await;
   }
+
+  // The panel set is a cache of the config and the org store; filled once
+  // here, and again by every change to either.
+  state.refresh_panel_hostnames().await;
 
   Some(StartupBundle {
     state,

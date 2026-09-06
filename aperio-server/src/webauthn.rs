@@ -561,14 +561,24 @@ pub(crate) async fn passkey_login_finish_handler(
   };
 
   // Persist authenticator counter updates (clone detection state).
-  let (username, role, org) = {
+  let (username, role, org, grants) = {
     let mut users = state.users.lock().await;
     users.update_passkey_after_auth(&user_id, &result);
     match users.get(&user_id) {
-      Some(u) if u.enabled => (u.username.clone(), u.role, u.org_id.clone()),
+      Some(u) if u.enabled => (
+        u.username.clone(),
+        u.role,
+        u.org_id.clone(),
+        u.grants.clone(),
+      ),
       _ => return (StatusCode::UNAUTHORIZED, "User disabled").into_response(),
     }
   };
+  // On an organization's panel the account has to reach that organization.
+  let panel_host = crate::server::panel::request_host(&headers);
+  if !state.panel_admits(panel_host.as_deref(), &grants).await {
+    return (StatusCode::UNAUTHORIZED, "Authentication failed").into_response();
+  }
   state.login_lockout.lock().await.clear(client_ip);
   state
     .audit_in(
@@ -811,14 +821,24 @@ pub(crate) async fn passkey_discoverable_finish_handler(
       }
     };
 
-  let (username, role, org) = {
+  let (username, role, org, grants) = {
     let mut users = state.users.lock().await;
     users.update_passkey_after_auth(&user_id, &result);
     match users.get(&user_id) {
-      Some(u) if u.enabled => (u.username.clone(), u.role, u.org_id.clone()),
+      Some(u) if u.enabled => (
+        u.username.clone(),
+        u.role,
+        u.org_id.clone(),
+        u.grants.clone(),
+      ),
       _ => return (StatusCode::UNAUTHORIZED, "User disabled").into_response(),
     }
   };
+  // On an organization's panel the account has to reach that organization.
+  let panel_host = crate::server::panel::request_host(&headers);
+  if !state.panel_admits(panel_host.as_deref(), &grants).await {
+    return (StatusCode::UNAUTHORIZED, "Authentication failed").into_response();
+  }
   state.login_lockout.lock().await.clear(client_ip);
   state
     .audit_in(

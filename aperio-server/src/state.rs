@@ -399,6 +399,12 @@ pub(crate) struct AppState {
   /// True when the admin dashboard is served (APERIO_DASHBOARD != 0); the
   /// first-run helper redirect to /aperio only makes sense when it is.
   pub(crate) dashboard_enabled: bool,
+  /// Every hostname whose root is a dashboard (`planned_features.md` #152):
+  /// the server's own and each organization's. A cache of what the config
+  /// and the org store say, rebuilt by `refresh_panel_hostnames` whenever
+  /// either changes, so the request path and the bind check can ask without
+  /// taking the org store's lock.
+  pub(crate) panel_hostnames: std::sync::RwLock<Vec<String>>,
   /// Flipped to true once a shutdown signal arrives; long-lived streams
   /// (dashboard SSE) watch it and end so graceful shutdown can complete.
   pub(crate) shutdown: watch::Sender<bool>,
@@ -835,6 +841,79 @@ impl AppState {
   /// reconnect, while the endpoint's own documentation promised it applied at
   /// once, so a hostname an operator had just revoked kept being served,
   /// potentially for as long as the client stayed up.
+  /// True when `host` is a panel hostname: the server's or an organization's.
+  pub(crate) fn is_panel_hostname(&self, host: &str) -> bool {
+    self
+      .panel_hostnames
+      .read()
+      .map(|set| set.iter().any(|h| h == host))
+      .unwrap_or(false)
+  }
+
+  /// Rebuilds the panel set from the config and the org store.
+  pub(crate) async fn refresh_panel_hostnames(&self) {
+    let mut set: Vec<String> = self.org_store.lock().await.panel_hostnames();
+    if let Some(own) = self.config().dashboard_hostname.clone() {
+      set.push(own);
+    }
+    if let Ok(mut cache) = self.panel_hostnames.write() {
+      *cache = set;
+    }
+  }
+
+  /// Whose panel `host` is: `None` when it is not one, `Some(None)` for the
+  /// server's own, `Some(Some(id))` for an organization's.
+  pub(crate) async fn panel_org(&self, host: Option<&str>) -> Option<Option<String>> {
+    let host = host?;
+    if self.config().dashboard_hostname.as_deref() == Some(host) {
+      return Some(None);
+    }
+    self
+      .org_store
+      .lock()
+      .await
+      .panel_org_for(host)
+      .map(|o| Some(o.id.clone()))
+  }
+
+  /// Whether a login on `host` may admit an identity holding `grants`: any
+  /// hostname that is not an organization's panel admits everyone, and an
+  /// organization's panel admits a grant reaching that organization. The
+  /// master super-admin holds `*` and so is admitted everywhere.
+  pub(crate) async fn panel_admits(
+    &self,
+    host: Option<&str>,
+    grants: &[crate::store::grants::Grant],
+  ) -> bool {
+    match self.panel_org(host).await {
+      Some(Some(org)) => crate::store::grants::role_in(grants, Some(&org)).is_some(),
+      _ => true,
+    }
+  }
+
+  /// Rebuilds the panel set and drops every connection serving a panel
+  /// hostname: a panel serves the panel and nothing else, and a bind that
+  /// was there first does not get to keep the name. Returns how many were
+  /// dropped.
+  pub(crate) async fn apply_panel_hostnames(&self) -> usize {
+    self.refresh_panel_hostnames().await;
+    let mut dropped = 0usize;
+    let mut clients = self.clients.write().await;
+    for handle in clients.values_mut() {
+      let serving = handle.services.iter().any(|s| {
+        s.assigned_hostnames
+          .iter()
+          .chain(s.declared_hostnames.iter())
+          .any(|h| self.is_panel_hostname(h))
+      });
+      if serving {
+        handle.disconnect.notify_one();
+        dropped += 1;
+      }
+    }
+    dropped
+  }
+
   pub(crate) async fn apply_org_hostnames(&self, org_id: &str, hostnames: &[String]) -> usize {
     let mut dropped = 0usize;
     let mut clients = self.clients.write().await;

@@ -236,9 +236,16 @@ pub(crate) fn build_call(
     }
 
     ApiCommand::Org(OrgCmd::List) => Call::get("/aperio/api/orgs"),
-    ApiCommand::Org(OrgCmd::Create { name }) => Call::post(
+    ApiCommand::Org(OrgCmd::Create {
+      name,
+      panel_hostname,
+    }) => Call::post(
       "/aperio/api/orgs",
-      json!({ "name": name, "hostnames": scope.hostnames }),
+      json!({ "name": name, "hostnames": scope.hostnames, "panel_hostname": panel_hostname }),
+    ),
+    ApiCommand::Org(OrgCmd::Panel { id, hostname }) => Call::put(
+      format!("/aperio/api/orgs/{}/panel", id),
+      json!({ "hostname": hostname.clone().unwrap_or_default() }),
     ),
     ApiCommand::Org(OrgCmd::Hostnames { id }) => Call::put(
       format!("/aperio/api/orgs/{}/hostnames", id),

@@ -57,6 +57,35 @@ pub struct Organization {
   /// authenticates against this issuer and binds the session to the org.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub oidc: Option<OrgOidc>,
+  /// A hostname whose root is this organization's dashboard
+  /// (`planned_features.md` #152): inside the fence, serving the panel and
+  /// nothing else, admitting this organization's identities and the master
+  /// super-admin at its login.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub panel_hostname: Option<String>,
+}
+
+/// Normalizes a panel hostname: lowercased, without a port or a trailing
+/// dot, one exact name. `None` for anything that is not a hostname, which
+/// includes a pattern: a panel is one name, not a family of them.
+pub fn normalize_panel_hostname(raw: &str) -> Option<String> {
+  let host = raw.trim().trim_end_matches('.').to_ascii_lowercase();
+  let host = host
+    .rsplit_once(':')
+    .filter(|(_, port)| !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()))
+    .map(|(name, _)| name.to_string())
+    .unwrap_or(host);
+  if host.is_empty() || host.len() > 253 || host.contains('*') {
+    return None;
+  }
+  let labels_ok = host.split('.').all(|label| {
+    !label.is_empty()
+      && label.len() <= 63
+      && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+      && !label.starts_with('-')
+      && !label.ends_with('-')
+  });
+  labels_ok.then_some(host)
 }
 
 /// Normalizes one entry of an organization's hostname allowlist, lowercased
@@ -374,6 +403,7 @@ impl OrgStore {
       )));
     }
     let org = Organization {
+      panel_hostname: None,
       id: uuid::Uuid::new_v4().to_string(),
       name: name.to_string(),
       custom_name: normalize_custom_name(custom_name),
@@ -459,6 +489,42 @@ impl OrgStore {
       }
       Ok(org.clone())
     })
+  }
+
+  /// Sets or clears an organization's panel hostname. The name is expected
+  /// normalized and checked against the fence by the caller. Returns the
+  /// updated record.
+  pub fn set_panel_hostname(
+    &mut self,
+    id: &str,
+    hostname: Option<String>,
+  ) -> Result<Organization, OrgError> {
+    self.commit(|store| {
+      let org = store
+        .orgs
+        .iter_mut()
+        .find(|o| o.id == id)
+        .ok_or(OrgError::NoSuchOrg)?;
+      org.panel_hostname = hostname;
+      Ok(org.clone())
+    })
+  }
+
+  /// The organization whose panel `host` is, if any.
+  pub fn panel_org_for(&self, host: &str) -> Option<&Organization> {
+    self
+      .orgs
+      .iter()
+      .find(|o| o.panel_hostname.as_deref() == Some(host))
+  }
+
+  /// Every organization's panel hostname.
+  pub fn panel_hostnames(&self) -> Vec<String> {
+    self
+      .orgs
+      .iter()
+      .filter_map(|o| o.panel_hostname.clone())
+      .collect()
   }
 
   /// Replaces an org's hostname allowlist (empty = unrestricted). Entries are

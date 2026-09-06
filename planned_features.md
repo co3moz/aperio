@@ -73,87 +73,6 @@ there is nothing to build, whatever *Recurring checks* holds.
   hostname for the admin surface itself; if that ships first, this entry
   shrinks to an optional panel hostname per organization.
 
-- [ ] **#152 A panel hostname: the dashboard at the root of a name of its
-  own, `/aperio` untouched.** Today the only way into the dashboard is
-  `<any hostname>/aperio`. That stays exactly as it is, on every hostname,
-  for people, for `aperio-client api` and for the machine endpoints; nothing
-  here withdraws or moves it. What is added is a second door: a hostname
-  whose root *is* the panel, so the super-admin opens `panel.example.com`
-  instead of typing `/aperio` every time, and an organization that wants one
-  picks a subdomain it owns, `panel.acme.com`, and gets its own dashboard at
-  the root of it.
-
-  **Two settings, one mechanism.** Server-wide, `dashboard_hostname`
-  (`APERIO_DASHBOARD_HOSTNAME`) names master's panel. Per organization, an
-  optional `panel_hostname` on the org record, settable by the organization's
-  own admin from the Organizations page and `PUT /api/orgs/{id}/panel`, and
-  refused unless it is inside the org's hostname fence ([[#13]]): it is a
-  hostname the tenant claims, so it is fenced like a bind. An unfenced org
-  cannot set one, since there is nothing to check it against. Both work the
-  same way: a layer early in the stack, before routing, prefixes `/aperio`
-  onto the path when `Host` is a panel hostname, so the router, the auth
-  middleware, the API and the 404 catch-all stay as they are, and
-  `panel.example.com/aperio/...` keeps resolving there too. A panel hostname
-  serves the panel and nothing else: a bind on it is refused in the same
-  places an out-of-fence bind is, at token edit, at connect and in the
-  dashboard override, and setting the panel on a name a client currently
-  serves drops that bind with a notice, the way `apply_org_hostnames` does.
-
-  **An org's panel is also its login door.** A login on `panel.acme.com`
-  admits Acme's identities and the master super-admin, nobody else, which
-  is [[#151]]'s rule with the question simplified to "whose panel is this".
-  #151 still stands for tenant *traffic* hostnames, `acme.com/aperio`,
-  where the answer has to come from the fence; here it comes from the org
-  record, and enforcing it costs one comparison. The login page on an org
-  panel shows the org's `custom_name`, which is the white-label the
-  subdomain was chosen for.
-
-  **The dashboard has `/aperio/` baked in.** Vite's `base` is `/aperio/`,
-  ten source files spell `/aperio/api` by hand and the sign-out path is a
-  literal. Served at a root, that works but shows
-  `panel.example.com/aperio/clients` in the address bar and the first
-  navigation. The fix is a runtime base: one helper the ten files go
-  through and a `<base href>` the server writes into `index.html` for the
-  host it is answering on, so one bundle serves both spellings.
-
-  **What an operator hits in the first ten minutes, each a sentence in the
-  configuration page.** Passkeys are bound to the origin: `APERIO_WEBAUTHN_ORIGIN`
-  names one host, and a passkey registered on `tunnel.example.com` does not
-  sign in on `panel.example.com` unless `APERIO_WEBAUTHN_RP_ID` is a parent
-  domain covering both, which needs a shared registrable domain; an org's
-  panel on the org's own domain is outside that entirely, so passkeys there
-  need per-organization WebAuthn origins, worth its own id if it turns out to
-  be wanted. The OIDC redirect URI is derived from `Host`, so the identity
-  provider's registered callbacks gain the panel's, or `redirect_url_override`
-  names it. And the panel hostname needs a certificate like any bind does,
-  so it belongs in the TLS set before the setting is written.
-
-  **`aperio.<domain>` is the default, not the rule.** The tempting shape is
-  a convention with no field at all: every fenced organization gets its
-  panel at `aperio.<its domain>`, all requests on that host are the panel,
-  and a tenant with wildcard DNS and a wildcard certificate has a dashboard
-  the moment its fence is written. That last part is worth keeping, and the
-  rest is not. A fence is a pattern list, not a domain: `acme.com` does not
-  cover `aperio.acme.com`, so the convention would open a panel *outside*
-  the fence; `*-pi.acme.com` yields nothing; two entries yield two panels.
-  `aperio.<domain>` is not reserved today, so a tenant already binding it
-  would have the name turned into a login form underneath a client. A
-  tenant that does not want a login page under its brand could not decline.
-  And a panel is a door: derived from the fence, a pattern edit opens a new
-  login hostname that nobody wrote down, while a stored field is a list an
-  audit, an export and a reviewer can read. So the server routes only on
-  the stored value, and the convention lives one layer up as the suggested
-  default: when an organization's fence holds exactly one `*.<domain>`
-  entry, the org form and `aperio-client api org create` offer
-  `aperio.<domain>` as the panel, one click to accept, editable, and empty
-  is an answer. The wildcard tenant gets the instant dashboard; nothing is
-  derived at request time.
-
-  **What it buys.** No path to type, for the super-admin and for a tenant's
-  staff alike. A tenant can hand its people a hostname that is theirs, with
-  their org's name on the login form and no other tenant's credentials
-  accepted on it. And nothing existing changes: a deployment that never
-  sets either setting is byte-for-byte where it is today.
 - [ ] **#155 A gate that is Aperio's own login, so a route can say "sign in"
   without inventing a password.** [[#108]] abolished the throwaway
   `auth: DUMMY:DUMMY`, and it came back through the other door. Under
@@ -873,6 +792,103 @@ so.
 
 ## Completed
 
+- [x] **#152 A panel hostname: the dashboard at the root of a name of its
+  own, `/aperio` untouched.** shipped: `dashboard.hostname` /
+  `APERIO_DASHBOARD_HOSTNAME` for the server and `panel_hostname` on the
+  organization record (`PUT /api/orgs/{id}/panel`, an Admin of that
+  organization, fenced like a bind), one layer outside every route in
+  `server/panel.rs` that moves a panel request under `/aperio` and remembers
+  the original path for the login redirect, a panel set cached on the state
+  so the bind check and the request path never take the org store's lock,
+  binds refused at declaration, token edit, ephemeral tunnel and override,
+  live binds dropped when a name becomes a panel, the login fence on the
+  form, the passkey and the OIDC callback, the organization's name on the
+  login page through the anonymous health body, the `aperio.<domain>`
+  suggestion in the org form, the CLI, and a PanelSpec in the e2e suite.
+  Where it differed from the plan: the dashboard bundle was not given a
+  runtime base, since its history navigation only rewrites the query
+  string, so the address bar on a panel stays at `/`; and a fence that no
+  longer covers the panel takes it away rather than leaving a dashboard on
+  a name the tenant no longer claims. The original entry: Today the only way into the dashboard is
+  `<any hostname>/aperio`. That stays exactly as it is, on every hostname,
+  for people, for `aperio-client api` and for the machine endpoints; nothing
+  here withdraws or moves it. What is added is a second door: a hostname
+  whose root *is* the panel, so the super-admin opens `panel.example.com`
+  instead of typing `/aperio` every time, and an organization that wants one
+  picks a subdomain it owns, `panel.acme.com`, and gets its own dashboard at
+  the root of it.
+
+  **Two settings, one mechanism.** Server-wide, `dashboard_hostname`
+  (`APERIO_DASHBOARD_HOSTNAME`) names master's panel. Per organization, an
+  optional `panel_hostname` on the org record, settable by the organization's
+  own admin from the Organizations page and `PUT /api/orgs/{id}/panel`, and
+  refused unless it is inside the org's hostname fence ([[#13]]): it is a
+  hostname the tenant claims, so it is fenced like a bind. An unfenced org
+  cannot set one, since there is nothing to check it against. Both work the
+  same way: a layer early in the stack, before routing, prefixes `/aperio`
+  onto the path when `Host` is a panel hostname, so the router, the auth
+  middleware, the API and the 404 catch-all stay as they are, and
+  `panel.example.com/aperio/...` keeps resolving there too. A panel hostname
+  serves the panel and nothing else: a bind on it is refused in the same
+  places an out-of-fence bind is, at token edit, at connect and in the
+  dashboard override, and setting the panel on a name a client currently
+  serves drops that bind with a notice, the way `apply_org_hostnames` does.
+
+  **An org's panel is also its login door.** A login on `panel.acme.com`
+  admits Acme's identities and the master super-admin, nobody else, which
+  is [[#151]]'s rule with the question simplified to "whose panel is this".
+  #151 still stands for tenant *traffic* hostnames, `acme.com/aperio`,
+  where the answer has to come from the fence; here it comes from the org
+  record, and enforcing it costs one comparison. The login page on an org
+  panel shows the org's `custom_name`, which is the white-label the
+  subdomain was chosen for.
+
+  **The dashboard has `/aperio/` baked in.** Vite's `base` is `/aperio/`,
+  ten source files spell `/aperio/api` by hand and the sign-out path is a
+  literal. Served at a root, that works but shows
+  `panel.example.com/aperio/clients` in the address bar and the first
+  navigation. The fix is a runtime base: one helper the ten files go
+  through and a `<base href>` the server writes into `index.html` for the
+  host it is answering on, so one bundle serves both spellings.
+
+  **What an operator hits in the first ten minutes, each a sentence in the
+  configuration page.** Passkeys are bound to the origin: `APERIO_WEBAUTHN_ORIGIN`
+  names one host, and a passkey registered on `tunnel.example.com` does not
+  sign in on `panel.example.com` unless `APERIO_WEBAUTHN_RP_ID` is a parent
+  domain covering both, which needs a shared registrable domain; an org's
+  panel on the org's own domain is outside that entirely, so passkeys there
+  need per-organization WebAuthn origins, worth its own id if it turns out to
+  be wanted. The OIDC redirect URI is derived from `Host`, so the identity
+  provider's registered callbacks gain the panel's, or `redirect_url_override`
+  names it. And the panel hostname needs a certificate like any bind does,
+  so it belongs in the TLS set before the setting is written.
+
+  **`aperio.<domain>` is the default, not the rule.** The tempting shape is
+  a convention with no field at all: every fenced organization gets its
+  panel at `aperio.<its domain>`, all requests on that host are the panel,
+  and a tenant with wildcard DNS and a wildcard certificate has a dashboard
+  the moment its fence is written. That last part is worth keeping, and the
+  rest is not. A fence is a pattern list, not a domain: `acme.com` does not
+  cover `aperio.acme.com`, so the convention would open a panel *outside*
+  the fence; `*-pi.acme.com` yields nothing; two entries yield two panels.
+  `aperio.<domain>` is not reserved today, so a tenant already binding it
+  would have the name turned into a login form underneath a client. A
+  tenant that does not want a login page under its brand could not decline.
+  And a panel is a door: derived from the fence, a pattern edit opens a new
+  login hostname that nobody wrote down, while a stored field is a list an
+  audit, an export and a reviewer can read. So the server routes only on
+  the stored value, and the convention lives one layer up as the suggested
+  default: when an organization's fence holds exactly one `*.<domain>`
+  entry, the org form and `aperio-client api org create` offer
+  `aperio.<domain>` as the panel, one click to accept, editable, and empty
+  is an answer. The wildcard tenant gets the instant dashboard; nothing is
+  derived at request time.
+
+  **What it buys.** No path to type, for the super-admin and for a tenant's
+  staff alike. A tenant can hand its people a hostname that is theirs, with
+  their org's name on the login form and no other tenant's credentials
+  accepted on it. And nothing existing changes: a deployment that never
+  sets either setting is byte-for-byte where it is today.
 - [x] **#154 OIDC identity is the provider's, authorization is Aperio's:
   grants on a record matched by email, then a claim-to-grant map.** shipped,
   both halves at once: the record matched by email and created at the first

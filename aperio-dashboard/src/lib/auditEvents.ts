@@ -89,6 +89,7 @@ export const AUDIT_EVENT_GROUPS: AuditEventGroup[] = [
       'org_renamed',
       'org_deleted',
       'org_hostnames_set',
+      'org_panel_set',
       'org_quota_updated',
       'org_oidc_updated',
     ],

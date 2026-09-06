@@ -144,6 +144,28 @@ A server-assigned **random subdomain** is exempt: the tenant cannot influence wh
 
 Set it from the dashboard in Organizations → the gauge icon → *Allowed hostnames*, or in the create dialog.
 
+## Panel hostname
+
+`/aperio` answers on every hostname the server serves, and stays that way. A **panel hostname** is a second door: a name whose root *is* the dashboard, so nobody types `/aperio`. The server's own is `dashboard.hostname` (`APERIO_DASHBOARD_HOSTNAME`), `panel.example.com` for the super-admin. An organization picks its own, a name **inside its hostname allowlist**, and gets its own dashboard at the root of it:
+
+```bash
+# An Admin of the organization (the super-admin reaches it through `*`)
+curl -b cookies.txt -X PUT -H 'Content-Type: application/json' \
+  --data '{"hostname":"aperio.acme.example.com"}' \
+  https://tunnel.example.com/aperio/api/orgs/<id>/panel
+
+aperio-client api org panel <id> --hostname aperio.acme.example.com   # omit --hostname to clear
+aperio-client api org create --name acme --hostname '*.acme.example.com' --panel-hostname aperio.acme.example.com
+```
+
+- **It is fenced like a bind.** A panel is a name the tenant claims, so it has to be inside the organization's allowlist, and an unfenced organization cannot set one: there is nothing to check it against. A fence that stops covering the panel takes it away.
+- **It serves the panel and nothing else.** No token, client declaration or dashboard override may bind a panel hostname, whoever asks, master included; a client serving the name when it becomes a panel is dropped, as when a fence changes. Two organizations cannot share one, and none can take the server's own.
+- **Its login is the organization's.** On an organization's panel the login form, a passkey and an OIDC login admit an account whose grants reach that organization, and the master super-admin, nobody else. The refusal is byte for byte the wrong-password answer, so the panel does not say which names exist elsewhere. The login page shows the organization's display name. The server's own panel admits everyone, like any other hostname.
+- **`/aperio/...` keeps resolving on the panel too**, which is what `aperio-client api` needs, and the browser lands on `/` after signing in.
+- **`aperio.<domain>` is a suggestion, not a rule.** When the fence holds exactly one `*.<domain>` entry, the Organizations page offers `aperio.<domain>` for the panel, one click to accept and editable; the server routes only on the stored value, so a fence edit never opens a login door nobody wrote down.
+
+What an operator hits in the first ten minutes: the panel name needs a certificate like any bind; a passkey is bound to the origin it was registered on, so `APERIO_WEBAUTHN_RP_ID` has to be a parent domain covering both names, which an organization's own domain cannot share with the server's; and an OIDC provider's registered callback has to include the panel's.
+
 ## OIDC: identity is the provider's, authorization is Aperio's
 
 An OIDC login is matched to a **dashboard user record by email**. The identity provider says who this is; the record says what they may do, under exactly the [grant rules](#grants-one-user-several-organizations) above. The record is the same row a named user has, with no password: create it ahead of the first login from the Users page (*Signs in through the identity provider only*) or with `aperio-client api user create --username alice@example.com --grant <acme-id>:admin`, which is how a fleet admin wants it, the person exists with the grants already written before they sign in.

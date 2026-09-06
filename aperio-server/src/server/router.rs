@@ -233,6 +233,10 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
         axum::routing::put(crate::api::orgs::orgs_custom_name_handler),
       )
       .route(
+        "/api/orgs/{id}/panel",
+        axum::routing::put(crate::api::orgs::orgs_panel_handler),
+      )
+      .route(
         "/api/orgs/{id}/hostnames",
         axum::routing::put(crate::api::orgs::orgs_hostnames_handler),
       )
@@ -326,10 +330,12 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
           // the dashboard itself), so the prefix must be re-added or the
           // post-login redirect lands on the proxied site instead.
           let nested_path = req.uri().path();
-          let full_path = if nested_path == "/" {
-            "/aperio".to_string()
-          } else {
-            format!("/aperio{}", nested_path)
+          let full_path = match req.extensions().get::<crate::server::panel::PanelRequest>() {
+            // On a panel hostname the browser asked for `/`, and that is
+            // where it should land after the login, not on `/aperio`.
+            Some(panel) => panel.original.clone(),
+            None if nested_path == "/" => "/aperio".to_string(),
+            None => format!("/aperio{}", nested_path),
           };
           let redirect_url = format!("/aperio/auth?redirect={}", safe_redirect_path(&full_path));
           Response::builder()
@@ -584,13 +590,23 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
     },
   ));
 
-  // Outermost layer: a panic in any handler (proxy or dashboard) becomes a
-  // clean 500 for that one request instead of abruptly dropping the
-  // connection. The panic is still logged by the global hook (see
-  // `install_panic_logger`); every other in-flight request and the process
-  // are unaffected.
-  app
-    .with_state(state)
+  // Outside every route, since it changes the path the router sees: on a
+  // panel hostname the root is the dashboard (`planned_features.md` #152).
+  // The finished router becomes the fallback of a router that has nothing
+  // else, so the rewrite runs before any matching and `/aperio/...` keeps
+  // resolving on the panel hostname too.
+  let routed = app.with_state(state.clone());
+  Router::new()
+    .fallback_service(routed)
+    .layer(axum::middleware::from_fn_with_state(
+      state,
+      crate::server::panel::rewrite,
+    ))
+    // Outermost layer: a panic in any handler (proxy or dashboard) becomes a
+    // clean 500 for that one request instead of abruptly dropping the
+    // connection. The panic is still logged by the global hook (see
+    // `install_panic_logger`); every other in-flight request and the process
+    // are unaffected.
     .layer(tower_http::catch_panic::CatchPanicLayer::new())
 }
 

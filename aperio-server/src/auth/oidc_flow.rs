@@ -419,7 +419,7 @@ pub(crate) async fn oidc_callback_handler(
   // with the groups claim through the map. A record nothing reaches gets no
   // session: the login is refused with a message that says an admin has to
   // grant something, rather than a dashboard that shows nothing.
-  let role_at_home = match settle_record(
+  let record = match settle_record(
     &state,
     &rt,
     &email,
@@ -429,9 +429,25 @@ pub(crate) async fn oidc_callback_handler(
   )
   .await
   {
-    Ok(role) => role,
+    Ok(user) => user,
     Err(resp) => return resp,
   };
+  let role_at_home = record
+    .role_in(record.org_id.as_deref())
+    .unwrap_or(Role::Viewer);
+  // On an organization's panel the account has to reach that organization,
+  // whatever else its record holds.
+  let panel_host = crate::server::panel::request_host(&headers);
+  if !state
+    .panel_admits(panel_host.as_deref(), &record.grants)
+    .await
+  {
+    return (
+      StatusCode::FORBIDDEN,
+      "403 Forbidden - This account does not reach the organization this panel belongs to",
+    )
+      .into_response();
+  }
 
   info!("OIDC login success for {}", email);
   state
@@ -510,9 +526,9 @@ fn jwt_payload(token: &str) -> Option<serde_json::Value> {
 }
 
 /// Matches the login to its dashboard user record, creating one at the first
-/// login, applies the group map, and answers with the role at home for the
-/// session to record. `Err` is the response to send instead of a session: a
-/// record nothing reaches.
+/// login, applies the group map, and answers with the record as it now is.
+/// `Err` is the response to send instead of a session: a record nothing
+/// reaches.
 ///
 /// A per-organization login lives in that organization: its record has that
 /// home, its default grant names it, and its map cannot name anything else.
@@ -524,7 +540,7 @@ async fn settle_record(
   bound_org: Option<&str>,
   groups: &[String],
   ip: &str,
-) -> Result<Role, Response> {
+) -> Result<crate::store::users::User, Response> {
   use crate::store::grants::{self, Grant, GrantOrg};
   // A grant in a config file may name an organization by handle; the store
   // knows them by id. Resolved against a snapshot, so no two stores are
@@ -679,7 +695,7 @@ async fn settle_record(
         .into_response(),
     );
   }
-  Ok(user.role_in(user.org_id.as_deref()).unwrap_or(Role::Viewer))
+  Ok(user)
 }
 
 /// Validates a redirect path to prevent open redirect attacks.

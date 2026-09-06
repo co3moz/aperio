@@ -642,6 +642,9 @@ pub struct ServerFileConfig {
   pub oidc_redirect_url: Option<String>,
   /// Deprecated spelling of `oidc.client_secret` (env: APERIO_OIDC_CLIENT_SECRET).
   pub oidc_client_secret: Option<String>,
+  /// Flat spelling of `dashboard.hostname` (env: APERIO_DASHBOARD_HOSTNAME).
+  #[schemars(extend("examples" = ["panel.example.com"]))]
+  pub dashboard_hostname: Option<String>,
   /// Flat spelling of `oidc.default_grants` (env: APERIO_OIDC_DEFAULT_GRANTS).
   #[schemars(extend("examples" = [["master:viewer"]]))]
   pub oidc_default_grants: Option<Vec<String>>,

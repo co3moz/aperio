@@ -130,7 +130,12 @@ impl ConnCtx {
       }
     }
     if let Some(h) = normalized_host {
-      if handle.perms.hostname_allowed(&h) {
+      if state.is_panel_hostname(&h) {
+        warn!(
+          "Client {} declared hostname bind {} which is a dashboard panel and serves nothing else; ignored",
+          client_id, h
+        );
+      } else if handle.perms.hostname_allowed(&h) {
         handle.service_at_mut(service_index).declared_hostname = Some(h);
       } else {
         warn!(
@@ -147,7 +152,12 @@ impl ConnCtx {
         let Some(h) = normalize_hostname_bind(raw) else {
           continue;
         };
-        if handle.perms.hostname_allowed(&h) {
+        if state.is_panel_hostname(&h) {
+          warn!(
+            "Client {} declared hostname bind {} which is a dashboard panel and serves nothing else; ignored",
+            client_id, h
+          );
+        } else if handle.perms.hostname_allowed(&h) {
           if !admitted.contains(&h) {
             admitted.push(h);
           }

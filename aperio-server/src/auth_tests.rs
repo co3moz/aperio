@@ -770,3 +770,85 @@ async fn a_session_is_created_for_exactly_one_day() {
     info.expires_at
   );
 }
+
+// ---------------------------------------------------------------------------
+// the login on an organization's panel (planned_features.md #152)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn an_organizations_panel_admits_its_own_people_and_the_super_admin() {
+  use crate::store::grants::{Grant, GrantOrg};
+  let state = test_state();
+  let acme = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", vec!["*.acme.test".to_string()], None)
+    .unwrap()
+    .id;
+  state
+    .org_store
+    .lock()
+    .await
+    .set_panel_hostname(&acme, Some("panel.acme.test".to_string()))
+    .unwrap();
+  state.refresh_panel_hostnames().await;
+  {
+    let mut users = state.users.lock().await;
+    users
+      .create_with_grants(
+        "carol",
+        "password1",
+        None,
+        vec![Grant::new(GrantOrg::Child(acme.clone()), Role::Viewer)],
+      )
+      .unwrap();
+    users
+      .create_with_grants(
+        "dave",
+        "password1",
+        None,
+        vec![Grant::new(GrantOrg::Child("beta".into()), Role::Admin)],
+      )
+      .unwrap();
+  }
+  let state = Arc::new(state);
+  let on_panel = |creds: &str| basic_headers(creds, Some("panel.acme.test"));
+
+  // Reaches Acme: in.
+  let res = call_login(
+    state.clone(),
+    on_panel("carol:password1"),
+    login_query(Some("/")),
+  )
+  .await
+  .unwrap();
+  assert_eq!(res.status(), StatusCode::OK);
+  assert!(res.headers().get("set-cookie").is_some());
+  // Reaches Beta only: the same answer a wrong password gets.
+  let res = call_login(
+    state.clone(),
+    on_panel("dave:password1"),
+    login_query(Some("/")),
+  )
+  .await;
+  assert_eq!(res.err(), Some(StatusCode::UNAUTHORIZED));
+  // And Dave is still Dave elsewhere.
+  let res = call_login(
+    state.clone(),
+    basic_headers("dave:password1", Some("tunnel.test")),
+    login_query(Some("/aperio")),
+  )
+  .await
+  .unwrap();
+  assert_eq!(res.status(), StatusCode::OK);
+  // The built-in account holds `*`.
+  let res = call_login(
+    state.clone(),
+    on_panel("aperio:test"),
+    login_query(Some("/")),
+  )
+  .await
+  .unwrap();
+  assert_eq!(res.status(), StatusCode::OK);
+}

@@ -211,6 +211,7 @@ async fn create_requires_master_admin() {
     ConnectInfo(test_peer()),
     cookie_headers(&token),
     Json(OrgCreateRequest {
+      panel_hostname: None,
       custom_name: None,
       name: "acme".into(),
       hostnames: Vec::new(),
@@ -230,6 +231,7 @@ async fn create_success_and_duplicate() {
     ConnectInfo(test_peer()),
     headers.clone(),
     Json(OrgCreateRequest {
+      panel_hostname: None,
       custom_name: None,
       name: "acme".into(),
       hostnames: Vec::new(),
@@ -247,6 +249,7 @@ async fn create_success_and_duplicate() {
     ConnectInfo(test_peer()),
     headers,
     Json(OrgCreateRequest {
+      panel_hostname: None,
       custom_name: None,
       name: "acme".into(),
       hostnames: Vec::new(),
@@ -658,6 +661,7 @@ async fn create_accepts_an_optional_hostname_allowlist() {
     ConnectInfo(test_peer()),
     headers.clone(),
     Json(OrgCreateRequest {
+      panel_hostname: None,
       custom_name: None,
       name: "acme".into(),
       // Mixed case, a trailing dot and a duplicate all normalize away.
@@ -682,6 +686,7 @@ async fn create_accepts_an_optional_hostname_allowlist() {
     ConnectInfo(test_peer()),
     headers,
     Json(OrgCreateRequest {
+      panel_hostname: None,
       custom_name: None,
       name: "broken".into(),
       hostnames: vec!["app.*.com".into()],
@@ -709,6 +714,7 @@ async fn create_without_hostnames_leaves_the_org_unfenced() {
     ConnectInfo(test_peer()),
     headers,
     Json(OrgCreateRequest {
+      panel_hostname: None,
       custom_name: None,
       name: "acme".into(),
       hostnames: Vec::new(),
@@ -1171,4 +1177,272 @@ async fn the_org_oidc_policy_is_stored_and_validated() {
     .await;
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "{role:?} {map:?}");
   }
+}
+
+// ---------------------------------------------------------------------------
+// panel hostname (planned_features.md #152)
+// ---------------------------------------------------------------------------
+
+async fn set_panel(
+  state: &Arc<AppState>,
+  headers: HeaderMap,
+  id: &str,
+  hostname: Option<&str>,
+) -> axum::response::Response {
+  orgs_panel_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    Path(id.to_string()),
+    Json(OrgPanelRequest {
+      hostname: hostname.map(str::to_string),
+    }),
+  )
+  .await
+}
+
+async fn fenced_org(state: &Arc<AppState>, name: &str, fence: &str) -> String {
+  state
+    .org_store
+    .lock()
+    .await
+    .create(name, vec![fence.to_string()], None)
+    .unwrap()
+    .id
+}
+
+async fn panel_of(state: &Arc<AppState>, id: &str) -> Option<String> {
+  state
+    .org_store
+    .lock()
+    .await
+    .find(id)
+    .and_then(|o| o.panel_hostname.clone())
+}
+
+#[tokio::test]
+async fn a_panel_is_set_by_an_admin_of_the_organization_inside_its_fence() {
+  let state = Arc::new(test_state());
+  let acme = fenced_org(&state, "acme", "*.acme.test").await;
+  let beta = fenced_org(&state, "beta", "*.beta.test").await;
+  let acme_admin = granted_user(&state, "acme-admin", vec![(&acme, Role::Admin)]).await;
+  let acme_viewer = granted_user(&state, "acme-viewer", vec![(&acme, Role::Viewer)]).await;
+  let beta_admin = granted_user(&state, "beta-admin", vec![(&beta, Role::Admin)]).await;
+
+  // Nobody: 401. Admin elsewhere, or Viewer here: 403.
+  assert_eq!(
+    set_panel(&state, HeaderMap::new(), &acme, Some("panel.acme.test"))
+      .await
+      .status(),
+    StatusCode::UNAUTHORIZED
+  );
+  for token in [&beta_admin, &acme_viewer] {
+    assert_eq!(
+      set_panel(
+        &state,
+        cookie_headers(token),
+        &acme,
+        Some("panel.acme.test")
+      )
+      .await
+      .status(),
+      StatusCode::FORBIDDEN
+    );
+  }
+  // Admin here: the name lands, normalized, and the cache knows it.
+  let resp = set_panel(
+    &state,
+    cookie_headers(&acme_admin),
+    &acme,
+    Some(" Panel.ACME.test. "),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert_eq!(
+    panel_of(&state, &acme).await.as_deref(),
+    Some("panel.acme.test")
+  );
+  assert!(state.is_panel_hostname("panel.acme.test"));
+  // Outside the fence, a pattern, and the master organization are refused.
+  assert_eq!(
+    set_panel(
+      &state,
+      cookie_headers(&acme_admin),
+      &acme,
+      Some("panel.beta.test")
+    )
+    .await
+    .status(),
+    StatusCode::FORBIDDEN
+  );
+  assert_eq!(
+    set_panel(
+      &state,
+      cookie_headers(&acme_admin),
+      &acme,
+      Some("*.acme.test")
+    )
+    .await
+    .status(),
+    StatusCode::BAD_REQUEST
+  );
+  assert_eq!(
+    set_panel(
+      &state,
+      admin_headers(&state).await,
+      MASTER_ID,
+      Some("panel.test")
+    )
+    .await
+    .status(),
+    StatusCode::BAD_REQUEST
+  );
+  // Another organization cannot take the same name, and the super-admin
+  // reaches every organization's panel through `*`.
+  state
+    .org_store
+    .lock()
+    .await
+    .set_hostnames(&beta, vec!["*.acme.test".to_string()])
+    .unwrap();
+  assert_eq!(
+    set_panel(
+      &state,
+      admin_headers(&state).await,
+      &beta,
+      Some("panel.acme.test")
+    )
+    .await
+    .status(),
+    StatusCode::CONFLICT
+  );
+  assert_eq!(
+    set_panel(
+      &state,
+      admin_headers(&state).await,
+      &beta,
+      Some("other.acme.test")
+    )
+    .await
+    .status(),
+    StatusCode::OK
+  );
+  // Cleared with an empty name, and the cache follows.
+  assert_eq!(
+    set_panel(&state, cookie_headers(&acme_admin), &acme, Some(""))
+      .await
+      .status(),
+    StatusCode::OK
+  );
+  assert_eq!(panel_of(&state, &acme).await, None);
+  assert!(!state.is_panel_hostname("panel.acme.test"));
+}
+
+#[tokio::test]
+async fn a_panel_needs_a_fence_and_cannot_be_the_servers_own() {
+  let mut cfg = test_config();
+  cfg.dashboard_hostname = Some("panel.test".to_string());
+  let state = Arc::new(test_state_with(cfg));
+  let open = make_org(&state, "open").await;
+  assert_eq!(
+    set_panel(
+      &state,
+      admin_headers(&state).await,
+      &open,
+      Some("panel.open.test")
+    )
+    .await
+    .status(),
+    StatusCode::BAD_REQUEST,
+    "an unfenced organization has nothing to check a panel against"
+  );
+  let fenced = fenced_org(&state, "fenced", "*.test").await;
+  assert_eq!(
+    set_panel(
+      &state,
+      admin_headers(&state).await,
+      &fenced,
+      Some("panel.test")
+    )
+    .await
+    .status(),
+    StatusCode::CONFLICT,
+    "the server's own dashboard hostname"
+  );
+}
+
+#[tokio::test]
+async fn a_fence_that_no_longer_covers_the_panel_takes_it_away() {
+  let state = Arc::new(test_state());
+  let acme = fenced_org(&state, "acme", "*.acme.test").await;
+  assert_eq!(
+    set_panel(
+      &state,
+      admin_headers(&state).await,
+      &acme,
+      Some("panel.acme.test")
+    )
+    .await
+    .status(),
+    StatusCode::OK
+  );
+  let resp = orgs_hostnames_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    admin_headers(&state).await,
+    Path(acme.clone()),
+    hostnames_req(&["*.other.test"]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert_eq!(panel_of(&state, &acme).await, None);
+  assert!(!state.is_panel_hostname("panel.acme.test"));
+}
+
+#[tokio::test]
+async fn an_organization_can_be_created_with_its_panel() {
+  let state = Arc::new(test_state());
+  let resp = orgs_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    admin_headers(&state).await,
+    Json(OrgCreateRequest {
+      name: "acme".into(),
+      custom_name: None,
+      hostnames: vec!["*.acme.test".into()],
+      panel_hostname: Some("aperio.acme.test".into()),
+    }),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  let body = json_body(resp).await;
+  let id = body["id"].as_str().unwrap().to_string();
+  assert_eq!(
+    panel_of(&state, &id).await.as_deref(),
+    Some("aperio.acme.test")
+  );
+  assert!(state.is_panel_hostname("aperio.acme.test"));
+  // Refused as a whole when the panel is outside the fence: no record.
+  let resp = orgs_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    admin_headers(&state).await,
+    Json(OrgCreateRequest {
+      name: "beta".into(),
+      custom_name: None,
+      hostnames: vec!["*.beta.test".into()],
+      panel_hostname: Some("aperio.acme.test".into()),
+    }),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  assert!(
+    state
+      .org_store
+      .lock()
+      .await
+      .list()
+      .iter()
+      .all(|o| o.name != "beta")
+  );
 }

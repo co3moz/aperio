@@ -566,6 +566,8 @@ export interface Organization {
   /** Hostname patterns this org may claim (empty = unrestricted). Absent for
    *  master, which is never fenced. */
   hostnames?: string[]
+  /** A name inside the fence whose root is this organization's dashboard. */
+  panel_hostname?: string | null
 }
 
 export interface OrgQuota {
@@ -651,6 +653,8 @@ export interface OrgUsage {
   } | null
   /** The org's hostname allowlist (empty = unrestricted). */
   hostnames: string[]
+  /** The org's panel hostname; for master, the server's own. */
+  panel_hostname?: string | null
 }
 
 export interface DashboardUser {
@@ -958,12 +962,21 @@ export const api = {
       json('POST', payload),
     ),
   orgs: () => request<Organization[]>('/orgs'),
-  createOrg: (name: string, hostnames: string[] = [], customName?: string) =>
-    request<{ id: string; name: string; hostnames: string[] }>(
+  createOrg: (name: string, hostnames: string[], customName?: string, panelHostname?: string) =>
+    request<Organization>(
       '/orgs',
-      json('POST', { name, hostnames, custom_name: customName || null }),
+      json('POST', {
+        name,
+        hostnames,
+        ...(customName ? { custom_name: customName } : {}),
+        ...(panelHostname ? { panel_hostname: panelHostname } : {}),
+      }),
     ),
-  /** Renames what an organization is *called*; its handle never moves. */
+  setOrgPanel: (id: string, hostname: string | null) =>
+    request<{ id: string; panel_hostname: string | null }>(
+      `/orgs/${encodeURIComponent(id)}/panel`,
+      json('PUT', { hostname: hostname ?? '' }),
+    ),
   setOrgCustomName: (id: string, customName: string | null) =>
     mutate(`/orgs/${encodeURIComponent(id)}/custom-name`, json('PUT', { custom_name: customName })),
   setOrgHostnames: (id: string, hostnames: string[]) =>

@@ -2970,6 +2970,16 @@
           }
         ]
       },
+      "dashboard_hostname": {
+        "description": "Flat spelling of `dashboard.hostname` (env: APERIO_DASHBOARD_HOSTNAME).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "panel.example.com"
+        ]
+      },
       "data_dir": {
         "description": "Directory for the SQLite store and logs (env: APERIO_DATA_DIR).\nDefault: `./data`.",
         "type": [
@@ -4983,6 +4993,16 @@
             ],
             "examples": [
               true
+            ]
+          },
+          "hostname": {
+            "description": "A hostname whose root is the dashboard: `panel.example.com` opens the\npanel the way `panel.example.com/aperio` does, and `/aperio` stays on\nevery hostname regardless. One exact name, no pattern; it serves the\npanel and nothing else, so no bind may claim it\n(env: APERIO_DASHBOARD_HOSTNAME).",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "panel.example.com"
             ]
           }
         },

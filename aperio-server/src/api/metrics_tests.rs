@@ -18,6 +18,7 @@ use tokio::sync::{Mutex, mpsc, watch};
 
 fn test_config(metrics_token: Option<String>) -> ServerConfig {
   ServerConfig {
+    dashboard_hostname: None,
     server_side_targets: Vec::new(),
     token: "test".to_string(),
     gateway_timeout: Duration::from_secs(1),
@@ -151,6 +152,7 @@ fn build_state(config: ServerConfig) -> Arc<AppState> {
     settings_path: crate::test_support::test_temp_root()
       .join(format!("metrics-settings-{}.json", uuid::Uuid::new_v4())),
     dashboard_enabled: true,
+    panel_hostnames: std::sync::RwLock::new(Vec::new()),
     shutdown: watch::channel(false).0,
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
     active_ws_connections: Arc::new(AtomicUsize::new(0)),

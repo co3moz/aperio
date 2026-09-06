@@ -42,6 +42,22 @@ export function AuthApp() {
   const [busy, setBusy] = useState(false)
   const [passkeys, setPasskeys] = useState(false)
   const [passkeyError, setPasskeyError] = useState(false)
+  // Whose panel this hostname is, when it is one: the organization's name
+  // on its own login page is the white-label the subdomain was chosen for.
+  const [panelName, setPanelName] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    fetch('/aperio/health')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((h: { panel?: { org: string; name?: string; custom_name?: string | null } } | null) => {
+        if (!live || !h?.panel || h.panel.org === 'master') return
+        setPanelName(h.panel.custom_name || h.panel.name || null)
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
 
   useEffect(() => {
     if (!browserSupportsPasskeys()) return
@@ -164,6 +180,7 @@ export function AuthApp() {
               <AperioWordmark className="text-lg font-normal" />
             </CardTitle>
           </div>
+          {panelName && <p className="text-sm font-medium">{panelName}</p>}
           <CardDescription>
             {totpStep ? t('Enter the code from your authenticator app') : t('Sign in to continue')}
           </CardDescription>

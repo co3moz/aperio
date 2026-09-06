@@ -426,6 +426,18 @@ async fn check_org_hostname_fence(
   org: Option<&str>,
   hostnames: &[String],
 ) -> Result<(), Response> {
+  // A panel hostname serves the panel and nothing else, whoever asks.
+  for host in hostnames {
+    if state.is_panel_hostname(host) {
+      return Err(
+        (
+          StatusCode::FORBIDDEN,
+          format!("hostname {host} is a dashboard panel and cannot be bound"),
+        )
+          .into_response(),
+      );
+    }
+  }
   let allowlist = state.org_store.lock().await.hostnames_of(org);
   if allowlist.is_empty() {
     return Ok(());

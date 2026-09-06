@@ -75,6 +75,13 @@ pub struct DashboardGroup {
   /// Serve the admin dashboard. Default: `true`.
   #[schemars(extend("examples" = [true]))]
   pub enabled: Option<bool>,
+  /// A hostname whose root is the dashboard: `panel.example.com` opens the
+  /// panel the way `panel.example.com/aperio` does, and `/aperio` stays on
+  /// every hostname regardless. One exact name, no pattern; it serves the
+  /// panel and nothing else, so no bind may claim it
+  /// (env: APERIO_DASHBOARD_HOSTNAME).
+  #[schemars(extend("examples" = ["panel.example.com"]))]
+  pub hostname: Option<String>,
 }
 
 /// Edge-proxy integration: publishing the served hostnames to a dynamic reverse proxy in front of this server.

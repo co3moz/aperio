@@ -131,6 +131,7 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
   const [name, setName] = useState('')
   const [customName, setCustomName] = useState('')
   const [hostnames, setHostnames] = useState('')
+  const [panel, setPanel] = useState('')
   const [quota, setQuota] = useState<QuotaForm>(EMPTY_QUOTA)
   const [nameEdited, setNameEdited] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -169,7 +170,12 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
     setError(null)
     const label = name.trim()
     try {
-      const created = await api.createOrg(label, parseHostnames(hostnames), customName.trim())
+      const created = await api.createOrg(
+        label,
+        parseHostnames(hostnames),
+        customName.trim(),
+        panel.trim(),
+      )
       // The create endpoint takes the name and the fence; the caps are their
       // own endpoint. Only call it when something was actually typed, so a
       // form left blank does not write four explicit "no limit" values.
@@ -262,6 +268,7 @@ function CreateOrgDialog({ onCreated }: { onCreated: () => void }) {
               {t('Fences every bind made inside the organization: its tokens and clients can only claim these hostnames. Leave empty for no restriction.')}
             </p>
           </div>
+          <PanelField value={panel} onChange={setPanel} fence={parseHostnames(hostnames)} />
           <div className="grid gap-2">
             <Label>{t('Limits (optional)')}</Label>
             <p className="text-xs text-muted-foreground">
@@ -332,12 +339,14 @@ function EditOrgDialog({ org, onSaved }: { org: Organization; onSaved: () => voi
   const [usage, setUsage] = useState<OrgUsage | null>(null)
   const [form, setForm] = useState<QuotaForm>(EMPTY_QUOTA)
   const [hostnames, setHostnames] = useState('')
+  const [panel, setPanel] = useState('')
   const [busy, setBusy] = useState(false)
 
   const load = async () => {
     const u = await api.orgUsage(org.id)
     setUsage(u)
     setHostnames((u.hostnames ?? []).join(', '))
+    setPanel(u.panel_hostname ?? '')
     setForm({
       clients: u.quota?.max_clients != null ? String(u.quota.max_clients) : '',
       tokens: u.quota?.max_tokens != null ? String(u.quota.max_tokens) : '',
@@ -370,6 +379,10 @@ function EditOrgDialog({ org, onSaved }: { org: Organization; onSaved: () => voi
       // The allowlist is a separate endpoint; save it in the same click so the
       // dialog behaves as one form.
       await api.setOrgHostnames(org.id, parseHostnames(hostnames))
+      // The panel is a name inside the fence, so it is saved after it.
+      if ((panel.trim() || null) !== (usage?.panel_hostname ?? null)) {
+        await api.setOrgPanel(org.id, panel.trim() || null)
+      }
       await load()
       onSaved()
       toast.success(t('Organization updated'))
@@ -433,6 +446,7 @@ function EditOrgDialog({ org, onSaved }: { org: Organization; onSaved: () => voi
             {t('Only these hostnames may be bound by this organization. Empty = no restriction.')}
           </p>
         </div>
+        <PanelField value={panel} onChange={setPanel} fence={parseHostnames(hostnames)} />
         <OidcForm org={org} />
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
@@ -444,6 +458,54 @@ function EditOrgDialog({ org, onSaved }: { org: Organization; onSaved: () => voi
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** The one `*.<domain>` entry of a fence, when there is exactly one: what
+ *  `aperio.<domain>` is suggested from. A suggestion, never a rule: the
+ *  server routes only on the stored value. */
+function suggestedPanel(fence: string[]): string | null {
+  const wild = fence.filter((h) => h.startsWith('*.'))
+  if (wild.length !== 1) return null
+  return `aperio.${wild[0].slice(2)}`
+}
+
+/** A hostname inside the fence whose root is the organization's dashboard
+ *  (planned_features #152): the tenant's people open it instead of typing
+ *  `/aperio` on a traffic hostname, and only the tenant's own identities sign
+ *  in there. */
+function PanelField({
+  value,
+  onChange,
+  fence,
+}: {
+  value: string
+  onChange: (next: string) => void
+  fence: string[]
+}) {
+  const { t } = useI18n()
+  const suggestion = suggestedPanel(fence)
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor="org-panel">{t('Panel hostname (optional)')}</Label>
+      <div className="flex gap-2">
+        <Input
+          id="org-panel"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={suggestion ?? 'aperio.acme.example.com'}
+          autoComplete="off"
+        />
+        {suggestion && !value && (
+          <Button type="button" variant="outline" onClick={() => onChange(suggestion)}>
+            {t('Use {host}', { host: suggestion })}
+          </Button>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {t('A name inside the allowed hostnames whose root is this organization’s dashboard, instead of /aperio. It serves the panel and nothing else, and only this organization’s people sign in there.')}
+      </p>
+    </div>
   )
 }
 

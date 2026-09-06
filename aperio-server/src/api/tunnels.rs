@@ -221,6 +221,13 @@ pub(crate) async fn tunnels_create_handler(
   // Organization fence: an explicitly requested hostname must be one the org
   // may claim. A server-generated random subdomain is exempt, since the caller
   // cannot influence it and it can never collide with another org's hostname.
+  if payload.hostname.is_some() && state.is_panel_hostname(&hostname) {
+    return (
+      StatusCode::FORBIDDEN,
+      format!("hostname {hostname} is a dashboard panel and cannot be bound"),
+    )
+      .into_response();
+  }
   if payload.hostname.is_some() {
     let allowlist = state.org_store.lock().await.hostnames_of(org.as_deref());
     if !crate::store::orgs::hostname_in_org_allowlist(&hostname, &allowlist) {

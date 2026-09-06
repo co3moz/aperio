@@ -266,10 +266,19 @@ pub(crate) async fn auth_login_handler(
               u.username.clone(),
               u.role,
               u.totp_secret.clone(),
+              u.grants.clone(),
             )
           })
         };
-        if let Some((user_id, user_name, role, totp_secret)) = verified {
+        // On an organization's panel, the password being right is not the
+        // whole question: the account has to reach that organization. Read
+        // as a wrong password, byte for byte, so the panel does not say
+        // which names exist elsewhere.
+        let verified = match verified {
+          Some(v) if state.panel_admits(host.as_deref(), &v.4).await => Some(v),
+          _ => None,
+        };
+        if let Some((user_id, user_name, role, totp_secret, _grants)) = verified {
           match totp_secret {
             None => {
               scope = Some(None);
