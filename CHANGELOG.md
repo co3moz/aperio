@@ -20,6 +20,8 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **The dashboard defines its own words.** `bind`, `draining`, `ejected`, `canary`, `expose` and a hostname override each carry a one-sentence definition and a docs link behind a dotted underline where they appear as a badge or a label, and the client row's *Overrule* button is *Redirect hostname*, which is what it does.
+
 - **Every dialog pane has a door in the sidebar, and the Breakdown page is two tabs.** Organizations, Users, Webhooks, the Inbox, Messages, Export, the Audit Log, the API Explorer and the Config Builder were reachable only by opening Settings or Tools and knowing they were inside; each is now a row under its parent in the sidebar. Breakdown stacked seven sections into one scroll; it is *Traffic* (history, breakdown, bandwidth) and *Routes & latency* (route trends, slowest endpoints, stage latencies), and the server's own figures, self-health and the cache, moved to a *Server Health* page under System.
 
 - **A page's explanatory paragraph folds away once read.** The paragraph that opens Topology, Autoscaling, Share Links, the overrule dialog and a dozen other pages was read on every visit and pushed the table it explains below the fold. It now sits behind an info button beside the page title: open on the first visit, closed for good once closed, remembered per page in the browser. A one-sentence description stays under the title as before.

@@ -1,5 +1,6 @@
 import { PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react'
 import { useState } from 'react'
+import { Term } from './Term'
 import { toast } from 'sonner'
 import { CopyButton, EmptyRow, SectionHeader, SkeletonRows } from './shared'
 import { TintBadge, type Tint } from './badges'
@@ -472,14 +473,22 @@ export function TokensSection() {
                         </TintBadge>
                       )}
                       {tok.allow_public && <TintBadge tint="green">{t('public ok')}</TintBadge>}
-                      {tok.allow_bind && <TintBadge tint="blue">{t('may bind')}</TintBadge>}
+                      {tok.allow_bind && (
+                        <Term k="bind">
+                          <TintBadge tint="blue">{t('may bind')}</TintBadge>
+                        </Term>
+                      )}
                       {tok.allow_otel && <TintBadge tint="blue">{t('may export otel')}</TintBadge>}
                       {tok.topics.length > 0 && (
                         <TintBadge tint="blue">
                           {t('{count} topic(s)', { count: tok.topics.length })}
                         </TintBadge>
                       )}
-                      {tok.canary && <TintBadge tint="red">{t('canary')}</TintBadge>}
+                      {tok.canary && (
+                        <Term k="canary">
+                          <TintBadge tint="red">{t('canary')}</TintBadge>
+                        </Term>
+                      )}
                       {tok.max_rps == null &&
                         tok.daily_max_bytes == null &&
                         !tok.allow_public &&

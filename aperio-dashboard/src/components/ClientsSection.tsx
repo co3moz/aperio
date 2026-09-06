@@ -2,6 +2,7 @@ import { ArrowDownIcon, ArrowUpIcon, PinIcon, SearchIcon, SlidersHorizontalIcon 
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { AddClientWizard } from './AddClientWizard'
+import { GLOSSARY, Term } from './Term'
 import { ClientConfigDialog } from './ClientConfigDialog'
 import { groupClientsByInstance } from '@/lib/clientGroups'
 import { EmptyRow, SectionHeader, StatusDot } from './shared'
@@ -64,7 +65,7 @@ function BindList({ binds, override }: { binds: string[]; override: string[] }) 
             <TooltipTrigger render={<span />}>
               <TintBadge tint="amber">{o}</TintBadge>
             </TooltipTrigger>
-            <TooltipContent>{t('Temporary override (not persisted)')}</TooltipContent>
+            <TooltipContent>{t(GLOSSARY.override.definition)}</TooltipContent>
           </Tooltip>
         ))}
       </div>
@@ -212,11 +213,11 @@ function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () =
   return (
     <Dialog open={open} onOpenChange={openDialog}>
       <DialogTrigger render={<Button size="xs" variant="outline" />}>
-        <SlidersHorizontalIcon /> {hasOverride ? t('Edit') : t('Overrule')}
+        <SlidersHorizontalIcon /> {hasOverride ? t('Edit') : t('Redirect hostname')}
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t('Overrule client {id}…', { id: client.id.slice(0, 8) })}</DialogTitle>
+          <DialogTitle>{t('Redirect client {id}…', { id: client.id.slice(0, 8) })}</DialogTitle>
           <DialogDescription>
             {t('Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.')}
           </DialogDescription>
@@ -224,7 +225,7 @@ function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () =
         <div className="grid gap-4">
           <div className="grid gap-2">
             <Label htmlFor={`ovr-host-${client.id}-${rows[0]?.key ?? 0}`}>
-              {t('Hostname binds')}
+              <Term k="bind">{t('Hostname binds')}</Term>
             </Label>
             {rows.map((row) => (
               <div key={row.key} className="grid gap-1">
@@ -242,7 +243,9 @@ function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () =
             </Button>
           </div>
           <div className="grid gap-2">
-            <Label htmlFor={`ovr-path-${client.id}`}>{t('Path bind')}</Label>
+            <Label htmlFor={`ovr-path-${client.id}`}>
+              <Term k="bind">{t('Path bind')}</Term>
+            </Label>
             <Input
               id={`ovr-path-${client.id}`}
               value={path}

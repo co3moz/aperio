@@ -27,16 +27,6 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
-- [ ] **#163 A glossary for the six words nobody outside the project knows.**
-  The UI says "bind" eleven times and "drain", "eject", "canary", "expose" and
-  "overrule" with no definition next to any of them, and the Tunnels page
-  explains itself with a CLI flag (`--bind-tunnels`). The *Overrule* button on
-  a client row does not say what it does; "Redirect hostname" would. Add a
-  glossary component, a dotted underline with a tooltip carrying one sentence
-  and a docs link, wire it to those terms wherever they appear in UI copy (the
-  i18n layer can carry the definitions so the seven languages get them too),
-  and rename the actions whose verb is project slang.
-
 - [ ] **#164 The small inconsistencies: confirmations, freshness, search,
   dates.** Four things a second pass would have caught, cheap to fix and worth
   fixing together. Revoking a token or deleting a user asks first; clearing
@@ -489,6 +479,23 @@ so.
   2025-09, with no rc since March. Neither is close.
 
 ## Completed
+
+- [x] **#163 A glossary for the six words nobody outside the project knows.**
+  The UI says "bind" eleven times and "drain", "eject", "canary", "expose" and
+  "overrule" with no definition next to any of them, and the Tunnels page
+  explains itself with a CLI flag (`--bind-tunnels`). The *Overrule* button on
+  a client row does not say what it does; "Redirect hostname" would. Add a
+  glossary component, a dotted underline with a tooltip carrying one sentence
+  and a docs link, wire it to those terms wherever they appear in UI copy (the
+  i18n layer can carry the definitions so the seven languages get them too),
+  and rename the actions whose verb is project slang. shipped: a `Term`
+  component over a `GLOSSARY` of six entries (bind, draining, ejected,
+  canary, expose, override), each a translated sentence and a docs link,
+  wired to the token badges, the redirect dialog's labels and the override
+  badge; *Overrule* is *Redirect hostname*. Where it differed: the
+  Topology map's status words (`ejected`, `draining`) are plain text still,
+  the function that produces them returns a string into an SVG label where
+  a tooltip has nowhere to hang; the map's legend paragraph defines them.
 
 - [x] **#162 Six panes have no door: navigation hides half the product.** Twelve
   full pages sit in the sidebar; Organizations, Users, Webhooks, the Inbox,
