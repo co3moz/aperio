@@ -97,6 +97,10 @@ pub(crate) async fn run_service(
   // Set when the server announces a graceful shutdown: the next reconnect
   // skips the exponential backoff (one short jittered delay instead).
   let mut fast_reconnect = false;
+  // Set when the server refused the handshake as full (`503`): a known,
+  // transient refusal, retried at a steady short pace rather than doubling
+  // towards the ceiling (`planned_features.md` #156).
+  let mut server_full = false;
   // Index into `spec.ws_urls` for cross-server failover: advanced after each
   // failed/dropped connection so the client rotates across the server fleet.
   let mut server_idx = 0usize;
@@ -492,7 +496,10 @@ pub(crate) async fn run_service(
             let abort_tx_ping = abort_tx.clone();
             let cancel_ping = cancel.clone();
             let self_health_ping = health_report.clone();
-            let shared_ping = shared.clone();
+            // This connection's own in-flight requests, what its drain waits on
+            // when it is asked to close (`planned_features.md` #156).
+            let connection_inflight = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let connection_inflight_ping = connection_inflight.clone();
             // The connection drains once, so the window is the longest any of
             // its services asked for: cutting one short to honour another's
             // shorter number would kill in-flight requests the file promised
@@ -609,8 +616,18 @@ pub(crate) async fn run_service(
                     if let Ok(json) = serde_json::to_string(&TunnelMessage::Draining {}) {
                       let _ = tx_ping.send(Message::Text(json.into())).await;
                     }
-                    drain_inflight_for(&shared_ping, reload_drain_ping).await;
+                    // This connection's own work, not the process's: a
+                    // sibling service's in-flight request is not a reason to
+                    // hold this socket open.
+                    drain_connection_inflight(&connection_inflight_ping, reload_drain_ping).await;
                   }
+                  // A Close frame, so the server learns at once rather than
+                  // when the operating system gets round to it. Dropping the
+                  // socket is noticed immediately on a direct connection and
+                  // minutes later through a proxy chain, and until then the
+                  // server believed this connection alive, kept its slot and
+                  // refused the replacement as one connection too many.
+                  let _ = tx_ping.send(Message::Close(None)).await;
                   let _ = abort_tx_ping.send(AbortReason::Requested).await;
                   break;
                 }
@@ -792,6 +809,7 @@ pub(crate) async fn run_service(
               active_ws_streams: active_ws_streams.clone(),
               active_tcp_streams: active_tcp_streams.clone(),
               active_udp_streams: active_udp_streams.clone(),
+              connection_inflight: connection_inflight.clone(),
             };
             let dispatch::Ended {
               closed_on_request,
@@ -853,6 +871,17 @@ pub(crate) async fn run_service(
                   "[{}] Authentication failed (HTTP {}): the server rejected the tunnel token. Check --server-token / APERIO_SERVER_TOKEN / yaml server.token, it may be wrong, expired, or revoked.",
                   label, code
                 );
+              } else if code == 503 {
+                // The server is full, which is a transient refusal and not
+                // the connection failing: the slot frees when a sibling's old
+                // connection closes, or a ghost is reaped, and doubling
+                // towards a minute's wait here is how a reload's third
+                // service stayed dark long after the way was clear.
+                server_full = true;
+                warn!(
+                  "[{}] The server refused this connection as full (HTTP 503); retrying shortly.",
+                  label
+                );
               } else if code == 426 {
                 // The pairing gate (#113). Its whole value is the sentence in
                 // the body, which names both versions and which side to
@@ -901,6 +930,18 @@ pub(crate) async fn run_service(
       let d = fast_reconnect_delay();
       info!(
         "[{}] Server shutdown announced; reconnecting in {:.2} seconds...",
+        label,
+        d.as_secs_f64()
+      );
+      d
+    } else if server_full {
+      // A steady short pace, and the attempt counter untouched: being told
+      // "full" says nothing about whether the next try will be, and it is
+      // usually clear within seconds.
+      server_full = false;
+      let d = full_retry_delay();
+      info!(
+        "[{}] Retrying in {:.1} seconds, the server was full...",
         label,
         d.as_secs_f64()
       );
@@ -985,6 +1026,18 @@ fn reconnect_delay(attempt: u32) -> Duration {
     .subsec_nanos() as u64;
   let jitter = nanos % (cap / 2 + 1);
   Duration::from_millis(cap / 2 + jitter)
+}
+
+/// Retry delay after the server refused the handshake as full: one to two
+/// seconds of clock-derived jitter, and no doubling. Long enough not to hammer
+/// a server that really is full, short enough that a slot freed by a closing
+/// sibling or a reaped ghost is taken within seconds rather than a minute.
+fn full_retry_delay() -> Duration {
+  let nanos = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap_or_default()
+    .subsec_nanos() as u64;
+  Duration::from_millis(1_000 + nanos % 1_001)
 }
 
 /// Reconnect delay used after the server announces a graceful shutdown:

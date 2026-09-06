@@ -167,6 +167,17 @@ pub(crate) fn spawn_background(state: &Arc<AppState>, host: &str) {
     async move { state.gc_tick_once(Instant::now()).await }
   });
 
+  // Connections that stopped heart-beating are closed on the server's own
+  // timer, so a ghost behind a proxy chain does not hold its slot for as
+  // long as the operating system keeps the socket (#156).
+  let reap_state = state.clone();
+  crate::supervise::spawn_ticker("silent-client-reaper", Duration::from_secs(10), move || {
+    let state = reap_state.clone();
+    async move {
+      state.reap_silent_clients().await;
+    }
+  });
+
   // Resends QoS 1 messages nobody acknowledged, and gives up on the ones
   // that waited out the window.
   crate::tunnel::pubsub::run_ack_sweeper(state);

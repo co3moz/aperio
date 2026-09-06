@@ -322,6 +322,12 @@ pub(crate) struct TelemetryEvent {
   pub(crate) now_secs: u64,
 }
 
+/// How many down thresholds of silence before a connection is reaped rather
+/// than merely kept out of routing: long enough that a client whose pings are
+/// merely late is not cut off, short enough that a ghost frees its slot
+/// within a minute at the default threshold.
+pub(crate) const SILENT_CLIENT_REAP_MULTIPLIER: u32 = 4;
+
 pub(crate) struct AppState {
   /// Every live tunnel connection. An RwLock rather than a Mutex: routing,
   /// stats, pubsub fan-out and the maps read it on every request, and only
@@ -924,6 +930,38 @@ impl AppState {
       }
     }
     false
+  }
+
+  /// Closes and removes every connection that stopped heart-beating
+  /// (`planned_features.md` #156). `last_ping_at` was recorded on every Ping
+  /// and read only to keep a connection out of routing; removing the handle
+  /// happened in exactly one place, when the read loop ended, and a socket
+  /// behind a proxy chain can take minutes to report a peer that dropped it
+  /// without a Close frame. Until then the ghost kept its slot under
+  /// `max_tunnels`, its place in the organization quota and its row in the
+  /// dashboard. A connection silent for [`SILENT_CLIENT_REAP_MULTIPLIER`]
+  /// times the down threshold is told to disconnect on the server's own
+  /// timer, which ends its read loop and runs the ordinary cleanup, whatever
+  /// the socket thinks. Returns the ids reaped.
+  pub(crate) async fn reap_silent_clients(&self) -> Vec<String> {
+    let threshold = self.config().client_down_threshold * SILENT_CLIENT_REAP_MULTIPLIER;
+    let clients = self.clients.read().await;
+    let mut reaped = Vec::new();
+    for (id, handle) in clients.iter() {
+      let reference = handle.last_ping_at.unwrap_or(handle.connected_at);
+      let silent = reference.elapsed();
+      if silent > threshold {
+        tracing::warn!(
+          "Tunnel client {} has not sent a heartbeat for {}s (threshold {}s); closing the connection and freeing its slot",
+          id,
+          silent.as_secs(),
+          threshold.as_secs()
+        );
+        handle.disconnect.notify_one();
+        reaped.push(id.clone());
+      }
+    }
+    reaped
   }
 
   /// True when a client of organization `org` is serving `host` right now.

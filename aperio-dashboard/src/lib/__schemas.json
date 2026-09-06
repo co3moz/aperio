@@ -3515,14 +3515,14 @@
         "minimum": 0
       },
       "max_tunnels": {
-        "description": "Maximum simultaneously connected clients (env: APERIO_MAX_TUNNELS).\nDefault: `10`.",
+        "description": "Maximum simultaneously connected tunnel connections (env:\nAPERIO_MAX_TUNNELS). A client holds one per service unless it\nmultiplexes, and a reload briefly wants two per service. Default: `64`\n(was `10` before 0.12.0).",
         "type": [
           "integer",
           "null"
         ],
         "format": "uint64",
         "examples": [
-          10
+          64
         ],
         "minimum": 0
       },

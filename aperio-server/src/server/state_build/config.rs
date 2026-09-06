@@ -80,10 +80,13 @@ pub(crate) fn resolve() -> Option<Resolved> {
     .unwrap_or(10_000);
 
   // Max connected tunnel clients limit (default: 10 active clients)
+  // A client holds one connection per service unless it multiplexes, and a
+  // reload transiently wants two per service, so the cap is sized for a
+  // fleet rather than for the single connection a client used to be (#156).
   let max_tunnels = std::env::var("APERIO_MAX_TUNNELS")
     .ok()
     .and_then(|val| val.parse::<usize>().ok())
-    .unwrap_or(10);
+    .unwrap_or(64);
 
   // Parallel connections one client may open for a single service. 16 is what
   // the client used to clamp to on its own, so an unset server keeps exactly

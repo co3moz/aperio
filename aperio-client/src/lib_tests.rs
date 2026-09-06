@@ -1151,3 +1151,53 @@ async fn await_dependencies_wakes_when_the_dependency_comes_up() {
     .unwrap();
   assert!(missing.is_empty());
 }
+
+// --- make before break on reload (planned_features.md #156) ------------------
+
+#[test]
+fn a_replacement_is_up_when_its_service_has_one_more_live_connection() {
+  use std::collections::HashMap;
+  let names = vec!["api".to_string(), "web".to_string()];
+  let before: HashMap<String, usize> = [("api".to_string(), 1), ("web".to_string(), 2)]
+    .into_iter()
+    .collect();
+  // Nothing new yet: both missing.
+  assert_eq!(
+    replacements_missing(&names, &before, &before),
+    vec!["api".to_string(), "web".to_string()]
+  );
+  // One came up.
+  let live: HashMap<String, usize> = [("api".to_string(), 2), ("web".to_string(), 2)]
+    .into_iter()
+    .collect();
+  assert_eq!(
+    replacements_missing(&names, &before, &live),
+    vec!["web".to_string()]
+  );
+  // Both, and a service that was not there before counts from zero.
+  let names = vec!["api".to_string(), "web".to_string(), "new".to_string()];
+  let live: HashMap<String, usize> = [
+    ("api".to_string(), 2),
+    ("web".to_string(), 3),
+    ("new".to_string(), 1),
+  ]
+  .into_iter()
+  .collect();
+  assert!(replacements_missing(&names, &before, &live).is_empty());
+  // An old connection closing early does not count as the replacement.
+  let live: HashMap<String, usize> = [("api".to_string(), 1), ("web".to_string(), 1)]
+    .into_iter()
+    .collect();
+  assert_eq!(
+    replacements_missing(&names[..2], &before, &live),
+    vec!["api".to_string(), "web".to_string()]
+  );
+}
+
+#[test]
+fn the_reload_handover_budget_is_bounded() {
+  // A replacement that cannot connect must not keep a superseded
+  // configuration running forever; ten seconds is the drain's own order.
+  assert!(RELOAD_HANDOVER_BUDGET >= Duration::from_secs(5));
+  assert!(RELOAD_HANDOVER_BUDGET <= Duration::from_secs(30));
+}

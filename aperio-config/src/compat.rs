@@ -198,6 +198,27 @@ pub struct ConfigChange {
 pub const CONFIG_CHANGES: &[ConfigChange] = &[
   ConfigChange {
     // Written mid-cycle before the release number is known; corrected at
+    // the release (CLAUDE.md rule 19).
+    version: "0.12.0",
+    surface: ConfigSurface::Server,
+    // `Migration`, not `Breaking`: a file that never wrote the key now
+    // admits more connections than it did, nothing it says stops working,
+    // and an operator who relied on ten as a fence has one line to write.
+    // `Always`, because the people affected are precisely the ones who never
+    // wrote the key.
+    severity: ChangeSeverity::Migration,
+    applies: Applies::Always,
+    fields: &["max_tunnels"],
+    summary: "the default `max_tunnels` rose from 10 to 64: a client holds one connection per \
+              service and a reload briefly wants two, so ten refused ordinary fleets as full",
+    action: "nothing, unless ten was meant as a fence: then write `max_tunnels: 10`. A server that \
+              answered `503` to reconnecting clients after a config reload was hitting this cap \
+              with ghost connections still counted; those are now reaped on the server's own \
+              timer, and a client told `503` retries at a steady short pace instead of backing \
+              off towards a minute.",
+  },
+  ConfigChange {
+    // Written mid-cycle before the release number is known; corrected at
     // the release (CLAUDE.md rule 19). Until then it is dormant, which is
     // what an unreleased change should be.
     version: "0.12.0",

@@ -43,6 +43,8 @@ pub(crate) struct Dispatch<'a> {
   pub(crate) active_ws_streams: Arc<Mutex<HashMap<String, WsStreamHandle>>>,
   pub(crate) active_tcp_streams: Arc<Mutex<HashMap<String, TcpStreamHandle>>>,
   pub(crate) active_udp_streams: Arc<Mutex<HashMap<String, UdpStreamHandle>>>,
+  /// This connection's own in-flight requests, which its drain waits on.
+  pub(crate) connection_inflight: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 /// Why the read loop ended, in the only two terms the reconnect loop acts on.
@@ -83,6 +85,7 @@ impl Dispatch<'_> {
       active_ws_streams,
       active_tcp_streams,
       active_udp_streams,
+      connection_inflight,
     } = self;
     let mut version_skew_warned = false;
     let mut ended = Ended::default();
@@ -196,11 +199,13 @@ impl Dispatch<'_> {
                                       let spec = &services[service_index].spec;
                                       let ctx = forward_ctxs[service_index].clone();
                                       let limiter = services[service_index].limiter.clone();
-                                      let inflight = shared.inflight_requests.clone();
+                                      let inflight = InflightGuard::enter(
+                                          shared.inflight_requests.clone(),
+                                          connection_inflight.clone(),
+                                      );
                                       let proto = server_protocol.clone();
                                       let raw_body = frame_body.take();
                                       let pool = spec.pool_load.clone();
-                                      inflight.fetch_add(1, Ordering::SeqCst);
                                       pool.enter();
                                       shared.mark_request_activity();
 
@@ -240,7 +245,7 @@ impl Dispatch<'_> {
                                           {
                                               let _ = ctx.tunnel_tx.send(Message::Text(resp_str.into())).await;
                                           }
-                                          inflight.fetch_sub(1, Ordering::SeqCst);
+                                          drop(inflight);
                                           pool.leave();
                                       });
                                   }
@@ -266,11 +271,13 @@ impl Dispatch<'_> {
                                       active_request_streams.lock().await.insert(id.clone(), body_tx);
                                       let ctx = forward_ctxs[service_index].clone();
                                       let limiter = services[service_index].limiter.clone();
-                                      let inflight = shared.inflight_requests.clone();
+                                      let inflight = InflightGuard::enter(
+                                          shared.inflight_requests.clone(),
+                                          connection_inflight.clone(),
+                                      );
                                       let streams = active_request_streams.clone();
                                       let proto = server_protocol.clone();
                                       let pool = spec.pool_load.clone();
-                                      inflight.fetch_add(1, Ordering::SeqCst);
                                       pool.enter();
                                       let adaptive_for_task = services[service_index].adaptive.clone();
                                       tokio::spawn(async move {
@@ -308,7 +315,7 @@ impl Dispatch<'_> {
                                           {
                                               let _ = ctx.tunnel_tx.send(Message::Text(resp_str.into())).await;
                                           }
-                                          inflight.fetch_sub(1, Ordering::SeqCst);
+                                          drop(inflight);
                                           pool.leave();
                                       });
                                   }

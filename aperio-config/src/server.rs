@@ -304,9 +304,11 @@ pub struct ServerFileConfig {
   /// Default: `100`.
   #[schemars(extend("examples" = [512]))]
   pub max_concurrent_requests: Option<u64>,
-  /// Maximum simultaneously connected clients (env: APERIO_MAX_TUNNELS).
-  /// Default: `10`.
-  #[schemars(extend("examples" = [10]))]
+  /// Maximum simultaneously connected tunnel connections (env:
+  /// APERIO_MAX_TUNNELS). A client holds one per service unless it
+  /// multiplexes, and a reload briefly wants two per service. Default: `64`
+  /// (was `10` before 0.12.0).
+  #[schemars(extend("examples" = [64]))]
   pub max_tunnels: Option<u64>,
   /// Parallel tunnel connections one client may open for a single service
   /// (its `connections:`). A token may lower this for its own holder, never

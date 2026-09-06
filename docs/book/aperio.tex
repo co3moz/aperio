@@ -3253,7 +3253,7 @@ the machine-readable catalogue, which is the one that cannot drift.
 \rowsep
 \code{APERIO\_LB\_STRATEGY} & Load balancing: \code{round-robin}, \code{primary-standby}, or \code{sticky}. & \code{round-robin} \\
 \rowsep
-\code{APERIO\_MAX\_TUNNELS} & Max simultaneously connected tunnel clients. & \code{10} \\
+\code{APERIO\_MAX\_TUNNELS} & Max simultaneously connected tunnel connections; a client holds one per service, and a reload briefly wants two. Was \code{10} before 0.12.0. & \code{64} \\
 \rowsep
 \code{APERIO\_MAX\_CONNECTIONS\_PER\_SERVICE} & Parallel tunnel connections one client may open for a single service (its \code{connections:}), announced to the client on connect. A token's \code{max\_connections} may lower it, never raise it. & \code{16} \\
 \rowsep
@@ -3317,7 +3317,7 @@ the machine-readable catalogue, which is the one that cannot drift.
 \rowsep
 \code{APERIO\_PREVIEW\_NOINDEX} & \code{1} = services reached through their random subdomain answer with \code{X-Robots-Tag: noindex, nofollow} and a disallow-all \code{/robots.txt}, so preview environments never end up in search engines. Also live-editable from the dashboard. & \code{0} \\
 \rowsep
-\code{APERIO\_CLIENT\_DOWN\_THRESHOLD} & Seconds without a heartbeat before a client is dropped from the routing pool (it rejoins on the next ping). & \code{15} \\
+\code{APERIO\_CLIENT\_DOWN\_THRESHOLD} & Seconds without a heartbeat before a client is dropped from the routing pool (it rejoins on the next ping). & \code{15}. A connection silent for four times this is closed and removed by the server itself, so a socket dropped without a Close frame does not keep its slot. \\
 \rowsep
 \code{APERIO\_LB\_STRATEGY} & Load-balancing strategy: \code{round-robin}, \code{primary-standby} (client priority tiers), or \code{sticky} (visitor affinity via cookie). See \emph{Routing \& Load Balancing}. & \code{round-robin} \\
 \rowsep

@@ -166,6 +166,9 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
     _proc?: ChildProcess
     _output = ''
     _dir = ''
+    /** Where the config file was written, for a spec that rewrites it to
+     *  drive a hot reload. Empty for a client configured the flat way. */
+    _configPath = ''
 
     /** Env pairs, for a client configured the flat way. */
     _env(): Record<string, string> {
@@ -228,6 +231,7 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
       if (yaml) {
         const path = join(this._dir, `config-${args.length}-${Date.now()}.yaml`)
         await writeFile(path, yaml)
+        this._configPath = path
         args.push('--config', path)
       }
       const target = this._backendUrl()

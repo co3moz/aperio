@@ -412,6 +412,66 @@ pub(crate) async fn drain_inflight(shared: &Shared) {
 /// Used with a long budget by process shutdown and a short one by a config
 /// reload, where the point is to finish what is in flight without holding the
 /// new configuration back for a stalled request.
+/// One proxied request's place in the in-flight counts: the process's, which
+/// the shutdown drain and the idle clock read, and the connection's, which a
+/// reload's drain reads (`planned_features.md` #156). Taken when the request
+/// is accepted and given back when this is dropped, so a panic on the
+/// forwarding path gives it back too; the bare `fetch_sub` at the end of the
+/// task it replaced did not, and one leaked count made every later drain wait
+/// out its whole budget.
+pub(crate) struct InflightGuard {
+  process: Arc<AtomicUsize>,
+  connection: Arc<AtomicUsize>,
+}
+
+impl InflightGuard {
+  pub(crate) fn enter(process: Arc<AtomicUsize>, connection: Arc<AtomicUsize>) -> InflightGuard {
+    process.fetch_add(1, Ordering::SeqCst);
+    connection.fetch_add(1, Ordering::SeqCst);
+    InflightGuard {
+      process,
+      connection,
+    }
+  }
+}
+
+impl Drop for InflightGuard {
+  fn drop(&mut self) {
+    self.process.fetch_sub(1, Ordering::SeqCst);
+    self.connection.fetch_sub(1, Ordering::SeqCst);
+  }
+}
+
+/// Waits for one connection's own in-flight requests to finish, up to
+/// `budget`. A reload closes one connection at a time, and what has to finish
+/// before it may close is what *it* is carrying: the process-wide count would
+/// hold it open for a sibling service's work, and a response that never ends
+/// (a live log, an event stream) would hold it open for the whole budget on
+/// every reload. That last one is still true of this connection's own such
+/// response, which is the honest limit of a drain, and why it is bounded.
+pub(crate) async fn drain_connection_inflight(inflight: &Arc<AtomicUsize>, budget: Duration) {
+  if budget.is_zero() {
+    return;
+  }
+  let deadline = Instant::now() + budget;
+  loop {
+    let n = inflight.load(Ordering::SeqCst);
+    if n == 0 {
+      info!("Drain complete for this connection.");
+      return;
+    }
+    if Instant::now() >= deadline {
+      warn!(
+        "Drain timeout with {} request(s) still in flight on this connection; closing anyway.",
+        n
+      );
+      return;
+    }
+    info!("Draining this connection: {} request(s) in flight...", n);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+  }
+}
+
 pub(crate) async fn drain_inflight_for(shared: &Shared, budget: Duration) {
   if budget.is_zero() {
     return;

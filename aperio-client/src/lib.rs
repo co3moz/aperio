@@ -51,6 +51,55 @@ use config::{
   resolve_sources,
 };
 
+/// How long a reload waits for the replacement connections to come up before
+/// closing the ones they replace. Bounded, because a replacement that cannot
+/// connect (a full server, a wrong new setting the server refuses) must not
+/// keep a superseded configuration running forever; the log names what did
+/// not make it.
+const RELOAD_HANDOVER_BUDGET: Duration = Duration::from_secs(10);
+
+/// The services in `names` whose live-connection count in `live` is not yet
+/// above what `before` recorded: the replacements still to come up. A service
+/// with no name is not in `names` and is not waited for, since it announces
+/// nothing to wait on.
+fn replacements_missing(
+  names: &[String],
+  before: &std::collections::HashMap<String, usize>,
+  live: &std::collections::HashMap<String, usize>,
+) -> Vec<String> {
+  names
+    .iter()
+    .filter(|n| live.get(*n).copied().unwrap_or(0) <= before.get(*n).copied().unwrap_or(0))
+    .cloned()
+    .collect()
+}
+
+/// Waits until every service in `names` has one more live connection than
+/// `before` recorded, or `budget` passes; returns what was still missing.
+async fn wait_for_replacements(
+  shared: &Shared,
+  names: &[String],
+  before: &std::collections::HashMap<String, usize>,
+  budget: Duration,
+) -> Vec<String> {
+  let mut rx = shared.ready_services.subscribe();
+  let deadline = tokio::time::Instant::now() + budget;
+  loop {
+    let missing = replacements_missing(names, before, &rx.borrow());
+    if missing.is_empty() {
+      return missing;
+    }
+    tokio::select! {
+      changed = rx.changed() => {
+        if changed.is_err() {
+          return missing;
+        }
+      }
+      _ = tokio::time::sleep_until(deadline) => return missing,
+    }
+  }
+}
+
 #[cfg(test)]
 #[path = "lib_tests.rs"]
 mod tests;
@@ -533,12 +582,34 @@ pub async fn run() {
               warn!("Config reload from {}: {}", config_path, e);
             }
             idle_timeout.store(s.idle_timeout.unwrap_or(0), Ordering::SeqCst);
+            // Make before break (`planned_features.md` #156). The old order,
+            // cancel everything, wait for it to drain, then start the new,
+            // put a window with no connection at all between the two, by
+            // construction, on the feature written so a reload would be
+            // invisible to visitors. The replacements come up first; the old
+            // connections are drained and closed once each service has one
+            // more live connection than before, or the handover budget is
+            // spent, with the ones still missing named in the log.
+            let names: Vec<String> = new_specs.iter().filter_map(|s| s.name.clone()).collect();
+            let before = shared.ready_services.borrow().clone();
+            let fresh = spawn_services(&new_specs, &shared);
+            let missing =
+              wait_for_replacements(&shared, &names, &before, RELOAD_HANDOVER_BUDGET).await;
+            if !missing.is_empty() {
+              warn!(
+                "Config reload from {}: the replacement connection(s) for {} did not come up within {}s; closing the old ones anyway",
+                config_path,
+                missing.join(", "),
+                RELOAD_HANDOVER_BUDGET.as_secs()
+              );
+            }
             for (cancel_tx, _) in &running {
               let _ = cancel_tx.send(true);
             }
             for (_, task) in running.drain(..) {
               let _ = task.await;
             }
+            running = fresh;
             specs = new_specs;
             // The new configuration is adopted, so listeners it dropped are
             // now genuinely unused.
@@ -551,7 +622,6 @@ pub async fn run() {
             for spec in &specs {
               log_spec(spec);
             }
-            running = spawn_services(&specs, &shared);
           }
           Err(e) => warn!(
             "Config reload from {} produced an invalid configuration ({}); keeping previous",

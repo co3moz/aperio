@@ -868,3 +868,61 @@ async fn the_route_limiters_size_failsafe_fires_above_the_threshold_not_at_it() 
     "the live bucket is the one kept"
   );
 }
+
+// --- the silent-client reaper (planned_features.md #156) --------------------
+
+/// A connection that stopped heart-beating is told to disconnect on the
+/// server's own timer; one that is merely late, or fresh, is left alone.
+#[tokio::test]
+async fn a_connection_silent_for_four_thresholds_is_reaped_and_a_late_one_is_not() {
+  let state = crate::test_support::test_state();
+  let threshold = state.config().client_down_threshold;
+  let long_ago = Instant::now()
+    .checked_sub(threshold * (crate::state::SILENT_CLIENT_REAP_MULTIPLIER + 1))
+    .expect("the clock has been running that long");
+  let lately = Instant::now()
+    .checked_sub(threshold * 2)
+    .expect("the clock has been running that long");
+  {
+    let mut clients = state.clients.write().await;
+    let mut ghost = crate::test_support::mock_client(None, None, None, None);
+    ghost.last_ping_at = Some(long_ago);
+    clients.insert("ghost".to_string(), ghost);
+    let mut late = crate::test_support::mock_client(None, None, None, None);
+    late.last_ping_at = Some(lately);
+    clients.insert("late".to_string(), late);
+    // Never pinged, connected just now: its reference is the connect time.
+    clients.insert(
+      "fresh".to_string(),
+      crate::test_support::mock_client(None, None, None, None),
+    );
+    // Never pinged, connected long ago: silent since it connected.
+    let mut stale = crate::test_support::mock_client(None, None, None, None);
+    stale.connected_at = long_ago;
+    clients.insert("stale".to_string(), stale);
+  }
+  let mut reaped = state.reap_silent_clients().await;
+  reaped.sort();
+  assert_eq!(reaped, vec!["ghost".to_string(), "stale".to_string()]);
+  // Told through the same notify a revoked token uses, so the read loop
+  // ends and the ordinary cleanup runs; the permit is stored until then.
+  let clients = state.clients.read().await;
+  for id in ["ghost", "stale"] {
+    let notified = clients[id].disconnect.notified();
+    assert!(
+      tokio::time::timeout(std::time::Duration::from_millis(100), notified)
+        .await
+        .is_ok(),
+      "{id} was told to disconnect"
+    );
+  }
+  for id in ["late", "fresh"] {
+    let notified = clients[id].disconnect.notified();
+    assert!(
+      tokio::time::timeout(std::time::Duration::from_millis(50), notified)
+        .await
+        .is_err(),
+      "{id} was left alone"
+    );
+  }
+}
