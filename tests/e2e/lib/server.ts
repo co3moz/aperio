@@ -69,6 +69,14 @@ export function AperioServerBase(options: Parameters<typeof Test>[0] & ServerOpt
       return join(this._dataDir, 'aperio-server.yaml')
     }
 
+    /** How often this fixture looks while waiting for the server. A hundred
+     *  milliseconds is right for a suite that waits for things to settle; a
+     *  spec that puts a clock on the server (the startup budget) overrides
+     *  it, so the slack it measures is the product's and not the poll's. */
+    _pollMs(): number {
+      return 100
+    }
+
     /** Where the server's data directory is made.
      *
      *  A hook because one spec needs it somewhere specific: the disk-full case
@@ -185,10 +193,20 @@ export function AperioServerBase(options: Parameters<typeof Test>[0] & ServerOpt
       })
       died.catch(() => {})
       try {
+        // Each probe is abandoned after a few polls' worth of time. One sent
+        // before the server bound its port is not refused on every platform
+        // (see `Options.timeoutMs`), and a probe stuck in a SYN retransmit
+        // would otherwise report the retransmit timer as the server's start.
+        const probeTimeoutMs = this._pollMs() * 10
         await Promise.race([
-          waitFor(async () => (await this._fetch('/aperio/health')).status === 200, {
-            label: `${this.constructor.name} to come up`,
-          }),
+          waitFor(
+            async () =>
+              (await this._fetch('/aperio/health', { timeoutMs: probeTimeoutMs })).status === 200,
+            {
+              label: `${this.constructor.name} to come up`,
+              intervalMs: this._pollMs(),
+            },
+          ),
           died,
         ])
         settled = true
@@ -275,7 +293,7 @@ export function AperioServerBase(options: Parameters<typeof Test>[0] & ServerOpt
           })
           return health.connected_clients === n
         },
-        { label: `${n} connected client(s)` },
+        { label: `${n} connected client(s)`, intervalMs: this._pollMs() },
       )
     }
 

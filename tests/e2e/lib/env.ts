@@ -67,7 +67,7 @@ export function freePort(): Promise<number> {
  *  "is it up yet", answered in tens of milliseconds. */
 export async function waitFor(
   check: () => Promise<boolean> | boolean,
-  { timeoutMs = 20_000, label = 'condition' } = {},
+  { timeoutMs = 20_000, label = 'condition', intervalMs = 100 } = {},
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs
   for (;;) {
@@ -77,7 +77,7 @@ export async function waitFor(
       // Not up yet.
     }
     if (Date.now() >= deadline) throw new Error(`timed out waiting for ${label}`)
-    await new Promise((r) => setTimeout(r, 100))
+    await new Promise((r) => setTimeout(r, intervalMs))
   }
 }
 

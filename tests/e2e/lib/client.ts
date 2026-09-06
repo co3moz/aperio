@@ -280,10 +280,16 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
       if (host) await this._waitRoutable(host, this._readyPath())
     }
 
+    /** How often this fixture looks while waiting on the tunnel; see the
+     *  server fixture's `_pollMs`. */
+    _pollMs(): number {
+      return 100
+    }
+
     async _waitRoutable(host: string, path: string): Promise<void> {
       await waitFor(
         async () => (await send(this._serverUrl(), path, { host })).status < 400,
-        { label: `the tunnel for ${host} to become routable` },
+        { label: `the tunnel for ${host} to become routable`, intervalMs: this._pollMs() },
       )
     }
 

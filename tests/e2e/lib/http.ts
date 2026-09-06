@@ -24,6 +24,16 @@ export interface Options {
    * chunked request is what gets sent.
    */
   bodyStream?: AsyncIterable<Buffer>
+  /**
+   * Give up on the whole request, connect included, after this long.
+   *
+   * A connect to a loopback port nobody listens on is not always refused:
+   * on a Windows box with a stealth firewall the SYN is dropped and the
+   * socket sits in its retransmit timer for seconds. A probe sent a few
+   * milliseconds before the server binds lands in exactly that hole, and
+   * without this it reports the retransmit, not the server.
+   */
+  timeoutMs?: number
 }
 
 /** A body of `total` bytes, `chunk` at a time, `gapMs` apart. */
@@ -80,6 +90,13 @@ export function send(base: string, path: string, options: Options = {}): Promise
       },
     )
     req.on('error', reject)
+    if (options.timeoutMs !== undefined) {
+      const timer = setTimeout(
+        () => req.destroy(new Error(`no answer in ${options.timeoutMs} ms`)),
+        options.timeoutMs,
+      )
+      req.on('close', () => clearTimeout(timer))
+    }
     writeBody(req, options)
   })
 }
