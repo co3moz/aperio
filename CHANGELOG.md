@@ -34,6 +34,8 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **Building from source needs Rust 1.88.** The crates declared `rust-version = "1.87"` and used `let` chains, which 1.88 stabilized, so a 1.87 toolchain failed inside a crate instead of saying the toolchain was too old. The declared floor now matches; the release binaries are unaffected.
+
 - **The default `max_tunnels` is 64, up from 10.** The cap was a file-descriptor fence from when a client was one connection; today a client holds one connection per service unless it multiplexes, and a config reload briefly wants two per service, so ten refused ordinary fleets as full. Recorded in `CONFIG_CHANGES`; `max_tunnels: 10` keeps the old fence.
 
 ### Fixed
