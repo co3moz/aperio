@@ -76,6 +76,12 @@ fn redaction_setting(raw: Option<&str>) -> bool {
 }
 
 /// True unless the operator opted out with `APERIO_INSPECTOR_REDACT=0`.
+///
+/// Skipped by the mutation sweep on purpose (planned_features #158): the
+/// first caller in a process fixes the answer for every later one, so a test
+/// process that does not set the variable cannot tell `-> true` from the
+/// original. The parsing this wraps is `redaction_setting`, tested both ways.
+#[mutants::skip]
 pub(crate) fn redaction_enabled() -> bool {
   use std::sync::OnceLock;
   static ENABLED: OnceLock<bool> = OnceLock::new();

@@ -452,6 +452,38 @@ fn a_zero_burst_is_refused_by_the_config_before_the_limiter_sees_it() {
   );
 }
 
+/// An inline route with `rps` and no `burst` admits `rps` immediate requests,
+/// which is what the documented default promises. The survivor that asked
+/// for this was the `> 0.0` filter in front of the fallback; that filter is
+/// gone, since `compile` refuses a non-positive burst first, and this is the
+/// assertion that holds the fallback itself to its word.
+#[tokio::test]
+async fn an_inline_route_without_a_burst_admits_rps_requests_at_once() {
+  use crate::static_routes::{RouteRateLimit, RouteRule, StaticRoutes};
+  let mut config = crate::test_support::test_config();
+  config.static_routes = StaticRoutes::compile(vec![RouteRule {
+    path: Some("/api".to_string()),
+    rate_limit: Some(RouteRateLimit {
+      rps: 10.0,
+      burst: None,
+      methods: None,
+    }),
+    ..Default::default()
+  }])
+  .expect("a route with a rate limit and no burst");
+  let state = crate::test_support::test_state_with(config);
+  for i in 0..10 {
+    assert!(
+      state.check_route_rate_limit(None, "/api/x", "GET").await,
+      "request {i} is within a burst of ten"
+    );
+  }
+  assert!(
+    !state.check_route_rate_limit(None, "/api/x", "GET").await,
+    "the eleventh is one over"
+  );
+}
+
 // ----- the sweeps -----
 
 /// A stale entry is dropped and a fresh one is kept, in both maps the beat

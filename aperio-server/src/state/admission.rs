@@ -15,6 +15,21 @@ use super::client::ClientHandle;
 use super::limits::{RateLimitState, TOKEN_MAP_GC_THRESHOLD, gc_token_daily_bytes, gc_token_rate};
 use super::{AppState, MaintenanceFlag, RateCost};
 
+/// How long an idle rate bucket is kept before a sweep drops it.
+const BUCKET_TTL: Duration = Duration::from_secs(600);
+
+/// Whether a bucket last touched at `last_updated` is still worth keeping at
+/// `now`. One predicate for the four sweeps that used to spell it out each.
+///
+/// Skipped by the mutation sweep on purpose (planned_features #158): the
+/// only mutants it grows are `<` to `<=`, and whether a bucket last used
+/// exactly ten minutes ago is kept or dropped is not observable by anything;
+/// a test pinning it would assert the tie-break of a timer.
+#[mutants::skip]
+fn bucket_is_live(now: Instant, last_updated: Instant) -> bool {
+  now.duration_since(last_updated) < BUCKET_TTL
+}
+
 impl AppState {
   /// In-memory thread-safe Per-IP Token Bucket Rate Limiter.
   /// Returns `true` if request is allowed, `false` if rate-limited.
@@ -230,12 +245,12 @@ impl AppState {
       .rate_limiter
       .lock()
       .await
-      .retain(|_, v| now.duration_since(v.last_updated) < Duration::from_secs(600));
+      .retain(|_, v| bucket_is_live(now, v.last_updated));
     self
       .route_rate
       .lock()
       .await
-      .retain(|_, v| now.duration_since(v.last_updated) < Duration::from_secs(600));
+      .retain(|_, v| bucket_is_live(now, v.last_updated));
     let now_secs = crate::store::sessions::now_secs();
     self
       .sessions
@@ -374,7 +389,10 @@ impl AppState {
       crate::route_limits::method_matches(rl.methods.as_ref(), Some(method)).then(|| {
         (
           rl.rps,
-          rl.burst.filter(|b| *b > 0.0).unwrap_or(rl.rps).max(1.0),
+          // `compile` refused a non-positive burst before this could see one,
+          // so the filter that used to stand here was a line the mutation
+          // sweep could flip without a test noticing, because it did nothing.
+          rl.burst.unwrap_or(rl.rps).max(1.0),
           rule.rate_key.clone(),
         )
       })
@@ -396,7 +414,7 @@ impl AppState {
     let mut buckets = self.route_rate.lock().await;
     let now = Instant::now();
     if buckets.len() > TOKEN_MAP_GC_THRESHOLD {
-      buckets.retain(|_, v| now.duration_since(v.last_updated) < Duration::from_secs(600));
+      buckets.retain(|_, v| bucket_is_live(now, v.last_updated));
     }
     let bucket = buckets.entry(key).or_insert(RateLimitState {
       tokens: burst,
@@ -443,7 +461,7 @@ impl AppState {
     // held, which is a tail-latency spike by design. Only the size failsafe
     // stays inline, since it is what bounds the map between beats.
     if limit_map.len() > 1000 {
-      limit_map.retain(|_, v| now.duration_since(v.last_updated) < Duration::from_secs(600));
+      limit_map.retain(|_, v| bucket_is_live(now, v.last_updated));
     }
 
     let max_tokens = self.config().ip_limit_max;

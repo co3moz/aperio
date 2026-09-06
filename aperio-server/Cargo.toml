@@ -70,6 +70,9 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 # provider installed at startup; see NOTE 2 below, which this dependency is
 # now the whole of. `form` is separate in 0.13 and the OIDC token exchange
 # posts one; `blocking` is the OTLP exporter's client.
+# The no-op `#[mutants::skip]` attribute, so a mutant deliberately left alive
+# is marked where it lives, with its reason beside it (planned_features #158).
+mutants = "0.0.4"
 reqwest = { version = "0.13", default-features = false, features = [
   "json",
   "form",

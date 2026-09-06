@@ -174,6 +174,7 @@ dependencies = [
  "jsonwebtoken",
  "libc",
  "mime_guess",
+ "mutants",
  "openssl",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -1759,6 +1760,12 @@ checksum = "a7bd39d24e28e1544d74ff5746e322a477e52353c8ba7adcaa83d2e760752853"
 dependencies = [
  "bytes",
 ]
+
+[[package]]
+name = "mutants"
+version = "0.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "add0ac067452ff1aca8c5002111bd6b1c895baee6e45fcbc44e0193aea17be56"
 
 [[package]]
 name = "nom"
