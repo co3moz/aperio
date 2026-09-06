@@ -195,17 +195,25 @@ pub(crate) fn build_call(
     ApiCommand::Inbox(InboxCmd::Clear) => Call::delete("/aperio/api/inbox"),
 
     ApiCommand::User(UserCmd::List) => Call::get("/aperio/api/users"),
-    ApiCommand::User(UserCmd::Create(a)) => Call::post(
-      "/aperio/api/users",
-      json!({
-        "username": a.username,
-        "password": read_maybe_stdin(&a.password)?,
-        "role": a.role,
-      }),
-    ),
+    ApiCommand::User(UserCmd::Create(a)) => {
+      let mut body = Map::new();
+      body.insert("username".into(), Value::String(a.username.clone()));
+      body.insert(
+        "password".into(),
+        Value::String(read_maybe_stdin(&a.password)?),
+      );
+      put_opt(&mut body, "role", a.role.clone());
+      if !a.grants.is_empty() {
+        body.insert("grants".into(), Value::Array(parse_grants(&a.grants)?));
+      }
+      Call::post("/aperio/api/users", Value::Object(body))
+    }
     ApiCommand::User(UserCmd::Update(a)) => {
       let mut body = Map::new();
       put_opt(&mut body, "role", a.role.clone());
+      if !a.grants.is_empty() {
+        body.insert("grants".into(), Value::Array(parse_grants(&a.grants)?));
+      }
       if a.enable || a.disable {
         body.insert("enabled".into(), Value::Bool(a.enable));
       }
@@ -355,4 +363,22 @@ pub(crate) fn build_call(
     ApiCommand::Import(a) => Call::post("/aperio/api/import", read_json_file(&a.file)?),
     ApiCommand::Openapi => Call::get("/aperio/api/openapi.json"),
   })
+}
+
+/// `--grant <org>:<role>` into the API's `{org, role}` objects. The role is
+/// the last segment, so an organization id may not contain a colon, which a
+/// handle cannot anyway.
+fn parse_grants(raw: &[String]) -> Result<Vec<Value>, String> {
+  raw
+    .iter()
+    .map(|entry| {
+      let (org, role) = entry
+        .rsplit_once(':')
+        .ok_or_else(|| format!("--grant takes <org>:<role>, got {entry:?}"))?;
+      if org.trim().is_empty() || role.trim().is_empty() {
+        return Err(format!("--grant takes <org>:<role>, got {entry:?}"));
+      }
+      Ok(json!({ "org": org.trim(), "role": role.trim() }))
+    })
+    .collect()
 }

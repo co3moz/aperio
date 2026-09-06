@@ -423,3 +423,112 @@ export class OrganizationIsolationSpec extends Test({
     assert.equal(acme?.tokens, 1, "the listing still counts the child org's token")
   }
 }
+
+/** One user, several organizations: created from master with a grant per
+ *  organization, it switches between them and reaches nothing else, and an
+ *  Admin of master is the server without being every tenant. */
+export class GrantsSpec extends Test({
+  after: () => [OrganizationIsolationSpec],
+  timeout: 120_000,
+  dependencies: { server: () => OrgsServer },
+}) {
+  static betaId = ''
+
+  async _signIn(user: string, password: string): Promise<string> {
+    const cookies = await sendRaw(this.server._url, '/aperio/auth', {
+      method: 'POST',
+      headers: {
+        authorization: `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`,
+      },
+    })
+    const raw = cookies.at(0)
+    assert.ok(raw, `${user} could not sign in`)
+    return raw.split(';')[0]
+  }
+
+  async _selectAs(cookie: string, id: string): Promise<number> {
+    const res = await this.server._fetch('/aperio/api/orgs/select', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+    return res.status
+  }
+
+  async aUserGrantedTwoOrganizationsSwitchesBetweenThemAndNowhereElse() {
+    const acmeId = OrganizationsApiSpec.acmeId
+    const beta = await this.server._api<Org>('/aperio/api/orgs', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'beta' }),
+    })
+    GrantsSpec.betaId = beta.id
+    await this.server._api('/aperio/api/users', {
+      method: 'POST',
+      body: JSON.stringify({
+        username: 'two-orgs',
+        password: 'twoorgs123',
+        grants: [
+          { org: acmeId, role: 'admin' },
+          { org: beta.id, role: 'viewer' },
+        ],
+      }),
+    })
+    const cookie = await this._signIn('two-orgs', 'twoorgs123')
+
+    const session = await this.server._json<{
+      master_admin: boolean
+      selected_org: string
+      orgs: { id: string; role: string }[]
+    }>('/aperio/api/session', { headers: { cookie } })
+    assert.equal(session.master_admin, false)
+    assert.deepEqual(
+      session.orgs.map((o) => o.id).sort(),
+      [acmeId, beta.id].sort(),
+      'the session lists exactly the organizations a grant reaches',
+    )
+    assert.ok([acmeId, beta.id].includes(session.selected_org), 'lands in one of them')
+
+    // Viewer in Beta: a mutation is refused by the role floor there.
+    assert.equal(await this._selectAs(cookie, beta.id), 200)
+    const asViewer = await this.server._fetch('/aperio/api/tokens', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'nope' }),
+    })
+    assert.equal(asViewer.status, 403)
+
+    // Admin in Acme: the token made there earlier is visible.
+    assert.equal(await this._selectAs(cookie, acmeId), 200)
+    const tokens = await this.server._json<{ name: string }[]>('/aperio/api/tokens', {
+      headers: { cookie },
+    })
+    assert.ok(tokens.some((t) => t.name === 'acme-token'))
+
+    // Master and the organization listing are out of reach.
+    assert.equal(await this._selectAs(cookie, 'master'), 403)
+    assert.equal((await this.server._fetch('/aperio/api/orgs', { headers: { cookie } })).status, 403)
+  }
+
+  async anAdminOfMasterIsNotEveryOrganizationAndCannotMintStar() {
+    await this.server._api('/aperio/api/users', {
+      method: 'POST',
+      body: JSON.stringify({ username: 'master-admin', password: 'masteradmin1', role: 'admin' }),
+    })
+    const cookie = await this._signIn('master-admin', 'masteradmin1')
+    // The server-global surface answers.
+    assert.equal((await this.server._fetch('/aperio/api/orgs', { headers: { cookie } })).status, 200)
+    // A child is not theirs to act in.
+    assert.equal(await this._selectAs(cookie, GrantsSpec.betaId), 403)
+    // And `*` is given only by a holder of `*`.
+    const res = await this.server._fetch('/aperio/api/users', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'star',
+        password: 'starstar123',
+        grants: [{ org: '*', role: 'viewer' }],
+      }),
+    })
+    assert.equal(res.status, 403)
+  }
+}

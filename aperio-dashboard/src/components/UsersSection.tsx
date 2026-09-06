@@ -8,6 +8,7 @@ import {
   PencilIcon,
   PlusIcon,
   Trash2Icon,
+  XIcon,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
@@ -56,9 +57,16 @@ import { Switch } from '@/components/ui/switch'
 import { usePoll } from '@/hooks/usePoll'
 import { useI18n } from '@/i18n'
 import { usePaneFocus } from '@/lib/paneFocus'
-import { api, ApiError, type DashboardUser, type Role, type LiveSession } from '@/lib/api'
+import {
+  api,
+  ApiError,
+  type DashboardUser,
+  type Role,
+  type LiveSession,
+  type UserGrant,
+} from '@/lib/api'
 import { formatRelativeTime } from '@/lib/format'
-import { useOrgName, useSession } from '@/lib/session'
+import { useOrgLabel, useOrgName, useSession } from '@/lib/session'
 
 /** The server's own floor, mirrored so the form can say no first. */
 const MIN_PASSWORD = 8
@@ -96,12 +104,104 @@ function RoleSelect({ value, onChange }: { value: Role; onChange: (r: Role) => v
   )
 }
 
+/** The organizations the caller may grant a role in: every reachable one
+ *  where they hold Admin, and `*` when they hold `*` Admin, since a grant is
+ *  bounded by the granter's. The server refuses anything past this too; the
+ *  list only keeps the form from offering what would be refused. */
+function useGrantTargets(): { id: string; label: string }[] {
+  const { t } = useI18n()
+  const { orgs, allOrgs } = useSession()
+  const targets = orgs
+    .filter((o) => o.role === 'admin')
+    .map((o) => ({
+      id: o.id,
+      label: o.id === 'master' ? t('master') : o.custom_name || o.name,
+    }))
+  return allOrgs ? [{ id: '*', label: t('Every organization (*)') }, ...targets] : targets
+}
+
+/** One row per organization the user reaches, with the role held there. A
+ *  master-side form; inside a child organization the role select is the
+ *  whole story, since a user created there is granted that organization
+ *  only. */
+function GrantsEditor({
+  value,
+  onChange,
+}: {
+  value: UserGrant[]
+  onChange: (grants: UserGrant[]) => void
+}) {
+  const { t } = useI18n()
+  const targets = useGrantTargets()
+  const taken = new Set(value.map((g) => g.org))
+  const free = targets.filter((tg) => !taken.has(tg.id))
+  const items: Record<string, string> = Object.fromEntries(targets.map((tg) => [tg.id, tg.label]))
+  const update = (i: number, next: Partial<UserGrant>) =>
+    onChange(value.map((g, j) => (j === i ? { ...g, ...next } : g)))
+  return (
+    <div className="grid gap-2">
+      <Label>{t('Grants')}</Label>
+      {value.map((g, i) => (
+        <div key={g.org} className="flex items-center gap-2">
+          <Select
+            items={items}
+            value={g.org}
+            onValueChange={(v) => update(i, { org: v as string })}
+          >
+            <SelectTrigger className="flex-1">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {targets
+                .filter((tg) => tg.id === g.org || !taken.has(tg.id))
+                .map((tg) => (
+                  <SelectItem key={tg.id} value={tg.id}>
+                    {tg.label}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          <div className="w-36">
+            <RoleSelect value={g.role} onChange={(r) => update(i, { role: r })} />
+          </div>
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label={t('Remove grant')}
+            disabled={value.length === 1}
+            onClick={() => onChange(value.filter((_, j) => j !== i))}
+          >
+            <XIcon />
+          </Button>
+        </div>
+      ))}
+      <Button
+        size="sm"
+        variant="outline"
+        className="justify-self-start"
+        disabled={free.length === 0}
+        onClick={() => onChange([...value, { org: free[0].id, role: 'viewer' }])}
+      >
+        <PlusIcon /> {t('Add grant')}
+      </Button>
+      <p className="text-xs text-muted-foreground">
+        {t('A user granted several organizations is created here in master and managed only from master.')}
+      </p>
+    </div>
+  )
+}
+
 function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
   const { t } = useI18n()
+  const { selectedOrg } = useSession()
+  // Inside a child organization a user is granted that organization only, so
+  // the role is the whole form; master gets the editor.
+  const editGrants = selectedOrg === 'master'
   const [open, setOpen] = useState(false)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<Role>('viewer')
+  const [grants, setGrants] = useState<UserGrant[]>([{ org: 'master', role: 'viewer' }])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -118,6 +218,7 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
       setUsername('')
       setPassword('')
       setRole('viewer')
+      setGrants([{ org: 'master', role: 'viewer' }])
       setError(null)
     }
     setOpen(next)
@@ -132,7 +233,11 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
     setBusy(true)
     setError(null)
     try {
-      await api.createUser({ username: username.trim(), password, role })
+      await api.createUser({
+        username: username.trim(),
+        password,
+        ...(editGrants ? { grants } : { role }),
+      })
       setOpen(false)
       toast.success(t('User "{name}" created', { name: username.trim() }))
       onCreated()
@@ -176,10 +281,14 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
               autoComplete="new-password"
             />
           </div>
-          <div className="grid gap-2">
-            <Label>{t('Role')}</Label>
-            <RoleSelect value={role} onChange={setRole} />
-          </div>
+          {editGrants ? (
+            <GrantsEditor value={grants} onChange={setGrants} />
+          ) : (
+            <div className="grid gap-2">
+              <Label>{t('Role')}</Label>
+              <RoleSelect value={role} onChange={setRole} />
+            </div>
+          )}
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
         <DialogFooter>
@@ -197,8 +306,11 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
 
 function EditUserDialog({ user, onSaved }: { user: DashboardUser; onSaved: () => void }) {
   const { t } = useI18n()
+  const { selectedOrg } = useSession()
+  const editGrants = selectedOrg === 'master'
   const [open, setOpen] = useState(false)
   const [role, setRole] = useState<Role>(user.role)
+  const [grants, setGrants] = useState<UserGrant[]>(user.grants)
   const [enabled, setEnabled] = useState(user.enabled)
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -207,6 +319,7 @@ function EditUserDialog({ user, onSaved }: { user: DashboardUser; onSaved: () =>
   const openDialog = (next: boolean) => {
     if (next) {
       setRole(user.role)
+      setGrants(user.grants)
       setEnabled(user.enabled)
       setPassword('')
       setError(null)
@@ -224,7 +337,7 @@ function EditUserDialog({ user, onSaved }: { user: DashboardUser; onSaved: () =>
     setError(null)
     try {
       await api.updateUser(user.id, {
-        role,
+        ...(editGrants ? { grants } : { role }),
         enabled,
         ...(password.trim() ? { password } : {}),
       })
@@ -248,10 +361,14 @@ function EditUserDialog({ user, onSaved }: { user: DashboardUser; onSaved: () =>
           <DialogTitle>{t('Edit user "{name}"', { name: user.username })}</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4" onKeyDown={submitOnEnter(() => void submit())}>
-          <div className="grid gap-2">
-            <Label>{t('Role')}</Label>
-            <RoleSelect value={role} onChange={setRole} />
-          </div>
+          {editGrants ? (
+            <GrantsEditor value={grants} onChange={setGrants} />
+          ) : (
+            <div className="grid gap-2">
+              <Label>{t('Role')}</Label>
+              <RoleSelect value={role} onChange={setRole} />
+            </div>
+          )}
           <label className="flex items-center justify-between gap-3 rounded-3xl border px-4 py-3">
             <span className="text-sm font-medium">{t('Account enabled')}</span>
             <Switch checked={enabled} onCheckedChange={setEnabled} />
@@ -438,11 +555,33 @@ function SessionsCard() {
   )
 }
 
+/** The grants beyond the home organization, as badges: what a reader of the
+ *  list needs to see about a user who reaches more than one place. */
+function GrantBadges({ user }: { user: DashboardUser }) {
+  const { t } = useI18n()
+  const label = useOrgLabel()
+  const home = user.org_id ?? 'master'
+  const LABEL: Record<Role, string> = { admin: t('Admin'), operator: t('Operator'), viewer: t('Viewer') }
+  return (
+    <>
+      {user.grants
+        .filter((g) => g.org !== home)
+        .map((g) => (
+          <TintBadge key={g.org} tint={g.org === '*' ? 'red' : ROLE_TINT[g.role]}>
+            <Building2Icon className="size-3" /> {label(g.org)} · {LABEL[g.role]}
+          </TintBadge>
+        ))}
+    </>
+  )
+}
+
 export function UsersSection() {
   const { t } = useI18n()
   const { username: self } = useSession()
   const orgName = useOrgName()
   const { data: users, refresh } = usePoll(api.users, 15_000)
+  // Every `*` holder lives in master, so the master list is the whole set.
+  const wide = users?.filter((u) => u.grants.some((g) => g.org === '*')).length ?? 0
 
   return (
     <section className="flex flex-col gap-3">
@@ -458,6 +597,13 @@ export function UsersSection() {
         </TintBadge>
         <CreateUserDialog onCreated={refresh} />
       </SectionHeader>
+      {wide > 0 && (
+        <p className="rounded-3xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
+          {t('{count} user(s) reach every organization (*). Narrow the ones that do not need it.', {
+            count: String(wide),
+          })}
+        </p>
+      )}
       <RecordList>
         {users === null ? (
           <RecordSkeleton rows={3} />
@@ -476,6 +622,7 @@ export function UsersSection() {
                     <span className="text-xs font-normal text-muted-foreground">{t('(you)')}</span>
                   )}
                   <RoleBadge role={u.role} />
+                  <GrantBadges user={u} />
                   {u.enabled ? (
                     <TintBadge tint="green">{t('active')}</TintBadge>
                   ) : (

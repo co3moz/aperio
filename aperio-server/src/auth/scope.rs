@@ -96,75 +96,53 @@ pub(crate) async fn validate_session_for_visitor(
   if !validate_session(state, headers).await {
     return false;
   }
-  let Some(org) = caller_org(state, headers).await else {
-    // Master: unfenced here as everywhere else.
+  // A global session that resolves to no admin identity is a visitor one,
+  // made by the server's own visitor password: it belongs to no organization
+  // and that gate is server-wide, so it is admitted everywhere, as it always
+  // was. The plane check above `dashboard_role` keeps it off the dashboard.
+  let Some(caller) = resolve_caller(state, headers).await else {
     return true;
   };
-  match host {
-    Some(host) => state.org_may_act_on_hostname(Some(&org), host).await,
+  // Any granted organization will do, not only the selected one, and Viewer
+  // is enough: the question is whether the site is one of theirs.
+  let Some(host) = host else {
     // No `Host` to fence against. A fenced organization has no claim on a
     // request that names nothing, and admitting it would be the whole hole
-    // wearing a missing header as a disguise.
-    None => false,
-  }
-}
-
-/// The organization the caller acts within: `None` = master (the built-in
-/// admin, master token, dashboard password, OIDC, or a named user whose
-/// `org_id` is None), `Some(id)` = the caller's child organization. Returns
-/// `None` for callers without a valid global session too (they can't act).
-pub(crate) async fn caller_org(state: &AppState, headers: &HeaderMap) -> Option<String> {
-  // A per-org OIDC session is fixed to its org and never reaches master.
-  if let Some(token) = session_cookie(headers, state.config().secure_cookies) {
-    let sessions = state.sessions.lock().await;
-    if let Some(info) = sessions.get(token)
-      && info.expires_at > crate::store::sessions::now_secs()
-      && info.scope_host.is_none()
-      && info.bound_org.is_some()
-    {
-      return info.bound_org.clone();
+    // wearing a missing header as a disguise. Master stays unfenced.
+    return caller.role_in(None).is_some();
+  };
+  for grant in caller.grants() {
+    let admitted = match &grant.org {
+      // Master, and `*`: unfenced here as everywhere else.
+      crate::store::grants::GrantOrg::Master | crate::store::grants::GrantOrg::All => true,
+      crate::store::grants::GrantOrg::Child(id) => {
+        state.org_may_act_on_hostname(Some(id), host).await
+      }
+    };
+    if admitted {
+      return true;
     }
   }
-  if let Some(username) = dashboard_username(state, headers).await {
-    return state
-      .users
-      .lock()
-      .await
-      .find_by_username(&username)
-      .and_then(|u| u.org_id.clone());
-  }
-  // No named-user session: a programmatic admin key acts within its fixed org;
-  // the built-in admin / master-token session is master (None).
-  admin_key_identity(state, headers)
-    .await
-    .and_then(|(_, org, _)| org)
+  false
 }
 
-/// True when the caller is the master super-admin: a global Admin session
-/// whose organization is master (the built-in admin, or a named Admin user in
-/// the master org). Only they may manage organizations and switch orgs.
+/// True when the caller holds Admin in the master organization, directly or
+/// through `*`: the built-in admin, or a named user granted it. Only they may
+/// manage organizations and reach the server-global surfaces.
 pub(crate) async fn is_master_admin(state: &AppState, headers: &HeaderMap) -> bool {
-  if dashboard_role(state, headers).await != Some(Role::Admin) {
-    return false;
-  }
-  caller_org(state, headers).await.is_none()
+  resolve_caller(state, headers)
+    .await
+    .is_some_and(|c| c.is_master_admin())
 }
 
-/// The organization whose resources the caller may see and act on. For a
-/// named user this is their fixed `org_id`. For the master super-admin it is
-/// the org currently selected on their session (`None` = master), which they
-/// can switch with `POST /api/orgs/select`.
+/// The organization whose resources the caller may see and act on: the one
+/// selected on their session when a grant reaches it (`POST /api/orgs/select`),
+/// else master when granted, else the first organization granted. A named
+/// user with one grant is simply in that organization.
 pub(crate) async fn effective_org(state: &AppState, headers: &HeaderMap) -> Option<String> {
-  if is_master_admin(state, headers).await {
-    // The super-admin views the org selected on their session.
-    if let Some(token) = session_cookie(headers, state.config().secure_cookies)
-      && let Some(sel) = state.sessions.lock().await.selected_org(token)
-    {
-      return sel;
-    }
-    return None;
-  }
-  caller_org(state, headers).await
+  resolve_caller(state, headers)
+    .await
+    .and_then(|c| c.effective_org())
 }
 
 /// The raw session cookie value, for endpoints that mutate or exempt the
@@ -204,50 +182,19 @@ pub(crate) async fn require_master_admin(
   Ok(())
 }
 
-/// Resolves a programmatic admin API key presented as `Authorization: Bearer`
-/// (or `x-auth-token`), if a non-expired one matches: its role, organization,
-/// and name. This is the non-cookie authentication path for the dashboard API.
-pub(crate) async fn admin_key_identity(
-  state: &AppState,
-  headers: &HeaderMap,
-) -> Option<(Role, Option<String>, String)> {
-  let presented = extract_token(headers)?;
-  let store = state.admin_key_store.lock().await;
-  let key = store.verify(&presented)?;
-  Some((key.role, key.org_id.clone(), key.name.clone()))
-}
-
-/// Role of the presented caller: a global dashboard session cookie, or a
-/// programmatic admin API key (Bearer). None when neither is valid.
+/// Role of the presented caller **in the organization they are acting in**:
+/// a global dashboard session cookie, or a programmatic admin API key
+/// (Bearer). None when neither is valid, and none for a named user whose
+/// grants reach nothing.
+///
+/// Read from the user's grants on every request, not from the session: the
+/// session records who signed in, the store records what they may do now, and
+/// a grant taken away has to be gone at the next request, the way a disabled
+/// account's session grants nothing.
 pub(crate) async fn dashboard_role(state: &AppState, headers: &HeaderMap) -> Option<Role> {
-  if let Some(token) = session_cookie(headers, state.config().secure_cookies) {
-    let identity = {
-      let sessions = state.sessions.lock().await;
-      sessions
-        .get(token)
-        .filter(|info| {
-          // The plane, not just the scope. A visitor session has no host
-          // scope either, because the server's visitor password gates every
-          // route, so reading "no scope" as "may administer Aperio" handed
-          // the dashboard to whoever was given that password.
-          info.expires_at > crate::store::sessions::now_secs()
-            && info.scope_host.is_none()
-            && info.plane == crate::store::sessions::Plane::Admin
-        })
-        .map(|info| (info.role, info.username.clone()))
-    };
-    // A session whose named user was disabled or deleted grants no role; fall
-    // through so a Bearer admin key presented alongside it still works.
-    if let Some((role, username)) = identity
-      && named_user_active(state, username.as_deref()).await
-    {
-      return Some(role);
-    }
-  }
-  // Fall back to a programmatic admin key.
-  admin_key_identity(state, headers)
-    .await
-    .map(|(role, _, _)| role)
+  let caller = resolve_caller(state, headers).await?;
+  let org = caller.effective_org();
+  caller.role_in(org.as_deref())
 }
 
 /// Username of the presented global dashboard session; None for a missing/

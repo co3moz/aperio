@@ -192,7 +192,7 @@ Available events, grouped by what they are about:
 - **Clients**: `client_connected`, `client_disconnected`, `client_draining`.
 - **Tokens**: `token_created`, `token_revoked`, `token_rotated`, `token_expiring`, `token_new_ip`, `token_pin_mismatch`, `canary_tripped`.
 - **Tunnels and shares**: `tunnel_created`, `tunnel_deleted`, `share_created`.
-- **Operations**: `maintenance_on`, `maintenance_off`, `settings_updated`, `import_applied`, `user_created`.
+- **Operations**: `maintenance_on`, `maintenance_off`, `settings_updated`, `import_applied`, `user_created`, `user_grant_added`, `user_grant_removed`.
 - **Capacity and alerting**: `alert_triggered`, `alert_resolved`, `scaling_requested`, `org_usage`, `disk_usage_warning`.
 - **Housekeeping**: `db_backup`, `disk_pruned`.
 

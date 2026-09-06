@@ -240,9 +240,16 @@ async fn session_handler_reports_named_user_and_totp() {
   let resp = auth_session_handler(State(state), cookie_headers(&token)).await;
   let body = json_body(resp).await;
   assert_eq!(body["username"], "sess");
-  assert_eq!(body["role"], "operator");
+  // The role is read from the user's grants, not from what the session
+  // recorded at login: `totp_user` creates an Admin of master, whatever the
+  // seeded session says. Admin of master, not `*`: only a row from before
+  // grants existed widens to every organization.
+  assert_eq!(body["role"], "admin");
   assert_eq!(body["totp"], true);
-  assert_eq!(body["master_admin"], false);
+  assert_eq!(body["master_admin"], true);
+  assert_eq!(body["all_orgs"], false);
+  assert_eq!(body["orgs"][0]["id"], "master");
+  assert_eq!(body["orgs"][0]["role"], "admin");
 }
 
 #[tokio::test]

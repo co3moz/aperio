@@ -8,6 +8,7 @@ use tracing::{error, warn};
 
 pub(crate) mod admin_keys;
 pub(crate) mod audit;
+pub(crate) mod grants;
 pub(crate) mod inbox;
 pub(crate) mod orgs;
 pub(crate) mod scaling;

@@ -423,6 +423,8 @@ export default function App() {
       role={role}
       selectedOrg={selectedOrg}
       masterAdmin={masterAdmin}
+      allOrgs={session?.all_orgs ?? false}
+      orgs={session?.orgs ?? []}
     >
     <SidebarProvider>
       <TotpDialog
@@ -466,6 +468,7 @@ export default function App() {
         role={role}
         masterAdmin={masterAdmin}
         selectedOrg={selectedOrg}
+        reachableOrgs={session?.orgs.length ?? 0}
         onSignOut={() => void signOut()}
       />
       <SidebarInset>

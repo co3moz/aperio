@@ -72,8 +72,11 @@ pub(crate) async fn serve_until_shutdown(state: Arc<AppState>, app: Router) {
 /// else: reads for viewers, mutations for operators.
 pub(crate) fn required_role(path: &str, method: &axum::http::Method) -> crate::store::users::Role {
   use crate::store::users::Role;
-  // Self-service routes (own TOTP enrollment): any signed-in role.
-  if path.starts_with("/api/me/") {
+  // Self-service routes (own TOTP enrollment): any signed-in role. Switching
+  // organizations is self-service too: it moves the session between the
+  // organizations its grants already reach, and the handler refuses any
+  // other target, so a Viewer granted two organizations may use it.
+  if path.starts_with("/api/me/") || path == "/api/orgs/select" {
     return Role::Viewer;
   }
   if path.starts_with("/api/users")

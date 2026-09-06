@@ -715,17 +715,10 @@ impl AppState {
   /// the signed-in username, "aperio" for the built-in admin (master token /
   /// dashboard password / OIDC), or "-" when there is no valid session.
   pub(crate) async fn session_actor(&self, headers: &axum::http::HeaderMap) -> String {
-    match crate::auth::dashboard_role(self, headers).await {
-      Some(_) => {
-        if let Some(user) = crate::auth::dashboard_username(self, headers).await {
-          user
-        } else if let Some((_, _, name)) = crate::auth::admin_key_identity(self, headers).await {
-          // Programmatic admin key: attribute the action to the key by name.
-          format!("key:{name}")
-        } else {
-          "aperio".to_string()
-        }
-      }
+    match crate::auth::resolve_caller(self, headers).await {
+      // A named user by name, an admin key as `key:<name>`, the built-in
+      // account as "aperio".
+      Some(caller) => caller.actor(),
       None => "-".to_string(),
     }
   }

@@ -2120,6 +2120,16 @@ history, webhooks, the webhook inbox, audit events, maintenance flags,
 captured requests, and autoscaling records. A named admin signing into a
 child organisation sees a self-contained view and nothing else.
 
+A named user holds a list of \emph{grants}, a role per organisation. Most
+hold one. An operator who administers several tenants is created from
+master with a grant in each, switches between them from the picker, and
+is what each grant says there, read from the record on every request. A
+grant is bounded by the granter's: giving a role in an organisation takes
+Admin there, and giving \code{*}, every organisation present and future,
+takes \code{*} at Admin, which the built-in account holds. Admin in the
+master organisation is what manages organisations and reaches the global
+surfaces; it does not by itself reach the children.
+
 \section{What stays global}
 
 Server settings, the response cache (keyed by host and URI, not by
@@ -4025,8 +4035,8 @@ ok = constant_time_eq(f"sha256={expected}", signature_header) and abs(now - ts) 
   \item[Ejected] A client passively removed from rotation after repeated
         failures, while its tunnel stays connected.
   \item[Effective organisation] The organisation whose resources a caller
-        sees: a named user's own, or whichever the master super-admin has
-        selected on their session.
+        sees: the one selected on the session, out of those the caller's
+        grants reach. A user granted one organisation is simply in it.
   \item[Eligible] A client that could take a request right now: healthy,
         backend up, not draining, not disabled, not ejected.
   \item[Emergency tunnel] A local service declared but not exposed to the

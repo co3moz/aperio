@@ -136,6 +136,12 @@ async fn session_scope_gc_prunes_expired() {
 
 // --- caller_org / is_master_admin / effective_org ---------------------------
 
+/// The organization a caller lands in: a one-grant user's own, a bound OIDC
+/// login's organization, an admin key's own, master for the built-in.
+async fn caller_org(state: &AppState, headers: &HeaderMap) -> Option<String> {
+  effective_org(state, headers).await
+}
+
 #[tokio::test]
 async fn caller_org_resolution() {
   let state = test_state();
@@ -190,7 +196,7 @@ async fn caller_org_from_admin_key() {
     .create(
       "k".to_string(),
       Role::Admin,
-      Some("keyorg".to_string()),
+      crate::store::grants::GrantOrg::Child("keyorg".to_string()),
       None,
     )
     .expect("the test store can be written to");
@@ -368,19 +374,20 @@ async fn dashboard_role_from_admin_key() {
     .admin_key_store
     .lock()
     .await
-    .create("k".to_string(), Role::Viewer, None, None)
+    .create(
+      "k".to_string(),
+      Role::Viewer,
+      crate::store::grants::GrantOrg::Master,
+      None,
+    )
     .expect("the test store can be written to");
   let mut h = HeaderMap::new();
   h.insert("authorization", format!("Bearer {secret}").parse().unwrap());
   assert_eq!(dashboard_role(&state, &h).await, Some(Role::Viewer));
-  // admin_key_identity surfaces the key name/role/org.
-  let id = admin_key_identity(&state, &h).await.unwrap();
-  assert_eq!(id.0, Role::Viewer);
-  assert!(
-    admin_key_identity(&state, &HeaderMap::new())
-      .await
-      .is_none()
-  );
+  // The key resolves by name, and nothing presented resolves to nothing.
+  let caller = resolve_caller(&state, &h).await.unwrap();
+  assert_eq!(caller.actor(), "key:k");
+  assert!(resolve_caller(&state, &HeaderMap::new()).await.is_none());
 }
 
 #[tokio::test]

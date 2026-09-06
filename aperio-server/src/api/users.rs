@@ -8,11 +8,14 @@ use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use crate::auth::Caller;
 use crate::routing::extract_client_ip;
 use crate::state::AppState;
+use crate::store::grants::{self, Grant, GrantOrg};
 use crate::store::users::{Role, User, UserError};
 
 /// A user as exposed through the API (never includes the password hash).
+/// `role` is the role at home; `grants` is what decides anything.
 fn user_view(u: &User) -> serde_json::Value {
   serde_json::json!({
     "id": u.id,
@@ -22,7 +25,147 @@ fn user_view(u: &User) -> serde_json::Value {
     "enabled": u.enabled,
     "totp": u.totp_secret.is_some(),
     "org_id": u.org_id,
+    "grants": grants_view(&u.grants),
   })
+}
+
+fn grants_view(grants: &[Grant]) -> Vec<serde_json::Value> {
+  grants
+    .iter()
+    .map(|g| serde_json::json!({ "org": g.org.as_str(), "role": g.role.as_str() }))
+    .collect()
+}
+
+/// `acme:operator,beta:viewer`, for an audit line.
+fn grants_label(grants: &[Grant]) -> String {
+  grants
+    .iter()
+    .map(Grant::label)
+    .collect::<Vec<_>>()
+    .join(",")
+}
+
+/// One grant as the API spells it: an organization (`master`, `*`, or a
+/// child id) and a role.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub(crate) struct GrantRequest {
+  pub(crate) org: String,
+  /// One of `viewer`, `operator`, `admin`.
+  pub(crate) role: String,
+}
+
+/// Turns a request's grant list into grants: every role must parse, every
+/// child id must exist, and inside a child organization every grant must
+/// name that organization, since a user reaching more than one lives in
+/// master where only master manages it.
+#[allow(clippy::result_large_err)] // see api/tokens.rs
+async fn parse_grants(
+  state: &Arc<AppState>,
+  effective: Option<&str>,
+  raw: &[GrantRequest],
+) -> Result<Vec<Grant>, Response> {
+  let mut out = Vec::with_capacity(raw.len());
+  for entry in raw {
+    let Some(role) = Role::parse(&entry.role) else {
+      return Err(
+        (
+          StatusCode::BAD_REQUEST,
+          "role must be viewer, operator, or admin",
+        )
+          .into_response(),
+      );
+    };
+    let org = GrantOrg::parse(&entry.org);
+    if let GrantOrg::Child(id) = &org
+      && state.org_store.lock().await.find(id).is_none()
+    {
+      return Err(
+        (
+          StatusCode::BAD_REQUEST,
+          format!("unknown organization {id}"),
+        )
+          .into_response(),
+      );
+    }
+    if let Some(here) = effective
+      && !matches!(&org, GrantOrg::Child(id) if id == here)
+    {
+      return Err(
+        (
+          StatusCode::BAD_REQUEST,
+          "a user created inside an organization is granted that organization only; a user \
+           reaching several organizations is created and managed from master",
+        )
+          .into_response(),
+      );
+    }
+    out.push(Grant::new(org, role));
+  }
+  grants::normalize(out).map_err(|m| (StatusCode::BAD_REQUEST, m).into_response())
+}
+
+/// A grant is bounded by the granter's: giving or taking away a role in an
+/// organization takes Admin there, and `*` takes `*` Admin. Refused as a
+/// whole, so a list is never half applied.
+#[allow(clippy::result_large_err)] // see api/tokens.rs
+fn check_granter(caller: &Caller, changed: &[Grant]) -> Result<(), Response> {
+  for g in changed {
+    if !caller.may_grant(g) {
+      return Err(
+        (
+          StatusCode::FORBIDDEN,
+          format!(
+            "you cannot grant or revoke {}: that takes Admin in that organization, and `*` takes `*` Admin",
+            g.label()
+          ),
+        )
+          .into_response(),
+      );
+    }
+  }
+  Ok(())
+}
+
+/// Records one audit event per grant added or removed, naming the granter,
+/// so "why does this person have Operator in Acme" has an answer.
+async fn audit_grant_changes(
+  state: &Arc<AppState>,
+  headers: &HeaderMap,
+  ip: &str,
+  username: &str,
+  added: &[Grant],
+  removed: &[Grant],
+) {
+  for g in added {
+    state
+      .audit_session(
+        "user_grant_added",
+        headers,
+        ip,
+        &format!(
+          "username={} org={} role={}",
+          username,
+          g.org.as_str(),
+          g.role.as_str()
+        ),
+      )
+      .await;
+  }
+  for g in removed {
+    state
+      .audit_session(
+        "user_grant_removed",
+        headers,
+        ip,
+        &format!(
+          "username={} org={} role={}",
+          username,
+          g.org.as_str(),
+          g.role.as_str()
+        ),
+      )
+      .await;
+  }
 }
 
 /// Whether a user id exists and belongs to the caller's effective org, so one
@@ -86,29 +229,51 @@ pub(crate) struct UserCreateRequest {
   pub(crate) username: String,
   /// At least 8 characters.
   pub(crate) password: String,
-  /// One of `viewer`, `operator`, `admin`.
-  pub(crate) role: String,
+  /// One of `viewer`, `operator`, `admin`: the role in the organization the
+  /// caller is acting in. The one-grant spelling; `grants` is the general one
+  /// and wins when both are sent.
+  #[serde(default)]
+  pub(crate) role: Option<String>,
+  /// The organizations this user reaches and the role in each. A user
+  /// reaching several organizations can only be created from master.
+  #[serde(default)]
+  pub(crate) grants: Option<Vec<GrantRequest>>,
 }
 
 #[utoipa::path(post, path = "/aperio/api/users", tag = "users",
-  description = "Creates a dashboard user with a role (admin only).",
+  description = "Creates a dashboard user with a role, or a list of per-organization grants (admin only).",
   request_body = UserCreateRequest,
-  responses((status = 200, description = "Created user", body = serde_json::Value), (status = 400, description = "Invalid username/password/role"), (status = 500, description = "The change could not be saved and was rolled back")))]
+  responses((status = 200, description = "Created user", body = serde_json::Value), (status = 400, description = "Invalid username/password/role/grants"), (status = 403, description = "A grant the caller cannot give"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn users_create_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
   Json(payload): Json<UserCreateRequest>,
 ) -> Response {
-  let Some(role) = Role::parse(&payload.role) else {
-    return (
-      StatusCode::BAD_REQUEST,
-      "role must be viewer, operator, or admin",
-    )
-      .into_response();
+  let Some(caller) = crate::auth::resolve_caller(&state, &headers).await else {
+    return (StatusCode::UNAUTHORIZED, "Authentication required").into_response();
   };
   // New users belong to the caller's currently effective organization.
-  let org = crate::auth::effective_org(&state, &headers).await;
+  let org = caller.effective_org();
+  let grants = match &payload.grants {
+    Some(raw) => match parse_grants(&state, org.as_deref(), raw).await {
+      Ok(g) => g,
+      Err(resp) => return resp,
+    },
+    None => {
+      let Some(role) = payload.role.as_deref().and_then(Role::parse) else {
+        return (
+          StatusCode::BAD_REQUEST,
+          "role must be viewer, operator, or admin",
+        )
+          .into_response();
+      };
+      vec![Grant::new(GrantOrg::from_org_id(org.as_deref()), role)]
+    }
+  };
+  if let Err(resp) = check_granter(&caller, &grants) {
+    return resp;
+  }
   // Enforce the org user quota atomically with the create: hold the users lock
   // across the count and the insert so concurrent creates can't overshoot the
   // cap (the cap comes from the org store, fetched first).
@@ -132,7 +297,7 @@ pub(crate) async fn users_create_handler(
           .into_response();
       }
     }
-    users.create(&payload.username, &payload.password, role, org)
+    users.create_with_grants(&payload.username, &payload.password, org, grants)
   };
   match created {
     Ok(user) => {
@@ -142,9 +307,15 @@ pub(crate) async fn users_create_handler(
           "user_created",
           &headers,
           &ip,
-          &format!("username={} role={}", user.username, user.role.as_str()),
+          &format!(
+            "username={} role={} grants={}",
+            user.username,
+            user.role.as_str(),
+            grants_label(&user.grants)
+          ),
         )
         .await;
+      audit_grant_changes(&state, &headers, &ip, &user.username, &user.grants, &[]).await;
       state
         .emit_event_in(
           "user_created",
@@ -160,19 +331,24 @@ pub(crate) async fn users_create_handler(
 
 #[derive(Deserialize, utoipa::ToSchema)]
 pub(crate) struct UserUpdateRequest {
-  /// New role (`viewer` / `operator` / `admin`); omit to keep.
+  /// New role (`viewer` / `operator` / `admin`) in the organization the
+  /// caller is acting in; omit to keep. `grants` wins when both are sent.
   pub(crate) role: Option<String>,
   /// Enable/disable the account; omit to keep.
   pub(crate) enabled: Option<bool>,
   /// New password (at least 8 characters); omit to keep.
   pub(crate) password: Option<String>,
+  /// The full replacement grant list; omit to keep. Every grant added or
+  /// removed has to be one the caller could give.
+  #[serde(default)]
+  pub(crate) grants: Option<Vec<GrantRequest>>,
 }
 
 #[utoipa::path(put, path = "/aperio/api/users/{id}", tag = "users",
-  description = "Updates a user's role, enabled state, or password (admin only).",
+  description = "Updates a user's role or grants, enabled state, or password (admin only).",
   params(("id" = String, Path, description = "User record id")),
   request_body = UserUpdateRequest,
-  responses((status = 200, description = "Updated user", body = serde_json::Value), (status = 400, description = "Invalid value"), (status = 404, description = "Unknown user id")))]
+  responses((status = 200, description = "Updated user", body = serde_json::Value), (status = 400, description = "Invalid value"), (status = 403, description = "A grant the caller cannot give or take away"), (status = 404, description = "Unknown user id")))]
 pub(crate) async fn users_update_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -180,6 +356,9 @@ pub(crate) async fn users_update_handler(
   Path(id): Path<String>,
   Json(payload): Json<UserUpdateRequest>,
 ) -> Response {
+  let Some(caller) = crate::auth::resolve_caller(&state, &headers).await else {
+    return (StatusCode::UNAUTHORIZED, "Authentication required").into_response();
+  };
   let role = match payload.role.as_deref() {
     Some(raw) => match Role::parse(raw) {
       Some(r) => Some(r),
@@ -197,12 +376,48 @@ pub(crate) async fn users_update_handler(
   if !user_in_effective_org(&state, &headers, &id).await {
     return (StatusCode::NOT_FOUND, "unknown user id").into_response();
   }
-  let updated =
-    state
-      .users
-      .lock()
-      .await
-      .update(&id, role, payload.enabled, payload.password.as_deref());
+  let effective = caller.effective_org();
+  let current = match state.users.lock().await.get(&id) {
+    Some(u) => u.grants.clone(),
+    None => return (StatusCode::NOT_FOUND, "unknown user id").into_response(),
+  };
+  // The new grant list: the full replacement when one is sent, else the
+  // role rewritten for the organization the caller is acting in, else
+  // nothing changes.
+  let wanted = match (&payload.grants, role) {
+    (Some(raw), _) => match parse_grants(&state, effective.as_deref(), raw).await {
+      Ok(g) => Some(g),
+      Err(resp) => return resp,
+    },
+    (None, Some(r)) => {
+      let here = GrantOrg::from_org_id(effective.as_deref());
+      let mut next: Vec<Grant> = current.iter().filter(|g| g.org != here).cloned().collect();
+      next.push(Grant::new(here, r));
+      Some(next)
+    }
+    (None, None) => None,
+  };
+  let (added, removed) = match &wanted {
+    Some(next) => grants::diff(&current, next),
+    None => (Vec::new(), Vec::new()),
+  };
+  if let Err(resp) = check_granter(&caller, &added) {
+    return resp;
+  }
+  if let Err(resp) = check_granter(&caller, &removed) {
+    return resp;
+  }
+  let updated = {
+    let mut users = state.users.lock().await;
+    let mut result = users.update(&id, None, payload.enabled, payload.password.as_deref());
+    if result.is_ok()
+      && let Some(next) = wanted
+      && !(added.is_empty() && removed.is_empty())
+    {
+      result = users.set_grants(&id, next);
+    }
+    result
+  };
   match updated {
     Ok(user) => {
       // Disabling an account must end its live sessions, exactly as deleting
@@ -222,14 +437,19 @@ pub(crate) async fn users_update_handler(
           &headers,
           &ip,
           &format!(
-            "username={} role={} enabled={} password_changed={}",
+            "username={} role={} enabled={} password_changed={} grants={}",
             user.username,
-            user.role.as_str(),
+            user
+              .role_in(effective.as_deref())
+              .map(|r| r.as_str())
+              .unwrap_or("-"),
             user.enabled,
-            payload.password.is_some()
+            payload.password.is_some(),
+            grants_label(&user.grants)
           ),
         )
         .await;
+      audit_grant_changes(&state, &headers, &ip, &user.username, &added, &removed).await;
       Json(user_view(&user)).into_response()
     }
     Err(e) => user_error(e),

@@ -514,10 +514,33 @@ export interface SessionInfo {
   role: Role
   /** True when the session's user has TOTP two-factor auth enabled. */
   totp: boolean
-  /** True for the built-in `aperio` super-admin, who may switch organizations. */
+  /** True when the caller holds Admin in the master organization, directly
+   *  or through `*`: the built-in `aperio` account, or a named user granted
+   *  it. Gates the organization-management and server-global screens. */
   master_admin: boolean
+  /** True when the caller holds `*` Admin, the only one who may grant `*`. */
+  all_orgs: boolean
   /** The organization the session currently views (`master` or a child id). */
   selected_org: string
+  /** Every organization a grant on this account reaches, with the role held
+   *  there. One entry means there is nothing to switch to. */
+  orgs: ReachableOrg[]
+}
+
+/** One organization the session may switch into. */
+export interface ReachableOrg {
+  /** `master`, or the child id. */
+  id: string
+  name: string
+  custom_name: string | null
+  role: Role
+}
+
+/** One `(organization, role)` pair on a dashboard user. `org` is `master`,
+ *  `*` for every organization, or a child id. */
+export interface UserGrant {
+  org: string
+  role: Role
 }
 
 /** An organization as listed for the master super-admin. */
@@ -625,11 +648,16 @@ export interface OrgUsage {
 export interface DashboardUser {
   id: string
   username: string
+  /** The role at home; `grants` is what decides anything. */
   role: Role
   created_at: number
   enabled: boolean
   /** True when this user has TOTP two-factor auth enabled. */
   totp: boolean
+  /** Home organization (`null` = master): where the account is managed. */
+  org_id: string | null
+  /** What this user may do, per organization. */
+  grants: UserGrant[]
 }
 
 export interface LiveSession {
@@ -820,11 +848,15 @@ export const api = {
     mutate('/me/passkeys/register/finish', json('POST', payload)),
   passkeyDelete: (id: string) =>
     mutate(`/me/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  createUser: (payload: { username: string; password: string; role: Role }) =>
-    request<DashboardUser>('/users', json('POST', payload)),
+  createUser: (payload: {
+    username: string
+    password: string
+    role?: Role
+    grants?: UserGrant[]
+  }) => request<DashboardUser>('/users', json('POST', payload)),
   updateUser: (
     id: string,
-    payload: { role?: Role; enabled?: boolean; password?: string },
+    payload: { role?: Role; enabled?: boolean; password?: string; grants?: UserGrant[] },
   ) => mutate(`/users/${encodeURIComponent(id)}`, json('PUT', payload)),
   deleteUser: (id: string) => mutate(`/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   cacheStats: () => request<CacheStats>('/cache/stats'),

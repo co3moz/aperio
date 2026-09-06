@@ -17,12 +17,14 @@ use tracing::{error, info, warn};
 // this, what may they act on, and the OIDC flow that mints one. `oidc_flow`
 // rather than `oidc` because the crate already has an `oidc` module, and a glob
 // re-export of the same name would shadow it here.
+pub(crate) mod caller;
 pub(crate) mod ip;
 pub(crate) mod oidc_flow;
 pub(crate) mod scope;
 pub(crate) mod session;
 pub(crate) mod token;
 
+pub(crate) use caller::*;
 pub(crate) use ip::*;
 pub(crate) use oidc_flow::*;
 pub(crate) use scope::*;

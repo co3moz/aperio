@@ -9,6 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::store::grants::GrantOrg;
 use crate::store::tokens::{hash_token, now_secs};
 use crate::store::users::Role;
 
@@ -25,9 +26,18 @@ pub struct AdminKey {
   pub key_prefix: String,
   /// Role this key authenticates as (its privilege ceiling).
   pub role: Role,
-  /// Organization this key acts within; `None` = the master organization.
+  /// The child organization this key acts within; `None` = master, or every
+  /// organization when `scope` says so. Kept as the older binaries wrote it;
+  /// `scope()` is what to read.
   #[serde(default)]
   pub org_id: Option<String>,
+  /// Where the key acts: one child, master, or `*` (`planned_features.md`
+  /// #153). Absent only on a row written before the field existed, which
+  /// `load` converts: a master Admin key could reach every organization and
+  /// keeps doing so as `*`; any other key meant its own organization.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schema(value_type = Option<String>)]
+  pub scope: Option<GrantOrg>,
   /// Unix timestamp (seconds) of creation.
   pub created_at: u64,
   /// Optional unix timestamp (seconds) after which the key is rejected.
@@ -40,6 +50,23 @@ impl AdminKey {
   pub fn is_expired(&self) -> bool {
     self.expires_at.is_some_and(|exp| now_secs() >= exp)
   }
+
+  /// Where this key acts. Rows from before the field existed are read the
+  /// way they behaved: a master Admin was the super-admin, everything else
+  /// stayed in its organization.
+  pub fn scope(&self) -> GrantOrg {
+    match &self.scope {
+      Some(scope) => scope.clone(),
+      None => Self::legacy_scope(self.role, self.org_id.as_deref()),
+    }
+  }
+
+  fn legacy_scope(role: Role, org_id: Option<&str>) -> GrantOrg {
+    match (role, org_id) {
+      (Role::Admin, None) => GrantOrg::All,
+      (_, org) => GrantOrg::from_org_id(org),
+    }
+  }
 }
 
 /// Persistent store for programmatic admin API keys, backed by the
@@ -47,20 +74,62 @@ impl AdminKey {
 pub struct AdminKeyStore {
   conn: rusqlite::Connection,
   keys: Vec<AdminKey>,
+  /// Names of the keys `load` read as `*` from a pre-scope row, for the
+  /// start-up audit event. Taken once by `take_widened`.
+  widened_on_load: Vec<String>,
 }
 
 impl AdminKeyStore {
   /// Opens the shared store and loads all admin-key records.
   pub fn load(data_dir: &str) -> Self {
     let conn = crate::store::open_db(data_dir);
-    let keys: Vec<AdminKey> = crate::store::load_all(&conn, "admin_keys");
+    let mut keys: Vec<AdminKey> = crate::store::load_all(&conn, "admin_keys");
     if !keys.is_empty() {
       tracing::info!(
         "Loaded {} programmatic admin key(s) from the store",
         keys.len()
       );
     }
-    AdminKeyStore { conn, keys }
+    let converted = keys.iter().filter(|k| k.scope.is_none()).count();
+    let widened = Self::convert_legacy_rows(&mut keys);
+    let mut store = AdminKeyStore {
+      conn,
+      keys,
+      widened_on_load: widened,
+    };
+    // Written back at once, so the conversion happens exactly once: a row
+    // that carries a scope is never converted again.
+    if converted > 0 {
+      for name in &store.widened_on_load {
+        tracing::warn!(
+          "Admin key '{}' was an Admin key of the master organization and now acts in every \
+           organization (*), which is what it could already do; revoke and re-create it narrower \
+           if it should not",
+          name
+        );
+      }
+      store.persist();
+    }
+    store
+  }
+
+  /// Gives every row without a scope the scope it behaved as, and returns the
+  /// names of those that came out as `*`. On load and on import alike.
+  fn convert_legacy_rows(keys: &mut [AdminKey]) -> Vec<String> {
+    let mut widened = Vec::new();
+    for k in keys.iter_mut().filter(|k| k.scope.is_none()) {
+      let scope = AdminKey::legacy_scope(k.role, k.org_id.as_deref());
+      if scope == GrantOrg::All {
+        widened.push(k.name.clone());
+      }
+      k.scope = Some(scope);
+    }
+    widened
+  }
+
+  /// The names the last `load` widened to `*`, once.
+  pub fn take_widened(&mut self) -> Vec<String> {
+    std::mem::take(&mut self.widened_on_load)
   }
 
   /// Rewrites the admin_keys table. Returns whether the write succeeded.
@@ -77,19 +146,22 @@ impl AdminKeyStore {
   /// only hashes, like every other credential in a dump.
   /// Bookkeeping: the dump-restore path, whose caller reports on the whole
   /// import rather than on one row. See `store::replace_all`.
-  pub fn import(&mut self, keys: Vec<AdminKey>) -> usize {
+  pub fn import(&mut self, mut keys: Vec<AdminKey>) -> usize {
+    Self::convert_legacy_rows(&mut keys);
     self.keys = keys;
     self.persist();
     self.keys.len()
   }
 
   /// Creates a new admin key, persists it, and returns the record plus the
-  /// plaintext secret (available only at creation time).
+  /// plaintext secret (available only at creation time). `scope` is where it
+  /// acts; `org_id` is written alongside for the binaries that read only
+  /// that, and a `*` key reads there as the master key it would have been.
   pub fn create(
     &mut self,
     name: String,
     role: Role,
-    org_id: Option<String>,
+    scope: GrantOrg,
     ttl_seconds: Option<u64>,
   ) -> Option<(AdminKey, String)> {
     let secret = format!(
@@ -97,6 +169,10 @@ impl AdminKeyStore {
       uuid::Uuid::new_v4().simple(),
       uuid::Uuid::new_v4().simple()
     );
+    let org_id = match &scope {
+      GrantOrg::Child(id) => Some(id.clone()),
+      GrantOrg::Master | GrantOrg::All => None,
+    };
     let record = AdminKey {
       id: uuid::Uuid::new_v4().to_string(),
       name,
@@ -104,6 +180,7 @@ impl AdminKeyStore {
       key_prefix: secret.chars().take(12).collect(),
       role,
       org_id,
+      scope: Some(scope),
       created_at: now_secs(),
       expires_at: ttl_seconds.map(|ttl| now_secs().saturating_add(ttl)),
     };

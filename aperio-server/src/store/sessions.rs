@@ -305,7 +305,9 @@ impl SessionStore {
     stale.len()
   }
 
-  /// The selected organization on a session, if the session exists.
+  /// The selected organization on a session, if the session exists. The
+  /// request path reads it through `resolve_caller`; this is for tests.
+  #[cfg(test)]
   pub(crate) fn selected_org(&self, token: &str) -> Option<Option<String>> {
     self
       .sessions

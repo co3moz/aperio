@@ -143,7 +143,7 @@ function CreateAdminKeyDialog({
             </select>
           </div>
           <div className="space-y-1">
-            <Label>{t('Organization id (empty = master)')}</Label>
+            <Label>{t('Organization id (empty = master, * = every organization)')}</Label>
             <Input value={org} onChange={(e) => setOrg(e.target.value)} placeholder="" />
           </div>
           <div className="space-y-1">
@@ -239,7 +239,9 @@ export function AdminKeysSection() {
               <RecordFact icon={<KeyRoundIcon />} className="font-mono">
                 {k.key_prefix}…
               </RecordFact>
-              <RecordFact icon={<Building2Icon />}>{k.org_id ?? t('master')}</RecordFact>
+              <RecordFact icon={<Building2Icon />}>
+                {k.org_id === '*' ? t('all organizations') : (k.org_id ?? t('master'))}
+              </RecordFact>
               <RecordFact
                 icon={<ClockIcon />}
                 className={k.expired ? 'text-destructive' : undefined}

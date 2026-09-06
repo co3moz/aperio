@@ -151,22 +151,24 @@ pub(crate) struct OrgSelectRequest {
   pub(crate) id: Option<String>,
 }
 
-/// Switches the master super-admin's active organization. Only the built-in
-/// `aperio` super-admin may switch orgs; a named user is pinned to their own
-/// org and this is a no-op error for them. The selection is stored on the
-/// session, so all subsequent list/stats calls scope to it.
+/// Switches the session's active organization. Open to any session with a
+/// grant that reaches the target: the built-in super-admin reaches every
+/// organization, and a named user reaches the ones on their record
+/// (`planned_features.md` #153). A per-org OIDC login is fixed to its
+/// organization, and an admin key has no session to switch. The selection is
+/// stored on the session, so all subsequent list/stats calls scope to it.
 #[utoipa::path(post, path = "/aperio/api/orgs/select", tag = "orgs",
-  description = "Switches the master super-admin's active organization (stored on the session). Master super-admin only.",
+  description = "Switches the session's active organization (stored on the session). The target has to be one the caller is granted.",
   request_body = OrgSelectRequest,
-  responses((status = 200, description = "Selected", body = serde_json::Value), (status = 404, description = "Unknown org")))]
+  responses((status = 200, description = "Selected", body = serde_json::Value), (status = 403, description = "No grant reaches that organization"), (status = 404, description = "Unknown org")))]
 pub(crate) async fn orgs_select_handler(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
   Json(payload): Json<OrgSelectRequest>,
 ) -> Response {
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
-    return resp;
-  }
+  let Some(caller) = crate::auth::resolve_caller(&state, &headers).await else {
+    return (StatusCode::UNAUTHORIZED, "Authentication required").into_response();
+  };
   // Normalize: the synthetic `master` id and empty mean "master org" (None).
   let target = match payload.id.as_deref() {
     None | Some("") | Some(MASTER_ID) => None,
@@ -188,6 +190,13 @@ pub(crate) async fn orgs_select_handler(
   let Some(token) = crate::auth::session_token(&state, &headers) else {
     return (StatusCode::UNAUTHORIZED, "no session").into_response();
   };
+  if !caller.may_select(target.as_deref()) {
+    return (
+      StatusCode::FORBIDDEN,
+      "no grant on this account reaches that organization",
+    )
+      .into_response();
+  }
   state
     .sessions
     .lock()
@@ -434,6 +443,18 @@ pub(crate) async fn orgs_delete_handler(
   // empty, which reads as "everything is gone" rather than as "you are
   // looking at nothing".
   state.sessions.lock().await.clear_selected_org(&id);
+  // And off every user it was granted to. The organization had no users of
+  // its own (refused above), but a user living in master may reach it by a
+  // grant, and a grant naming nothing is a row that says something false.
+  let stripped = state.users.lock().await.remove_org_grants(&id);
+  if !stripped.is_empty() {
+    info!(
+      "Removed grants on the deleted organization {} from {} user(s): {}",
+      id,
+      stripped.len(),
+      stripped.join(", ")
+    );
+  }
   let ip = actor_ip(&state, &headers, addr);
   state
     .audit(

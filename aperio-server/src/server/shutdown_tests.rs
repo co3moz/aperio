@@ -22,6 +22,12 @@ fn test_required_role_self_service_routes() {
     required_role("/api/me/passkeys", &Method::GET),
     Role::Viewer
   );
+  // Switching organizations moves the session between the organizations its
+  // grants reach; a Viewer granted two of them needs it as much as an Admin.
+  assert_eq!(
+    required_role("/api/orgs/select", &Method::POST),
+    Role::Viewer
+  );
 }
 
 #[test]

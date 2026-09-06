@@ -30,19 +30,50 @@ Organization names are unique (case-insensitive); `master` is reserved. A child 
 
 ## The super-admin and switching organizations
 
-The built-in `aperio` admin is the hidden super-admin of every organization. Only this account can:
+The built-in `aperio` admin holds every organization at Admin, `*` in the grant spelling below. Managing organizations and reaching the server-global surfaces takes **Admin in the master organization**, which the built-in account has and a named user can be granted:
 
 - create, list, and delete child organizations,
-- **switch** which organization it is acting in, from the organization picker in the dashboard sidebar (or `POST /aperio/api/orgs/select` with `{"id": "<org-id>"}`; `master` or `null` selects master),
+- **switch** which organization the session is acting in, from the organization picker in the dashboard sidebar (or `POST /aperio/api/orgs/select` with `{"id": "<org-id>"}`; `master` or `null` selects master). The picker is not master's alone: any session whose grants reach more than one organization gets it, for exactly those organizations,
 - reach the **server-global** surfaces (see below).
 
-The selection is stored on the super-admin's session, so every subsequent listing, action, and statistic is scoped to the organization currently selected. Switching to Acme and creating a token puts that token in Acme; switching back to master hides it again.
+The selection is stored on the session, so every subsequent listing, action, and statistic is scoped to the organization currently selected. Switching to Acme and creating a token puts that token in Acme; switching back to master hides it again.
 
-A **named user** (one created through the *Users* page) is *pinned* to the organization it was created in. It cannot switch organizations and has no visibility outside its own, even with the `admin` role, which grants full control *within* that organization only.
+A **named user** (one created through the *Users* page) holds a list of **grants**, one `(organization, role)` pair each. Most hold exactly one: a user created inside a child organization is granted that organization and nothing else, cannot switch, and has no visibility outside it, even with the `admin` role, which grants full control *within* that organization only. A user who needs more than one is created from master, see [Grants](#grants-one-user-several-organizations).
+
+## Grants: one user, several organizations
+
+Every dashboard user carries `grants`, a list of `{org, role}` pairs where `org` is a child organization id, `master`, or `*` for every organization present and future. The role the dashboard enforces is the role in the organization the session is acting in, read from the record on every request, so a grant taken away is gone at the next request, the way a disabled account's sessions grant nothing.
+
+- **A specific entry beats `*`.** `{*: viewer, acme: operator}` reads the way it looks: Operator in Acme, Viewer everywhere else. `*: viewer` on its own is an auditor, reading the whole server and changing nothing.
+- **A grant is bounded by the granter's.** Giving or taking away a role in an organization takes Admin there; giving or taking away `*` takes `*` Admin. An organization's admin cannot grant themselves a second organization, and an Admin of master runs the server without being able to mint a credential wider than their own reach.
+- **Server-global surfaces take Admin in master**: settings, import and export, organization create, delete, quota and fence. What Admin in master does *not* give is the children. `master: admin` is the server; `*: admin` is the server and every tenant, the nearest thing to the built-in account. It may create other `*` users, and it never touches the built-in account or the master token.
+- **A user reaching several organizations lives in master.** It is created from master, with the grant editor on the Users page or `grants` on `POST /aperio/api/users`, and only master manages it: an Acme admin resetting such a user's password or TOTP would be resetting their Beta login too. Inside a child organization the form offers the role alone, and a user created there is granted that organization only.
+- **The picker opens to everyone with more than one grant.** `GET /aperio/api/session` lists the organizations a session reaches (`orgs`) with the role in each, and `POST /aperio/api/orgs/select` accepts any of them. A user granted one organization sees no picker.
+- **The visitor gate admits on any granted organization's hostnames**, not only the selected one's, and Viewer is enough.
+- **Admin keys follow the same reading.** A key keeps one scope, since it is minted for one purpose: a child id, `master`, or `*`, which only a holder of `*` Admin may mint (`"org_id": "*"` on `POST /aperio/api/admin-keys`, `--org '*'` on the CLI).
+
+```bash
+# From master: one user, Admin in Acme and read-only in Beta
+curl -b cookies.txt -X POST -H 'Content-Type: application/json' \
+  --data '{"username":"carol","password":"...","grants":[{"org":"<acme-id>","role":"admin"},{"org":"<beta-id>","role":"viewer"}]}' \
+  https://tunnel.example.com/aperio/api/users
+
+# Replace the list later; every grant added or removed is an audit event
+# (user_grant_added, user_grant_removed) naming who made the change
+curl -b cookies.txt -X PUT -H 'Content-Type: application/json' \
+  --data '{"grants":[{"org":"<acme-id>","role":"admin"}]}' \
+  https://tunnel.example.com/aperio/api/users/<id>
+
+# The same from the command line
+aperio-client api user create --username carol --password - --grant <acme-id>:admin --grant <beta-id>:viewer
+aperio-client api user update <id> --grant <acme-id>:admin
+```
+
+**Upgrading.** A user record from before grants existed is read as one grant in its home organization, except an Admin of master, which is read as `*: admin`: that is exactly what the record could do before, and narrowing it on an upgrade would lock out whoever runs the server. The same goes for an Admin key of master. Each one is written down in the audit log at the first start (`grants_widened_on_upgrade`), and the Users page shows a notice while any user still carries `*`, so the operator narrows them by hand and knows when they are done.
 
 ## What is isolated
 
-Per **effective organization**, a named user's own org, or the org the super-admin has selected, the following are scoped so one organization never sees another's:
+Per **effective organization**, the one selected on the session out of those the caller's grants reach (a user granted one organization is simply in it), the following are scoped so one organization never sees another's:
 
 - **Tunnel clients**, the live view, topology, and connected-client count.
 - **API tokens**, listing, creation, editing, and revocation (a token id from another org is treated as not-found).

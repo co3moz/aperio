@@ -2,6 +2,7 @@
 //! a user belongs to, which is what every other permission check reads.
 
 use super::*;
+use crate::store::grants::{Grant, GrantOrg};
 
 fn temp_dir() -> String {
   let dir =
@@ -351,4 +352,197 @@ fn a_passkey_stored_by_the_previous_webauthn_rs_still_loads() {
     key.cred_id(),
     "the credential id did not survive a round trip"
   );
+}
+
+// ---------------------------------------------------------------------------
+// grants (planned_features.md #153)
+// ---------------------------------------------------------------------------
+
+fn labels(user: &User) -> Vec<String> {
+  user.grants.iter().map(|g| g.label()).collect()
+}
+
+/// Rewrites every stored row without the named field, the way a build from
+/// before the field existed wrote it.
+fn strip_field_on_disk(dir: &str, table: &str, field: &str) {
+  let conn = crate::store::open_db(dir);
+  let rows: Vec<(String, String)> = {
+    let mut stmt = conn
+      .prepare(&format!("SELECT id, data FROM {table}"))
+      .unwrap();
+    stmt
+      .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+      .unwrap()
+      .map(|r| r.unwrap())
+      .collect()
+  };
+  for (id, data) in rows {
+    let mut v: serde_json::Value = serde_json::from_str(&data).unwrap();
+    v.as_object_mut().unwrap().remove(field);
+    conn
+      .execute(
+        &format!("UPDATE {table} SET data = ?1 WHERE id = ?2"),
+        rusqlite::params![v.to_string(), id],
+      )
+      .unwrap();
+  }
+}
+
+#[test]
+fn a_pre_grants_row_converts_once_and_only_the_master_admin_widens() {
+  let dir = temp_dir();
+  {
+    let mut store = UserStore::load(&dir);
+    store
+      .create("root", "long-password", Role::Admin, None)
+      .unwrap();
+    store
+      .create("watcher", "long-password", Role::Viewer, None)
+      .unwrap();
+    store
+      .create(
+        "acme-admin",
+        "long-password",
+        Role::Admin,
+        Some("acme".into()),
+      )
+      .unwrap();
+  }
+  strip_field_on_disk(&dir, "users", "grants");
+
+  let mut store = UserStore::load(&dir);
+  assert_eq!(store.take_widened(), vec!["root".to_string()]);
+  assert!(store.take_widened().is_empty(), "taken once");
+  assert_eq!(
+    labels(store.find_by_username("root").unwrap()),
+    vec!["*:admin"]
+  );
+  assert_eq!(
+    labels(store.find_by_username("watcher").unwrap()),
+    vec!["master:viewer"]
+  );
+  assert_eq!(
+    labels(store.find_by_username("acme-admin").unwrap()),
+    vec!["acme:admin"]
+  );
+
+  // Narrowed by hand, the narrowing survives the next start: the conversion
+  // ran once and wrote the rows back with grants.
+  let root_id = store.find_by_username("root").unwrap().id.clone();
+  store
+    .set_grants(&root_id, vec![Grant::new(GrantOrg::Master, Role::Admin)])
+    .unwrap();
+  let mut again = UserStore::load(&dir);
+  assert!(again.take_widened().is_empty());
+  assert_eq!(
+    labels(again.find_by_username("root").unwrap()),
+    vec!["master:admin"]
+  );
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_compatibility_role_follows_the_home_grant_and_never_exceeds_it() {
+  let dir = temp_dir();
+  let mut store = UserStore::load(&dir);
+  let carol = store
+    .create_with_grants(
+      "carol",
+      "long-password",
+      None,
+      vec![
+        Grant::new(GrantOrg::Master, Role::Viewer),
+        Grant::new(GrantOrg::Child("acme".into()), Role::Admin),
+      ],
+    )
+    .unwrap();
+  assert_eq!(carol.role, Role::Viewer, "the role at home");
+  // `update(role)` rewrites the home grant and leaves the rest alone.
+  let carol = store
+    .update(&carol.id, Some(Role::Operator), None, None)
+    .unwrap();
+  assert_eq!(labels(&carol), vec!["master:operator", "acme:admin"]);
+  assert_eq!(carol.role, Role::Operator);
+  // Nothing reaching home reads as Viewer there, so an older binary never
+  // sees an Admin of master the grants do not give.
+  let dan = store
+    .create_with_grants(
+      "dan",
+      "long-password",
+      None,
+      vec![Grant::new(GrantOrg::Child("acme".into()), Role::Admin)],
+    )
+    .unwrap();
+  assert_eq!(dan.role, Role::Viewer);
+  assert_eq!(dan.role_in(Some("acme")), Some(Role::Admin));
+  assert_eq!(dan.role_in(None), None);
+  // An empty list is refused.
+  assert!(matches!(
+    store.set_grants(&dan.id, Vec::new()),
+    Err(UserError::Invalid(_))
+  ));
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn removing_an_organizations_grants_reports_who_was_touched() {
+  let dir = temp_dir();
+  let mut store = UserStore::load(&dir);
+  store
+    .create_with_grants(
+      "carol",
+      "long-password",
+      None,
+      vec![
+        Grant::new(GrantOrg::Master, Role::Viewer),
+        Grant::new(GrantOrg::Child("acme".into()), Role::Admin),
+      ],
+    )
+    .unwrap();
+  store
+    .create("erin", "long-password", Role::Viewer, Some("acme".into()))
+    .unwrap();
+  store
+    .create("frank", "long-password", Role::Admin, None)
+    .unwrap();
+  assert_eq!(
+    store.remove_org_grants("acme"),
+    vec!["carol".to_string(), "erin".to_string()]
+  );
+  assert_eq!(
+    labels(store.find_by_username("carol").unwrap()),
+    vec!["master:viewer"]
+  );
+  let erin = store.find_by_username("erin").unwrap();
+  assert!(erin.grants.is_empty(), "a grant on nothing is gone");
+  assert_eq!(erin.role, Role::Viewer);
+  assert!(
+    store.remove_org_grants("acme").is_empty(),
+    "nothing left to strip"
+  );
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn import_converts_rows_from_an_older_dump() {
+  let dir = temp_dir();
+  let mut store = UserStore::load(&dir);
+  let legacy = User {
+    id: "u1".into(),
+    username: "root".into(),
+    password_hash: String::new(),
+    role: Role::Admin,
+    org_id: None,
+    grants: Vec::new(),
+    created_at: 0,
+    enabled: true,
+    totp_secret: None,
+    totp_pending: None,
+    recovery_hashes: Vec::new(),
+    totp_last_step: None,
+    passkeys: Vec::new(),
+  };
+  assert_eq!(store.import(vec![legacy]), 1);
+  assert_eq!(labels(&store.list()[0]), vec!["*:admin"]);
+  let _ = std::fs::remove_dir_all(&dir);
 }

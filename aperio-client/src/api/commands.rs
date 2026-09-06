@@ -457,18 +457,25 @@ pub(crate) struct UserCreateArgs {
   /// Password, at least 8 characters; `-` reads it from stdin
   #[arg(long, value_name = "PASSWORD")]
   pub(crate) password: String,
-  /// Role: viewer, operator, or admin
-  #[arg(long, value_name = "ROLE")]
-  pub(crate) role: String,
+  /// Role: viewer, operator, or admin, in the organization you are acting in
+  #[arg(long, value_name = "ROLE", required_unless_present = "grants")]
+  pub(crate) role: Option<String>,
+  /// A grant, `<org>:<role>`, repeatable; `<org>` is a child id, `master`, or `*`.
+  /// A user reaching several organizations is created from master
+  #[arg(long = "grant", value_name = "ORG:ROLE")]
+  pub(crate) grants: Vec<String>,
 }
 
 #[derive(Args)]
 pub(crate) struct UserUpdateArgs {
   /// User record id
   pub(crate) id: String,
-  /// New role: viewer, operator, or admin
+  /// New role: viewer, operator, or admin, in the organization you are acting in
   #[arg(long, value_name = "ROLE")]
   pub(crate) role: Option<String>,
+  /// Replace the grant list: `<org>:<role>`, repeatable
+  #[arg(long = "grant", value_name = "ORG:ROLE")]
+  pub(crate) grants: Vec<String>,
   /// Enable the account
   #[arg(long)]
   pub(crate) enable: bool,
@@ -582,7 +589,8 @@ pub(crate) struct AdminKeyCreateArgs {
   /// Role the key authenticates as: viewer, operator, or admin
   #[arg(long, value_name = "ROLE")]
   pub(crate) role: String,
-  /// Organization the key acts within; omitted = master
+  /// Organization the key acts within: a child id, omitted = master, or `*`
+  /// for every organization (takes a caller granted every organization)
   #[arg(long = "org", value_name = "ORG_ID")]
   pub(crate) org_id: Option<String>,
   /// Lifetime: 30m, 2h, 1d, or never (default)

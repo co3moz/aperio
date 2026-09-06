@@ -176,7 +176,12 @@ async fn select_without_session_cookie_is_401() {
     .admin_key_store
     .lock()
     .await
-    .create("k".into(), Role::Admin, None, None)
+    .create(
+      "k".into(),
+      Role::Admin,
+      crate::store::grants::GrantOrg::All,
+      None,
+    )
     .expect("the test store can be written to");
   let mut headers = HeaderMap::new();
   headers.insert(
@@ -945,4 +950,136 @@ async fn a_partial_label_pattern_is_accepted_by_the_allowlist_endpoint() {
     .unwrap();
   let text = String::from_utf8(body.to_vec()).unwrap();
   assert!(text.contains("*-pi.acme.com"), "{text}");
+}
+
+// ---------------------------------------------------------------------------
+// select and delete, with grants (planned_features.md #153)
+// ---------------------------------------------------------------------------
+
+async fn granted_user(state: &Arc<AppState>, name: &str, grants: Vec<(&str, Role)>) -> String {
+  use crate::store::grants::{Grant, GrantOrg};
+  state
+    .users
+    .lock()
+    .await
+    .create_with_grants(
+      name,
+      "long-password",
+      None,
+      grants
+        .into_iter()
+        .map(|(org, role)| Grant::new(GrantOrg::parse(org), role))
+        .collect(),
+    )
+    .unwrap();
+  seed_session(state, Role::Viewer, Some(name), None).await
+}
+
+async fn select_status(state: &Arc<AppState>, token: &str, id: &str) -> StatusCode {
+  orgs_select_handler(
+    State(state.clone()),
+    cookie_headers(token),
+    Json(OrgSelectRequest {
+      id: Some(id.to_string()),
+    }),
+  )
+  .await
+  .status()
+}
+
+#[tokio::test]
+async fn a_granted_user_switches_between_its_organizations_and_nowhere_else() {
+  let state = Arc::new(test_state());
+  let acme = make_org(&state, "acme").await;
+  let beta = make_org(&state, "beta").await;
+  let gamma = make_org(&state, "gamma").await;
+  let token = granted_user(
+    &state,
+    "carol",
+    vec![(&acme, Role::Admin), (&beta, Role::Viewer)],
+  )
+  .await;
+
+  assert_eq!(select_status(&state, &token, &acme).await, StatusCode::OK);
+  assert_eq!(select_status(&state, &token, &beta).await, StatusCode::OK);
+  assert_eq!(
+    state.sessions.lock().await.selected_org(&token),
+    Some(Some(beta.clone()))
+  );
+  // The role follows the selection: Viewer in Beta, Admin in Acme.
+  assert_eq!(
+    crate::auth::dashboard_role(&state, &cookie_headers(&token)).await,
+    Some(Role::Viewer)
+  );
+  assert_eq!(select_status(&state, &token, &acme).await, StatusCode::OK);
+  assert_eq!(
+    crate::auth::dashboard_role(&state, &cookie_headers(&token)).await,
+    Some(Role::Admin)
+  );
+  // Nothing reaches Gamma or master.
+  assert_eq!(
+    select_status(&state, &token, &gamma).await,
+    StatusCode::FORBIDDEN
+  );
+  assert_eq!(
+    select_status(&state, &token, MASTER_ID).await,
+    StatusCode::FORBIDDEN
+  );
+  // And the selection is still Acme after the refusals.
+  assert_eq!(
+    crate::auth::effective_org(&state, &cookie_headers(&token)).await,
+    Some(acme)
+  );
+}
+
+#[tokio::test]
+async fn a_master_admin_without_star_reaches_no_child() {
+  let state = Arc::new(test_state());
+  let acme = make_org(&state, "acme").await;
+  let token = granted_user(&state, "root", vec![(MASTER_ID, Role::Admin)]).await;
+  assert!(crate::auth::is_master_admin(&state, &cookie_headers(&token)).await);
+  assert_eq!(
+    select_status(&state, &token, MASTER_ID).await,
+    StatusCode::OK
+  );
+  assert_eq!(
+    select_status(&state, &token, &acme).await,
+    StatusCode::FORBIDDEN
+  );
+  // The listing is master's, so it answers; the child is simply not theirs
+  // to act in.
+  let resp = orgs_list_handler(State(state.clone()), cookie_headers(&token)).await;
+  assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn deleting_an_organization_strips_the_grants_that_named_it() {
+  let state = Arc::new(test_state());
+  let acme = make_org(&state, "acme").await;
+  let beta = make_org(&state, "beta").await;
+  granted_user(
+    &state,
+    "carol",
+    vec![(&acme, Role::Admin), (&beta, Role::Viewer)],
+  )
+  .await;
+  let resp = orgs_delete_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    admin_headers(&state).await,
+    Path(beta.clone()),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  let labels: Vec<String> = state
+    .users
+    .lock()
+    .await
+    .find_by_username("carol")
+    .unwrap()
+    .grants
+    .iter()
+    .map(|g| g.label())
+    .collect();
+  assert_eq!(labels, vec![format!("{acme}:admin")]);
 }

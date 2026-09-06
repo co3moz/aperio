@@ -18,7 +18,18 @@ use tracing::info;
 
 use crate::routing::extract_client_ip;
 use crate::state::AppState;
+use crate::store::grants::GrantOrg;
 use crate::store::users::Role;
+
+/// The `org_id` an admin key reports: `null` for master, `*` for every
+/// organization, else the child id. One field, so the CLI and the dashboard
+/// read a `*` key where they read every other.
+fn scope_view(scope: &GrantOrg) -> Option<String> {
+  match scope {
+    GrantOrg::Master => None,
+    GrantOrg::All | GrantOrg::Child(_) => Some(scope.as_str().to_string()),
+  }
+}
 
 /// Public view of an admin key (never includes the hash or secret).
 #[derive(Serialize)]
@@ -53,7 +64,7 @@ pub(crate) async fn admin_keys_list_handler(
       name: k.name.clone(),
       key_prefix: k.key_prefix.clone(),
       role: k.role,
-      org_id: k.org_id.clone(),
+      org_id: scope_view(&k.scope()),
       created_at: k.created_at,
       expires_at: k.expires_at,
       expired: k.is_expired(),
@@ -68,7 +79,9 @@ pub(crate) struct AdminKeyCreateRequest {
   pub(crate) name: String,
   /// Role the key authenticates as: viewer / operator / admin.
   pub(crate) role: String,
-  /// Organization the key acts within (None/absent = master).
+  /// Organization the key acts within: a child id, `master` (or absent),
+  /// or `*` for every organization, which only a holder of `*` Admin may
+  /// mint.
   #[serde(default)]
   pub(crate) org_id: Option<String>,
   /// Optional lifetime in seconds; omitted = never expires.
@@ -109,38 +122,53 @@ pub(crate) async fn admin_keys_create_handler(
     )
       .into_response();
   };
-  let org_id = payload
-    .org_id
-    .map(|o| o.trim().to_string())
-    .filter(|o| !o.is_empty());
-
-  // Validate the target org exists (None = master, always valid).
-  if let Some(ref oid) = org_id
-    && !state
-      .org_store
-      .lock()
-      .await
-      .list()
-      .iter()
-      .any(|o| &o.id == oid)
-  {
-    return (StatusCode::BAD_REQUEST, "unknown organization").into_response();
+  let scope = GrantOrg::parse(payload.org_id.as_deref().unwrap_or(""));
+  match &scope {
+    // A child id must exist; master always does.
+    GrantOrg::Child(oid) => {
+      if !state
+        .org_store
+        .lock()
+        .await
+        .list()
+        .iter()
+        .any(|o| &o.id == oid)
+      {
+        return (StatusCode::BAD_REQUEST, "unknown organization").into_response();
+      }
+    }
+    // `*` is a grant like any other and is bounded by the granter's: a master
+    // Admin runs the server and still cannot mint a credential wider than
+    // their own reach.
+    GrantOrg::All => {
+      let holds_all = crate::auth::resolve_caller(&state, &headers)
+        .await
+        .is_some_and(|c| c.holds_all_admin());
+      if !holds_all {
+        return (
+          StatusCode::FORBIDDEN,
+          "a key for every organization (*) takes a caller granted every organization",
+        )
+          .into_response();
+      }
+    }
+    GrantOrg::Master => {}
   }
 
   let created = state
     .admin_key_store
     .lock()
     .await
-    .create(name, role, org_id, payload.ttl_seconds);
+    .create(name, role, scope, payload.ttl_seconds);
   let Some((record, secret)) = created else {
     return crate::api::tokens::not_persisted();
   };
   info!(
-    "Admin key created: {} (id={}, role={}, org={:?})",
+    "Admin key created: {} (id={}, role={}, org={})",
     record.name,
     record.id,
     record.role.as_str(),
-    record.org_id
+    record.scope().as_str()
   );
   state
     .audit_session(
@@ -148,11 +176,11 @@ pub(crate) async fn admin_keys_create_handler(
       &headers,
       &actor_ip,
       &format!(
-        "name={} id={} role={} org={:?}",
+        "name={} id={} role={} org={}",
         record.name,
         record.id,
         record.role.as_str(),
-        record.org_id
+        record.scope().as_str()
       ),
     )
     .await;
@@ -162,7 +190,7 @@ pub(crate) async fn admin_keys_create_handler(
       "id": record.id,
       "name": record.name,
       "role": record.role.as_str(),
-      "org_id": record.org_id,
+      "org_id": scope_view(&record.scope()),
       "expires_at": record.expires_at,
       "key": secret,
     })),

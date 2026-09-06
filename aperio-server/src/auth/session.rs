@@ -128,12 +128,56 @@ pub(crate) struct SessionStatus {
   /// True when the session's user has TOTP two-factor auth enabled (always
   /// false for the built-in admin, which has no user row).
   pub(crate) totp: bool,
-  /// True for the built-in `aperio` super-admin, who may switch between
-  /// organizations. Named users are pinned to their own org.
+  /// True when the caller holds Admin in the master organization, directly
+  /// or through `*`: the built-in `aperio` account, or a named user granted
+  /// it. What the organization-management and server-global screens need.
   pub(crate) master_admin: bool,
+  /// True when the caller holds `*` Admin: the only caller that may grant
+  /// `*` to somebody else, so the only one the grant editor offers it to.
+  pub(crate) all_orgs: bool,
   /// The organization the session is currently viewing: `master` for the
   /// implicit master org, or a child org id.
   pub(crate) selected_org: String,
+  /// Every organization a grant on this account reaches, with the role held
+  /// there: what the organization picker lists. One entry means there is
+  /// nothing to switch to.
+  pub(crate) orgs: Vec<ReachableOrg>,
+}
+
+/// One organization the session may switch into.
+#[derive(serde::Serialize)]
+pub(crate) struct ReachableOrg {
+  /// `master`, or the child id.
+  pub(crate) id: String,
+  pub(crate) name: String,
+  pub(crate) custom_name: Option<String>,
+  /// The role held there.
+  pub(crate) role: &'static str,
+}
+
+/// The organizations `caller` reaches, master first, then children in the
+/// store's order.
+async fn reachable_orgs(state: &AppState, caller: &crate::auth::Caller) -> Vec<ReachableOrg> {
+  let mut out = Vec::new();
+  if let Some(role) = caller.role_in(None) {
+    out.push(ReachableOrg {
+      id: crate::store::orgs::MASTER_ID.to_string(),
+      name: "master".to_string(),
+      custom_name: None,
+      role: role.as_str(),
+    });
+  }
+  for org in state.org_store.lock().await.list() {
+    if let Some(role) = caller.role_in(Some(&org.id)) {
+      out.push(ReachableOrg {
+        id: org.id.clone(),
+        name: org.name.clone(),
+        custom_name: org.custom_name.clone(),
+        role: role.as_str(),
+      });
+    }
+  }
+  out
 }
 
 #[utoipa::path(get, path = "/aperio/api/session", tag = "auth",
@@ -168,17 +212,40 @@ pub(crate) async fn auth_session_handler(
       .find_by_username(&username)
       .is_some_and(|u| u.totp_secret.is_some())
   };
-  let master_admin = is_master_admin(&state, &headers).await;
-  let selected_org = effective_org(&state, &headers)
-    .await
-    .unwrap_or_else(|| crate::store::orgs::MASTER_ID.to_string());
+  // The role the middleware enforces is the one in the organization being
+  // acted in, read from the grants, not the flat role the session recorded
+  // at login.
+  let caller = crate::auth::resolve_caller(&state, &headers).await;
+  let (role, master_admin, all_orgs, selected_org, orgs) = match &caller {
+    Some(c) => {
+      let selected = c.effective_org();
+      (
+        c.role_in(selected.as_deref())
+          .unwrap_or(Role::Viewer)
+          .as_str(),
+        c.is_master_admin(),
+        c.holds_all_admin(),
+        selected.unwrap_or_else(|| crate::store::orgs::MASTER_ID.to_string()),
+        reachable_orgs(&state, c).await,
+      )
+    }
+    None => (
+      role,
+      false,
+      false,
+      crate::store::orgs::MASTER_ID.to_string(),
+      Vec::new(),
+    ),
+  };
   Json(SessionStatus {
     expires_in_seconds: remaining,
     username,
     role,
     totp,
     master_admin,
+    all_orgs,
     selected_org,
+    orgs,
   })
   .into_response()
 }

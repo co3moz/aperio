@@ -96,7 +96,7 @@ Named dashboard users are created on the *Users* page and carry a role (viewer /
 
 ## Organizations
 
-Tokens and users can be grouped into **organizations** so one server hosts several isolated tenants: a token belongs to the organization it was minted under, the client that authenticates with it is attributed there, and members of one organization never see another's clients, tokens, users, traffic, or stats. The built-in `aperio` admin is the super-admin of every organization and can switch between them; everything created without an organization belongs to the implicit **master** organization. See [Organizations (Multi-Tenancy)](organizations.md) for the full model.
+Tokens and users can be grouped into **organizations** so one server hosts several isolated tenants: a token belongs to the organization it was minted under, the client that authenticates with it is attributed there, and members of one organization never see another's clients, tokens, users, traffic, or stats. The built-in `aperio` admin is the super-admin of every organization and can switch between them, and a named user can be granted several organizations with a role in each and switch the same way; everything created without an organization belongs to the implicit **master** organization. See [Organizations (Multi-Tenancy)](organizations.md) for the full model.
 
 ## Defense in depth
 

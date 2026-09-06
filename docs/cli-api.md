@@ -153,7 +153,8 @@ aperio-client api inbox clear
 ```bash
 aperio-client api user list
 aperio-client api user create --username alice --password - --role operator
-aperio-client api user update <id> [--role viewer] [--disable] [--password -]
+aperio-client api user create --username carol --password - --grant <acme-id>:admin --grant <beta-id>:viewer   # from master: one user, several organizations
+aperio-client api user update <id> [--role viewer] [--grant <org>:<role> ...] [--disable] [--password -]
 aperio-client api user delete <id>
 aperio-client api user sessions
 aperio-client api user revoke <session-id> | --all
@@ -170,7 +171,7 @@ aperio-client api org delete <id>
 aperio-client api org select [<id>]
 
 aperio-client api admin-key list
-aperio-client api admin-key create --name ci --role operator [--org <id>] [--expire 90d]
+aperio-client api admin-key create --name ci --role operator [--org <id> | --org '*'] [--expire 90d]
 aperio-client api admin-key revoke <id>
 ```
 

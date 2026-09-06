@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { useI18n } from '@/i18n'
-import { api, type Role } from './api'
+import { api, type ReachableOrg, type Role } from './api'
 
 const ORDER: Record<Role, number> = { viewer: 0, operator: 1, admin: 2 }
 
@@ -14,8 +14,12 @@ interface SessionValue {
    * showing one needs it to say *whose* users or tokens these are.
    */
   selectedOrg: string
-  /** The built-in super-admin, the only session allowed to list organizations. */
+  /** Admin of the master organization, the session allowed to list organizations. */
   masterAdmin: boolean
+  /** Holds `*` Admin: may grant `*` to somebody else. */
+  allOrgs: boolean
+  /** Every organization a grant reaches, with the role held there. */
+  orgs: ReachableOrg[]
 }
 
 const SessionContext = createContext<SessionValue>({
@@ -23,6 +27,8 @@ const SessionContext = createContext<SessionValue>({
   role: 'admin',
   selectedOrg: 'master',
   masterAdmin: false,
+  allOrgs: false,
+  orgs: [],
 })
 
 export function SessionProvider({
@@ -30,16 +36,20 @@ export function SessionProvider({
   role,
   selectedOrg,
   masterAdmin,
+  allOrgs,
+  orgs,
   children,
 }: {
   username: string
   role: Role
   selectedOrg: string
   masterAdmin: boolean
+  allOrgs: boolean
+  orgs: ReachableOrg[]
   children: ReactNode
 }) {
   return (
-    <SessionContext.Provider value={{ username, role, selectedOrg, masterAdmin }}>
+    <SessionContext.Provider value={{ username, role, selectedOrg, masterAdmin, allOrgs, orgs }}>
       {children}
     </SessionContext.Provider>
   )
@@ -52,35 +62,49 @@ export function useSession(): SessionValue {
 /**
  * A readable name for the organization this session is looking at.
  *
- * Listing organizations is the super-admin's privilege, so only they can be
- * given the name; everyone else gets the id they are scoped to, which is the
- * only other thing that identifies it. The implicit master org has no record
- * to look up either way.
+ * The session carries the name of every organization a grant reaches, so
+ * that is read first; the organization listing is asked only by a master
+ * admin, for whom it is not a guaranteed 403, and only for a name the
+ * session did not carry. The implicit master org has no record either way.
  */
 export function useOrgName(): string {
   const { t } = useI18n()
-  const { selectedOrg, masterAdmin } = useSession()
+  const { selectedOrg, masterAdmin, orgs } = useSession()
   const [name, setName] = useState<string | null>(null)
+  const known = orgs.find((o) => o.id === selectedOrg)
 
   useEffect(() => {
-    // Never issue the request as a non-super-admin: it is a guaranteed 403.
+    // Never issue the request as a non-master-admin: it is a guaranteed 403.
     // Fetched once rather than polled, an org is renamed about as often as it
     // is created, and switching into one reloads the dashboard anyway.
-    if (!masterAdmin || selectedOrg === 'master') return
+    if (!masterAdmin || selectedOrg === 'master' || known) return
     let live = true
     api
       .orgs()
-      .then((orgs) => {
-        if (live) setName(orgs.find((o) => o.id === selectedOrg)?.name ?? null)
+      .then((list) => {
+        if (live) setName(list.find((o) => o.id === selectedOrg)?.name ?? null)
       })
       .catch(() => {})
     return () => {
       live = false
     }
-  }, [masterAdmin, selectedOrg])
+  }, [masterAdmin, selectedOrg, known])
 
   if (selectedOrg === 'master') return t('master')
-  return name ?? selectedOrg
+  return known?.custom_name || known?.name || name || selectedOrg
+}
+
+/** A readable name for a grant target: `*`, `master`, or an organization
+ *  the session knows, else the id. */
+export function useOrgLabel(): (org: string) => string {
+  const { t } = useI18n()
+  const { orgs } = useSession()
+  return (org: string) => {
+    if (org === '*') return t('all organizations')
+    if (org === 'master') return t('master')
+    const known = orgs.find((o) => o.id === org)
+    return known?.custom_name || known?.name || org
+  }
 }
 
 /** True when the current session's role is at least `min`. */

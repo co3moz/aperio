@@ -138,6 +138,7 @@ export function AppSidebar({
   role,
   masterAdmin,
   selectedOrg,
+  reachableOrgs,
   onSignOut,
   onOpenTotp,
   onOpenPasskeys,
@@ -151,6 +152,8 @@ export function AppSidebar({
   role: Role
   masterAdmin: boolean
   selectedOrg: string
+  /** How many organizations a grant reaches; the picker appears past one. */
+  reachableOrgs: number
   onSignOut: () => void
   onOpenTotp: () => void
   onOpenPasskeys: () => void
@@ -182,7 +185,7 @@ export function AppSidebar({
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-        {masterAdmin && <OrgSwitcher selectedOrg={selectedOrg} />}
+        {(masterAdmin || reachableOrgs > 1) && <OrgSwitcher selectedOrg={selectedOrg} />}
       </SidebarHeader>
       <SidebarContent>
         {PAGE_GROUPS.map((group) => {

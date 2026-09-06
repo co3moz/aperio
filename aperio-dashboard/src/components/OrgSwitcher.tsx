@@ -17,17 +17,29 @@ import { useAppEvent } from '@/hooks/useAppEvent'
 import { usePoll } from '@/hooks/usePoll'
 import { useI18n } from '@/i18n'
 import { api, ApiError } from '@/lib/api'
+import { useSession } from '@/lib/session'
 
-/** Organization picker for the master super-admin. Switching stores the choice
- *  on the session server-side, then reloads so every section re-fetches the
- *  newly-scoped clients, tokens, and users. */
+/** Organization picker for anyone whose grants reach more than one
+ *  organization: the built-in super-admin, and a named user granted several.
+ *  Switching stores the choice on the session server-side, then reloads so
+ *  every section re-fetches the newly-scoped clients, tokens, and users. */
 export function OrgSwitcher({ selectedOrg }: { selectedOrg: string }) {
   const { t } = useI18n()
-  const { data: orgs, refresh } = usePoll(api.orgs, 30_000)
+  const { orgs: reachable, masterAdmin } = useSession()
+  // The listing carries the member counts, and only a master admin may ask
+  // for it; everyone else has exactly the organizations the session carries.
+  const { data: listed, refresh } = usePoll(
+    () => (masterAdmin ? api.orgs() : Promise.resolve(null)),
+    30_000,
+  )
   useAppEvent('orgs-changed', refresh)
   const [busy, setBusy] = useState(false)
 
-  const current = orgs?.find((o) => o.id === selectedOrg)
+  const orgs = reachable.map((o) => {
+    const full = listed?.find((l) => l.id === o.id)
+    return { ...o, users: full?.users, tokens: full?.tokens }
+  })
+  const current = orgs.find((o) => o.id === selectedOrg)
   const currentName =
     current?.custom_name || current?.name || (selectedOrg === 'master' ? t('master') : selectedOrg)
 
@@ -73,12 +85,14 @@ export function OrgSwitcher({ selectedOrg }: { selectedOrg: string }) {
               {t('Switch organization')}
             </div>
             <DropdownMenuSeparator />
-            {(orgs ?? []).map((o) => (
+            {orgs.map((o) => (
               <DropdownMenuItem key={o.id} onClick={() => void switchTo(o.id)}>
                 <Building2Icon className="size-4 opacity-70" />
-                <span className="flex-1 truncate">{o.custom_name || o.name}</span>
+                <span className="flex-1 truncate">
+                  {o.id === 'master' ? t('master') : o.custom_name || o.name}
+                </span>
                 <span className="text-xs text-muted-foreground">
-                  {o.users}·{o.tokens}
+                  {o.users !== undefined ? `${o.users}·${o.tokens}` : o.role}
                 </span>
                 {o.id === selectedOrg && <CheckIcon className="size-4" />}
               </DropdownMenuItem>

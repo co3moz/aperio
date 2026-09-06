@@ -475,8 +475,18 @@ async fn the_history_sections_travel_and_stay_org_fenced() {
   }
   {
     let mut keys = state.admin_key_store.lock().await;
-    keys.create("master-key".into(), Role::Admin, None, None);
-    keys.create("acme-key".into(), Role::Admin, Some(org.clone()), None);
+    keys.create(
+      "master-key".into(),
+      Role::Admin,
+      crate::store::grants::GrantOrg::Master,
+      None,
+    );
+    keys.create(
+      "acme-key".into(),
+      Role::Admin,
+      crate::store::grants::GrantOrg::Child(org.clone()),
+      None,
+    );
   }
 
   // With organizations: both sides of every section travel.

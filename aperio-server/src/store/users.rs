@@ -1,7 +1,9 @@
 use argon2::Argon2;
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, warn};
+
+use super::grants::{self, Grant, GrantOrg};
 
 /// Dashboard role, ordered by privilege. Every session carries one; the
 /// dashboard middleware compares it against the minimum a route requires.
@@ -61,10 +63,23 @@ pub struct User {
   pub username: String,
   /// Argon2id PHC hash; never exposed through the API.
   pub password_hash: String,
+  /// The role in the home organization, kept in step with `grants` by every
+  /// mutation here. What decides anything is `grants`; this is written so a
+  /// binary from before grants existed reads the row as it always did, and
+  /// reads it no wider: a user whose grants do not reach home is a Viewer
+  /// there, never an Admin.
   pub role: Role,
-  /// Organization this user belongs to; `None` = the master organization.
+  /// The home organization: the one whose admins manage this account (its
+  /// password, its second factor, whether it is enabled). `None` = master. A
+  /// user granted more than one organization lives in master, so no tenant
+  /// admin can reset a login that also opens another tenant.
   #[serde(default)]
   pub org_id: Option<String>,
+  /// What this user may do, per organization (`planned_features.md` #153).
+  /// Empty only on a row written before the field existed, which `load` and
+  /// `import` convert before anything reads it.
+  #[serde(default)]
+  pub grants: Vec<Grant>,
   pub created_at: u64,
   pub enabled: bool,
   /// Base32 TOTP secret; Some = two-factor auth is enabled for this user.
@@ -87,11 +102,50 @@ pub struct User {
   pub passkeys: Vec<StoredPasskey>,
 }
 
+impl User {
+  /// The role this user holds in organization `org` (`None` = master), or
+  /// `None` when no grant reaches it.
+  pub fn role_in(&self, org: Option<&str>) -> Option<Role> {
+    grants::role_in(&self.grants, org)
+  }
+
+  /// The home organization as a grant target.
+  pub fn home(&self) -> GrantOrg {
+    GrantOrg::from_org_id(self.org_id.as_deref())
+  }
+
+  /// Keeps the compatibility `role` in step with the grants: the role at
+  /// home, and Viewer when nothing reaches home, so an older binary reading
+  /// this row never sees an Admin the grants do not give.
+  fn sync_home_role(&mut self) {
+    self.role = self.role_in(self.org_id.as_deref()).unwrap_or(Role::Viewer);
+  }
+}
+
+/// Gives every row without grants the grants it stood for, and returns the
+/// usernames that came out wider than a single organization: the master
+/// Admins, who become `*` Admin. Called on load and on import, so a dump
+/// from an older release converts the same way a database does.
+fn convert_legacy_rows(users: &mut [User]) -> Vec<String> {
+  let mut widened = Vec::new();
+  for u in users.iter_mut().filter(|u| u.grants.is_empty()) {
+    let (grants, wide) = grants::legacy_grants(u.role, u.org_id.as_deref());
+    u.grants = grants;
+    if wide {
+      widened.push(u.username.clone());
+    }
+  }
+  widened
+}
+
 /// Persistent store of dashboard users, backed by the `users` table of the
 /// shared SQLite store (`<data_dir>/aperio.db`).
 pub struct UserStore {
   conn: rusqlite::Connection,
   users: Vec<User>,
+  /// Usernames `load` read as `*` Admin from a pre-grants row, for the
+  /// start-up audit event. Taken once by `take_widened`.
+  widened_on_load: Vec<String>,
 }
 
 fn hash_password(password: &str) -> Result<String, String> {
@@ -161,18 +215,48 @@ impl UserStore {
 
   pub fn load(data_dir: &str) -> Self {
     let conn = crate::store::open_db(data_dir);
-    let users: Vec<User> = crate::store::load_all(&conn, "users");
+    let mut users: Vec<User> = crate::store::load_all(&conn, "users");
     if !users.is_empty() {
       info!("Loaded {} dashboard user(s) from the store", users.len());
     }
-    UserStore { conn, users }
+    let converted = users.iter().filter(|u| u.grants.is_empty()).count();
+    let widened = convert_legacy_rows(&mut users);
+    let mut store = UserStore {
+      conn,
+      users,
+      widened_on_load: widened,
+    };
+    // Written back at once, so the conversion happens exactly once: a row
+    // that carries grants is never converted again, and an operator who
+    // narrows a `*` Admin afterwards is not widened back at the next start.
+    if converted > 0 {
+      for name in &store.widened_on_load {
+        warn!(
+          "Dashboard user '{}' was an Admin in the master organization and is now granted every \
+           organization (*:admin), which is what that role could already do; narrow it from the \
+           Users page if it should not",
+          name
+        );
+      }
+      store.persist();
+    }
+    store
+  }
+
+  /// The usernames the last `load` widened to `*` Admin, once.
+  pub fn take_widened(&mut self) -> Vec<String> {
+    std::mem::take(&mut self.widened_on_load)
   }
 
   /// Replaces every user record with the given list (dump import) and
   /// persists. Returns how many records are now stored.
   /// Bookkeeping: the dump-restore path, whose caller reports on the whole
   /// import rather than on one row. See `store::replace_all`.
-  pub fn import(&mut self, users: Vec<User>) -> usize {
+  pub fn import(&mut self, mut users: Vec<User>) -> usize {
+    convert_legacy_rows(&mut users);
+    for u in users.iter_mut() {
+      u.sync_home_role();
+    }
     self.users = users;
     self.persist();
     self.users.len()
@@ -195,8 +279,10 @@ impl UserStore {
     &self.users
   }
 
-  /// Creates a user. Fails when the (case-insensitive) username is taken,
-  /// reserved, or the password hash cannot be computed.
+  /// Creates a user with one grant, `role` in its home organization. The
+  /// shape every user had before grants, and the one most tests want;
+  /// `create_with_grants` is the general one and the only one the API calls.
+  #[cfg(test)]
   pub fn create(
     &mut self,
     username: &str,
@@ -204,6 +290,22 @@ impl UserStore {
     role: Role,
     org_id: Option<String>,
   ) -> Result<User, UserError> {
+    let home = GrantOrg::from_org_id(org_id.as_deref());
+    self.create_with_grants(username, password, org_id, vec![Grant::new(home, role)])
+  }
+
+  /// Creates a user. Fails when the (case-insensitive) username is taken,
+  /// reserved, the grant list is empty, or the password hash cannot be
+  /// computed. Whether the caller may give these grants is the API's
+  /// question; the store records what it is handed.
+  pub fn create_with_grants(
+    &mut self,
+    username: &str,
+    password: &str,
+    org_id: Option<String>,
+    grants: Vec<Grant>,
+  ) -> Result<User, UserError> {
+    let grants = grants::normalize(grants).map_err(UserError::Invalid)?;
     let name = username.trim();
     if name.is_empty() {
       return Err(UserError::Invalid("username is required".into()));
@@ -227,12 +329,13 @@ impl UserStore {
         "password must be at least 8 characters".into(),
       ));
     }
-    let user = User {
+    let mut user = User {
       id: uuid::Uuid::new_v4().to_string(),
       username: name.to_string(),
       password_hash: hash_password(password).map_err(UserError::Invalid)?,
-      role,
+      role: Role::Viewer,
       org_id,
+      grants,
       created_at: crate::store::tokens::now_secs(),
       enabled: true,
       totp_secret: None,
@@ -241,13 +344,62 @@ impl UserStore {
       totp_last_step: None,
       passkeys: Vec::new(),
     };
+    user.sync_home_role();
     self.commit(|store| {
       store.users.push(user.clone());
       Ok(user)
     })
   }
 
+  /// Replaces a user's grants. The list is normalized here; whether the
+  /// caller may make this change is the API's question.
+  pub fn set_grants(&mut self, id: &str, grants: Vec<Grant>) -> Result<User, UserError> {
+    let grants = grants::normalize(grants).map_err(UserError::Invalid)?;
+    self.commit(|store| {
+      let user = store
+        .users
+        .iter_mut()
+        .find(|u| u.id == id)
+        .ok_or(UserError::NoSuchUser)?;
+      user.grants = grants;
+      user.sync_home_role();
+      Ok(user.clone())
+    })
+  }
+
+  /// Strips every grant naming organization `org` from every user, for when
+  /// the organization is deleted, and returns the usernames touched. A user
+  /// left with nothing keeps the row and can no longer sign in anywhere,
+  /// which is what a grant on a deleted organization amounts to.
+  pub fn remove_org_grants(&mut self, org: &str) -> Vec<String> {
+    let target = GrantOrg::Child(org.to_string());
+    let touched: Vec<String> = self
+      .users
+      .iter()
+      .filter(|u| u.grants.iter().any(|g| g.org == target))
+      .map(|u| u.username.clone())
+      .collect();
+    if touched.is_empty() {
+      return touched;
+    }
+    let result = self.commit(|store| {
+      for user in store.users.iter_mut() {
+        if user.grants.iter().any(|g| g.org == target) {
+          user.grants.retain(|g| g.org != target);
+          user.sync_home_role();
+        }
+      }
+      Ok(())
+    });
+    if result.is_err() {
+      return Vec::new();
+    }
+    touched
+  }
+
   /// Updates role/enabled/password in place. `None` keeps the current value.
+  /// The role is the one at home: it replaces the home grant and leaves any
+  /// other grant alone.
   pub fn update(
     &mut self,
     id: &str,
@@ -262,7 +414,12 @@ impl UserStore {
         .find(|u| u.id == id)
         .ok_or(UserError::NoSuchUser)?;
       if let Some(r) = role {
-        user.role = r;
+        let home = user.home();
+        user.grants.retain(|g| g.org != home);
+        user.grants.push(Grant::new(home, r));
+        user.grants =
+          grants::normalize(std::mem::take(&mut user.grants)).map_err(UserError::Invalid)?;
+        user.sync_home_role();
       }
       if let Some(e) = enabled {
         user.enabled = e;

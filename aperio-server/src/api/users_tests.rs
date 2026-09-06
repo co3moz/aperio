@@ -11,6 +11,7 @@ use crate::test_support::{
   admin_headers, cookie_headers, json_body, seed_session, test_peer, test_state,
 };
 use axum::extract::{ConnectInfo, Path, State};
+use axum::http::HeaderMap;
 use std::sync::Arc;
 
 /// Produces a valid 6-digit TOTP code for a base32 secret at `now_secs`,
@@ -81,7 +82,8 @@ fn create_req(username: &str, password: &str, role: &str) -> Json<UserCreateRequ
   Json(UserCreateRequest {
     username: username.to_string(),
     password: password.to_string(),
-    role: role.to_string(),
+    role: Some(role.to_string()),
+    grants: None,
   })
 }
 
@@ -179,6 +181,7 @@ fn update_req(
     role: role.map(|s| s.to_string()),
     enabled,
     password: password.map(|s| s.to_string()),
+    grants: None,
   })
 }
 
@@ -774,4 +777,280 @@ async fn session_org_maps_unnamed_session_to_master() {
     bound_org: None,
   };
   assert_eq!(session_org(&info, &map), None);
+}
+
+// ---------------------------------------------------------------------------
+// grants (planned_features.md #153)
+// ---------------------------------------------------------------------------
+
+fn grant(org: &str, role: &str) -> GrantRequest {
+  GrantRequest {
+    org: org.to_string(),
+    role: role.to_string(),
+  }
+}
+
+fn create_with_grants(username: &str, grants: Vec<GrantRequest>) -> Json<UserCreateRequest> {
+  Json(UserCreateRequest {
+    username: username.to_string(),
+    password: "long-password".to_string(),
+    role: None,
+    grants: Some(grants),
+  })
+}
+
+fn update_grants(grants: Vec<GrantRequest>) -> Json<UserUpdateRequest> {
+  Json(UserUpdateRequest {
+    role: None,
+    enabled: None,
+    password: None,
+    grants: Some(grants),
+  })
+}
+
+async fn make_org(state: &Arc<AppState>, name: &str) -> String {
+  state
+    .org_store
+    .lock()
+    .await
+    .create(name, Vec::new(), None)
+    .unwrap()
+    .id
+}
+
+async fn session_for(state: &Arc<AppState>, username: &str) -> HeaderMap {
+  let token = seed_session(state, Role::Viewer, Some(username), None).await;
+  cookie_headers(&token)
+}
+
+async fn grants_of(state: &Arc<AppState>, username: &str) -> Vec<String> {
+  state
+    .users
+    .lock()
+    .await
+    .find_by_username(username)
+    .unwrap()
+    .grants
+    .iter()
+    .map(|g| g.label())
+    .collect()
+}
+
+#[tokio::test]
+async fn master_creates_a_user_reaching_two_organizations() {
+  let state = Arc::new(test_state());
+  let acme = make_org(&state, "acme").await;
+  let beta = make_org(&state, "beta").await;
+  let resp = users_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    admin_headers(&state).await,
+    create_with_grants("carol", vec![grant(&acme, "admin"), grant(&beta, "viewer")]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  let body = json_body(resp).await;
+  assert_eq!(body["org_id"], serde_json::Value::Null, "lives in master");
+  assert_eq!(body["grants"].as_array().unwrap().len(), 2);
+  // Nothing reaches master, so the compatibility role at home is Viewer: an
+  // older binary reading this row must not see an Admin of master.
+  assert_eq!(body["role"], "viewer");
+
+  // The user lands in one of its organizations and is what its grants say
+  // there, whatever the session recorded.
+  let headers = session_for(&state, "carol").await;
+  assert_eq!(
+    crate::auth::effective_org(&state, &headers).await,
+    Some(if acme < beta {
+      acme.clone()
+    } else {
+      beta.clone()
+    })
+  );
+  assert!(!crate::auth::is_master_admin(&state, &headers).await);
+}
+
+#[tokio::test]
+async fn a_child_admin_grants_its_own_organization_and_nothing_past_it() {
+  let state = Arc::new(test_state());
+  let acme = make_org(&state, "acme").await;
+  let beta = make_org(&state, "beta").await;
+  make_user(&state, "acme-admin", Role::Admin, Some(&acme)).await;
+  let headers = session_for(&state, "acme-admin").await;
+
+  for grants in [
+    vec![grant(&beta, "viewer")],
+    vec![grant(&acme, "viewer"), grant(&beta, "viewer")],
+    vec![grant("master", "viewer")],
+    vec![grant("*", "viewer")],
+  ] {
+    let resp = users_create_handler(
+      State(state.clone()),
+      ConnectInfo(test_peer()),
+      headers.clone(),
+      create_with_grants("x", grants),
+    )
+    .await;
+    assert_eq!(
+      resp.status(),
+      StatusCode::BAD_REQUEST,
+      "a user made inside an organization is granted that organization only"
+    );
+  }
+  let resp = users_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    create_with_grants("x", vec![grant(&acme, "operator")]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  let body = json_body(resp).await;
+  assert_eq!(body["org_id"], acme);
+  assert_eq!(body["role"], "operator");
+}
+
+#[tokio::test]
+async fn star_is_granted_only_by_a_star_admin() {
+  let state = Arc::new(test_state());
+  // A named Admin of master runs the server and is still not `*`.
+  make_user(&state, "root", Role::Admin, None).await;
+  assert_eq!(grants_of(&state, "root").await, vec!["master:admin"]);
+  let headers = session_for(&state, "root").await;
+  assert!(crate::auth::is_master_admin(&state, &headers).await);
+  let resp = users_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    create_with_grants("auditor", vec![grant("*", "viewer")]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  // Nor a child it holds no grant in.
+  let acme = make_org(&state, "acme").await;
+  let resp = users_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    create_with_grants("someone", vec![grant(&acme, "viewer")]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  // The built-in account holds `*` and may give it.
+  let resp = users_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    admin_headers(&state).await,
+    create_with_grants("auditor", vec![grant("*", "viewer")]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert_eq!(grants_of(&state, "auditor").await, vec!["*:viewer"]);
+}
+
+#[tokio::test]
+async fn an_update_is_bounded_on_the_removed_grant_as_much_as_the_added_one() {
+  let state = Arc::new(test_state());
+  make_user(&state, "root", Role::Admin, None).await;
+  let star_id = {
+    let mut users = state.users.lock().await;
+    users
+      .create_with_grants(
+        "star",
+        "long-password",
+        None,
+        crate::store::grants::all_admin(),
+      )
+      .unwrap()
+      .id
+  };
+  // Taking `*` away takes `*`: a master Admin cannot demote a `*` holder.
+  let resp = users_update_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    session_for(&state, "root").await,
+    Path(star_id.clone()),
+    update_grants(vec![grant("master", "admin")]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  assert_eq!(grants_of(&state, "star").await, vec!["*:admin"]);
+  // The built-in account can.
+  let resp = users_update_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    admin_headers(&state).await,
+    Path(star_id),
+    update_grants(vec![grant("master", "admin")]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert_eq!(grants_of(&state, "star").await, vec!["master:admin"]);
+  // An empty list is refused: a user nothing reaches cannot sign in anywhere.
+  let root_id = state
+    .users
+    .lock()
+    .await
+    .find_by_username("root")
+    .unwrap()
+    .id
+    .clone();
+  let resp = users_update_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    admin_headers(&state).await,
+    Path(root_id),
+    update_grants(Vec::new()),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn the_role_field_rewrites_the_grant_for_the_acting_organization_only() {
+  let state = Arc::new(test_state());
+  let acme = make_org(&state, "acme").await;
+  let id = {
+    let mut users = state.users.lock().await;
+    users
+      .create_with_grants(
+        "carol",
+        "long-password",
+        None,
+        vec![
+          crate::store::grants::Grant::new(crate::store::grants::GrantOrg::Master, Role::Viewer),
+          crate::store::grants::Grant::new(
+            crate::store::grants::GrantOrg::Child(acme.clone()),
+            Role::Admin,
+          ),
+        ],
+      )
+      .unwrap()
+      .id
+  };
+  // Acting in master, `role` is the master grant; the Acme one is untouched.
+  let resp = users_update_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    admin_headers(&state).await,
+    Path(id.clone()),
+    update_req(Some("operator"), None, None),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert_eq!(
+    grants_of(&state, "carol").await,
+    vec!["master:operator".to_string(), format!("{acme}:admin")]
+  );
+  // A user living in master is not reachable from inside Acme, whoever asks.
+  let token = seed_session(&state, Role::Admin, None, Some(acme.clone())).await;
+  let resp = users_update_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    cookie_headers(&token),
+    Path(id),
+    update_req(Some("viewer"), None, None),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }

@@ -255,6 +255,42 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
       .await;
   }
 
+  // The accounts the stores read wider than a single organization, once: a
+  // master Admin from before per-organization grants existed is exactly as
+  // able as it was, and this is where the operator is told to look at it.
+  // In the audit log, because the person who created that account is not
+  // the one reading the startup log.
+  let widened_users = state.users.lock().await.take_widened();
+  for name in widened_users {
+    state
+      .audit(
+        "grants_widened_on_upgrade",
+        "system",
+        "system",
+        &format!(
+          "user={} grants=*:admin; an Admin of the master organization could already reach every \
+           organization, narrow it from the Users page if it should not",
+          name
+        ),
+      )
+      .await;
+  }
+  let widened_keys = state.admin_key_store.lock().await.take_widened();
+  for name in widened_keys {
+    state
+      .audit(
+        "grants_widened_on_upgrade",
+        "system",
+        "system",
+        &format!(
+          "admin_key={} org=*; an Admin key of the master organization could already reach every \
+           organization, revoke and re-create it narrower if it should not",
+          name
+        ),
+      )
+      .await;
+  }
+
   Some(StartupBundle {
     state,
     metrics_enabled,

@@ -154,78 +154,6 @@ there is nothing to build, whatever *Recurring checks* holds.
   their org's name on the login form and no other tenant's credentials
   accepted on it. And nothing existing changes: a deployment that never
   sets either setting is byte-for-byte where it is today.
-- [ ] **#153 Per-organization grants on a dashboard user, instead of one
-  role in one organization.** A user record carries one `role` and one
-  `org_id`, and `is_master_admin` reads "Admin with no org" as the
-  super-admin: a named Admin created in master is the built-in `aperio`
-  account under another name. It creates and deletes organizations,
-  switches into every one of them, edits server settings and imports a
-  backup, and nothing on the record says it should. A global OIDC login and
-  an Admin API key minted in master land in the same place. Meanwhile a
-  Viewer or Operator in master is pinned to master and sees no child at
-  all. So the one thing an operator actually wants, a person who
-  administers two tenants and reads a third, cannot be written down today:
-  the choice is a single organization or all of them, forever.
-
-  **The model.** The pair becomes a list of grants, `[{org, role}]`, where
-  `org` is a child id, `master`, or `*`. Today's user is the one-entry case
-  and an existing row deserializes into it, so the store needs no
-  migration. A user created inside a child organization stays a one-grant
-  user, managed by that organization's admins exactly as now. A user with
-  grants in more than one organization is created in master and managed
-  only by master, which settles a whole class of questions before they are
-  asked: an Acme admin resetting such a user's password or TOTP would be
-  resetting their Beta login too, and showing them the Beta grant would
-  tell them Beta exists.
-
-  **The rules, each of which is a test.**
-  - *A grant is bounded by the granter's.* At most your own role in that
-    organization, and only in organizations where you hold Admin. `*` can be
-    given only by a holder of `*` Admin or by the built-in account. Without
-    this an organization's admin grants themselves a second organization.
-  - *The role is computed against the selected organization.* The session
-    stores a flat role today and `dashboard_role` returns it; it becomes
-    "the role in the effective org", and the organization picker opens to
-    every user with more than one grant, not only to master. This is the
-    change that touches the most call sites.
-  - *Grants are read from the store on every request, never from the
-    session.* The reason `named_user_active` exists: a revoked grant must
-    not survive on an open session for one more request.
-  - *A specific entry beats `*`.* `{*: viewer, acme: operator}` reads the
-    way it looks. `*: viewer` on its own is a profile worth having, an
-    auditor or a billing system reading the whole server and changing
-    nothing.
-  - *Server-global surfaces stay behind `master: admin`*, settings, import
-    and export, organization create, delete, quota and fence, as the docs
-    already say. What changes is only that Admin in master no longer walks
-    into the children. `*: admin` is master plus every child, present and
-    future, the nearest thing to the built-in account; it may create other
-    `*` users, and it can never touch the built-in account or the master
-    token.
-  - *The visitor gate admits on any granted organization's hostnames*, not
-    only the selected one's, and Viewer is enough.
-  - *Admin API keys follow the same reading.* A key keeps one grant, since a
-    key is minted for one purpose; a key minted in master means `master`,
-    and `*` is asked for explicitly by someone allowed to give it.
-
-  **Migration preserves, then warns.** Every existing master Admin user, and
-  every master Admin key, is read as `*: admin` on the first start of the
-  build that ships this: exactly what they can do today, nothing wider. A
-  narrowed reading would lock out whoever administers the server, which is
-  worse than one more day of the status quo. The start writes an audit
-  event naming each such account and the dashboard shows a banner on the
-  Users page until none is left carrying `*`, so the operator narrows them
-  by hand and knows when they are done. The global OIDC login is the one
-  place that narrows immediately, because it has no record to preserve:
-  see [[#154]].
-
-  **Surfaces.** `grants` on the user record and on `POST`/`PUT /api/users`,
-  the Users page with an organization row per grant and a role on each, the
-  same in `aperio-client api user`, the user rows in export and import, an
-  audit event per grant added or removed naming the granter, and
-  `docs/organizations.md`, whose "named user is pinned to one organization"
-  paragraph becomes the one-grant case of this.
-
 - [ ] **#154 OIDC identity is the provider's, authorization is Aperio's:
   grants on a record matched by email, then a claim-to-grant map.** A global
   OIDC login creates a session with `Role::Admin` and no organization, so
@@ -857,6 +785,91 @@ so.
   2025-09, with no rc since March. Neither is close.
 
 ## Completed
+
+- [x] **#153 Per-organization grants on a dashboard user, instead of one
+  role in one organization.** shipped: `grants` on the user record and on
+  `POST`/`PUT /api/users`, the rules in `store/grants.rs`, one resolution of
+  every request into an identity with grants in `auth/caller.rs` that
+  `scope.rs` answers from, the picker for anyone reaching more than one
+  organization with `orgs` on `GET /api/session`, `*` as an admin-key scope,
+  `--grant` on the CLI, `user_grant_added`/`user_grant_removed` and the
+  start-up `grants_widened_on_upgrade`, the Users-page notice while any user
+  carries `*`, and the e2e spec. Where it differed from the plan: the role
+  at home is still written as `role` for older binaries, and is Viewer when
+  no grant reaches home, so a downgrade never sees an Admin of master the
+  grants do not give; the conversion marker is the row itself, a row with no
+  `grants` is an old one and is written back converted at the first start;
+  and an OIDC identity without a row keeps the role its login recorded,
+  which is [[#154]]'s job to replace. The original entry: A user record carries one `role` and one
+  `org_id`, and `is_master_admin` reads "Admin with no org" as the
+  super-admin: a named Admin created in master is the built-in `aperio`
+  account under another name. It creates and deletes organizations,
+  switches into every one of them, edits server settings and imports a
+  backup, and nothing on the record says it should. A global OIDC login and
+  an Admin API key minted in master land in the same place. Meanwhile a
+  Viewer or Operator in master is pinned to master and sees no child at
+  all. So the one thing an operator actually wants, a person who
+  administers two tenants and reads a third, cannot be written down today:
+  the choice is a single organization or all of them, forever.
+
+  **The model.** The pair becomes a list of grants, `[{org, role}]`, where
+  `org` is a child id, `master`, or `*`. Today's user is the one-entry case
+  and an existing row deserializes into it, so the store needs no
+  migration. A user created inside a child organization stays a one-grant
+  user, managed by that organization's admins exactly as now. A user with
+  grants in more than one organization is created in master and managed
+  only by master, which settles a whole class of questions before they are
+  asked: an Acme admin resetting such a user's password or TOTP would be
+  resetting their Beta login too, and showing them the Beta grant would
+  tell them Beta exists.
+
+  **The rules, each of which is a test.**
+  - *A grant is bounded by the granter's.* At most your own role in that
+    organization, and only in organizations where you hold Admin. `*` can be
+    given only by a holder of `*` Admin or by the built-in account. Without
+    this an organization's admin grants themselves a second organization.
+  - *The role is computed against the selected organization.* The session
+    stores a flat role today and `dashboard_role` returns it; it becomes
+    "the role in the effective org", and the organization picker opens to
+    every user with more than one grant, not only to master. This is the
+    change that touches the most call sites.
+  - *Grants are read from the store on every request, never from the
+    session.* The reason `named_user_active` exists: a revoked grant must
+    not survive on an open session for one more request.
+  - *A specific entry beats `*`.* `{*: viewer, acme: operator}` reads the
+    way it looks. `*: viewer` on its own is a profile worth having, an
+    auditor or a billing system reading the whole server and changing
+    nothing.
+  - *Server-global surfaces stay behind `master: admin`*, settings, import
+    and export, organization create, delete, quota and fence, as the docs
+    already say. What changes is only that Admin in master no longer walks
+    into the children. `*: admin` is master plus every child, present and
+    future, the nearest thing to the built-in account; it may create other
+    `*` users, and it can never touch the built-in account or the master
+    token.
+  - *The visitor gate admits on any granted organization's hostnames*, not
+    only the selected one's, and Viewer is enough.
+  - *Admin API keys follow the same reading.* A key keeps one grant, since a
+    key is minted for one purpose; a key minted in master means `master`,
+    and `*` is asked for explicitly by someone allowed to give it.
+
+  **Migration preserves, then warns.** Every existing master Admin user, and
+  every master Admin key, is read as `*: admin` on the first start of the
+  build that ships this: exactly what they can do today, nothing wider. A
+  narrowed reading would lock out whoever administers the server, which is
+  worse than one more day of the status quo. The start writes an audit
+  event naming each such account and the dashboard shows a banner on the
+  Users page until none is left carrying `*`, so the operator narrows them
+  by hand and knows when they are done. The global OIDC login is the one
+  place that narrows immediately, because it has no record to preserve:
+  see [[#154]].
+
+  **Surfaces.** `grants` on the user record and on `POST`/`PUT /api/users`,
+  the Users page with an organization row per grant and a role on each, the
+  same in `aperio-client api user`, the user rows in export and import, an
+  audit event per grant added or removed naming the granter, and
+  `docs/organizations.md`, whose "named user is pinned to one organization"
+  paragraph becomes the one-grant case of this.
 
 - [x] **#150 A whole spec file collapsing at once, and the port was free
   when it was handed out.** The other flake, caught while verifying [[#149]]:
