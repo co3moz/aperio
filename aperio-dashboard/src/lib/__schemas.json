@@ -2993,7 +2993,7 @@
         "minimum": 0
       },
       "default_access": {
-        "description": "What a route nobody gated means: `allow` (today's behaviour, and the\ndefault) or `deny`. With `deny` a route is reachable because something\nsaid so, an `auth:` policy that admits the visitor or an explicit\n`method: none` / `public: true`, rather than because nothing said\notherwise (env: APERIO_DEFAULT_ACCESS). Default: `allow`.",
+        "description": "What a route nobody gated means: `deny`, the default since 0.10.0, or\n`allow`. With `deny` a route is reachable because something said so, an\n`auth:` policy that admits the visitor or an explicit `method: none` /\n`public: true`, rather than because nothing said otherwise; `allow` is\nwhat the server did before 0.10.0 (env: APERIO_DEFAULT_ACCESS).\nDefault: `deny`.",
         "type": [
           "string",
           "null"

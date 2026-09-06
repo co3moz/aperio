@@ -221,11 +221,12 @@ pub struct ServerFileConfig {
   #[schemars(extend("examples" = ["info", "debug"]))]
   pub log_level: Option<String>,
 
-  /// What a route nobody gated means: `allow` (today's behaviour, and the
-  /// default) or `deny`. With `deny` a route is reachable because something
-  /// said so, an `auth:` policy that admits the visitor or an explicit
-  /// `method: none` / `public: true`, rather than because nothing said
-  /// otherwise (env: APERIO_DEFAULT_ACCESS). Default: `allow`.
+  /// What a route nobody gated means: `deny`, the default since 0.10.0, or
+  /// `allow`. With `deny` a route is reachable because something said so, an
+  /// `auth:` policy that admits the visitor or an explicit `method: none` /
+  /// `public: true`, rather than because nothing said otherwise; `allow` is
+  /// what the server did before 0.10.0 (env: APERIO_DEFAULT_ACCESS).
+  /// Default: `deny`.
   #[schemars(extend("examples" = ["deny"]))]
   pub default_access: Option<String>,
 
