@@ -205,6 +205,18 @@ pub(crate) struct TokenCreateArgs {
   /// server's OTel bridge (the server's own otel_bridge must be on too)
   #[arg(long = "allow-otel")]
   pub(crate) allow_otel: bool,
+  /// Allow clients using this token to bind the tunnels other clients of the
+  /// organization declare (--bind-tunnels)
+  #[arg(long = "allow-bind")]
+  pub(crate) allow_bind: bool,
+  /// Allow services using this token to ask the server to reach their target
+  /// itself (server_side: true; the server's server_side_targets must name it)
+  #[arg(long = "allow-server-side")]
+  pub(crate) allow_server_side: bool,
+  /// Topic filter this token may publish and subscribe on (deploy/#, `*` for
+  /// everything); repeatable, omitted = no messaging
+  #[arg(long = "topic", value_name = "FILTER")]
+  pub(crate) topics: Vec<String>,
   /// Mark the token as a canary: any successful auth raises an alert
   #[arg(long)]
   pub(crate) canary: bool,
@@ -241,6 +253,25 @@ pub(crate) struct TokenUpdateArgs {
   /// Withdraw the OTel bridge
   #[arg(long = "no-allow-otel", conflicts_with = "allow_otel")]
   pub(crate) no_allow_otel: bool,
+  /// Permit binding the organization's declared tunnels
+  #[arg(long = "allow-bind")]
+  pub(crate) allow_bind: bool,
+  /// Withdraw tunnel binding
+  #[arg(long = "no-allow-bind", conflicts_with = "allow_bind")]
+  pub(crate) no_allow_bind: bool,
+  /// Permit server-side services
+  #[arg(long = "allow-server-side")]
+  pub(crate) allow_server_side: bool,
+  /// Withdraw server-side services
+  #[arg(long = "no-allow-server-side", conflicts_with = "allow_server_side")]
+  pub(crate) no_allow_server_side: bool,
+  /// Replacement topic filter list; repeatable. A narrowed list withdraws the
+  /// subscriptions it no longer covers from the clients already connected
+  #[arg(long = "topic", value_name = "FILTER")]
+  pub(crate) topics: Vec<String>,
+  /// Withdraw every topic: the token can neither publish nor subscribe
+  #[arg(long = "clear-topics", conflicts_with = "topics")]
+  pub(crate) clear_topics: bool,
   /// Turn the canary flag on
   #[arg(long)]
   pub(crate) canary: bool,

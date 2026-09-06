@@ -76,14 +76,17 @@ Mints a signed link that lets a visitor past the site's password or OIDC gate. S
 ```bash
 aperio-client api token list
 aperio-client api token create --name ci --hostname app.example.com --expire 30d \
-  [--allowed-ip 10.0.0.0/8] [--max-rps 50] [--daily-max-bytes 1000000000] [--allow-public] [--allow-otel] [--canary]
-aperio-client api token update <id> [--name new] [--hostname ...] [--expire never] [--allow-otel|--no-allow-otel] [--no-canary]
+  [--allowed-ip 10.0.0.0/8] [--max-rps 50] [--daily-max-bytes 1000000000] \
+  [--allow-public] [--allow-otel] [--allow-bind] [--allow-server-side] [--topic deploy/#] [--canary]
+aperio-client api token update <id> [--name new] [--hostname ...] [--expire never] \
+  [--allow-otel|--no-allow-otel] [--allow-bind|--no-allow-bind] [--allow-server-side|--no-allow-server-side] \
+  [--topic deploy/# ... | --clear-topics] [--no-canary]
 aperio-client api token rotate <id> [--grace 1h]
 aperio-client api token revoke <id>
 aperio-client api token refresh [--secret apr_...]
 ```
 
-`create` and `rotate` print the secret once. `refresh` authenticates with the token secret itself (defaulting to `--server-token`), so a long-running job can slide its own expiry forward without holding an admin key. A token's `topics` (the messaging grant) and `allow_bind` / `allow_server_side` have no flag here yet; set them from the dashboard's token editor or with a direct `POST` / `PUT /aperio/api/tokens`. See [Tokens & Authentication](tokens-and-auth.md).
+`create` and `rotate` print the secret once. `refresh` authenticates with the token secret itself (defaulting to `--server-token`), so a long-running job can slide its own expiry forward without holding an admin key. `--topic` is repeatable and names a filter the token may publish and subscribe on (`*` is accepted and stored as `#`); on `update` a `--topic` list replaces the old one and `--clear-topics` withdraws messaging altogether, and either takes effect on the clients already connected under the token. `--allow-bind` lets the token bind the [tunnels](emergency-tunnels.md) other clients of its organization declare; `--allow-server-side` lets its services ask to be [served from the server](server-side-services.md). See [Tokens & Authentication](tokens-and-auth.md).
 
 ### Ephemeral tunnels
 

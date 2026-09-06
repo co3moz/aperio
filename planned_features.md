@@ -27,17 +27,6 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
-- [ ] **#159 `aperio-client api token create` / `update` cannot set `topics`,
-  `allow_bind` or `allow_server_side`.** Found while auditing `docs/messaging.md`,
-  which showed `aperio-client api POST /tokens -d '{...}'`, a command that does
-  not exist; the CLI has no generic request form and the token commands carry
-  only the flags they were written with, so the three permissions added since
-  are dashboard-or-curl only. Add `--topic <filter>` (repeatable, `*` accepted
-  as `#`), `--allow-bind` / `--no-allow-bind` and `--allow-server-side` /
-  `--no-allow-server-side` to both commands, in the shape `--allow-otel` /
-  `--no-allow-otel` already has, and drop the workaround sentence from
-  `docs/cli-api.md` and `docs/messaging.md` when they land.
-
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
@@ -451,6 +440,21 @@ so.
   2025-09, with no rc since March. Neither is close.
 
 ## Completed
+
+- [x] **#159 `aperio-client api token create` / `update` cannot set `topics`,
+  `allow_bind` or `allow_server_side`.** Found while auditing `docs/messaging.md`,
+  which showed `aperio-client api POST /tokens -d '{...}'`, a command that does
+  not exist; the CLI has no generic request form and the token commands carry
+  only the flags they were written with, so the three permissions added since
+  are dashboard-or-curl only. Add `--topic <filter>` (repeatable, `*` accepted
+  as `#`), `--allow-bind` / `--no-allow-bind` and `--allow-server-side` /
+  `--no-allow-server-side` to both commands, in the shape `--allow-otel` /
+  `--no-allow-otel` already has, and drop the workaround sentence from
+  `docs/cli-api.md` and `docs/messaging.md` when they land. shipped: all three
+  flags on both commands, plus `--clear-topics` on `update`, since an empty
+  list on the wire means "keep" and withdrawing messaging needed a way to be
+  said; `*` is passed through and the server stores it as `#`, as it does
+  from the dashboard. Where it differed: nothing.
 
 - [x] **#157 `forward` asked over the tunnel, so the endpoint that decides can
   live on the client's network.** shipped as `via: client` on `forward`,

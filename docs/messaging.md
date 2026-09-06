@@ -169,13 +169,11 @@ Delivery is fenced on the organization exactly as an ordinary message is, and th
 Messaging is a token capability, off unless the token carries it. A dynamic token has a **topics** list of filters, and one rule covers both directions: a token that may subscribe to `deploy/#` may publish on it, and a token with an empty list can do neither.
 
 ```bash
-# against the server's admin API; the dashboard's token editor has the same field
-curl -b cookies.txt -X POST -H 'Content-Type: application/json' \
-  --data '{"name":"deploy-runner","topics":["deploy/#"]}' \
-  https://tunnel.example.com/aperio/api/tokens
+aperio-client api token create --name deploy-runner --topic 'deploy/#'
+aperio-client api token update <id> --topic 'deploy/#' --topic '$aperio/client/#'   # replaces the list
 ```
 
-`aperio-client api token create` does not take a `topics` flag yet; set them in the dashboard or with the call above.
+The dashboard's token editor has the same field, and `POST /aperio/api/tokens` takes it as `topics`.
 
 The list is a fence, not a wish: a subscription is permitted when a granted filter *covers* it. `deploy/#` covers `deploy/web` and `deploy/+`, and does not cover `#`, otherwise subscribing to everything would be the way around a scope that named one subtree. `*` is accepted and stored as `#`, since that is how the hostname and path lists spell "everything". Neither `#` nor `*` reaches `$aperio/`, which is granted only by a filter that names it (`["#", "$aperio/client/#"]` is a token that may talk on any topic of its own *and* watch clients connect).
 

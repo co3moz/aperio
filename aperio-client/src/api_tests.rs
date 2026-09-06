@@ -119,6 +119,81 @@ fn test_token_create_collects_repeatable_permissions() {
   assert_eq!(body["ttl_seconds"], 7_200);
   assert_eq!(body["allow_public"], true);
   assert_eq!(body["canary"], false);
+  // The permissions nobody asked for are sent as their off value, and no
+  // messaging is an empty list, so the server never has to guess.
+  assert_eq!(body["allow_bind"], false);
+  assert_eq!(body["allow_server_side"], false);
+  assert_eq!(body["topics"], serde_json::json!([]));
+}
+
+/// The three permissions added after the command was written (#159): a
+/// repeatable topic filter and two capability switches, in the shape the
+/// OTel switch already had.
+#[test]
+fn test_token_create_carries_topics_bind_and_server_side() {
+  let call = call_for(&[
+    "token",
+    "create",
+    "--name",
+    "deploy-runner",
+    "--topic",
+    "deploy/#",
+    "--topic",
+    "$aperio/client/#",
+    "--allow-bind",
+    "--allow-server-side",
+  ])
+  .unwrap();
+  let body = call.body.unwrap();
+  assert_eq!(
+    body["topics"],
+    serde_json::json!(["deploy/#", "$aperio/client/#"])
+  );
+  assert_eq!(body["allow_bind"], true);
+  assert_eq!(body["allow_server_side"], true);
+}
+
+#[test]
+fn test_token_update_replaces_or_clears_topics_and_toggles_the_capabilities() {
+  let call = call_for(&[
+    "token",
+    "update",
+    "tok1",
+    "--topic",
+    "deploy/web",
+    "--no-allow-bind",
+  ])
+  .unwrap();
+  let body = call.body.unwrap();
+  assert_eq!(body["topics"], serde_json::json!(["deploy/web"]));
+  assert_eq!(body["allow_bind"], false);
+  assert!(
+    body.get("allow_server_side").is_none(),
+    "a capability nobody mentioned stays as it is"
+  );
+
+  let call = call_for(&[
+    "token",
+    "update",
+    "tok1",
+    "--clear-topics",
+    "--allow-server-side",
+  ])
+  .unwrap();
+  let body = call.body.unwrap();
+  assert_eq!(
+    body["topics"],
+    serde_json::json!([]),
+    "clearing is explicit"
+  );
+  assert_eq!(body["allow_server_side"], true);
+
+  let call = call_for(&["token", "update", "tok1"]).unwrap();
+  let body = call.body.unwrap();
+  assert!(
+    body.get("topics").is_none(),
+    "an update that says nothing about topics keeps them"
+  );
 }
 
 #[test]

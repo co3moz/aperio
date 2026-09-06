@@ -85,12 +85,29 @@ export class ApiCliSpec extends Test({
   async theTokenLifecycleWorksEndToEnd() {
     const made = await this._json<{ token: string; id: string }>(
       'token', 'create', '--name', 'e2e-cli-token', '--hostname', HOST, '--expire', '1d',
+      '--topic', 'deploy/#', '--topic', '*', '--allow-bind',
     )
     assert.match(made.token, /^apr_/, 'the secret is returned once')
 
-    assert.match(await this._api('token', 'list'), /e2e-cli-token/)
-    await this._api('token', 'update', made.id, '--name', 'e2e-cli-renamed')
-    assert.match(await this._api('token', 'list'), /e2e-cli-renamed/)
+    type Listed = { id: string; name: string; topics: string[]; allow_bind: boolean; allow_server_side: boolean }
+    const listed = () => this._json<Listed[]>('token', 'list').then((all) => all.find((t) => t.id === made.id)!)
+    let row = await listed()
+    assert.equal(row.name, 'e2e-cli-token')
+    // The server keeps what the flags said: `*` is stored as `#`, the
+    // messaging spelling of everything, and the capability is on.
+    assert.deepEqual(row.topics, ['deploy/#', '#'])
+    assert.equal(row.allow_bind, true)
+    assert.equal(row.allow_server_side, false)
+
+    await this._api('token', 'update', made.id, '--name', 'e2e-cli-renamed', '--topic', 'deploy/web', '--no-allow-bind')
+    row = await listed()
+    assert.equal(row.name, 'e2e-cli-renamed')
+    assert.deepEqual(row.topics, ['deploy/web'], 'a --topic list replaces the old one')
+    assert.equal(row.allow_bind, false)
+
+    await this._api('token', 'update', made.id, '--clear-topics')
+    row = await listed()
+    assert.deepEqual(row.topics, [], 'and --clear-topics empties it')
 
     const rotated = await this._json<{ token: string }>('token', 'rotate', made.id, '--grace', '1h')
     assert.match(rotated.token, /^apr_/)

@@ -35,6 +35,9 @@ pub(crate) fn build_call(
       body.insert("allowed_ips".into(), json!(a.allowed_ips));
       body.insert("allow_public".into(), Value::Bool(a.allow_public));
       body.insert("allow_otel".into(), Value::Bool(a.allow_otel));
+      body.insert("allow_bind".into(), Value::Bool(a.allow_bind));
+      body.insert("allow_server_side".into(), Value::Bool(a.allow_server_side));
+      body.insert("topics".into(), json!(a.topics));
       body.insert("canary".into(), Value::Bool(a.canary));
       put_opt(&mut body, "ttl_seconds", ttl_field(&a.expire, true)?);
       put_opt(&mut body, "max_rps", a.max_rps);
@@ -61,6 +64,18 @@ pub(crate) fn build_call(
       }
       if a.allow_public || a.no_allow_public {
         body.insert("allow_public".into(), Value::Bool(a.allow_public));
+      }
+      if a.allow_bind || a.no_allow_bind {
+        body.insert("allow_bind".into(), Value::Bool(a.allow_bind));
+      }
+      if a.allow_server_side || a.no_allow_server_side {
+        body.insert("allow_server_side".into(), Value::Bool(a.allow_server_side));
+      }
+      // An empty list means "keep" on the wire, so clearing is its own flag.
+      if a.clear_topics {
+        body.insert("topics".into(), json!([]));
+      } else if !a.topics.is_empty() {
+        body.insert("topics".into(), json!(a.topics));
       }
       if a.canary || a.no_canary {
         body.insert("canary".into(), Value::Bool(a.canary));
