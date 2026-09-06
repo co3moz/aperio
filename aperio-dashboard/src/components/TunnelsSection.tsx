@@ -114,7 +114,7 @@ export function TunnelsSection() {
                     {/* The dot is the availability signal: a tunnel nothing
                         can serve right now is still worth listing, but it
                         should not look bindable. */}
-                    <StatusDot active={tunnel.available} />
+                    <StatusDot active={tunnel.available} label={tunnel.available ? t('Available') : t('Unavailable')} />
                     <span className="flex flex-col">
                       {/* The address is what you paste; the label, when the
                           declaring client gave one, is what you recognize. */}

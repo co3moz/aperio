@@ -1227,4 +1227,8 @@ export const ru: Record<string, string> = {
   'Nothing matches "{search}"': 'Ничего не найдено по «{search}»',
   'No dashboard users yet; the master token still signs in.': 'Пользователей панели пока нет; мастер-токен по-прежнему входит.',
   'Role-based access. The master token always signs in as the built-in admin ("aperio").': 'Доступ по ролям. Мастер-токен всегда входит как встроенный администратор ("aperio").',
+  'Healthy': 'Исправен',
+  'Unhealthy': 'Неисправен',
+  'Available': 'Доступен',
+  'Unavailable': 'Недоступен',
 }

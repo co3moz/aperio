@@ -136,10 +136,26 @@ export function SectionHeader({
   )
 }
 
-/** Live/health indicator dot with the pulse animation. */
-export function StatusDot({ active, className }: { active: boolean; className?: string }) {
+/** Live/health indicator dot with the pulse animation.
+ *
+ *  `label` is the dot's meaning in words: colour is the only signal the dot
+ *  itself carries, and a colour-blind operator, a screen reader, or a
+ *  greyscale print reads nothing from it. It becomes the accessible name
+ *  and the tooltip (planned_features #165). */
+export function StatusDot({
+  active,
+  label,
+  className,
+}: {
+  active: boolean
+  label: string
+  className?: string
+}) {
   return (
     <span
+      role="img"
+      aria-label={label}
+      title={label}
       className={cn(
         'inline-block size-2 shrink-0 animate-pulse rounded-full motion-reduce:animate-none',
         active ? 'bg-emerald-500 shadow-[0_0_8px] shadow-emerald-500' : 'bg-red-500 shadow-[0_0_8px] shadow-red-500',
@@ -147,6 +163,22 @@ export function StatusDot({ active, className }: { active: boolean; className?: 
       )}
     />
   )
+}
+
+/** The props that make a clickable row a keyboard one: focusable, named as
+ *  a button, and activated by Enter or Space the way a button is. Spread it
+ *  next to the `onClick`. */
+export function rowKeys(activate: () => void) {
+  return {
+    tabIndex: 0,
+    role: 'button' as const,
+    onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return
+      if (e.target !== e.currentTarget) return
+      e.preventDefault()
+      activate()
+    },
+  }
 }
 
 /**

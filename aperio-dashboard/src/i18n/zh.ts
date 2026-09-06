@@ -1208,4 +1208,8 @@ export const zh: Record<string, string> = {
   'Nothing matches "{search}"': '没有匹配“{search}”的项',
   'No dashboard users yet; the master token still signs in.': '尚无仪表板用户；主令牌仍可登录。',
   'Role-based access. The master token always signs in as the built-in admin ("aperio").': '基于角色的访问。主令牌始终以内置管理员（"aperio"）身份登录。',
+  'Healthy': '健康',
+  'Unhealthy': '异常',
+  'Available': '可用',
+  'Unavailable': '不可用',
 }

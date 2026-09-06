@@ -529,7 +529,7 @@ export default function App() {
                 connected ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400',
               )}
             >
-              <StatusDot active={connected} />
+              <StatusDot active={connected} label={connected ? t('Connected') : t('Offline')} />
               <span className="hidden md:inline">
                 {connected ? t('Connected & Active') : t('Offline (Waiting for Client)')}
               </span>

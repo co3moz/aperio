@@ -27,18 +27,6 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
-- [ ] **#165 Keyboard, colour and the phone.** Twenty-one `aria-label`s, three
-  `onKeyDown`s and one `autoFocus` across forty-five components: the tables
-  and dialogs are mouse-only, focus is not moved into an opened dialog or
-  back on close, and a row's actions cannot be reached with Tab in any useful
-  order. Status is carried by colour alone (the green, amber and red dots), so
-  a colour-blind operator reads nothing; every dot needs a text or shape
-  twin, at least in a tooltip and in the accessible name. Below 768 px twelve
-  tables fall back to horizontal scroll, and the one question a phone is
-  pulled out for, "is it up", has no answer smaller than the Overview: give
-  the Clients and Traffic tables a card layout under the breakpoint, and
-  make the Overview's tiles the mobile home.
-
 - [ ] **#166 Four things the panel stops one step short of.** A hostname is
   plain text everywhere it appears (Clients, Tokens, Topology); make it a link
   that opens the site, since that is what an operator does next. Creating a
@@ -465,6 +453,26 @@ so.
   2025-09, with no rc since March. Neither is close.
 
 ## Completed
+
+- [x] **#165 Keyboard, colour and the phone.** Twenty-one `aria-label`s, three
+  `onKeyDown`s and one `autoFocus` across forty-five components: the tables
+  and dialogs are mouse-only, focus is not moved into an opened dialog or
+  back on close, and a row's actions cannot be reached with Tab in any useful
+  order. Status is carried by colour alone (the green, amber and red dots), so
+  a colour-blind operator reads nothing; every dot needs a text or shape
+  twin, at least in a tooltip and in the accessible name. Below 768 px twelve
+  tables fall back to horizontal scroll, and the one question a phone is
+  pulled out for, "is it up", has no answer smaller than the Overview: give
+  the Clients and Traffic tables a card layout under the breakpoint, and
+  make the Overview's tiles the mobile home. shipped: `rowKeys`
+  on the two clickable table rows (Tab, Enter, Space), a required `label`
+  on `StatusDot` rendered as the accessible name and tooltip, and a
+  stacked card list under the breakpoint for Clients and Live Traffic.
+  Where it differed: dialog focus is left to the base-ui primitives the
+  dialogs are built on, which already trap and return it; the Overview's
+  tiles were already one column under `sm` and needed no separate mobile
+  home; and the Topology map stays colour-coded with its legend in the
+  page paragraph, since an SVG node has nowhere to hang a label.
 
 - [x] **#164 The small inconsistencies: confirmations, freshness, search,
   dates.** Four things a second pass would have caught, cheap to fix and worth

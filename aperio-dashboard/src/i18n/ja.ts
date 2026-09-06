@@ -1225,4 +1225,8 @@ export const ja: Record<string, string> = {
   'Nothing matches "{search}"': '"{search}" に一致するものはありません',
   'No dashboard users yet; the master token still signs in.': 'まだダッシュボードユーザーはいません。マスタートークンで引き続きサインインできます。',
   'Role-based access. The master token always signs in as the built-in admin ("aperio").': 'ロールベースのアクセス。マスタートークンは常に組み込み管理者（"aperio"）としてサインインします。',
+  'Healthy': '正常',
+  'Unhealthy': '異常',
+  'Available': '利用可能',
+  'Unavailable': '利用不可',
 }

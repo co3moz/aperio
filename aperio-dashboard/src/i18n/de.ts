@@ -1229,4 +1229,8 @@ export const de: Record<string, string> = {
   'Nothing matches "{search}"': 'Nichts passt zu „{search}“',
   'No dashboard users yet; the master token still signs in.': 'Noch keine Dashboard-Benutzer; der Master-Token meldet sich weiterhin an.',
   'Role-based access. The master token always signs in as the built-in admin ("aperio").': 'Rollenbasierter Zugriff. Der Master-Token meldet sich immer als eingebauter Admin ("aperio") an.',
+  'Healthy': 'Gesund',
+  'Unhealthy': 'Ungesund',
+  'Available': 'Verfügbar',
+  'Unavailable': 'Nicht verfügbar',
 }

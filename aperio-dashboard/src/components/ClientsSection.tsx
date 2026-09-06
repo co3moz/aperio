@@ -5,7 +5,8 @@ import { AddClientWizard } from './AddClientWizard'
 import { GLOSSARY, Term } from './Term'
 import { ClientConfigDialog } from './ClientConfigDialog'
 import { groupClientsByInstance } from '@/lib/clientGroups'
-import { EmptyRow, SectionHeader, StatusDot } from './shared'
+import { EmptyRow, RecordEmpty, RecordList, RecordRow, SectionHeader, StatusDot, rowKeys } from './shared'
+import { useIsMobile } from '@/hooks/use-mobile'
 import { TintBadge } from './badges'
 import {
   AlertDialog,
@@ -418,6 +419,7 @@ export function ClientsSection({
   onChanged: () => void
 }) {
   const { t } = useI18n()
+  const isMobile = useIsMobile()
   const canMutate = useHasRole('operator')
   const [search, setSearch] = useState('')
   // Which connection's config dialog is open (its id), if any.
@@ -485,6 +487,50 @@ export function ClientsSection({
         {canMutate && <AddClientWizard />}
       </SectionHeader>
       <Card className="overflow-hidden py-0">
+        {isMobile ? (
+          // Under the breakpoint the eight columns are a horizontal scroll
+          // nobody reads; one card per client says what a phone is pulled
+          // out for: which service, is it up, when did it last speak.
+          <RecordList>
+            {clients.length === 0 ? (
+              <RecordEmpty icon={<PinIcon />}>
+                {t('No active client sessions, start a tunnel client to see it here')}
+              </RecordEmpty>
+            ) : sorted.length === 0 ? (
+              <RecordEmpty icon={<SearchIcon />}>{t('No clients match "{search}"', { search })}</RecordEmpty>
+            ) : (
+              sorted.map((g) => {
+                const c = g.rep
+                const ok = c.healthy && c.backend_healthy
+                const names = [...c.hostname_binds, ...(c.random_hostname ? [c.random_hostname] : [])]
+                return (
+                  <div
+                    key={g.key}
+                    className="cursor-pointer"
+                    onClick={() => setConfigOf(c)}
+                    {...rowKeys(() => setConfigOf(c))}
+                  >
+                    <RecordRow
+                      title={
+                        <>
+                          <StatusDot active={ok} label={ok ? t('Healthy') : t('Unhealthy')} />
+                          <span className={c.name ? '' : 'font-mono'}>
+                            {c.name ?? `${(c.instance_id ?? c.id).slice(0, 8)}…`}
+                          </span>
+                          {c.public && <TintBadge tint="green">{t('public')}</TintBadge>}
+                        </>
+                      }
+                    >
+                      <span className="font-mono">{names.join(', ') || NO_VALUE}</span>
+                      <span>{formatLastPing(c.last_ping_seconds_ago, t)}</span>
+                      <span>{t('{count} requests', { count: formatCount(g.requestCount) })}</span>
+                    </RecordRow>
+                  </div>
+                )
+              })
+            )}
+          </RecordList>
+        ) : (
         <Table>
           <TableHeader>
             <TableRow>
@@ -515,6 +561,7 @@ export function ClientsSection({
                   key={g.key}
                   className="cursor-pointer"
                   onClick={() => setConfigOf(c)}
+                  {...rowKeys(() => setConfigOf(c))}
                   title={t('Show this connection\'s effective configuration')}
                 >
                   <TableCell>
@@ -672,7 +719,10 @@ export function ClientsSection({
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <StatusDot active={c.healthy && c.backend_healthy} />
+                      <StatusDot
+                        active={c.healthy && c.backend_healthy}
+                        label={c.healthy && c.backend_healthy ? t('Healthy') : t('Unhealthy')}
+                      />
                       <span className="text-sm">{formatLastPing(c.last_ping_seconds_ago, t)}</span>
                       {c.rtt_ms != null && (
                         <Tooltip>
@@ -731,6 +781,7 @@ export function ClientsSection({
             )}
           </TableBody>
         </Table>
+        )}
       </Card>
       {configOf && (
         <ClientConfigDialog

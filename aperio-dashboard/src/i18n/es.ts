@@ -1227,4 +1227,8 @@ export const es: Record<string, string> = {
   'Nothing matches "{search}"': 'Nada coincide con "{search}"',
   'No dashboard users yet; the master token still signs in.': 'Aún no hay usuarios del panel; el token maestro sigue iniciando sesión.',
   'Role-based access. The master token always signs in as the built-in admin ("aperio").': 'Acceso por roles. El token maestro siempre inicia sesión como el administrador integrado ("aperio").',
+  'Healthy': 'Saludable',
+  'Unhealthy': 'No saludable',
+  'Available': 'Disponible',
+  'Unavailable': 'No disponible',
 }

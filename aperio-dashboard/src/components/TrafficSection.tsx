@@ -1,6 +1,7 @@
 import { PauseIcon, PlayIcon, SearchIcon, TableIcon, TerminalIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { EmptyRow, SectionHeader, SkeletonRows } from './shared'
+import { EmptyRow, RecordEmpty, RecordList, RecordRow, SectionHeader, SkeletonRows, rowKeys } from './shared'
+import { useIsMobile } from '@/hooks/use-mobile'
 import { MethodBadge, StatusBadge } from './badges'
 import { TailConsole } from './TailConsole'
 import { Button } from '@/components/ui/button'
@@ -173,6 +174,7 @@ export function TrafficSection({
     readParams().get('view') === 'console' ? 'console' : 'table',
   )
   const { t } = useI18n()
+  const isMobile = useIsMobile()
   const [paused, setPaused] = useState(false)
   const [frozen, setFrozen] = useState<RequestLog[]>([])
 
@@ -297,7 +299,35 @@ export function TrafficSection({
         )}
       </div>
 
-      {view === 'table' ? (
+      {view === 'table' && isMobile ? (
+        <RecordList>
+          {visible.length === 0 ? (
+            <RecordEmpty icon={<SearchIcon />}>{t('No requests matching filter')}</RecordEmpty>
+          ) : (
+            visible.map((log) => (
+              <div
+                key={log.id}
+                className="cursor-pointer"
+                onClick={() => onInspect(log.id)}
+                {...rowKeys(() => onInspect(log.id))}
+              >
+                <RecordRow
+                  title={
+                    <>
+                      <MethodBadge method={log.method} />
+                      <span className="break-all font-mono text-sm">{log.uri}</span>
+                    </>
+                  }
+                >
+                  <StatusBadge status={log.status} error={log.error} />
+                  <span className="font-mono tabular-nums">{log.duration_ms} ms</span>
+                  <span>{formatRelativeTime(log.timestamp, t)}</span>
+                </RecordRow>
+              </div>
+            ))
+          )}
+        </RecordList>
+      ) : view === 'table' ? (
         <Card className="overflow-hidden py-0">
         <Table>
           <TableHeader>
@@ -324,6 +354,7 @@ export function TrafficSection({
                   className="cursor-pointer"
                   title={t('Click to inspect & replay')}
                   onClick={() => onInspect(log.id)}
+                  {...rowKeys(() => onInspect(log.id))}
                 >
                   <TableCell>
                     <Tooltip>

@@ -1227,4 +1227,8 @@ export const fr: Record<string, string> = {
   'Nothing matches "{search}"': 'Rien ne correspond à « {search} »',
   'No dashboard users yet; the master token still signs in.': 'Pas encore d’utilisateurs du tableau de bord ; le jeton maître se connecte toujours.',
   'Role-based access. The master token always signs in as the built-in admin ("aperio").': 'Accès par rôles. Le jeton maître se connecte toujours comme l’administrateur intégré ("aperio").',
+  'Healthy': 'Sain',
+  'Unhealthy': 'Défaillant',
+  'Available': 'Disponible',
+  'Unavailable': 'Indisponible',
 }

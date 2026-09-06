@@ -20,6 +20,8 @@ project follows semantic versioning per release tag.
 
 ### Changed
 
+- **The dashboard can be worked from the keyboard, read without colour, and glanced at on a phone.** A clickable row (a request in Live Traffic, a client in Clients) is focusable and opens on Enter or Space; every status dot carries its meaning in words as its accessible name and tooltip, so a colour-blind operator or a screen reader reads "healthy" rather than green; and under 768 px the Clients and Live Traffic tables become a stacked list, one card per row, instead of an eight-column horizontal scroll.
+
 - **Four small inconsistencies in the dashboard, fixed together.** Clearing the whole webhook inbox and purging the whole response cache now ask first, as revoking a token always did. A page fed by the live stream says "updated 12 s ago" instead of offering a *Refresh* button that suggested it was not; the button comes back only while the stream is down, or for a filtered audit search. The token, user and webhook lists have a search box. Dates are written the way the UI language writes them (`18 Eyl 2026 05:56` in a Turkish panel rather than `9/18/2026, 5:56:50 AM`), and two strings on the Users page still spoke of the dashboard password, which was removed in 0.6.0.
 
 - **The dashboard defines its own words.** `bind`, `draining`, `ejected`, `canary`, `expose` and a hostname override each carry a one-sentence definition and a docs link behind a dotted underline where they appear as a badge or a label, and the client row's *Overrule* button is *Redirect hostname*, which is what it does.

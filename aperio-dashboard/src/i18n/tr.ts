@@ -1231,4 +1231,8 @@ export const tr: Record<string, string> = {
   'Nothing matches "{search}"': '"{search}" ile eşleşen yok',
   'No dashboard users yet; the master token still signs in.': 'Henüz panel kullanıcısı yok; master token hâlâ giriş yapar.',
   'Role-based access. The master token always signs in as the built-in admin ("aperio").': 'Rol tabanlı erişim. Master token her zaman yerleşik yönetici ("aperio") olarak giriş yapar.',
+  'Healthy': 'Sağlıklı',
+  'Unhealthy': 'Sağlıksız',
+  'Available': 'Erişilebilir',
+  'Unavailable': 'Erişilemez',
 }
