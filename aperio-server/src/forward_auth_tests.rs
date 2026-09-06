@@ -118,6 +118,7 @@ fn config(url: &str) -> ForwardConfig {
     response_headers: Vec::new(),
     timeout: Duration::from_secs(5),
     cache: Duration::ZERO,
+    via_client: false,
   }
 }
 

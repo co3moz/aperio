@@ -13,6 +13,7 @@ mod dial;
 mod e2e;
 mod egress;
 mod flow;
+mod forward_ask;
 mod health_report;
 mod messages_http;
 mod messages_mqtt;

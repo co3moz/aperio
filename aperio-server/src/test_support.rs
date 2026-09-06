@@ -298,6 +298,7 @@ pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
     active_tunnel_count: AtomicUsize::new(0),
     ws_streams: Mutex::new(HashMap::new()),
     pending_upgrades: Mutex::new(HashMap::new()),
+    pending_auth_asks: Mutex::new(HashMap::new()),
     token_store: Mutex::new(test_token_store()),
     admin_key_store: Mutex::new(test_admin_key_store()),
     inbox_store: Mutex::new(test_inbox_store()),

@@ -488,6 +488,31 @@ pub(crate) async fn check_visitor_gate(
     {
       return decided;
     }
+    // A `forward` a client declared is asked over the tunnel, of the
+    // connection that would serve the request (#157). Last of the methods,
+    // since it is the one that costs a round trip, and its refusal is held
+    // so a share link still gets its chance.
+    let mut delegated_refusal = None;
+    for cfg in declared.forward_methods() {
+      match crate::forward_auth_tunnel::ask_over_tunnel(
+        state, cfg, method, headers, uri, host, caller_ip, path,
+      )
+      .await
+      {
+        crate::forward_auth::Verdict::Allow(carried) => {
+          return VisitorGate::Allow(Some(VisitorIdentity {
+            how: "forward",
+            who: carried
+              .iter()
+              .find(|(k, _)| k.eq_ignore_ascii_case("x-auth-user"))
+              .map(|(_, v)| v.clone()),
+            extra_headers: carried,
+            consumed_authorization: false,
+          }));
+        }
+        crate::forward_auth::Verdict::Deny(resp) => delegated_refusal = Some(resp),
+      }
+    }
     return match check_share_access(state, headers, uri, host) {
       Some(Some(redirect)) => VisitorGate::Deny(redirect),
       Some(None) => VisitorGate::Allow(Some(VisitorIdentity {
@@ -496,12 +521,10 @@ pub(crate) async fn check_visitor_gate(
         extra_headers: Vec::new(),
         consumed_authorization: false,
       })),
-      None => VisitorGate::Deny(refuse_visitor(
-        &declared,
-        navigation,
-        "/aperio/auth",
-        &uri.to_string(),
-      )),
+      None => VisitorGate::Deny(match delegated_refusal {
+        Some(resp) => resp,
+        None => refuse_visitor(&declared, navigation, "/aperio/auth", &uri.to_string()),
+      }),
     };
   }
 
@@ -591,8 +614,17 @@ pub(crate) async fn check_visitor_gate(
   // its chance below.
   let mut delegated_refusal = None;
   for cfg in policy.forward_methods() {
-    match crate::forward_auth::ask(state, cfg, method, headers, uri, host, Some(&visitor_ip)).await
-    {
+    // Dialed from here, or asked of the client that would serve the request
+    // (`via: client`, #157).
+    let verdict = if cfg.via_client {
+      crate::forward_auth_tunnel::ask_over_tunnel(
+        state, cfg, method, headers, uri, host, caller_ip, path,
+      )
+      .await
+    } else {
+      crate::forward_auth::ask(state, cfg, method, headers, uri, host, Some(&visitor_ip)).await
+    };
+    match verdict {
       crate::forward_auth::Verdict::Allow(carried) => {
         return VisitorGate::Allow(Some(VisitorIdentity {
           how: "forward",

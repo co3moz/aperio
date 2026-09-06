@@ -249,6 +249,15 @@ impl ConnCtx {
     let client_ip = &self.client_ip;
     let perms = &self.perms;
     info!("Tunnel client disconnected: {}", client_id);
+    // Every auth check waiting on this connection is refused now rather
+    // than at its timeout: the endpoint it was asked of is unreachable.
+    let dropped_asks = crate::forward_auth_tunnel::forget_client(state, client_id).await;
+    if dropped_asks > 0 {
+      info!(
+        "Refused {} visitor(s) whose auth check was waiting on client {}",
+        dropped_asks, client_id
+      );
+    }
     // Settle the batched byte accounting of every stream this connection was
     // feeding, and drop the cached senders so removing the handles below is
     // what ends the pumps.

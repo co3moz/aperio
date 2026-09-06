@@ -620,6 +620,40 @@ impl Dispatch<'_> {
                                   TunnelMessage::HostnameAssigned { hostname } => {
                                       info!("[{}] Server assigned hostname to this client: {}", label, hostname);
                                   }
+                                  TunnelMessage::AuthAsk {
+                                      id,
+                                      url,
+                                      request_headers,
+                                      response_headers,
+                                      timeout_ms,
+                                      ..
+                                  } => {
+                                      // The server is asking about a visitor it cannot yet
+                                      // admit (`forward` with `via: client`, #157). The
+                                      // question arrives composed; this side calls the
+                                      // endpoint on its own network and sends back the
+                                      // verdict, never a body. Off the read loop, so a slow
+                                      // endpoint holds up nothing else on this connection.
+                                      let tx = tx_write.clone();
+                                      tokio::spawn(async move {
+                                          let out = crate::forward_ask::answer(
+                                              &url,
+                                              &request_headers,
+                                              &response_headers,
+                                              Duration::from_millis(timeout_ms),
+                                          )
+                                          .await;
+                                          let verdict = TunnelMessage::AuthVerdict {
+                                              id,
+                                              status: out.status,
+                                              headers: out.headers,
+                                              error: out.error,
+                                          };
+                                          if let Ok(json) = serde_json::to_string(&verdict) {
+                                              let _ = tx.send(Message::Text(json.into())).await;
+                                          }
+                                      });
+                                  }
                                   TunnelMessage::ServerShutdown {} => {
                                       // The server is restarting: skip the reconnect backoff
                                       // once the socket drops so downtime stays minimal.

@@ -803,6 +803,34 @@ pub enum TunnelMessage {
   /// Client → server: the client received a shutdown signal and is draining.
   /// The server stops routing new requests to it; in-flight requests finish.
   Draining {},
+  /// Server → client: ask the endpoint on the client's own network about a
+  /// request (`forward` with `via: client`, planned_features #157). The
+  /// headers are the ones the server already composed and allow-listed,
+  /// `X-Forwarded-*` included; `response_headers` names what may come back.
+  AuthAsk {
+    id: String,
+    url: String,
+    method: String,
+    uri: String,
+    #[serde(default)]
+    host: Option<String>,
+    visitor_ip: String,
+    #[serde(default)]
+    request_headers: Vec<(String, String)>,
+    #[serde(default)]
+    response_headers: Vec<String>,
+    timeout_ms: u64,
+  },
+  /// Client → server: the endpoint's answer, a status and the headers a
+  /// browser or the allowlist needs, or why it could not be asked.
+  AuthVerdict {
+    id: String,
+    status: u16,
+    #[serde(default)]
+    headers: Vec<(String, String)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+  },
   /// Server → client: open a raw TCP connection for this stream. `target`
   /// selects one of the client's declared tunnels; when absent the legacy
   /// `tcp_target` is used. The client only ever connects to addresses it

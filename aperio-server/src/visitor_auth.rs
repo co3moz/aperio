@@ -101,15 +101,28 @@ impl Policy {
               .map(|u| u.as_slice().to_vec())
               .unwrap_or_default(),
           }),
-          "forward" => Some(Method::Forward(Box::new(
-            crate::forward_auth::ForwardConfig {
-              url: spec.url.clone().unwrap_or_default(),
-              request_headers: spec.request_headers.clone().unwrap_or_default(),
-              response_headers: spec.response_headers.clone().unwrap_or_default(),
-              timeout: std::time::Duration::from_secs(spec.timeout.unwrap_or(5).max(1)),
-              cache: std::time::Duration::from_secs(spec.cache.unwrap_or(0)),
-            },
-          ))),
+          "forward" => {
+            // A client's `forward` is always asked of that client: the
+            // server never dials a URL a client chose, whatever the entry
+            // says, and the client refuses to start without `via: client`
+            // anyway. Over the tunnel the cold path is two round trips, so a
+            // verdict is remembered for thirty seconds unless told otherwise.
+            let via_client = declared_by_client || aperio_config::forward_via_client(spec);
+            Some(Method::Forward(Box::new(
+              crate::forward_auth::ForwardConfig {
+                url: spec.url.clone().unwrap_or_default(),
+                request_headers: spec.request_headers.clone().unwrap_or_default(),
+                response_headers: spec.response_headers.clone().unwrap_or_default(),
+                timeout: std::time::Duration::from_secs(spec.timeout.unwrap_or(5).max(1)),
+                cache: std::time::Duration::from_secs(spec.cache.unwrap_or(if via_client {
+                  30
+                } else {
+                  0
+                })),
+                via_client,
+              },
+            )))
+          }
           "jwt" => Some(Method::Jwt(Box::new(crate::jwt::JwtConfig {
             jwks_url: spec.jwks_url.clone(),
             hmac_secret: spec.hmac_secret.clone(),

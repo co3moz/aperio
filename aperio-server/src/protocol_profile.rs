@@ -146,6 +146,16 @@ pub(crate) fn reach(message: &TunnelMessage) -> (Reach, Direction, &'static str)
     TunnelMessage::UpgradeResponse { .. } => (NeverSent, ToServer, "WebSocket relay"),
     TunnelMessage::WsData { .. } => (NeverSent, BothWays, "WebSocket relay"),
     TunnelMessage::WsClose { .. } => (NeverSent, BothWays, "WebSocket relay"),
+    TunnelMessage::AuthAsk { .. } => (
+      NeverSent,
+      ToClient,
+      "a declared `forward` gate with `via: client`",
+    ),
+    TunnelMessage::AuthVerdict { .. } => (
+      NeverSent,
+      ToServer,
+      "a declared `forward` gate with `via: client`",
+    ),
     TunnelMessage::TcpOpen { .. } => (NeverSent, ToClient, "a declared TCP tunnel"),
     TunnelMessage::TcpData { .. } => (NeverSent, BothWays, "a declared TCP tunnel"),
     TunnelMessage::TcpClose { .. } => (NeverSent, BothWays, "a declared TCP tunnel"),

@@ -170,6 +170,7 @@ fn build_state(config: ServerConfig) -> Arc<AppState> {
     active_tunnel_count: AtomicUsize::new(0),
     ws_streams: Mutex::new(HashMap::new()),
     pending_upgrades: Mutex::new(HashMap::new()),
+    pending_auth_asks: Mutex::new(HashMap::new()),
     token_store: Mutex::new(crate::store::tokens::TokenStore::load(&tmp_dir("tokens"))),
     admin_key_store: Mutex::new(crate::store::admin_keys::AdminKeyStore::load(&tmp_dir(
       "adminkeys",

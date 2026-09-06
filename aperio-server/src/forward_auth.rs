@@ -45,7 +45,7 @@ use crate::state::AppState;
 /// is what some implementations do: the endpoint is being asked one question,
 /// and handing it the whole request makes every header it happens to read
 /// part of a contract nobody wrote down.
-const DEFAULT_REQUEST_HEADERS: [&str; 2] = ["cookie", "authorization"];
+pub(crate) const DEFAULT_REQUEST_HEADERS: [&str; 2] = ["cookie", "authorization"];
 
 /// Largest endpoint answer read back.
 ///
@@ -66,6 +66,11 @@ pub(crate) struct ForwardConfig {
   pub(crate) response_headers: Vec<String>,
   pub(crate) timeout: Duration,
   pub(crate) cache: Duration,
+  /// Asked over the tunnel, of the client that would serve the request,
+  /// rather than dialed from here (`planned_features.md` #157). Always true
+  /// for a policy a client declared: the server never dials a URL a client
+  /// chose.
+  pub(crate) via_client: bool,
 }
 
 /// A remembered verdict.
@@ -179,7 +184,7 @@ pub(crate) async fn ask(
 }
 
 /// The refusal used where the endpoint could not be asked at all.
-fn refusal() -> Response {
+pub(crate) fn refusal() -> Response {
   Response::builder()
     .status(StatusCode::FORBIDDEN)
     .body(Body::from("403 Forbidden"))
@@ -255,7 +260,7 @@ fn client() -> Option<&'static reqwest::Client> {
 /// allowlists source addresses is the commonest thing this method is put in
 /// front of. Omitting it would remember one address's admission and hand it to
 /// every other address that asks the same question.
-fn key(
+pub(crate) fn key(
   cfg: &ForwardConfig,
   names: &[&str],
   headers: &HeaderMap,
@@ -290,7 +295,11 @@ fn key(
 }
 
 /// A verdict remembered for this exact credential, if it is still fresh.
-async fn cached(state: &AppState, cfg: &ForwardConfig, key: &str) -> Option<Vec<(String, String)>> {
+pub(crate) async fn cached(
+  state: &AppState,
+  cfg: &ForwardConfig,
+  key: &str,
+) -> Option<Vec<(String, String)>> {
   let cache = state.forward_auth_cache.lock().await;
   let entry = cache.get(key)?;
   (entry.decided.elapsed() < cfg.cache).then(|| entry.headers.clone())
@@ -299,7 +308,7 @@ async fn cached(state: &AppState, cfg: &ForwardConfig, key: &str) -> Option<Vec<
 /// Remembers an admission. **Only an admission**: a refusal is not cached, so
 /// somebody who has just been given access does not keep being turned away
 /// for the rest of the window.
-async fn remember(
+pub(crate) async fn remember(
   state: &AppState,
   cfg: &ForwardConfig,
   key: String,

@@ -151,11 +151,52 @@ pub struct AuthMethodSpec {
   #[schemars(extend("examples" = [5]))]
   pub timeout: Option<u64>,
   /// `forward`: seconds to remember a verdict for an identical credential,
-  /// so a busy route does not pay a round trip per request. `0` (the default)
-  /// asks every time.
+  /// so a busy route does not pay a round trip per request. `0` asks every
+  /// time, and is the default when the endpoint is the server's own; over the
+  /// tunnel (`via: client`) the default is `30`, since the cold path there is
+  /// two round trips before the visitor's own request starts.
   #[serde(default)]
   #[schemars(extend("examples" = [30]))]
   pub cache: Option<u64>,
+  /// `forward`: whose network the endpoint is dialed from. `server` (the
+  /// default) is the server's; `client` asks over the tunnel, and the client
+  /// serving the route calls its own internal endpoint, so `localhost:7070`
+  /// means the client's localhost. A policy written on a client must say
+  /// `client`, so the same word cannot mean two networks in two files.
+  #[serde(default)]
+  #[schemars(extend("examples" = ["client"]))]
+  pub via: Option<String>,
+}
+
+/// Where a `forward` method's endpoint is dialed from.
+pub const FORWARD_VIA: &[&str] = &["server", "client"];
+
+/// True when this entry is a `forward` asked over the tunnel.
+pub fn forward_via_client(spec: &AuthMethodSpec) -> bool {
+  spec.method.trim().eq_ignore_ascii_case("forward")
+    && spec
+      .via
+      .as_deref()
+      .is_some_and(|v| v.trim().eq_ignore_ascii_case("client"))
+}
+
+/// Validates a policy a *client* declares for one of its services: the
+/// general rules, and one more, that a `forward` here says `via: client`.
+/// The server never dials a URL a client chose, so a client-side `forward`
+/// without it would be a gate the server cannot ask and would refuse
+/// everyone; better refused where it is written.
+pub fn validate_client_declared_auth(setting: &AuthSetting) -> Result<(), String> {
+  validate_auth_setting(setting)?;
+  for (i, spec) in setting.methods().iter().enumerate() {
+    if spec.method.trim().eq_ignore_ascii_case("forward") && !forward_via_client(spec) {
+      return Err(format!(
+        "`auth:` entry #{}: a `forward` declared on a client has to say `via: client`, since its \
+         endpoint is on this client's network and the server never dials a URL a client chose",
+        i + 1
+      ));
+    }
+  }
+  Ok(())
 }
 
 /// A `basic` method's credentials: one `user:password` or a list of them.
@@ -287,6 +328,20 @@ pub fn validate_auth_setting(setting: &AuthSetting) -> Result<(), String> {
         spec.method,
         AUTH_METHODS.join(", ")
       )));
+    }
+    if let Some(via) = spec.via.as_deref() {
+      if name != "forward" {
+        return Err(at(format!(
+          "`via:` belongs to `method: forward`, not `{}`",
+          spec.method
+        )));
+      }
+      if !FORWARD_VIA.contains(&via.trim().to_ascii_lowercase().as_str()) {
+        return Err(at(format!(
+          "`via: {via}` is not a place to ask from ({})",
+          FORWARD_VIA.join(", ")
+        )));
+      }
     }
     match name.as_str() {
       "none" => {

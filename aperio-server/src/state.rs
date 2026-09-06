@@ -447,6 +447,9 @@ pub(crate) struct AppState {
   pub(crate) ws_streams: Mutex<HashMap<String, WsStreamHandle>>,
   /// Pending WebSocket upgrade responses: upgrade_id → oneshot to resolve when client responds.
   pub(crate) pending_upgrades: Mutex<HashMap<String, PendingRequest>>,
+  /// Auth checks asked of a client over the tunnel and not yet answered
+  /// (`planned_features.md` #157), keyed by ask id.
+  pub(crate) pending_auth_asks: Mutex<crate::forward_auth_tunnel::PendingAsks>,
   /// Persistent store of dashboard-created dynamic API tokens.
   pub(crate) token_store: Mutex<TokenStore>,
   /// Persistent store of programmatic admin API keys (Bearer auth for the

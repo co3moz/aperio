@@ -38,7 +38,7 @@ pub(crate) fn resolve_visitor_gate(
   let Some(policy) = policy else {
     return Ok((public, None));
   };
-  aperio_config::validate_auth_setting(policy).map_err(|why| format!("{label}: {why}"))?;
+  aperio_config::validate_client_declared_auth(policy).map_err(|why| format!("{label}: {why}"))?;
   if policy
     .methods()
     .iter()

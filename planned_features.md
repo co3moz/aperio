@@ -27,97 +27,6 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
-- [ ] **#157 `forward` asked over the tunnel, so the endpoint that decides can
-  live on the client's network.** [[#111]] left `forward` out of the methods a
-  client may declare, and said why in the same breath: the URL would be dialed
-  from the *server's* network, so `localhost:7070` in a client's file would
-  mean the server's localhost, "a footgun whose safe version carries the check
-  over the tunnel, and that is a feature rather than a field". This is that
-  feature. The server, holding a request it cannot yet admit, asks the
-  connection that would serve it, the client calls its own internal endpoint,
-  and the verdict comes back the way a response does.
-
-  **Who it is for.** An operator who trusts Aperio for the front door and
-  already runs an authentication service of their own, deliberately not
-  reachable from the internet, sitting beside the client rather than beside
-  the server. Today that operator has to choose between publishing the
-  endpoint, which is the thing they are avoiding, and giving up their own
-  identity system.
-
-  **Ask first whether they need it.** A client may already declare `jwt` with
-  a `jwks_url`, which the server fetches and fences as a client-chosen
-  destination, so an internal service that can *sign* is served today with no
-  new protocol. This entry is for the case where the answer has to be computed
-  per request, which `jwt` cannot express: a session lookup, a revocation
-  list, a per-object permission.
-
-  **Two objections that look fatal and are not, worth writing down so they are
-  not re-litigated.** *Coupling*: this does not make the gate depend on the
-  tunnel, because the request being gated was going to that same client
-  anyway; a client that cannot answer the check could not have served the
-  request either. *Trust*: the verdict comes from the client, but a client
-  that wanted to admit everyone can already do so, it is the thing serving the
-  content. Neither is a new exposure; both are the existing one seen one step
-  earlier.
-
-  **The real design decisions.**
-
-  *One concept, not two.* A `forward` that means the server's network in one
-  file and the client's in another is exactly the ambiguity the exclusion
-  avoided. Preferred shape: keep the method and add `via: server | client`,
-  required to be `client` wherever the policy is client-declared, so the
-  ambiguity cannot be written. A distinct method name is the alternative; it
-  costs a second thing to learn for one field's worth of difference, and it
-  makes the eventual "declared on the server, asked of the client" case a
-  third name instead of the same field.
-
-  *Which connection is asked.* With several clients serving one hostname the
-  check must go to the connection the request would be dispatched to. Asking
-  any healthy one instead means one client's internal endpoint failing takes
-  down traffic another client is serving, which is a fault nobody would
-  connect back to this setting.
-
-  *The budget it spends.* Auth checks must not consume the service's
-  `max_concurrent` permits, or a flood of unauthenticated visitors becomes a
-  denial of service against the site itself, performed by its own gate. They
-  should spend from the visitor's IP rate-limit bucket, and probably carry
-  their own small per-connection ceiling. Note what changes: today an
-  unauthenticated visitor is refused at the server and the tunnel never sees
-  them, and this is the first method that lets pre-auth traffic reach the
-  client's network at all.
-
-  *Caching is not optional here.* Server-side `forward` has `cache:` (seconds
-  to remember a verdict for an identical credential) and it defaults to `0`,
-  ask every time. Over the tunnel the cold path is two round trips before the
-  visitor's own request starts, so the default for this variant should not be
-  zero, and the entry should say what it is and where the cache lives (the
-  server, keyed by credential, as it already is).
-
-  *Failing closed, more often.* The rule stands, a check that opens when it
-  cannot be reached is not a gate. But over a tunnel "unreachable" has more
-  shapes: disconnected, draining, ejected, saturated. During the reload window
-  [[#156]] describes, the site is not merely unserved, it also cannot be
-  logged into. That is defensible and it should be a documented sentence
-  rather than a discovery.
-
-  **Protocol.** A server-to-client frame pair (ask / verdict) carrying the
-  request line, the allow-listed request headers, and back a status plus the
-  allow-listed response headers, reusing the forwarding machinery with a
-  different destination and without relaying a body to the visitor. Additive
-  and version-negotiated like every other method: a client too old to answer
-  it declares it cannot, and the existing hold-back path already refuses to
-  serve a service whose gate the connection cannot carry. `request_headers`
-  and `response_headers` keep their current defaults and their explicit
-  allowlist, which is what keeps the identity-delivery path from becoming a
-  header injection.
-
-  **The workaround it replaces**, worth naming in the docs when this lands:
-  publishing the auth endpoint as its own Aperio service gated by `bearer`,
-  so the server can reach it while the internet cannot use it. It works, and
-  it costs a public hostname, a second gate to rotate, and a full trip out
-  through the proxy and back.
-
-
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
@@ -531,6 +440,112 @@ so.
   2025-09, with no rc since March. Neither is close.
 
 ## Completed
+
+- [x] **#157 `forward` asked over the tunnel, so the endpoint that decides can
+  live on the client's network.** shipped as `via: client` on `forward`,
+  the preferred shape: one method, one field, required on a client-written
+  policy (`validate_client_declared_auth`) and forced on the server for any
+  client-declared `forward`, so the server never dials a URL a client
+  chose. `forward_auth_tunnel.rs` composes the question the way the server's
+  own `ask` would, picks the connection through the proxy's own
+  `pick_proxy_client`, spends from the visitor's IP bucket at the credential
+  price, caps open asks at 32 per connection, remembers admissions in the
+  same server-side cache with a 30-second default, and refuses in every
+  shape of unreachable, the frames `AuthAsk`/`AuthVerdict` being the only
+  wire change; the client answers in `forward_ask.rs` with a status and
+  the headers a browser or the allowlist needs, never a body. Where it
+  differed: a server-written `via: client` is accepted too, asked of the
+  client the request would go to, rather than reserved as a later case;
+  and no protocol version bump, since a client declares the method only
+  when it can answer it and a server-written ask of an older client fails
+  closed at the timeout, said so in the docs. The original entry: [[#111]] left `forward` out of the methods a
+  client may declare, and said why in the same breath: the URL would be dialed
+  from the *server's* network, so `localhost:7070` in a client's file would
+  mean the server's localhost, "a footgun whose safe version carries the check
+  over the tunnel, and that is a feature rather than a field". This is that
+  feature. The server, holding a request it cannot yet admit, asks the
+  connection that would serve it, the client calls its own internal endpoint,
+  and the verdict comes back the way a response does.
+
+  **Who it is for.** An operator who trusts Aperio for the front door and
+  already runs an authentication service of their own, deliberately not
+  reachable from the internet, sitting beside the client rather than beside
+  the server. Today that operator has to choose between publishing the
+  endpoint, which is the thing they are avoiding, and giving up their own
+  identity system.
+
+  **Ask first whether they need it.** A client may already declare `jwt` with
+  a `jwks_url`, which the server fetches and fences as a client-chosen
+  destination, so an internal service that can *sign* is served today with no
+  new protocol. This entry is for the case where the answer has to be computed
+  per request, which `jwt` cannot express: a session lookup, a revocation
+  list, a per-object permission.
+
+  **Two objections that look fatal and are not, worth writing down so they are
+  not re-litigated.** *Coupling*: this does not make the gate depend on the
+  tunnel, because the request being gated was going to that same client
+  anyway; a client that cannot answer the check could not have served the
+  request either. *Trust*: the verdict comes from the client, but a client
+  that wanted to admit everyone can already do so, it is the thing serving the
+  content. Neither is a new exposure; both are the existing one seen one step
+  earlier.
+
+  **The real design decisions.**
+
+  *One concept, not two.* A `forward` that means the server's network in one
+  file and the client's in another is exactly the ambiguity the exclusion
+  avoided. Preferred shape: keep the method and add `via: server | client`,
+  required to be `client` wherever the policy is client-declared, so the
+  ambiguity cannot be written. A distinct method name is the alternative; it
+  costs a second thing to learn for one field's worth of difference, and it
+  makes the eventual "declared on the server, asked of the client" case a
+  third name instead of the same field.
+
+  *Which connection is asked.* With several clients serving one hostname the
+  check must go to the connection the request would be dispatched to. Asking
+  any healthy one instead means one client's internal endpoint failing takes
+  down traffic another client is serving, which is a fault nobody would
+  connect back to this setting.
+
+  *The budget it spends.* Auth checks must not consume the service's
+  `max_concurrent` permits, or a flood of unauthenticated visitors becomes a
+  denial of service against the site itself, performed by its own gate. They
+  should spend from the visitor's IP rate-limit bucket, and probably carry
+  their own small per-connection ceiling. Note what changes: today an
+  unauthenticated visitor is refused at the server and the tunnel never sees
+  them, and this is the first method that lets pre-auth traffic reach the
+  client's network at all.
+
+  *Caching is not optional here.* Server-side `forward` has `cache:` (seconds
+  to remember a verdict for an identical credential) and it defaults to `0`,
+  ask every time. Over the tunnel the cold path is two round trips before the
+  visitor's own request starts, so the default for this variant should not be
+  zero, and the entry should say what it is and where the cache lives (the
+  server, keyed by credential, as it already is).
+
+  *Failing closed, more often.* The rule stands, a check that opens when it
+  cannot be reached is not a gate. But over a tunnel "unreachable" has more
+  shapes: disconnected, draining, ejected, saturated. During the reload window
+  [[#156]] describes, the site is not merely unserved, it also cannot be
+  logged into. That is defensible and it should be a documented sentence
+  rather than a discovery.
+
+  **Protocol.** A server-to-client frame pair (ask / verdict) carrying the
+  request line, the allow-listed request headers, and back a status plus the
+  allow-listed response headers, reusing the forwarding machinery with a
+  different destination and without relaying a body to the visitor. Additive
+  and version-negotiated like every other method: a client too old to answer
+  it declares it cannot, and the existing hold-back path already refuses to
+  serve a service whose gate the connection cannot carry. `request_headers`
+  and `response_headers` keep their current defaults and their explicit
+  allowlist, which is what keeps the identity-delivery path from becoming a
+  header injection.
+
+  **The workaround it replaces**, worth naming in the docs when this lands:
+  publishing the auth endpoint as its own Aperio service gated by `bearer`,
+  so the server can reach it while the internet cannot use it. It works, and
+  it costs a public hostname, a second gate to rotate, and a full trip out
+  through the proxy and back.
 
 - [x] **#158 The mutation sweep's five survivors: one test to write, three to
   mark skipped, one already gone.** shipped. Decided: `#[mutants::skip]`

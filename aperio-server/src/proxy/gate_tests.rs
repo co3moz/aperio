@@ -1429,3 +1429,82 @@ async fn beside_a_bearer_the_aperio_gate_keeps_the_wider_reading() {
     panic!("refused");
   }
 }
+
+// --- forward asked over the tunnel (planned_features.md #157) ----------------
+
+/// A client-declared `forward` goes to the client that would serve the
+/// request, and its verdict decides.
+#[tokio::test]
+async fn a_client_declared_forward_is_asked_of_the_client_over_the_tunnel() {
+  let state = Arc::new(test_state_with(test_config()));
+  let (tx, mut rx) = tokio::sync::mpsc::channel::<axum::extract::ws::Message>(8);
+  let mut c = mock_client(None, None, None, None);
+  c.tx = tx;
+  let setting: aperio_config::AuthSetting = serde_yaml::from_str(
+    "{method: forward, url: 'http://127.0.0.1:7070/check', via: client, response_headers: [x-auth-user], cache: 0, timeout: 1}",
+  )
+  .unwrap();
+  c.sole_mut().visitor_auth_policy =
+    Some(crate::visitor_auth::Policy::compile_from(&setting, true));
+  state.clients.write().await.insert("c1".to_string(), c);
+  let uri: axum::http::Uri = "/svc".parse().unwrap();
+
+  // The answering side: read the ask, admit with an identity.
+  let answering = {
+    let state = state.clone();
+    tokio::spawn(async move {
+      let frame = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("an ask")
+        .expect("open");
+      let axum::extract::ws::Message::Text(text) = frame else {
+        panic!("text");
+      };
+      let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+      assert_eq!(value["type"], "AuthAsk");
+      let id = value["id"].as_str().unwrap().to_string();
+      crate::forward_auth_tunnel::resolve(
+        &state,
+        &id,
+        crate::forward_auth_tunnel::AskAnswer {
+          status: 200,
+          headers: vec![("x-auth-user".to_string(), "alice".to_string())],
+          error: None,
+        },
+      )
+      .await;
+    })
+  };
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    None,
+  )
+  .await;
+  answering.await.unwrap();
+  match gate {
+    VisitorGate::Allow(Some(identity)) => {
+      assert_eq!(identity.how, "forward");
+      assert_eq!(identity.who.as_deref(), Some("alice"));
+      assert_eq!(
+        identity.extra_headers,
+        vec![("x-auth-user".to_string(), "alice".to_string())]
+      );
+    }
+    _ => panic!("the endpoint admitted"),
+  }
+  // Nobody answering: refused, not admitted.
+  let (tx, _rx) = tokio::sync::mpsc::channel::<axum::extract::ws::Message>(8);
+  state.clients.write().await.get_mut("c1").unwrap().tx = tx;
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    None,
+  )
+  .await;
+  assert!(matches!(gate, VisitorGate::Deny(_)));
+}

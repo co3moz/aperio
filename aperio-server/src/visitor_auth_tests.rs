@@ -239,3 +239,29 @@ fn the_aperio_method_gates_without_a_credential_and_says_so() {
   assert!(mixed.has_direct_method());
   assert!(!policy("{method: basic, users: [a:b]}").has_aperio());
 }
+
+#[test]
+fn a_forward_knows_where_it_is_asked_from_and_a_clients_is_always_the_client() {
+  let server_side = policy("{method: forward, url: 'http://127.0.0.1:7070/c'}");
+  let cfg = server_side.forward_methods().next().unwrap();
+  assert!(!cfg.via_client);
+  assert!(
+    cfg.cache.is_zero(),
+    "the server's own asks every time by default"
+  );
+  let over = policy("{method: forward, url: 'http://127.0.0.1:7070/c', via: client}");
+  let cfg = over.forward_methods().next().unwrap();
+  assert!(cfg.via_client);
+  assert_eq!(
+    cfg.cache.as_secs(),
+    30,
+    "over the tunnel a verdict is remembered by default"
+  );
+  let told = policy("{method: forward, url: 'http://127.0.0.1:7070/c', via: client, cache: 0}");
+  assert!(told.forward_methods().next().unwrap().cache.is_zero());
+  // Declared by a client, the server never dials it, whatever the entry says.
+  let setting: aperio_config::AuthSetting =
+    serde_yaml::from_str("{method: forward, url: 'http://127.0.0.1:7070/c', via: server}").unwrap();
+  let declared = Policy::compile_from(&setting, true);
+  assert!(declared.forward_methods().next().unwrap().via_client);
+}

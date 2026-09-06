@@ -939,7 +939,7 @@
             ]
           },
           "cache": {
-            "description": "`forward`: seconds to remember a verdict for an identical credential,\nso a busy route does not pay a round trip per request. `0` (the default)\nasks every time.",
+            "description": "`forward`: seconds to remember a verdict for an identical credential,\nso a busy route does not pay a round trip per request. `0` asks every\ntime, and is the default when the endpoint is the server's own; over the\ntunnel (`via: client`) the default is `30`, since the cold path there is\ntwo round trips before the visitor's own request starts.",
             "type": [
               "integer",
               "null"
@@ -1126,6 +1126,17 @@
                 "admin:s3cret",
                 "ops:hunter2"
               ]
+            ]
+          },
+          "via": {
+            "description": "`forward`: whose network the endpoint is dialed from. `server` (the\ndefault) is the server's; `client` asks over the tunnel, and the client\nserving the route calls its own internal endpoint, so `localhost:7070`\nmeans the client's localhost. A policy written on a client must say\n`client`, so the same word cannot mean two networks in two files.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              "client"
             ]
           }
         },
@@ -4635,7 +4646,7 @@
             ]
           },
           "cache": {
-            "description": "`forward`: seconds to remember a verdict for an identical credential,\nso a busy route does not pay a round trip per request. `0` (the default)\nasks every time.",
+            "description": "`forward`: seconds to remember a verdict for an identical credential,\nso a busy route does not pay a round trip per request. `0` asks every\ntime, and is the default when the endpoint is the server's own; over the\ntunnel (`via: client`) the default is `30`, since the cold path there is\ntwo round trips before the visitor's own request starts.",
             "type": [
               "integer",
               "null"
@@ -4822,6 +4833,17 @@
                 "admin:s3cret",
                 "ops:hunter2"
               ]
+            ]
+          },
+          "via": {
+            "description": "`forward`: whose network the endpoint is dialed from. `server` (the\ndefault) is the server's; `client` asks over the tunnel, and the client\nserving the route calls its own internal endpoint, so `localhost:7070`\nmeans the client's localhost. A policy written on a client must say\n`client`, so the same word cannot mean two networks in two files.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null,
+            "examples": [
+              "client"
             ]
           }
         },

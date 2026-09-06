@@ -60,7 +60,8 @@ pub(crate) const VISITOR_AUTH_METHODS_HEADER: &str = "x-aperio-visitor-auth-meth
 /// the server's localhost and not its own: a footgun whose safe version
 /// carries the check over the tunnel, and that is a feature rather than a
 /// field (#111).
-pub(crate) const CLIENT_DECLARABLE_METHODS: &[&str] = &["none", "basic", "bearer", "jwt", "aperio"];
+pub(crate) const CLIENT_DECLARABLE_METHODS: &[&str] =
+  &["none", "basic", "bearer", "jwt", "aperio", "forward"];
 /// Other servers a client may fall back to (planned_features #52),
 /// comma-separated.
 pub(crate) const ALTERNATE_SERVERS_HEADER: &str = "x-aperio-alternate-servers";
@@ -824,6 +825,23 @@ pub(crate) async fn handle_socket(
             m @ TunnelMessage::PublishAck { .. } => ctx.on_publish_ack(m).await,
             m @ TunnelMessage::Publish { .. } => ctx.on_publish(m).await,
             TunnelMessage::Draining {} => ctx.on_draining().await,
+            TunnelMessage::AuthVerdict {
+              id,
+              status,
+              headers,
+              error,
+            } => {
+              crate::forward_auth_tunnel::resolve(
+                &ctx.state,
+                &id,
+                crate::forward_auth_tunnel::AskAnswer {
+                  status,
+                  headers,
+                  error,
+                },
+              )
+              .await;
+            }
             // The one verdict a handler renders: a Ping revealing a
             // connection past its ceiling, or a failed token pin, ends the
             // connection.

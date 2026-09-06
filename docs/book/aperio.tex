@@ -1809,6 +1809,9 @@ line already written. Two methods exist today:
   \item[\code{forward}] Ask an endpoint you run about each request:
         \code{2xx} admits it, anything else refuses it and the endpoint's
         own answer is what the visitor gets.
+        \code{via: client} asks over the tunnel instead, so the endpoint
+        can live on the client's own network, unreachable from the internet;
+        a \code{forward} written on a client must say so.
   \item[\code{aperio}] This server's own sign-in: a dashboard session
         reaching the hostname's organisation, with no credential to invent.
         Alone, it admits the admin plane only, so the site's visitor
@@ -1967,10 +1970,11 @@ since each of those is a single value. A policy the scalar cannot express
 shows as empty there, so \code{GET /aperio/api/settings} reports
 \code{visitor\_auth\_methods} beside it and what is in force stays
 readable. A client may declare \code{none}, \code{basic}, \code{bearer} and
-\code{jwt}; \code{forward} is server-side only, since its URL would be
-called by the \emph{server}, from the server's network, so a client
-writing \code{localhost:7070} would mean the server's localhost rather
-than its own.
+\code{jwt}, and \code{forward} with \code{via: client}: its URL is then
+asked over the tunnel, of the client that would serve the request, so a
+client writing \code{localhost:7070} means its own localhost. Without
+\code{via: client} the client refuses to start, since the server never
+dials a URL a client chose.
 
 Which of those actually travel is negotiated on the handshake rather
 than assumed. The server announces the methods it accepts from a client

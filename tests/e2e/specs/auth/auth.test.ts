@@ -789,7 +789,9 @@ export class RichGateClient extends DeclaredGateClient {
   }
 }
 
-/** A client declaring a method a client has no business declaring. */
+/** A client declaring `forward` without saying whose network the URL is
+ *  on. The server never dials a URL a client chose, so the client refuses
+ *  the file before anything is sent. */
 export class ForwardDeclaringClient extends DeclaredGateClient {
   _autoStart() {
     return false
@@ -855,12 +857,13 @@ export class ClientDeclaredGateSpec extends Test({
     assert.equal(wrong.status, 401)
   }
 
-  async aMethodAClientMayNotDeclareIsRefusedByTheServer() {
-    // `forward` would have the *server* call the URL, from the server's
-    // network, so a client writing localhost would mean the server's. The
-    // server does not announce it, so the client will not send it.
+  async aForwardWithoutViaClientIsRefusedWhereItIsWritten() {
+    // `forward` on a client has to say `via: client`: the URL is on the
+    // client's network, and the server never dials one a client chose, so
+    // a bare `forward` here would be a gate nobody can ask. Refused by the
+    // client itself, before the handshake.
     await this.forwarding._start().catch(() => {})
-    await this.forwarding._waitForLog('does not accept `forward`')
+    await this.forwarding._waitForLog('has to say `via: client`')
   }
 }
 

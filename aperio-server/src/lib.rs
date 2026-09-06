@@ -15,6 +15,7 @@ mod error_pages;
 mod expose;
 mod fallbacks;
 mod forward_auth;
+mod forward_auth_tunnel;
 mod headers;
 mod jwt;
 mod limits;

@@ -442,3 +442,60 @@ fn the_aperio_method_is_accepted_and_takes_no_credential() {
   }
   assert!(AUTH_METHODS.contains(&"aperio"));
 }
+
+/// `via:` belongs to `forward`, names a place to ask from, and a client's
+/// `forward` has to say `client` (planned_features #157).
+#[test]
+fn via_belongs_to_forward_and_a_client_forward_says_client() {
+  assert!(
+    validate_auth_setting(&auth_of(
+      "{method: forward, url: 'http://127.0.0.1:7070/c', via: client}"
+    ))
+    .is_ok()
+  );
+  assert!(
+    validate_auth_setting(&auth_of(
+      "{method: forward, url: 'http://127.0.0.1:7070/c', via: server}"
+    ))
+    .is_ok()
+  );
+  assert!(
+    validate_auth_setting(&auth_of(
+      "{method: forward, url: 'http://127.0.0.1:7070/c', via: elsewhere}"
+    ))
+    .is_err()
+  );
+  assert!(
+    validate_auth_setting(&auth_of(
+      "{method: bearer, secret: 0123456789abcdef, via: client}"
+    ))
+    .is_err()
+  );
+  assert!(
+    validate_client_declared_auth(&auth_of(
+      "{method: forward, url: 'http://127.0.0.1:7070/c', via: client}"
+    ))
+    .is_ok()
+  );
+  assert!(
+    validate_client_declared_auth(&auth_of(
+      "{method: forward, url: 'http://127.0.0.1:7070/c'}"
+    ))
+    .is_err()
+  );
+  assert!(
+    validate_client_declared_auth(&auth_of(
+      "{method: forward, url: 'http://127.0.0.1:7070/c', via: server}"
+    ))
+    .is_err()
+  );
+  assert!(
+    validate_client_declared_auth(&auth_of("{method: bearer, secret: 0123456789abcdef}")).is_ok()
+  );
+  assert!(forward_via_client(
+    &auth_of("{method: forward, url: 'http://x/', via: client}").methods()[0]
+  ));
+  assert!(!forward_via_client(
+    &auth_of("{method: forward, url: 'http://x/'}").methods()[0]
+  ));
+}

@@ -78,6 +78,8 @@ one HTTP target declares none of them and therefore receives none.
 | `UpgradeResponse` | client to server | WebSocket relay |
 | `WsData` | both ways | WebSocket relay |
 | `WsClose` | both ways | WebSocket relay |
+| `AuthAsk` | server to client | a declared `forward` gate with `via: client` |
+| `AuthVerdict` | client to server | a declared `forward` gate with `via: client` |
 | `TcpOpen` | server to client | a declared TCP tunnel |
 | `TcpData` | both ways | a declared TCP tunnel |
 | `TcpClose` | both ways | a declared TCP tunnel |
