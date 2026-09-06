@@ -171,7 +171,7 @@ function CreateAdminKeyDialog({
 }
 
 export function AdminKeysSection() {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const { data, loading, refresh } = useStream<AdminKeyView[]>('admin_keys', () => api.adminKeys(), 30000)
   const [secret, setSecret] = useState<string | null>(null)
 
@@ -246,7 +246,7 @@ export function AdminKeysSection() {
                 icon={<ClockIcon />}
                 className={k.expired ? 'text-destructive' : undefined}
               >
-                {formatExpiry(k.expires_at, k.expired, t)}
+                {formatExpiry(k.expires_at, k.expired, t, lang)}
               </RecordFact>
             </RecordRow>
           ))

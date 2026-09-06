@@ -27,20 +27,6 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
-- [ ] **#164 The small inconsistencies: confirmations, freshness, search,
-  dates.** Four things a second pass would have caught, cheap to fix and worth
-  fixing together. Revoking a token or deleting a user asks first; clearing
-  the whole webhook inbox, purging the cache, clearing the traffic view and
-  resetting a settings group do not, and those are the wider blasts. Seven
-  pages carry a *Refresh* button while Clients and Live Traffic are pushed
-  live, so nothing tells a reader which pages are current; replace the button
-  with an "updated 12 s ago" stamp that turns into the button only when the
-  stream is down (and see #167, which removes most of the polls the button
-  exists for). A search box exists on three lists and not on Tokens, Users
-  or Webhooks, which grow. Dates render as `9/18/2026, 5:56:50 AM` in every
-  language; use the viewer's locale and the UI language, and relative time
-  where the column is "when".
-
 - [ ] **#165 Keyboard, colour and the phone.** Twenty-one `aria-label`s, three
   `onKeyDown`s and one `autoFocus` across forty-five components: the tables
   and dialogs are mouse-only, focus is not moved into an opened dialog or
@@ -479,6 +465,29 @@ so.
   2025-09, with no rc since March. Neither is close.
 
 ## Completed
+
+- [x] **#164 The small inconsistencies: confirmations, freshness, search,
+  dates.** Four things a second pass would have caught, cheap to fix and worth
+  fixing together. Revoking a token or deleting a user asks first; clearing
+  the whole webhook inbox, purging the cache, clearing the traffic view and
+  resetting a settings group do not, and those are the wider blasts. Seven
+  pages carry a *Refresh* button while Clients and Live Traffic are pushed
+  live, so nothing tells a reader which pages are current; replace the button
+  with an "updated 12 s ago" stamp that turns into the button only when the
+  stream is down (and see #167, which removes most of the polls the button
+  exists for). A search box exists on three lists and not on Tokens, Users
+  or Webhooks, which grow. Dates render as `9/18/2026, 5:56:50 AM` in every
+  language; use the viewer's locale and the UI language, and relative time
+  where the column is "when". shipped: the two
+  confirmations (inbox clear, cache purge), a `Freshness` stamp in place
+  of the Refresh button on every streamed page (the button returns while
+  the stream is down, and for a filtered audit search), a search box on
+  tokens, users and webhooks, and `formatDateTime` taking the UI language.
+  Where it differed: clearing the traffic view and the console is left
+  unconfirmed, both empty a local buffer the next request refills, and
+  the settings pane's per-field reset shows the value it resets to beside
+  the button, which is the confirmation; two Users-page strings that still
+  named the dashboard password were fixed on the way.
 
 - [x] **#163 A glossary for the six words nobody outside the project knows.**
   The UI says "bind" eleven times and "drain", "eject", "canary", "expose" and

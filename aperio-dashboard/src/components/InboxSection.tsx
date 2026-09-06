@@ -1,4 +1,4 @@
-import { ClockIcon, GlobeIcon, InboxIcon, RefreshCwIcon, SendIcon, Trash2Icon } from 'lucide-react'
+import { ClockIcon, GlobeIcon, InboxIcon, SendIcon, Trash2Icon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import {
@@ -12,6 +12,18 @@ import {
 import { MethodBadge, StatusBadge } from './badges'
 import { Button } from '@/components/ui/button'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
+import { Freshness } from './Freshness'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { useStream } from '@/hooks/useStream'
 import { useI18n } from '@/i18n'
 import { api, ApiError, type InboxDetail, type InboxSummary } from '@/lib/api'
@@ -37,10 +49,10 @@ function decodeBody(b64: string | null, t: (key: string) => string): string {
  * cure for "Stripe fired while my laptop was closed".
  */
 export function InboxSection() {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   // Pushed as each inbound webhook lands, which is the moment somebody
   // watching this page wants it.
-  const { data: entries, refresh: reload } = useStream<InboxSummary[]>('inbox', api.inbox, 10_000)
+  const { data: entries, refresh: reload, updatedAt } = useStream<InboxSummary[]>('inbox', api.inbox, 10_000)
   const [openId, setOpenId] = useState<string | null>(null)
   const [detail, setDetail] = useState<InboxDetail | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -101,17 +113,31 @@ export function InboxSection() {
   return (
     <section className="flex flex-col gap-3">
       <SectionHeader title={t('Webhook Inbox')}>
-        <Button size="sm" variant="outline" onClick={reload}>
-          <RefreshCwIcon /> {t('Refresh')}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => void clearAll()}
-          disabled={!entries || entries.length === 0}
-        >
-          <Trash2Icon /> {t('Clear inbox')}
-        </Button>
+        <Freshness updatedAt={updatedAt} onRefresh={reload} />
+        <AlertDialog>
+          <AlertDialogTrigger
+            render={<Button size="sm" variant="outline" disabled={!entries || entries.length === 0} />}
+          >
+            <Trash2Icon /> {t('Clear inbox')}
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t('Clear the whole inbox?')}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t('Every stored inbound webhook of this organization is deleted; a re-fire is no longer possible for them.')}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive/10 text-destructive hover:bg-destructive/20"
+                onClick={() => void clearAll()}
+              >
+                {t('Clear inbox')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </SectionHeader>
 
       <p className="max-w-3xl text-sm text-muted-foreground">
@@ -159,7 +185,7 @@ export function InboxSection() {
                   </div>
                 }
               >
-                <RecordFact icon={<ClockIcon />} title={formatAbsoluteTime(e.timestamp)}>
+                <RecordFact icon={<ClockIcon />} title={formatAbsoluteTime(e.timestamp, lang)}>
                   {formatRelativeTime(e.timestamp, t)}
                 </RecordFact>
                 <RecordFact icon={<GlobeIcon />} className="font-mono">

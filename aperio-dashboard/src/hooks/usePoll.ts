@@ -7,6 +7,8 @@ export interface PollState<T> {
   error: boolean
   /** True until the first poll settles (success or failure). */
   loading: boolean
+  /** When `data` last arrived, as a timestamp, or null before the first. */
+  updatedAt: number | null
 }
 
 // Cap the backoff at 2^4 = 16× the base interval so a long outage doesn't stop
@@ -28,6 +30,7 @@ export function usePoll<T>(fn: () => Promise<T>, intervalMs: number, key?: strin
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null)
   const fnRef = useRef(fn)
   fnRef.current = fn
   const failures = useRef(0)
@@ -48,6 +51,7 @@ export function usePoll<T>(fn: () => Promise<T>, intervalMs: number, key?: strin
       const value = await fnRef.current()
       if (asked !== generation.current) return
       setData(value)
+      setUpdatedAt(Date.now())
       setError(false)
       failures.current = 0
     } catch {
@@ -95,5 +99,5 @@ export function usePoll<T>(fn: () => Promise<T>, intervalMs: number, key?: strin
     }
   }, [intervalMs, runOnce])
 
-  return { data, refresh, error, loading }
+  return { data, refresh, error, loading, updatedAt }
 }

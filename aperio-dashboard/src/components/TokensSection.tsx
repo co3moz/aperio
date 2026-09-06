@@ -1,4 +1,4 @@
-import { PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { PencilIcon, PlusIcon, SearchIcon, Trash2Icon } from 'lucide-react'
 import { useState } from 'react'
 import { Term } from './Term'
 import { toast } from 'sonner'
@@ -419,14 +419,30 @@ function RevokeButton({ token, onDone }: { token: TokenView; onDone: () => void 
 }
 
 export function TokensSection() {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const canMutate = useHasRole('operator')
   const { data: tokens, refresh } = useStream('tokens', api.tokens, 10_000)
   const [createdSecret, setCreatedSecret] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const needle = search.trim().toLowerCase()
+  const shown = tokens?.filter(
+    (tok) =>
+      !needle ||
+      [tok.name, tok.token_prefix, ...tok.hostnames, ...tok.paths].some((v) => v.toLowerCase().includes(needle)),
+  ) ?? null
 
   return (
     <section className="flex flex-col gap-3">
       <SectionHeader title={t('API Tokens')}>
+        <div className="relative">
+          <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder={t('Search tokens…')}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-56 pl-8"
+          />
+        </div>
         {canMutate && <TokenFormDialog editing={null} onSaved={refresh} onCreated={setCreatedSecret} />}
       </SectionHeader>
       <Card className="overflow-hidden py-0">
@@ -444,12 +460,14 @@ export function TokensSection() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {tokens === null ? (
+            {shown === null ? (
               <SkeletonRows rows={4} cols={8} />
-            ) : tokens.length === 0 ? (
-              <EmptyRow colSpan={8}>{t('No dynamic tokens created')}</EmptyRow>
+            ) : shown.length === 0 ? (
+              <EmptyRow colSpan={8}>
+                {needle ? t('Nothing matches "{search}"', { search }) : t('No dynamic tokens created')}
+              </EmptyRow>
             ) : (
-              tokens.map((tok) => (
+              shown.map((tok) => (
                 <TableRow key={tok.id}>
                   <TableCell className="font-medium">{tok.name}</TableCell>
                   <TableCell>
@@ -500,7 +518,7 @@ export function TokensSection() {
                   <TableCell>
                     <div className="flex items-center gap-1.5">
                       <span className={cn('text-sm', tok.expired && 'text-destructive')}>
-                        {formatExpiry(tok.expires_at, tok.expired, t)}
+                        {formatExpiry(tok.expires_at, tok.expired, t, lang)}
                       </span>
                       {!tok.expired &&
                         tok.expires_at != null &&

@@ -1,4 +1,4 @@
-import { ClockIcon, PlusIcon, RotateCwIcon, SendIcon, Trash2Icon } from 'lucide-react'
+import { ClockIcon, PlusIcon, RotateCwIcon, SearchIcon, SendIcon, Trash2Icon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import {
@@ -339,19 +339,31 @@ export function WebhooksSection() {
   const { t } = useI18n()
   const canMutate = useHasRole('operator')
   const { data: hooks, refresh } = useStream('webhooks', api.webhooks, 15_000)
+  const [search, setSearch] = useState('')
+  const needle = search.trim().toLowerCase()
+  const shown = hooks?.filter((h) => !needle || `${h.name} ${h.url}`.toLowerCase().includes(needle)) ?? null
 
   return (
     <section className="flex flex-col gap-3">
       <SectionHeader title={t('Webhooks')}>
+        <div className="relative">
+          <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder={t('Search webhooks…')}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-48 pl-8"
+          />
+        </div>
         {canMutate && <CreateWebhookDialog onCreated={refresh} />}
       </SectionHeader>
       <RecordList>
-        {hooks === null ? (
+        {shown === null ? (
           <RecordSkeleton rows={3} />
-        ) : hooks.length === 0 ? (
-          <RecordEmpty>{t('No webhooks defined')}</RecordEmpty>
+        ) : shown.length === 0 ? (
+          <RecordEmpty>{needle ? t('Nothing matches "{search}"', { search }) : t('No webhooks defined')}</RecordEmpty>
         ) : (
-          hooks.map((h) => (
+          shown.map((h) => (
             <RecordRow
               key={h.id}
               title={

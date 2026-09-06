@@ -32,6 +32,7 @@ export function useStream<T>(
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null)
   const fetchRef = useRef(fetch)
   fetchRef.current = fetch
   const failures = useRef(0)
@@ -50,6 +51,7 @@ export function useStream<T>(
       const value = await fetchRef.current()
       if (asked !== generation.current) return
       setData(value)
+      setUpdatedAt(Date.now())
       setError(false)
       failures.current = 0
     } catch {
@@ -72,6 +74,7 @@ export function useStream<T>(
     return streamHub.subscribe(topic, (value) => {
       if (asked !== generation.current) return
       setData(value as T)
+      setUpdatedAt(Date.now())
       setError(false)
       setLoading(false)
       failures.current = 0
@@ -126,5 +129,5 @@ export function useStream<T>(
     }
   }, [topic, fallbackMs, runOnce, key])
 
-  return { data, refresh, error, loading }
+  return { data, refresh, error, loading, updatedAt }
 }

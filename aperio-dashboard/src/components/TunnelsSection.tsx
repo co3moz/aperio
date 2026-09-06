@@ -1,7 +1,6 @@
-import { CableIcon, RefreshCwIcon } from 'lucide-react'
+import { CableIcon } from 'lucide-react'
 import { TintBadge } from './badges'
 import { CopyButton, EmptyRow, SectionHeader, SkeletonRows, StatusDot } from './shared'
-import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import {
   Table,
@@ -14,6 +13,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { api, type DeclaredTunnel } from '@/lib/api'
 import { NO_VALUE } from '@/lib/format'
+import { Freshness } from './Freshness'
 import { useStream } from '@/hooks/useStream'
 import { useI18n } from '@/i18n'
 
@@ -66,6 +66,7 @@ export function TunnelsSection() {
     data: tunnels,
     refresh: load,
     error: failed,
+    updatedAt,
   } = useStream<DeclaredTunnel[]>('tunnels', api.declaredTunnels, 10_000)
   const error = failed ? t('Could not load the tunnels; retrying.') : null
 
@@ -77,9 +78,7 @@ export function TunnelsSection() {
           'Private services a client declares but never exposes: a database, an admin port, an SSH daemon. Bind one locally with --bind-tunnels.',
         )}
       >
-        <Button variant="outline" size="sm" onClick={() => void load()}>
-          <RefreshCwIcon /> {t('Refresh')}
-        </Button>
+        <Freshness updatedAt={updatedAt} onRefresh={() => void load()} />
       </SectionHeader>
 
       {error && <p className="text-sm text-destructive">{error}</p>}

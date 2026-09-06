@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { api, ApiError } from '@/lib/api'
+import { formatDateTime } from '@/lib/format'
 import { useI18n } from '@/i18n'
 import { useHasRole } from '@/lib/session'
 
@@ -48,7 +49,7 @@ const TTL_OPTIONS = [
  * prefix). Stateless on the server, links simply expire.
  */
 export function ShareLinksSection() {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const canMutate = useHasRole('operator')
   const [hostname, setHostname] = useState('')
   const [path, setPath] = useState('')
@@ -127,7 +128,7 @@ export function ShareLinksSection() {
               <CopyButton value={result.url} />
               <span className="text-xs text-muted-foreground">
                 {result.expires_at
-                  ? t('valid until {date}', { date: new Date(result.expires_at * 1000).toLocaleString() })
+                  ? t('valid until {date}', { date: formatDateTime(result.expires_at * 1000, lang) })
                   : t('never expires')}
               </span>
             </div>

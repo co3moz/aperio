@@ -1,5 +1,6 @@
 import {
   Building2Icon,
+  SearchIcon,
   ClockIcon,
   GlobeIcon,
   KeyRoundIcon,
@@ -596,6 +597,9 @@ export function UsersSection() {
   const { username: self } = useSession()
   const orgName = useOrgName()
   const { data: users, refresh } = useStream('users', api.users, 15_000)
+  const [search, setSearch] = useState('')
+  const needle = search.trim().toLowerCase()
+  const shown = users?.filter((u) => !needle || u.username.toLowerCase().includes(needle)) ?? null
   // Every `*` holder lives in master, so the master list is the whole set.
   const wide = users?.filter((u) => u.grants.some((g) => g.org === '*')).length ?? 0
 
@@ -603,7 +607,7 @@ export function UsersSection() {
     <section className="flex flex-col gap-3">
       <SectionHeader
         title={t('Dashboard Users')}
-        description={t('Role-based access. The master token and dashboard password always sign in as a built-in admin ("aperio").')}
+        description={t('Role-based access. The master token always signs in as the built-in admin ("aperio").')}
       >
         {/* Which org these are is not decoration: the list is filtered to the
             session's organization, so without it a short list reads as "there
@@ -611,6 +615,15 @@ export function UsersSection() {
         <TintBadge tint="blue">
           <Building2Icon className="size-3.5" /> {orgName}
         </TintBadge>
+        <div className="relative">
+          <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder={t('Search users…')}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-48 pl-8"
+          />
+        </div>
         <CreateUserDialog onCreated={refresh} />
       </SectionHeader>
       {wide > 0 && (
@@ -621,14 +634,14 @@ export function UsersSection() {
         </p>
       )}
       <RecordList>
-        {users === null ? (
+        {shown === null ? (
           <RecordSkeleton rows={3} />
-        ) : users.length === 0 ? (
+        ) : shown.length === 0 ? (
           <RecordEmpty icon={<KeyRoundIcon />}>
-            {t('No dashboard users yet, the master token and dashboard password still work.')}
+            {needle ? t('Nothing matches "{search}"', { search }) : t('No dashboard users yet; the master token still signs in.')}
           </RecordEmpty>
         ) : (
-          users.map((u) => (
+          shown.map((u) => (
             <RecordRow
               key={u.id}
               title={

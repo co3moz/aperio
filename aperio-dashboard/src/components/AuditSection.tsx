@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { DownloadIcon, FileTextIcon, RotateCwIcon, XIcon } from 'lucide-react'
+import { DownloadIcon, FileTextIcon, XIcon } from 'lucide-react'
 import { EmptyRow, SectionHeader, SkeletonRows } from './shared'
 import { TintBadge } from './badges'
 import { Button } from '@/components/ui/button'
@@ -15,6 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Freshness } from './Freshness'
 import { useStream } from '@/hooks/useStream'
 import { api, auditQuery, type AuditFilter } from '@/lib/api'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
@@ -56,7 +57,7 @@ export function AuditSection() {
   // every audit event lands; a filtered view reads files and is a question
   // the stream cannot carry, so it stays a slow poll. The refresh button
   // works in both.
-  const { data: events, refresh } = useStream(
+  const { data: events, refresh, updatedAt } = useStream(
     active ? null : 'audit',
     fetchAudit,
     active ? 300_000 : 10_000,
@@ -96,16 +97,9 @@ export function AuditSection() {
           </TooltipTrigger>
           <TooltipContent>{t('Download the matching events as CSV')}</TooltipContent>
         </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button size="icon-sm" variant="outline" onClick={refresh} aria-label={t('Refresh')} />
-            }
-          >
-            <RotateCwIcon />
-          </TooltipTrigger>
-          <TooltipContent>{t('Refresh')}</TooltipContent>
-        </Tooltip>
+        {/* The ring is pushed as events land; a filtered search is a
+            question the stream cannot carry, so that one keeps its button. */}
+        <Freshness updatedAt={updatedAt} onRefresh={refresh} live={active ? false : undefined} />
       </SectionHeader>
 
       <Card className="flex flex-col gap-3 p-3">

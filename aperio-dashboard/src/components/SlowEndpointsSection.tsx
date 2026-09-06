@@ -1,6 +1,5 @@
-import { RefreshCwIcon, TurtleIcon } from 'lucide-react'
+import { TurtleIcon } from 'lucide-react'
 import { EmptyRow, SectionHeader, SkeletonRows } from './shared'
-import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import {
   Table,
@@ -11,6 +10,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { formatCount } from '@/lib/format'
+import { Freshness } from './Freshness'
 import { useStream } from '@/hooks/useStream'
 import { api } from '@/lib/api'
 import { useI18n } from '@/i18n'
@@ -34,7 +34,7 @@ interface SlowEndpoint {
  */
 export function SlowEndpointsSection() {
   const { t } = useI18n()
-  const { data: rows, refresh: reload } = useStream<SlowEndpoint[]>(
+  const { data: rows, refresh: reload, updatedAt } = useStream<SlowEndpoint[]>(
     'slow_endpoints',
     () => api.slowEndpoints() as Promise<SlowEndpoint[]>,
     15_000,
@@ -43,9 +43,7 @@ export function SlowEndpointsSection() {
   return (
     <section className="flex flex-col gap-3">
       <SectionHeader title={t('Slowest Endpoints')}>
-        <Button size="sm" variant="outline" onClick={reload}>
-          <RefreshCwIcon /> {t('Refresh')}
-        </Button>
+        <Freshness updatedAt={updatedAt} onRefresh={() => void reload()} />
       </SectionHeader>
       <p className="max-w-3xl text-sm text-muted-foreground">
         {t('Recent-window latency per endpoint, worst p95 first, where the time is going right now.')}

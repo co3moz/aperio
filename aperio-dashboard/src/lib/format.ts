@@ -157,10 +157,21 @@ export function formatTimeUntil(
  * Renders an absolute time in the browser's local timezone (tooltips). Falls
  * back to the raw input when it cannot be parsed.
  */
-export function formatAbsoluteTime(input: string | number): string {
+export function formatAbsoluteTime(input: string | number, locale?: string): string {
   const ms = parseTimestamp(input)
   if (Number.isNaN(ms)) return String(input)
-  return new Date(ms).toLocaleString()
+  return formatDateTime(ms, locale)
+}
+
+/** A date and time the way the UI language writes them, medium date, short
+ *  time: `18 Eyl 2026 05:56` rather than `9/18/2026, 5:56:50 AM` in a
+ *  Turkish panel. No locale means the browser's own. */
+export function formatDateTime(ms: number, locale?: string): string {
+  try {
+    return new Date(ms).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })
+  } catch {
+    return new Date(ms).toLocaleString()
+  }
 }
 
 export function formatLastPing(secondsAgo: number | null, t: TFn = plain): string {
@@ -173,11 +184,12 @@ export function formatExpiry(
   expiresAt: number | null,
   expired: boolean,
   t: TFn = plain,
+  locale?: string,
 ): string {
   if (!expiresAt) return t('never')
-  // The date itself is left to the browser's locale, which already knows the
-  // visitor's conventions better than a dictionary would.
-  const date = new Date(expiresAt * 1000).toLocaleString()
+  // Written the way the UI language writes a date, and in the browser's
+  // zone, which knows the visitor's clock better than a dictionary would.
+  const date = formatDateTime(expiresAt * 1000, locale)
   return expired ? t('expired {date}', { date }) : date
 }
 

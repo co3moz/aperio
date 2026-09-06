@@ -3,6 +3,17 @@ import { toast } from 'sonner'
 import { SectionHeader } from './shared'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { useStream } from '@/hooks/useStream'
 import { api, type CacheStats } from '@/lib/api'
 import { useI18n } from '@/i18n'
@@ -47,9 +58,28 @@ export function CacheStatsSection() {
         description={t('Server-side GET cache occupancy and hit rate.')}
       >
         {isAdmin && (
-          <Button size="sm" variant="outline" onClick={purgeAll}>
-            <Trash2Icon /> {t('Purge all')}
-          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger render={<Button size="sm" variant="outline" />}>
+              <Trash2Icon /> {t('Purge all')}
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{t('Purge the whole response cache?')}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t('Every cached response is dropped and the next request for each reaches its backend again.')}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive/10 text-destructive hover:bg-destructive/20"
+                  onClick={() => void purgeAll()}
+                >
+                  {t('Purge all')}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         )}
       </SectionHeader>
       {!data ? (

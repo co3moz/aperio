@@ -1,6 +1,5 @@
-import { RefreshCwIcon, TrendingUpIcon } from 'lucide-react'
+import { TrendingUpIcon } from 'lucide-react'
 import { EmptyRow, SectionHeader, SkeletonRows } from './shared'
-import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import {
   Table,
@@ -12,6 +11,7 @@ import {
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatCount } from '@/lib/format'
+import { Freshness } from './Freshness'
 import { useStream } from '@/hooks/useStream'
 import { api } from '@/lib/api'
 import { useI18n } from '@/i18n'
@@ -79,7 +79,7 @@ function Sparkline({ buckets }: { buckets: TrendBucket[] }) {
  */
 export function RouteTrendsSection() {
   const { t } = useI18n()
-  const { data: routes, refresh: reload } = useStream<RouteTrend[]>(
+  const { data: routes, refresh: reload, updatedAt } = useStream<RouteTrend[]>(
     'route_trends',
     () => api.routeTrends() as Promise<RouteTrend[]>,
     15_000,
@@ -88,9 +88,7 @@ export function RouteTrendsSection() {
   return (
     <section className="flex flex-col gap-3">
       <SectionHeader title={t('Route Trends')}>
-        <Button size="sm" variant="outline" onClick={reload}>
-          <RefreshCwIcon /> {t('Refresh')}
-        </Button>
+        <Freshness updatedAt={updatedAt} onRefresh={() => void reload()} />
       </SectionHeader>
       <p className="max-w-3xl text-sm text-muted-foreground">
         {t('One bar per minute over the last 30 minutes, colored by the worst status class, spot which route started erroring, and when.')}
