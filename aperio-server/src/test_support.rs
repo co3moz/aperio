@@ -154,6 +154,7 @@ pub(crate) fn test_uptime_store() -> crate::store::uptime::UptimeStore {
 pub(crate) fn test_config() -> ServerConfig {
   ServerConfig {
     dashboard_hostname: None,
+    fenced_login: false,
     server_side_targets: Vec::new(),
     token: "test".to_string(),
     gateway_timeout: Duration::from_secs(1),
@@ -444,6 +445,7 @@ pub(crate) async fn seed_session(
       role,
       selected_org: org,
       bound_org: None,
+      login_host: None,
     },
   );
   token

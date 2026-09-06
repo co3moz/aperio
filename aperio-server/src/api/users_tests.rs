@@ -775,6 +775,7 @@ async fn session_org_maps_unnamed_session_to_master() {
     role: Role::Admin,
     selected_org: None,
     bound_org: None,
+    login_host: None,
   };
   assert_eq!(session_org(&info, &map), None);
 }

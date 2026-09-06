@@ -2970,6 +2970,16 @@
           }
         ]
       },
+      "dashboard_fenced_login": {
+        "description": "Flat spelling of `dashboard.fenced_login` (env: APERIO_DASHBOARD_FENCED_LOGIN).",
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "examples": [
+          true
+        ]
+      },
       "dashboard_hostname": {
         "description": "Flat spelling of `dashboard.hostname` (env: APERIO_DASHBOARD_HOSTNAME).",
         "type": [
@@ -4987,6 +4997,16 @@
         "properties": {
           "enabled": {
             "description": "Serve the admin dashboard. Default: `true`.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "examples": [
+              true
+            ]
+          },
+          "fenced_login": {
+            "description": "Fence the dashboard login to the hostname's organization: on a hostname\ninside an organization's allowlist only that organization's people and\nanyone reaching master sign in, a hostname no fence claims admits\nmaster's people and the users of unfenced organizations, and a session\nis good only on the hostname it was minted on. Default: `false`\n(env: APERIO_DASHBOARD_FENCED_LOGIN).",
             "type": [
               "boolean",
               "null"

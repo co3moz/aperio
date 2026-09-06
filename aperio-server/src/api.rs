@@ -146,6 +146,23 @@ pub(crate) async fn health_handler(
         health_info.insert("panel", named);
       }
     }
+    None if state.config().fenced_login => {
+      // Under the login fence, a traffic hostname inside exactly one
+      // organization's allowlist is that organization's login page.
+      if let Some(host) = panel_host.as_deref() {
+        let orgs = state.org_store.lock().await;
+        let mut covering = orgs
+          .list()
+          .iter()
+          .filter(|o| crate::store::orgs::hostname_in_org_allowlist(host, &o.hostnames));
+        if let (Some(o), None) = (covering.next(), covering.next()) {
+          health_info.insert(
+            "login_org",
+            serde_json::json!({ "org": o.id, "name": o.name, "custom_name": o.custom_name }),
+          );
+        }
+      }
+    }
     None => {}
   }
 

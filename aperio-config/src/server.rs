@@ -645,6 +645,9 @@ pub struct ServerFileConfig {
   /// Flat spelling of `dashboard.hostname` (env: APERIO_DASHBOARD_HOSTNAME).
   #[schemars(extend("examples" = ["panel.example.com"]))]
   pub dashboard_hostname: Option<String>,
+  /// Flat spelling of `dashboard.fenced_login` (env: APERIO_DASHBOARD_FENCED_LOGIN).
+  #[schemars(extend("examples" = [true]))]
+  pub dashboard_fenced_login: Option<bool>,
   /// Flat spelling of `oidc.default_grants` (env: APERIO_OIDC_DEFAULT_GRANTS).
   #[schemars(extend("examples" = [["master:viewer"]]))]
   pub oidc_default_grants: Option<Vec<String>>,

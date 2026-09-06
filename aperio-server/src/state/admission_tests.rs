@@ -747,6 +747,7 @@ async fn the_beat_drops_a_session_at_the_instant_it_expires() {
     role: Role::Admin,
     selected_org: None,
     bound_org: None,
+    login_host: None,
   };
 
   {

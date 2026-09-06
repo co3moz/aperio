@@ -576,7 +576,7 @@ pub(crate) async fn passkey_login_finish_handler(
   };
   // On an organization's panel the account has to reach that organization.
   let panel_host = crate::server::panel::request_host(&headers);
-  if !state.panel_admits(panel_host.as_deref(), &grants).await {
+  if !state.login_admits(panel_host.as_deref(), &grants).await {
     return (StatusCode::UNAUTHORIZED, "Authentication failed").into_response();
   }
   state.login_lockout.lock().await.clear(client_ip);
@@ -609,6 +609,7 @@ pub(crate) async fn passkey_login_finish_handler(
       role,
       selected_org: None,
       bound_org: None,
+      login_host: panel_host.clone(),
     },
   );
   let cookie = crate::auth::session_set_cookie(cfg.secure_cookies, &session_token);
@@ -836,7 +837,7 @@ pub(crate) async fn passkey_discoverable_finish_handler(
   };
   // On an organization's panel the account has to reach that organization.
   let panel_host = crate::server::panel::request_host(&headers);
-  if !state.panel_admits(panel_host.as_deref(), &grants).await {
+  if !state.login_admits(panel_host.as_deref(), &grants).await {
     return (StatusCode::UNAUTHORIZED, "Authentication failed").into_response();
   }
   state.login_lockout.lock().await.clear(client_ip);
@@ -869,6 +870,7 @@ pub(crate) async fn passkey_discoverable_finish_handler(
       role,
       selected_org: None,
       bound_org: None,
+      login_host: panel_host.clone(),
     },
   );
   let cookie = crate::auth::session_set_cookie(cfg.secure_cookies, &session_token);

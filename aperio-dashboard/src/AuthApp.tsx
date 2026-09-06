@@ -49,10 +49,20 @@ export function AuthApp() {
     let live = true
     fetch('/aperio/health')
       .then((r) => (r.ok ? r.json() : null))
-      .then((h: { panel?: { org: string; name?: string; custom_name?: string | null } } | null) => {
-        if (!live || !h?.panel || h.panel.org === 'master') return
-        setPanelName(h.panel.custom_name || h.panel.name || null)
-      })
+      .then(
+        (
+          h: {
+            panel?: { org: string; name?: string; custom_name?: string | null }
+            login_org?: { org: string; name?: string; custom_name?: string | null }
+          } | null,
+        ) => {
+          // A panel, or under the login fence a traffic hostname inside one
+          // organization's allowlist: either way, whose login page this is.
+          const who = h?.panel && h.panel.org !== 'master' ? h.panel : h?.login_org
+          if (!live || !who) return
+          setPanelName(who.custom_name || who.name || null)
+        },
+      )
       .catch(() => {})
     return () => {
       live = false

@@ -258,6 +258,7 @@ async fn one_gc_beat_sweeps_stale_buckets_and_expired_sessions() {
     role: crate::store::users::Role::Admin,
     selected_org: None,
     bound_org: None,
+    login_host: None,
   };
   {
     let mut sessions = state.sessions.lock().await;

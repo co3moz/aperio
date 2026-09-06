@@ -12,6 +12,7 @@ use crate::settings::{
 fn base_config() -> ServerConfig {
   ServerConfig {
     dashboard_hostname: None,
+    fenced_login: false,
     server_side_targets: Vec::new(),
     token: "test".to_string(),
     gateway_timeout: Duration::from_secs(30),
@@ -557,6 +558,7 @@ fn the_default_access_posture_is_parsed_from_the_words_an_operator_writes() {
 pub(crate) fn test_apply_settings_overrides() {
   let base = ServerConfig {
     dashboard_hostname: None,
+    fenced_login: false,
     server_side_targets: Vec::new(),
     token: "t".to_string(),
     gateway_timeout: Duration::from_secs(10),

@@ -211,6 +211,14 @@ pub(crate) fn resolve() -> Option<Resolved> {
   // A hostname whose root is the dashboard. A name that is not one refuses
   // the start: the alternative is a panel nobody can reach and a bind that
   // was meant to be refused being admitted.
+  let fenced_login = std::env::var("APERIO_DASHBOARD_FENCED_LOGIN")
+    .map(|v| matches!(v.trim(), "1" | "true" | "yes" | "on"))
+    .unwrap_or(false);
+  if fenced_login {
+    info!(
+      "Dashboard login is fenced by hostname: an organization's people sign in on the hostnames it claims"
+    );
+  }
   let dashboard_hostname = match std::env::var("APERIO_DASHBOARD_HOSTNAME") {
     Ok(raw) if !raw.trim().is_empty() => match crate::store::orgs::normalize_panel_hostname(&raw) {
       Some(host) => {
@@ -770,6 +778,7 @@ pub(crate) fn resolve() -> Option<Resolved> {
     trusted_proxies,
     admin_allowed_ips,
     dashboard_hostname,
+    fenced_login,
     secure_cookies,
     server_side_targets,
     outbound_policy,

@@ -27,52 +27,6 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
-- [ ] **#151 Fence the dashboard login to the organization whose hostname
-  it is reached on.** The hostname allowlist ([[#13]]) fences everything a
-  tenant can *claim*, binds, maintenance flags, share links, the visitor
-  gate, and [[#106]] made the visitor gate ask the organization too. The one
-  place left that ignores the hostname is the dashboard login itself:
-  `/aperio` is nested once and served on every hostname the server answers
-  on, and `auth_login_handler` reads `Host` only to pick a visitor password.
-  A named user of Beta can therefore sign in at `acme.com/aperio/`. Nothing
-  leaks, the session is pinned to Beta, but Acme's hostname is accepting
-  another tenant's credentials, and a password list can be run against every
-  organization's users from any hostname on the server.
-
-  **The rule.** On a hostname inside an organization's fence, the dashboard
-  admits only that organization's identities (its named users, its passkeys,
-  its per-organization OIDC) plus the master super-admin, who is never fenced
-  anywhere and is the lockout safety here as well. A hostname no fence
-  claims is master's, by the rule maintenance already uses, and admits
-  master's identities and the users of organizations that have no fence. An
-  unfenced organization keeps today's behavior everywhere, since it has no
-  hostname to be sent to. A random subdomain is exempt from the fence, so it
-  follows the organization currently serving it, or the unfenced rule when
-  nobody is. A refusal must be byte-for-byte the wrong-password answer:
-  "this user exists but not on this hostname" is user enumeration.
-
-  **Three doors, one check.** The form login, the passkey finish and the
-  OIDC callback each mint a session, and all three have to ask the same
-  question, or the fence has a door with no lock. OIDC is naturally aligned,
-  its redirect URI is already per hostname. Worth doing in the same change:
-  record the hostname a session was minted on and refuse it elsewhere. The
-  browser already keeps sessions apart per host through the `__Host-`
-  cookie, the server does not, so a stolen cookie value is good on every
-  hostname today. That is the plane idea from [[#106]] carried one step
-  further.
-
-  **Opt-in, one server-wide setting.** A deployment that set a fence today
-  may have its tenants signing in at `tunnel.example.com/aperio`, and turning
-  this on by default would lock them out. A flag on the org record is the
-  other shape; one server-wide switch is less surface and the behavior it
-  turns on is the same for every tenant. Additive, so no `CONFIG_CHANGES`
-  entry; yaml key, env var, the docs table and the book together, per the
-  configuration rules. Once the fence holds, the login page can show the
-  organization's `custom_name`, which is the white-label the hostname was
-  implying all along. [[#152]] is the same axis from the other end, a
-  hostname for the admin surface itself; if that ships first, this entry
-  shrinks to an optional panel hostname per organization.
-
 - [ ] **#155 A gate that is Aperio's own login, so a route can say "sign in"
   without inventing a password.** [[#108]] abolished the throwaway
   `auth: DUMMY:DUMMY`, and it came back through the other door. Under
@@ -791,6 +745,63 @@ so.
   2025-09, with no rc since March. Neither is close.
 
 ## Completed
+
+- [x] **#151 Fence the dashboard login to the organization whose hostname
+  it is reached on.** shipped: `dashboard.fenced_login` /
+  `APERIO_DASHBOARD_FENCED_LOGIN`, off by default, read by one rule,
+  `AppState::login_admits`, that the form, the passkey finish and the OIDC
+  callback all ask, with the refusal byte for byte the wrong-password
+  answer; `login_host` on the session, honoured under the fence by both
+  session readers; the organization's name on the login page through the
+  anonymous health body; docs, book and changelog. Where it differed: it
+  landed after [[#152]], so the rule's first branch is the panel, always
+  on, and the fence is the second; a random subdomain follows the
+  organization serving it through `org_serves_hostname` rather than the
+  fence; and no `CONFIG_CHANGES` entry, the key being additive and off.
+  The original entry: The hostname allowlist ([[#13]]) fences everything a
+  tenant can *claim*, binds, maintenance flags, share links, the visitor
+  gate, and [[#106]] made the visitor gate ask the organization too. The one
+  place left that ignores the hostname is the dashboard login itself:
+  `/aperio` is nested once and served on every hostname the server answers
+  on, and `auth_login_handler` reads `Host` only to pick a visitor password.
+  A named user of Beta can therefore sign in at `acme.com/aperio/`. Nothing
+  leaks, the session is pinned to Beta, but Acme's hostname is accepting
+  another tenant's credentials, and a password list can be run against every
+  organization's users from any hostname on the server.
+
+  **The rule.** On a hostname inside an organization's fence, the dashboard
+  admits only that organization's identities (its named users, its passkeys,
+  its per-organization OIDC) plus the master super-admin, who is never fenced
+  anywhere and is the lockout safety here as well. A hostname no fence
+  claims is master's, by the rule maintenance already uses, and admits
+  master's identities and the users of organizations that have no fence. An
+  unfenced organization keeps today's behavior everywhere, since it has no
+  hostname to be sent to. A random subdomain is exempt from the fence, so it
+  follows the organization currently serving it, or the unfenced rule when
+  nobody is. A refusal must be byte-for-byte the wrong-password answer:
+  "this user exists but not on this hostname" is user enumeration.
+
+  **Three doors, one check.** The form login, the passkey finish and the
+  OIDC callback each mint a session, and all three have to ask the same
+  question, or the fence has a door with no lock. OIDC is naturally aligned,
+  its redirect URI is already per hostname. Worth doing in the same change:
+  record the hostname a session was minted on and refuse it elsewhere. The
+  browser already keeps sessions apart per host through the `__Host-`
+  cookie, the server does not, so a stolen cookie value is good on every
+  hostname today. That is the plane idea from [[#106]] carried one step
+  further.
+
+  **Opt-in, one server-wide setting.** A deployment that set a fence today
+  may have its tenants signing in at `tunnel.example.com/aperio`, and turning
+  this on by default would lock them out. A flag on the org record is the
+  other shape; one server-wide switch is less surface and the behavior it
+  turns on is the same for every tenant. Additive, so no `CONFIG_CHANGES`
+  entry; yaml key, env var, the docs table and the book together, per the
+  configuration rules. Once the fence holds, the login page can show the
+  organization's `custom_name`, which is the white-label the hostname was
+  implying all along. [[#152]] is the same axis from the other end, a
+  hostname for the admin surface itself; if that ships first, this entry
+  shrinks to an optional panel hostname per organization.
 
 - [x] **#152 A panel hostname: the dashboard at the root of a name of its
   own, `/aperio` untouched.** shipped: `dashboard.hostname` /

@@ -166,6 +166,18 @@ aperio-client api org create --name acme --hostname '*.acme.example.com' --panel
 
 What an operator hits in the first ten minutes: the panel name needs a certificate like any bind; a passkey is bound to the origin it was registered on, so `APERIO_WEBAUTHN_RP_ID` has to be a parent domain covering both names, which an organization's own domain cannot share with the server's; and an OIDC provider's registered callback has to include the panel's.
 
+## Fenced login
+
+`/aperio` answers on every hostname, and by default so does its login: Beta's user can sign in at `acme.com/aperio`. Nothing leaks, the session is Beta's, but Acme's hostname is accepting another tenant's credentials, and a password list can be run against every organization's users from any hostname. `dashboard.fenced_login: true` (`APERIO_DASHBOARD_FENCED_LOGIN=1`) closes that:
+
+- **On a hostname inside an organization's allowlist**, the login form, a passkey and an OIDC login admit an account whose grants reach that organization, and anyone reaching master, since master is unfenced everywhere and `*` reaches it. Everyone else gets the wrong-password answer, byte for byte, so the hostname does not say which names exist elsewhere.
+- **A hostname no fence claims is master's**: it admits master's people and the users of organizations that have no fence, who have no hostname to be sent to. An unfenced organization keeps today's behaviour everywhere.
+- **A random subdomain** is in no fence, so it follows the organization currently serving it.
+- **A session is good only on the hostname it was minted on.** The browser already keeps sessions apart per host through the `__Host-` cookie; this is the server doing the same, so a cookie value lifted from one hostname opens nothing elsewhere. A person who administers two tenants signs in on each, or on a [panel](#panel-hostname).
+- **The login page names the organization** when the hostname is inside exactly one allowlist.
+
+Off by default, and worth checking before turning on: a deployment whose tenants sign in at the server's own name, `tunnel.example.com/aperio`, has fenced organizations whose people would be refused there. Give those organizations a [panel hostname](#panel-hostname), or leave the fence off. An organization's panel is fenced whatever this setting says.
+
 ## OIDC: identity is the provider's, authorization is Aperio's
 
 An OIDC login is matched to a **dashboard user record by email**. The identity provider says who this is; the record says what they may do, under exactly the [grant rules](#grants-one-user-several-organizations) above. The record is the same row a named user has, with no password: create it ahead of the first login from the Users page (*Signs in through the identity provider only*) or with `aperio-client api user create --username alice@example.com --grant <acme-id>:admin`, which is how a fleet admin wants it, the person exists with the grants already written before they sign in.

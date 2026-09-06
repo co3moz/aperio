@@ -13,6 +13,7 @@
 use axum::http::HeaderMap;
 
 use super::*;
+use crate::server::panel::request_host;
 use crate::state::AppState;
 use crate::store::grants::{self, Grant, GrantOrg};
 
@@ -164,12 +165,16 @@ impl Caller {
 /// neither is valid, which includes the session of a disabled account.
 pub(crate) async fn resolve_caller(state: &AppState, headers: &HeaderMap) -> Option<Caller> {
   if let Some(token) = session_cookie(headers, state.config().secure_cookies) {
+    let fenced = state.config().fenced_login;
+    let host = request_host(headers);
     let session = {
       let sessions = state.sessions.lock().await;
       sessions.get(token).and_then(|info| {
         let live = info.expires_at > crate::store::sessions::now_secs()
           && info.scope_host.is_none()
-          && info.plane == crate::store::sessions::Plane::Admin;
+          && info.plane == crate::store::sessions::Plane::Admin
+          // Under `fenced_login`, only on the hostname it was minted on.
+          && info.usable_on(fenced, host.as_deref());
         live.then(|| {
           (
             info.username.clone(),

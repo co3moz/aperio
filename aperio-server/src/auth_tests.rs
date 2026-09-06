@@ -92,6 +92,7 @@ pub(super) async fn seed_custom(
       role,
       selected_org,
       bound_org,
+      login_host: None,
     },
   );
   token
@@ -851,4 +852,133 @@ async fn an_organizations_panel_admits_its_own_people_and_the_super_admin() {
   .await
   .unwrap();
   assert_eq!(res.status(), StatusCode::OK);
+}
+
+// ---------------------------------------------------------------------------
+// the fenced login (planned_features.md #151)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn under_the_fence_a_tenants_hostname_admits_the_tenant_and_binds_the_session_to_it() {
+  use crate::store::grants::{Grant, GrantOrg};
+  let mut cfg = test_config();
+  cfg.fenced_login = true;
+  let state = test_state_with(cfg);
+  let acme = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", vec!["*.acme.test".to_string()], None)
+    .unwrap()
+    .id;
+  let beta = state
+    .org_store
+    .lock()
+    .await
+    .create("beta", vec!["*.beta.test".to_string()], None)
+    .unwrap()
+    .id;
+  {
+    let mut users = state.users.lock().await;
+    users
+      .create_with_grants(
+        "carol",
+        "password1",
+        None,
+        vec![Grant::new(GrantOrg::Child(acme.clone()), Role::Viewer)],
+      )
+      .unwrap();
+    users
+      .create_with_grants(
+        "dave",
+        "password1",
+        None,
+        vec![Grant::new(GrantOrg::Child(beta.clone()), Role::Admin)],
+      )
+      .unwrap();
+    users
+      .create_with_grants(
+        "root",
+        "password1",
+        None,
+        vec![Grant::new(GrantOrg::Master, Role::Viewer)],
+      )
+      .unwrap();
+  }
+  let state = Arc::new(state);
+  let on = |creds: &str, host: &str| basic_headers(creds, Some(host));
+
+  // Acme's hostname: Carol and master's Viewer in, Dave out with the
+  // wrong-password answer.
+  let res = call_login(
+    state.clone(),
+    on("carol:password1", "www.acme.test"),
+    login_query(Some("/")),
+  )
+  .await
+  .unwrap();
+  assert_eq!(res.status(), StatusCode::OK);
+  let cookie = res
+    .headers()
+    .get("set-cookie")
+    .and_then(|v| v.to_str().ok())
+    .and_then(|c| c.split(';').next())
+    .and_then(|kv| kv.split_once('='))
+    .map(|(_, v)| v.to_string())
+    .unwrap();
+  assert_eq!(
+    call_login(
+      state.clone(),
+      on("root:password1", "www.acme.test"),
+      login_query(Some("/"))
+    )
+    .await
+    .unwrap()
+    .status(),
+    StatusCode::OK
+  );
+  assert_eq!(
+    call_login(
+      state.clone(),
+      on("dave:password1", "www.acme.test"),
+      login_query(Some("/"))
+    )
+    .await
+    .err(),
+    Some(StatusCode::UNAUTHORIZED)
+  );
+  // The server's own name is master's: Carol is refused there, Dave too.
+  assert_eq!(
+    call_login(
+      state.clone(),
+      on("carol:password1", "tunnel.test"),
+      login_query(Some("/"))
+    )
+    .await
+    .err(),
+    Some(StatusCode::UNAUTHORIZED)
+  );
+  assert_eq!(
+    call_login(
+      state.clone(),
+      on("root:password1", "tunnel.test"),
+      login_query(Some("/"))
+    )
+    .await
+    .unwrap()
+    .status(),
+    StatusCode::OK
+  );
+
+  // Carol's session is good on the hostname it was minted on and nowhere
+  // else, by both readers.
+  let mut on_acme = cookie_headers(&cookie);
+  on_acme.insert("host", "www.acme.test".parse().unwrap());
+  let mut on_beta = cookie_headers(&cookie);
+  on_beta.insert("host", "www.beta.test".parse().unwrap());
+  assert!(validate_session(&state, &on_acme).await);
+  assert!(resolve_caller(&state, &on_acme).await.is_some());
+  assert!(!validate_session(&state, &on_beta).await);
+  assert!(resolve_caller(&state, &on_beta).await.is_none());
+  assert_eq!(dashboard_role(&state, &on_beta).await, None);
 }

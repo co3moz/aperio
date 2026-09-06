@@ -299,6 +299,7 @@ async fn seed_custom(
       role,
       selected_org,
       bound_org,
+      login_host: None,
     },
   );
   token

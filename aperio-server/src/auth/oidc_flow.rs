@@ -439,7 +439,7 @@ pub(crate) async fn oidc_callback_handler(
   // whatever else its record holds.
   let panel_host = crate::server::panel::request_host(&headers);
   if !state
-    .panel_admits(panel_host.as_deref(), &record.grants)
+    .login_admits(panel_host.as_deref(), &record.grants)
     .await
   {
     return (
@@ -480,6 +480,7 @@ pub(crate) async fn oidc_callback_handler(
       // A per-org login is fixed to that org, whatever its record holds
       // elsewhere; a global OIDC login is what its record says.
       bound_org: bound_org.clone(),
+      login_host: panel_host.clone(),
     },
   );
   let cookie = session_set_cookie(state.config().secure_cookies, &session_token);

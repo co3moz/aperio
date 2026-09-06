@@ -275,7 +275,7 @@ pub(crate) async fn auth_login_handler(
         // as a wrong password, byte for byte, so the panel does not say
         // which names exist elsewhere.
         let verified = match verified {
-          Some(v) if state.panel_admits(host.as_deref(), &v.4).await => Some(v),
+          Some(v) if state.login_admits(host.as_deref(), &v.4).await => Some(v),
           _ => None,
         };
         if let Some((user_id, user_name, role, totp_secret, _grants)) = verified {
@@ -442,6 +442,7 @@ pub(crate) async fn auth_login_handler(
       role: identity.1,
       selected_org: None,
       bound_org: None,
+      login_host: host.clone(),
     },
   );
 

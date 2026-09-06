@@ -3512,6 +3512,8 @@ the machine-readable catalogue, which is the one that cannot drift.
 \rowsep
 \code{APERIO\_DASHBOARD\_HOSTNAME} & A hostname whose root is the dashboard: \code{panel.example.com} opens the panel the way \code{panel.example.com/aperio} does, and \code{/aperio} stays on every hostname. One exact name; it serves the panel and nothing else, so no bind may claim it. An organisation picks its own inside its fence. Yaml: \code{dashboard.hostname}. & unset \\
 \rowsep
+\code{APERIO\_DASHBOARD\_FENCED\_LOGIN} & \code{1} = fence the dashboard login to the hostname's organisation: on a hostname inside an organisation's allowlist only its people and anyone reaching master sign in, a hostname no fence claims admits master's people and the users of unfenced organisations, and a session is good only on the hostname it was minted on. Off by default. Yaml: \code{dashboard.fenced\_login}. & \code{0} \\
+\rowsep
 \code{APERIO\_UI\_LANGUAGE} & Default dashboard/login UI language (\code{en}, \code{de}, \code{es}, \code{fr}, \code{tr}, \code{ru}, \code{zh}, \code{ja}) used when the visitor's browser language is unsupported; also dashboard-editable. & \code{en} \\
 \rowsep
 \code{APERIO\_TOKEN\_EXPIRY\_WARNING} & Seconds before a dynamic token's expiry at which a \code{token\_expiring} webhook/audit event fires (once per token per expiry window; \code{0} = off). The dashboard tokens table shows an "expiring soon" badge in the last 24 h regardless. & \code{86400} (24 h) \\

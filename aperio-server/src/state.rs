@@ -876,19 +876,63 @@ impl AppState {
       .map(|o| Some(o.id.clone()))
   }
 
-  /// Whether a login on `host` may admit an identity holding `grants`: any
-  /// hostname that is not an organization's panel admits everyone, and an
-  /// organization's panel admits a grant reaching that organization. The
-  /// master super-admin holds `*` and so is admitted everywhere.
-  pub(crate) async fn panel_admits(
+  /// Whether a login on `host` may admit an identity holding `grants`.
+  ///
+  /// An organization's panel admits a grant reaching that organization and
+  /// nothing else, always (`planned_features.md` #152). Every other hostname
+  /// admits everyone unless `fenced_login` is on (#151), and then: anyone
+  /// reaching master, master being unfenced everywhere and `*` reaching it;
+  /// the users of an organization with no fence, who have no hostname to be
+  /// sent to; and on a hostname an organization may act on, or is serving
+  /// right now (a random subdomain is in no fence), that organization's
+  /// people. A request naming no hostname is master's.
+  pub(crate) async fn login_admits(
     &self,
     host: Option<&str>,
     grants: &[crate::store::grants::Grant],
   ) -> bool {
-    match self.panel_org(host).await {
-      Some(Some(org)) => crate::store::grants::role_in(grants, Some(&org)).is_some(),
-      _ => true,
+    use crate::store::grants::{GrantOrg, role_in};
+    if let Some(Some(org)) = self.panel_org(host).await {
+      return role_in(grants, Some(&org)).is_some();
     }
+    if !self.config().fenced_login || role_in(grants, None).is_some() {
+      return true;
+    }
+    let Some(host) = host else {
+      return false;
+    };
+    let fences: Vec<(String, Vec<String>)> = self
+      .org_store
+      .lock()
+      .await
+      .list()
+      .iter()
+      .map(|o| (o.id.clone(), o.hostnames.clone()))
+      .collect();
+    for grant in grants {
+      let GrantOrg::Child(id) = &grant.org else {
+        continue;
+      };
+      let Some((_, fence)) = fences.iter().find(|(oid, _)| oid == id) else {
+        continue;
+      };
+      if fence.is_empty()
+        || self.org_may_act_on_hostname(Some(id), host).await
+        || self.org_serves_hostname(id, host).await
+      {
+        return true;
+      }
+    }
+    false
+  }
+
+  /// True when a client of organization `org` is serving `host` right now.
+  pub(crate) async fn org_serves_hostname(&self, org: &str, host: &str) -> bool {
+    let clients = self.clients.read().await;
+    clients.values().any(|c| {
+      c.perms.org_id.as_deref() == Some(org)
+        && c.effective_hostnames().into_iter().any(|h| h == host)
+    })
   }
 
   /// Rebuilds the panel set and drops every connection serving a panel

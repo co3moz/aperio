@@ -73,6 +73,15 @@ pub(crate) struct ServerConfig {
   /// hostname regardless. The name serves the panel and nothing else, so no
   /// bind may claim it. `None` = no such hostname.
   pub(crate) dashboard_hostname: Option<String>,
+  /// Fence the dashboard login to the hostname's organization
+  /// (APERIO_DASHBOARD_FENCED_LOGIN, `planned_features.md` #151). On a
+  /// hostname inside an organization's allowlist, the login admits that
+  /// organization's identities and anyone reaching master; a hostname no
+  /// fence claims admits master's identities and the users of organizations
+  /// without a fence; and a session is good only on the hostname it was
+  /// minted on. Off by default: a deployment whose tenants sign in at the
+  /// server's own name would be locked out by turning it on unasked.
+  pub(crate) fenced_login: bool,
   /// When true, session cookies include the `Secure` flag so browsers only
   /// send them over HTTPS connections. Defaults to the value of `trust_proxy`
   /// (i.e. enabled when running behind a TLS-terminating reverse proxy).

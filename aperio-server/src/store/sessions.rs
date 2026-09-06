@@ -76,6 +76,21 @@ pub(crate) struct SessionInfo {
   /// is an org-scoped admin, not the super-admin. `None` for all other logins.
   #[serde(default)]
   pub(crate) bound_org: Option<String>,
+  /// The hostname the session was minted on (`planned_features.md` #151).
+  /// Read only under `fenced_login`, where a session presented on another
+  /// hostname is no session: the browser keeps them apart per host through
+  /// the `__Host-` cookie, and this is the server doing the same, so a
+  /// cookie value lifted from one hostname is not good on every other.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub(crate) login_host: Option<String>,
+}
+
+impl SessionInfo {
+  /// Whether this session may be used by a request on `host`, given the
+  /// fenced-login setting.
+  pub(crate) fn usable_on(&self, fenced: bool, host: Option<&str>) -> bool {
+    !fenced || self.login_host.is_none() || self.login_host.as_deref() == host
+  }
 }
 
 /// Current unix time in seconds.

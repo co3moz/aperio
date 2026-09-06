@@ -22,9 +22,14 @@ async fn session_scope(state: &AppState, headers: &HeaderMap) -> Option<Option<S
   if uuid::Uuid::parse_str(token).is_err() {
     return None;
   }
+  let fenced = state.config().fenced_login;
+  let host = crate::server::panel::request_host(headers);
   let (scope, username) = {
     let mut sessions = state.sessions.lock().await;
     match sessions.get(token) {
+      // A session minted on another hostname is no session here under
+      // `fenced_login`; see `SessionInfo::login_host`.
+      Some(info) if !info.usable_on(fenced, host.as_deref()) => return None,
       Some(info) if info.expires_at > crate::store::sessions::now_secs() => {
         (info.scope_host.clone(), info.username.clone())
       }

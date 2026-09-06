@@ -409,6 +409,7 @@ async fn a_session_from_one_organization_does_not_open_another_ones_gated_site()
         role: crate::store::users::Role::Viewer,
         selected_org: None,
         bound_org: Some(org.id.clone()),
+        login_host: None,
       },
     );
   }
@@ -490,6 +491,7 @@ async fn a_fenced_session_without_a_host_header_is_refused() {
         role: crate::store::users::Role::Viewer,
         selected_org: None,
         bound_org: Some(org.id.clone()),
+        login_host: None,
       },
     );
   }

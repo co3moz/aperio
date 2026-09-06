@@ -74,23 +74,23 @@ async fn whose_panel_a_hostname_is() {
   let beta_admin = vec![Grant::new(GrantOrg::Child("beta".into()), Role::Admin)];
   assert!(
     state
-      .panel_admits(Some("panel.acme.test"), &acme_viewer)
+      .login_admits(Some("panel.acme.test"), &acme_viewer)
       .await
   );
   assert!(
     state
-      .panel_admits(Some("panel.acme.test"), &crate::store::grants::all_admin())
+      .login_admits(Some("panel.acme.test"), &crate::store::grants::all_admin())
       .await
   );
   assert!(
     !state
-      .panel_admits(Some("panel.acme.test"), &beta_admin)
+      .login_admits(Some("panel.acme.test"), &beta_admin)
       .await
   );
-  assert!(!state.panel_admits(Some("panel.acme.test"), &[]).await);
-  assert!(state.panel_admits(Some("panel.test"), &beta_admin).await);
-  assert!(state.panel_admits(Some("acme.test"), &beta_admin).await);
-  assert!(state.panel_admits(None, &beta_admin).await);
+  assert!(!state.login_admits(Some("panel.acme.test"), &[]).await);
+  assert!(state.login_admits(Some("panel.test"), &beta_admin).await);
+  assert!(state.login_admits(Some("acme.test"), &beta_admin).await);
+  assert!(state.login_admits(None, &beta_admin).await);
 
   // Cleared, and the cache follows.
   state
@@ -178,4 +178,150 @@ async fn the_layer_moves_a_panel_request_under_aperio_and_nothing_else() {
     .await
     .unwrap();
   assert_eq!(body(resp).await, "/|");
+}
+
+// ---------------------------------------------------------------------------
+// the fenced login on traffic hostnames (planned_features.md #151)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn under_the_fence_a_hostname_admits_its_organization_master_and_the_unfenced() {
+  let mut cfg = test_config();
+  cfg.fenced_login = true;
+  let state = test_state_with(cfg);
+  let acme = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", vec!["*.acme.test".to_string()], None)
+    .unwrap()
+    .id;
+  let beta = state
+    .org_store
+    .lock()
+    .await
+    .create("beta", vec!["*.beta.test".to_string()], None)
+    .unwrap()
+    .id;
+  let open = state
+    .org_store
+    .lock()
+    .await
+    .create("open", Vec::new(), None)
+    .unwrap()
+    .id;
+  let g = |org: &str, role: Role| vec![Grant::new(GrantOrg::Child(org.to_string()), role)];
+  let master_viewer = vec![Grant::new(GrantOrg::Master, Role::Viewer)];
+
+  // Acme's hostname: Acme's people, anyone reaching master, and the users of
+  // an organization with no fence; not Beta's.
+  assert!(
+    state
+      .login_admits(Some("www.acme.test"), &g(&acme, Role::Viewer))
+      .await
+  );
+  assert!(
+    state
+      .login_admits(Some("www.acme.test"), &master_viewer)
+      .await
+  );
+  assert!(
+    state
+      .login_admits(Some("www.acme.test"), &crate::store::grants::all_admin())
+      .await
+  );
+  assert!(
+    state
+      .login_admits(Some("www.acme.test"), &g(&open, Role::Viewer))
+      .await
+  );
+  assert!(
+    !state
+      .login_admits(Some("www.acme.test"), &g(&beta, Role::Admin))
+      .await
+  );
+  assert!(!state.login_admits(Some("www.acme.test"), &[]).await);
+  // A hostname no fence claims is master's: master's people and the unfenced.
+  assert!(
+    state
+      .login_admits(Some("tunnel.test"), &master_viewer)
+      .await
+  );
+  assert!(
+    state
+      .login_admits(Some("tunnel.test"), &g(&open, Role::Viewer))
+      .await
+  );
+  assert!(
+    !state
+      .login_admits(Some("tunnel.test"), &g(&acme, Role::Admin))
+      .await
+  );
+  // No hostname at all is master's alone.
+  assert!(state.login_admits(None, &master_viewer).await);
+  assert!(!state.login_admits(None, &g(&open, Role::Admin)).await);
+  // The panel rule comes first and is stricter: master's Viewer is not Acme's.
+  state
+    .org_store
+    .lock()
+    .await
+    .set_panel_hostname(&acme, Some("panel.acme.test".to_string()))
+    .unwrap();
+  state.refresh_panel_hostnames().await;
+  assert!(
+    !state
+      .login_admits(Some("panel.acme.test"), &master_viewer)
+      .await
+  );
+  assert!(
+    state
+      .login_admits(Some("panel.acme.test"), &g(&acme, Role::Viewer))
+      .await
+  );
+}
+
+#[tokio::test]
+async fn with_the_fence_off_every_hostname_admits_everyone_but_a_panel() {
+  let state = test_state();
+  let acme = acme_with_panel(&state).await;
+  let beta_admin = vec![Grant::new(GrantOrg::Child("beta".into()), Role::Admin)];
+  assert!(state.login_admits(Some("www.acme.test"), &beta_admin).await);
+  assert!(state.login_admits(Some("tunnel.test"), &[]).await);
+  assert!(
+    !state
+      .login_admits(Some("panel.acme.test"), &beta_admin)
+      .await
+  );
+  assert!(
+    state
+      .login_admits(
+        Some("panel.acme.test"),
+        &[Grant::new(GrantOrg::Child(acme), Role::Viewer)]
+      )
+      .await
+  );
+}
+
+#[test]
+fn a_session_is_usable_on_its_own_hostname_only_under_the_fence() {
+  let mut info = crate::state::SessionInfo {
+    expires_at: 0,
+    created_at: 0,
+    ip: None,
+    user_agent: None,
+    plane: crate::store::sessions::Plane::Admin,
+    scope_host: None,
+    username: None,
+    role: Role::Admin,
+    selected_org: None,
+    bound_org: None,
+    login_host: Some("www.acme.test".to_string()),
+  };
+  assert!(info.usable_on(true, Some("www.acme.test")));
+  assert!(!info.usable_on(true, Some("www.beta.test")));
+  assert!(!info.usable_on(true, None));
+  assert!(info.usable_on(false, Some("www.beta.test")));
+  // A session from before the field existed is good everywhere.
+  info.login_host = None;
+  assert!(info.usable_on(true, Some("www.beta.test")));
 }

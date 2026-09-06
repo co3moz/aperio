@@ -82,6 +82,14 @@ pub struct DashboardGroup {
   /// (env: APERIO_DASHBOARD_HOSTNAME).
   #[schemars(extend("examples" = ["panel.example.com"]))]
   pub hostname: Option<String>,
+  /// Fence the dashboard login to the hostname's organization: on a hostname
+  /// inside an organization's allowlist only that organization's people and
+  /// anyone reaching master sign in, a hostname no fence claims admits
+  /// master's people and the users of unfenced organizations, and a session
+  /// is good only on the hostname it was minted on. Default: `false`
+  /// (env: APERIO_DASHBOARD_FENCED_LOGIN).
+  #[schemars(extend("examples" = [true]))]
+  pub fenced_login: Option<bool>,
 }
 
 /// Edge-proxy integration: publishing the served hostnames to a dynamic reverse proxy in front of this server.

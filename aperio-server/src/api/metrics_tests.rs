@@ -19,6 +19,7 @@ use tokio::sync::{Mutex, mpsc, watch};
 fn test_config(metrics_token: Option<String>) -> ServerConfig {
   ServerConfig {
     dashboard_hostname: None,
+    fenced_login: false,
     server_side_targets: Vec::new(),
     token: "test".to_string(),
     gateway_timeout: Duration::from_secs(1),
