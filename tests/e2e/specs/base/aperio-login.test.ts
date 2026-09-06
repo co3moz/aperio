@@ -10,7 +10,16 @@ class AperioLoginServer extends BaseServerFor() {
   }
 }
 class AperioLoginBackend extends BaseBackendFor() {}
-class AperioLoginClient extends BaseClientFor(() => AperioLoginServer, () => AperioLoginBackend) {}
+/** Gated by the *server*, so not public: `public` would skip the gate. No
+ *  routability wait either, since the login page answers every probe. */
+class AperioLoginClient extends BaseClientFor(() => AperioLoginServer, () => AperioLoginBackend) {
+  _public() {
+    return false
+  }
+  _hostname() {
+    return ''
+  }
+}
 
 /** `auth: {method: aperio}`: a route that says "sign in" without inventing a
  *  password. A browser is sent to the login, a script gets 401, and a
@@ -19,8 +28,14 @@ export class AperioLoginSpec extends Test({
   timeout: 90_000,
   dependencies: { server: () => AperioLoginServer, client: () => AperioLoginClient },
 }) {
+  async before() {
+    // No routability wait on the client, so the tunnel is waited for here.
+    await this.server._waitForClients(1)
+  }
+
   async aBrowserIsSentToTheLoginAndAScriptGets401() {
     const browser = await this.server._fetch('/hello', {
+      host: HOST,
       headers: { accept: 'text/html,application/xhtml+xml' },
     })
     assert.equal(browser.status, 302)
@@ -28,14 +43,14 @@ export class AperioLoginSpec extends Test({
       (browser.headers['location'] ?? '').startsWith('/aperio/auth?redirect='),
       `the login page, got ${browser.headers['location']}`,
     )
-    const script = await this.server._fetch('/hello')
+    const script = await this.server._fetch('/hello', { host: HOST })
     assert.equal(script.status, 401)
     assert.equal(script.headers['www-authenticate'], undefined, 'nothing a script could answer with')
   }
 
   async aDashboardSessionIsAdmitted() {
     const cookie = await this.server._login()
-    const res = await this.server._fetch('/hello', { headers: { cookie } })
+    const res = await this.server._fetch('/hello', { host: HOST, headers: { cookie } })
     assert.equal(res.status, 200)
     assert.ok(res.body.length > 0, 'the backend answered')
   }

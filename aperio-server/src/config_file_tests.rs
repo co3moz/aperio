@@ -378,3 +378,41 @@ fn a_removed_setting_is_still_materialized_so_the_guard_can_see_it() {
 
   let _ = std::fs::remove_file(&file);
 }
+
+/// `server.auth` written as a block is the visitor-auth loader's to read;
+/// the hot-reload layer, typed for the scalar, must step around it rather
+/// than fail on it and drop every other live-editable value in the file.
+#[test]
+fn a_block_under_a_grouped_key_stays_out_of_the_hot_reload_layer() {
+  let _g = CfgGuard::lock();
+  let file =
+    crate::test_support::test_temp_root().join(format!("cfg-{}.yaml", uuid::Uuid::new_v4()));
+  std::fs::write(
+    &file,
+    concat!(
+      "max_body_size: 4343\n",
+      "server:\n  auth:\n    method: aperio\n",
+    ),
+  )
+  .unwrap();
+  set_config_env(&file);
+  load();
+
+  let flat = flattened_document().unwrap();
+  assert!(
+    !flat.contains_key(serde_yaml::Value::String("server_auth".to_string())),
+    "the block is not a scalar and stays out"
+  );
+  let o = crate::settings::file_overrides();
+  assert_eq!(
+    o.max_body_size,
+    Some(4343),
+    "the rest of the layer is still read"
+  );
+  assert!(o.auth_credentials.is_none());
+  let block =
+    crate::visitor_auth::block_from_config_file().expect("the block is read by its own loader");
+  assert_eq!(block.methods()[0].method, "aperio");
+
+  let _ = std::fs::remove_file(&file);
+}

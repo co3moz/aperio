@@ -241,6 +241,14 @@ pub(crate) fn flattened_document() -> Option<serde_yaml::Mapping> {
       let Some(child) = child.as_str() else {
         continue;
       };
+      // A structured child (`server.auth` written as a block) is read by its
+      // own loader; in here it is the one value of the wrong shape that used
+      // to make the whole layer unreadable.
+      if cvalue.is_mapping()
+        || matches!(cvalue, serde_yaml::Value::Sequence(items) if items.iter().any(|v| v.is_mapping()))
+      {
+        continue;
+      }
       let name = if group.self_key == Some(child) {
         key.to_string()
       } else {
