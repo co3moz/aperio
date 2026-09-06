@@ -1,5 +1,4 @@
 import { RefreshCwIcon, TurtleIcon } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
 import { EmptyRow, SectionHeader, SkeletonRows } from './shared'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -12,6 +11,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { formatCount } from '@/lib/format'
+import { useStream } from '@/hooks/useStream'
+import { api } from '@/lib/api'
 import { useI18n } from '@/i18n'
 
 interface SlowEndpoint {
@@ -33,20 +34,11 @@ interface SlowEndpoint {
  */
 export function SlowEndpointsSection() {
   const { t } = useI18n()
-  const [rows, setRows] = useState<SlowEndpoint[] | null>(null)
-
-  const reload = useCallback(() => {
-    fetch('/aperio/api/slow-endpoints')
-      .then((r) => r.json())
-      .then((data: SlowEndpoint[]) => setRows(data))
-      .catch(() => setRows([]))
-  }, [])
-
-  useEffect(() => {
-    reload()
-    const timer = setInterval(reload, 15_000)
-    return () => clearInterval(timer)
-  }, [reload])
+  const { data: rows, refresh: reload } = useStream<SlowEndpoint[]>(
+    'slow_endpoints',
+    () => api.slowEndpoints() as Promise<SlowEndpoint[]>,
+    15_000,
+  )
 
   return (
     <section className="flex flex-col gap-3">

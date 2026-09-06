@@ -15,7 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { usePoll } from '@/hooks/usePoll'
+import { useStream } from '@/hooks/useStream'
 import { api, auditQuery, type AuditFilter } from '@/lib/api'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import {
@@ -52,10 +52,15 @@ export function AuditSection() {
   const [applied, setApplied] = useState<AuditFilter>(EMPTY)
   const active = useMemo(() => isActive(applied), [applied])
   const fetchAudit = useCallback(() => api.audit(active ? applied : undefined), [active, applied])
-  // A filtered view reads files rather than the in-memory ring, so it is not
-  // re-polled every ten seconds underneath the reader; the live unfiltered
-  // view still is, and the refresh button works in both.
-  const { data: events, refresh } = usePoll(fetchAudit, active ? 300_000 : 10_000)
+  // The unfiltered view is the in-memory ring, pushed over the stream as
+  // every audit event lands; a filtered view reads files and is a question
+  // the stream cannot carry, so it stays a slow poll. The refresh button
+  // works in both.
+  const { data: events, refresh } = useStream(
+    active ? null : 'audit',
+    fetchAudit,
+    active ? 300_000 : 10_000,
+  )
 
   // usePoll keeps the fetcher in a ref and only re-runs on an interval change,
   // so applying a different filter has to ask for the new query itself. The

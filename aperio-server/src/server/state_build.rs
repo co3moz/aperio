@@ -144,6 +144,10 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
   // than traffic: these arrive at human pace, not request pace, and a burst
   // large enough to overrun 64 is one nobody reads item by item anyway.
   let (events_tx, _) = tokio::sync::broadcast::channel(64);
+  // Store changes for the dashboard streams' topics. An import touches
+  // every store at once, and a stream that lags simply refreshes every
+  // change-driven topic it holds, so a modest buffer is enough.
+  let (changes_tx, _) = tokio::sync::broadcast::channel(256);
 
   // The telemetry collector: one task owns the per-request bookkeeping
   // writes, the request path only queues. Sized generously; a full queue
@@ -178,6 +182,7 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     recent_logs: Mutex::new(VecDeque::with_capacity(100)),
     traffic_tx,
     events_tx,
+    changes_tx,
     config_store: std::sync::RwLock::new(Arc::new(config)),
     config_env_defaults,
     settings_overrides: Mutex::new(settings_overrides),

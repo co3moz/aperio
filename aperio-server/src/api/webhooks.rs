@@ -405,7 +405,7 @@ pub(crate) async fn webhooks_delete_handler(
 }
 
 /// Query of the delivery-log listing.
-#[derive(Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema, Default)]
 pub(crate) struct DeliveriesQuery {
   /// Only this webhook's deliveries.
   pub(crate) webhook_id: Option<String>,

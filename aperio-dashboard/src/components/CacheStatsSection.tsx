@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 import { SectionHeader } from './shared'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { usePoll } from '@/hooks/usePoll'
+import { useStream } from '@/hooks/useStream'
 import { api, type CacheStats } from '@/lib/api'
 import { useI18n } from '@/i18n'
 import { formatCount } from '@/lib/format'
@@ -19,7 +19,7 @@ function bytes(n: number): string {
 export function CacheStatsSection() {
   const { t } = useI18n()
   const isAdmin = useHasRole('admin')
-  const { data, refresh } = usePoll<CacheStats>(() => api.cacheStats(), 15000)
+  const { data, refresh } = useStream<CacheStats>('cache_stats', () => api.cacheStats(), 15000)
 
   const purgeAll = async () => {
     try {

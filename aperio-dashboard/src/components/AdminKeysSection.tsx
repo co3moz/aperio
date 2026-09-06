@@ -35,7 +35,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
-import { usePoll } from '@/hooks/usePoll'
+import { useStream } from '@/hooks/useStream'
 import { api, type AdminKeyView } from '@/lib/api'
 import { formatExpiry } from '@/lib/format'
 import { useI18n } from '@/i18n'
@@ -172,7 +172,7 @@ function CreateAdminKeyDialog({
 
 export function AdminKeysSection() {
   const { t } = useI18n()
-  const { data, loading, refresh } = usePoll<AdminKeyView[]>(() => api.adminKeys(), 30000)
+  const { data, loading, refresh } = useStream<AdminKeyView[]>('admin_keys', () => api.adminKeys(), 30000)
   const [secret, setSecret] = useState<string | null>(null)
 
   const revoke = async (id: string, name: string) => {

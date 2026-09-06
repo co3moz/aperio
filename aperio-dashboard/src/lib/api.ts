@@ -820,6 +820,8 @@ export const api = {
   inboxClear: () => mutate('/inbox', { method: 'DELETE' }),
   uptime: () => request<UptimeEntry[]>('/uptime'),
   topology: () => request<TopologyGraph>('/topology'),
+  routeTrends: () => request<unknown[]>('/route-trends'),
+  slowEndpoints: () => request<unknown[]>('/slow-endpoints'),
   statsHistory: (q: { unit?: string; count?: number; from?: string; to?: string }) => {
     const params = new URLSearchParams()
     if (q.from) {

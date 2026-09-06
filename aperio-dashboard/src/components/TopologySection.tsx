@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { SectionHeader } from './shared'
-import { usePoll } from '@/hooks/usePoll'
+import { useStream } from '@/hooks/useStream'
 import { useI18n } from '@/i18n'
 import {
   api,
@@ -153,7 +153,7 @@ function NodeBox({
 
 export function TopologySection() {
   const { t } = useI18n()
-  const { data } = usePoll(api.topology, 5_000)
+  const { data } = useStream('topology', api.topology, 5_000)
   const clients = useMemo(() => data?.clients ?? [], [data])
   const staticRoutes: TopoStaticRoute[] = useMemo(() => data?.routes ?? [], [data])
   const exposes: TopoExpose[] = useMemo(() => data?.exposes ?? [], [data])

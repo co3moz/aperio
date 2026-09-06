@@ -1191,4 +1191,5 @@ export const ru: Record<string, string> = {
   'Streams per visitor': 'Потоки на посетителя',
   'the server admits {max} requests at once across every service; one arriving with no slot free is refused rather than queued': 'сервер принимает {max} запросов одновременно по всем сервисам; пришедший без свободного слота отклоняется, а не ставится в очередь',
   'caching applies to GET; a {method} always reaches a client': 'кэширование применяется к GET; запрос {method} всегда доходит до клиента',
+  'Could not load the tunnels; retrying.': 'Не удалось загрузить туннели; повторная попытка.',
 }

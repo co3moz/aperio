@@ -391,6 +391,12 @@ pub(crate) struct AppState {
   /// bell (`/aperio/api/stream`, `notification` events). Dropped when there
   /// are no subscribers, exactly like [`AppState::traffic_tx`].
   pub(crate) events_tx: broadcast::Sender<ServerEvent>,
+  /// A store changed under a stream topic (`planned_features.md` #167):
+  /// every open dashboard stream that subscribed the topic re-sends that
+  /// topic's document. Fed by the audit path, since every store write is an
+  /// audit event, and by the few writes that are not. Dropped when there are
+  /// no subscribers, like the two above.
+  pub(crate) changes_tx: broadcast::Sender<crate::api::clients::topics::Change>,
   /// Live server configuration. Dashboard-editable settings swap in a new
   /// `Arc<ServerConfig>`; every access takes a cheap read-lock snapshot via
   /// [`AppState::config`].
@@ -686,6 +692,26 @@ impl AppState {
       .lock()
       .await
       .record(event, actor, actor_ip, None, details);
+    self.note_change(event, None);
+  }
+
+  /// Tells the open dashboard streams which of their topics an audit event
+  /// touched, so the page showing that store updates now rather than on its
+  /// next poll.
+  fn note_change(&self, event: &str, org: Option<String>) {
+    for topic in crate::api::clients::topics::Topic::touched_by(event) {
+      self.changed(topic, org.clone());
+    }
+  }
+
+  /// A write the audit log does not carry (an inbox row landing) says so
+  /// itself. `send` fails only when no stream is open, the ordinary state.
+  pub(crate) fn changed(&self, topic: crate::api::clients::topics::Topic, org: Option<String>) {
+    let _ = self.changes_tx.send(crate::api::clients::topics::Change {
+      topic,
+      everyone: topic.changes_everyone(),
+      org,
+    });
   }
 
   /// Records an audit event scoped to a specific organization (`None` = the
@@ -703,7 +729,8 @@ impl AppState {
       .audit
       .lock()
       .await
-      .record(event, actor, actor_ip, org, details);
+      .record(event, actor, actor_ip, org.clone(), details);
+    self.note_change(event, org);
   }
 
   /// Records an audit event for a dashboard action, resolving both the acting
@@ -723,7 +750,8 @@ impl AppState {
       .audit
       .lock()
       .await
-      .record(event, &actor, actor_ip, org, details);
+      .record(event, &actor, actor_ip, org.clone(), details);
+    self.note_change(event, org);
   }
 
   /// Resolves the acting dashboard user for an audit record from the request:

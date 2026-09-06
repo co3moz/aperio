@@ -14,7 +14,7 @@ import {
   SidebarMenuItem,
 } from '@/components/ui/sidebar'
 import { useAppEvent } from '@/hooks/useAppEvent'
-import { usePoll } from '@/hooks/usePoll'
+import { useStream } from '@/hooks/useStream'
 import { useI18n } from '@/i18n'
 import { api, ApiError } from '@/lib/api'
 import { useSession } from '@/lib/session'
@@ -28,7 +28,8 @@ export function OrgSwitcher({ selectedOrg }: { selectedOrg: string }) {
   const { orgs: reachable, masterAdmin } = useSession()
   // The listing carries the member counts, and only a master admin may ask
   // for it; everyone else has exactly the organizations the session carries.
-  const { data: listed, refresh } = usePoll(
+  const { data: listed, refresh } = useStream(
+    masterAdmin ? 'orgs' : null,
     () => (masterAdmin ? api.orgs() : Promise.resolve(null)),
     30_000,
   )

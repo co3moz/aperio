@@ -812,6 +812,12 @@ impl Attempt<'_> {
                 service: selected.service_name.clone(),
                 org_id: selected.org_id.clone(),
               });
+            // The inbox page is watching over the stream; a landed row is
+            // the one write here the audit log does not carry.
+            state.changed(
+              crate::api::clients::topics::Topic::Inbox,
+              selected.org_id.clone(),
+            );
           }
 
           // Streamed response: forward frames as they arrive without

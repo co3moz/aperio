@@ -1172,4 +1172,5 @@ export const zh: Record<string, string> = {
   'Streams per visitor': '每访客流数',
   'the server admits {max} requests at once across every service; one arriving with no slot free is refused rather than queued': '服务器在所有服务上合计同时接受 {max} 个请求；在没有空闲槽位时到达的请求会被拒绝而不是排队',
   'caching applies to GET; a {method} always reaches a client': '缓存仅适用于 GET；{method} 请求始终会到达客户端',
+  'Could not load the tunnels; retrying.': '无法加载隧道；正在重试。',
 }

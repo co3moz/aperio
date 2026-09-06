@@ -15,6 +15,7 @@ pub(crate) mod config_view;
 pub(crate) mod control;
 pub(crate) mod live;
 pub(crate) mod numbers;
+pub(crate) mod topics;
 
 pub(crate) use config_view::*;
 pub(crate) use control::*;

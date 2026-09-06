@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, type RequestLog, type ServerStats } from '../lib/api'
 import type { ServerNotification } from '../lib/notifications'
+import { streamHub } from '../lib/stream'
 
 // Keep a bounded live window on the client so a long-lived stream can't grow
 // unbounded; the traffic table only renders the newest slice anyway.
@@ -23,12 +24,12 @@ export interface LiveData {
 }
 
 /**
- * Single live feed for the dashboard backed by the `/aperio/api/stream` SSE
- * endpoint: `traffic` events append to the request log, `stats` events replace
- * the stats snapshot (pushed every 2s and once on connect), and `notification`
- * events accumulate for the bell. Seeds from the REST endpoints and, if the
- * stream can't be established, transparently falls back to polling both, so
- * nothing goes stale.
+ * The dashboard's live feed, on the one event stream every section shares
+ * (`lib/stream.ts`): `traffic` events append to the request log, `stats`
+ * events replace the stats snapshot (pushed every 2s and once on connect),
+ * and `notification` events accumulate for the bell. Seeds from the REST
+ * endpoints and, while the stream is down, transparently falls back to
+ * polling both, so nothing goes stale.
  *
  * Notifications have no polling fallback and no seed, deliberately: they are a
  * live signal, and the record of what happened while the tab was closed is the
@@ -89,29 +90,17 @@ export function useLiveData(): LiveData {
       setError(false)
     }
 
-    const es = new EventSource('/aperio/api/stream')
-    es.onopen = () => stopFallback()
-    es.addEventListener('traffic', (e) => {
-      try {
-        const log = JSON.parse((e as MessageEvent).data) as RequestLog
+    const offs = [
+      streamHub.subscribe('traffic', (data) => {
+        const log = data as RequestLog
         setLogs((cur) => {
           const next = [...(cur ?? []), log]
           return next.length > MAX_LOGS ? next.slice(-MAX_LOGS) : next
         })
-      } catch {
-        // Ignore malformed frames.
-      }
-    })
-    es.addEventListener('stats', (e) => {
-      try {
-        setStats(JSON.parse((e as MessageEvent).data) as ServerStats)
-      } catch {
-        // Ignore malformed frames.
-      }
-    })
-    es.addEventListener('notification', (e) => {
-      try {
-        const ev = JSON.parse((e as MessageEvent).data) as Omit<ServerNotification, 'id'>
+      }),
+      streamHub.subscribe('stats', (data) => setStats(data as ServerStats)),
+      streamHub.subscribe('notification', (data) => {
+        const ev = data as Omit<ServerNotification, 'id'>
         // The wire carries no id, and two events can share a timestamp (it is
         // second-resolution), so the id is minted here: a duplicate key would
         // make React reuse the wrong row.
@@ -120,15 +109,16 @@ export function useLiveData(): LiveData {
           const next = [...cur, { ...ev, id }]
           return next.length > MAX_NOTIFICATIONS ? next.slice(-MAX_NOTIFICATIONS) : next
         })
-      } catch {
-        // Ignore malformed frames.
-      }
-    })
-    es.onerror = () => startFallback()
+      }),
+      // Down means the fallback poll; up stops it. The hub reports the
+      // state it is in the moment this subscribes, so a stream that is
+      // already broken starts the poll at once.
+      streamHub.onStatus((up) => (up ? stopFallback() : startFallback())),
+    ]
 
     return () => {
       cancelled = true
-      es.close()
+      for (const off of offs) off()
       stopFallback()
     }
   }, [])

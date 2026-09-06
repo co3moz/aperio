@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/table'
 import { TintBadge } from './badges'
 import { EmptyRow, SectionHeader, SkeletonRows } from './shared'
-import { usePoll } from '@/hooks/usePoll'
+import { useStream } from '@/hooks/useStream'
 import { api } from '@/lib/api'
 import { useI18n } from '@/i18n'
 
@@ -35,7 +35,7 @@ const STAGE_LABELS: Record<string, string> = {
  *  so "requests usually queue +5-10ms, now +25-30ms" is visible per stage. */
 export function StageStatsSection() {
   const { t } = useI18n()
-  const { data: routes } = usePoll(api.stageStats, 5_000)
+  const { data: routes } = useStream('stage_stats', api.stageStats, 5_000)
 
   return (
     <section className="flex flex-col gap-3">

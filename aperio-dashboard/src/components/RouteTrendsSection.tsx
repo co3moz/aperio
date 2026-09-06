@@ -1,5 +1,4 @@
 import { RefreshCwIcon, TrendingUpIcon } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
 import { EmptyRow, SectionHeader, SkeletonRows } from './shared'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -13,6 +12,8 @@ import {
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatCount } from '@/lib/format'
+import { useStream } from '@/hooks/useStream'
+import { api } from '@/lib/api'
 import { useI18n } from '@/i18n'
 
 interface TrendBucket {
@@ -78,20 +79,11 @@ function Sparkline({ buckets }: { buckets: TrendBucket[] }) {
  */
 export function RouteTrendsSection() {
   const { t } = useI18n()
-  const [routes, setRoutes] = useState<RouteTrend[] | null>(null)
-
-  const reload = useCallback(() => {
-    fetch('/aperio/api/route-trends')
-      .then((r) => r.json())
-      .then((data: RouteTrend[]) => setRoutes(data))
-      .catch(() => setRoutes([]))
-  }, [])
-
-  useEffect(() => {
-    reload()
-    const timer = setInterval(reload, 15_000)
-    return () => clearInterval(timer)
-  }, [reload])
+  const { data: routes, refresh: reload } = useStream<RouteTrend[]>(
+    'route_trends',
+    () => api.routeTrends() as Promise<RouteTrend[]>,
+    15_000,
+  )
 
   return (
     <section className="flex flex-col gap-3">

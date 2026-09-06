@@ -7,7 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { usePoll } from '@/hooks/usePoll'
+import { useStream } from '@/hooks/useStream'
 import { api, ApiError, type MaintenanceEntry } from '@/lib/api'
 import { formatAbsoluteTime, formatRelativeTime, formatTimeUntil } from '@/lib/format'
 import { useI18n } from '@/i18n'
@@ -34,7 +34,7 @@ const WINDOWS: { label: string; minutes: number | null }[] = [
 export function MaintenanceSection() {
   const { t } = useI18n()
   const canMutate = useHasRole('operator')
-  const { data: flags, refresh } = usePoll(api.maintenance, 10_000)
+  const { data: flags, refresh } = useStream('maintenance', api.maintenance, 10_000)
   const [hostname, setHostname] = useState('')
   const [reason, setReason] = useState('')
   const [minutes, setMinutes] = useState<number | null>(null)

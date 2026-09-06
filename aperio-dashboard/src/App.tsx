@@ -50,6 +50,7 @@ import { Separator } from '@/components/ui/separator'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 import { useLiveData } from './hooks/useLiveData'
 import { usePoll } from './hooks/usePoll'
+import { useStream } from './hooks/useStream'
 import { api, logout, type Role } from './lib/api'
 import { formatBytes, formatUptime, NO_VALUE } from './lib/format'
 import { readParams, writeParams } from './lib/url'
@@ -175,7 +176,7 @@ export default function App() {
   // Traffic and stats are pushed live over one SSE stream (with a polling
   // fallback if it drops); only the session lifetime is still polled.
   const { logs, stats, notifications, error: statsError, refreshStats } = useLiveData()
-  const { data: session, refresh: refreshSession } = usePoll(api.session, 60_000)
+  const { data: session, refresh: refreshSession } = useStream('session', api.session, 60_000)
   const [totpOpen, setTotpOpen] = useState(false)
   const [passkeysOpen, setPasskeysOpen] = useState(false)
   // The server version only changes on restart; a slow poll keeps it honest.

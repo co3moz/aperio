@@ -37,7 +37,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { usePoll } from '@/hooks/usePoll'
+import { useStream } from '@/hooks/useStream'
 import { api, ApiError, type TokenView } from '@/lib/api'
 import { formatExpiry, NO_VALUE, splitList } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -420,7 +420,7 @@ function RevokeButton({ token, onDone }: { token: TokenView; onDone: () => void 
 export function TokensSection() {
   const { t } = useI18n()
   const canMutate = useHasRole('operator')
-  const { data: tokens, refresh } = usePoll(api.tokens, 10_000)
+  const { data: tokens, refresh } = useStream('tokens', api.tokens, 10_000)
   const [createdSecret, setCreatedSecret] = useState<string | null>(null)
 
   return (

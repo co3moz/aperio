@@ -54,7 +54,7 @@ import {
 } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
-import { usePoll } from '@/hooks/usePoll'
+import { useStream } from '@/hooks/useStream'
 import { useI18n } from '@/i18n'
 import { usePaneFocus } from '@/lib/paneFocus'
 import {
@@ -486,7 +486,7 @@ function ResetTotpButton({ user, onDone }: { user: DashboardUser; onDone: () => 
 
 function SessionsCard() {
   const { t } = useI18n()
-  const { data: sessions, refresh } = usePoll(api.sessions, 15_000)
+  const { data: sessions, refresh } = useStream('sessions', api.sessions, 15_000)
   const [busy, setBusy] = useState(false)
 
   const revoke = async (s: LiveSession) => {
@@ -595,7 +595,7 @@ export function UsersSection() {
   const { t } = useI18n()
   const { username: self } = useSession()
   const orgName = useOrgName()
-  const { data: users, refresh } = usePoll(api.users, 15_000)
+  const { data: users, refresh } = useStream('users', api.users, 15_000)
   // Every `*` holder lives in master, so the master list is the whole set.
   const wide = users?.filter((u) => u.grants.some((g) => g.org === '*')).length ?? 0
 

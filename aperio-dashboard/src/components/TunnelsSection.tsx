@@ -1,5 +1,4 @@
 import { CableIcon, RefreshCwIcon } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
 import { TintBadge } from './badges'
 import { CopyButton, EmptyRow, SectionHeader, SkeletonRows, StatusDot } from './shared'
 import { Button } from '@/components/ui/button'
@@ -15,6 +14,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { api, type DeclaredTunnel } from '@/lib/api'
 import { NO_VALUE } from '@/lib/format'
+import { useStream } from '@/hooks/useStream'
 import { useI18n } from '@/i18n'
 
 /**
@@ -62,23 +62,12 @@ function localPortHint(tunnel: DeclaredTunnel): number {
  */
 export function TunnelsSection() {
   const { t } = useI18n()
-  const [tunnels, setTunnels] = useState<DeclaredTunnel[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  const load = useCallback(async () => {
-    try {
-      setTunnels(await api.declaredTunnels())
-      setError(null)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    }
-  }, [])
-
-  useEffect(() => {
-    void load()
-    const timer = setInterval(() => void load(), 10_000)
-    return () => clearInterval(timer)
-  }, [load])
+  const {
+    data: tunnels,
+    refresh: load,
+    error: failed,
+  } = useStream<DeclaredTunnel[]>('tunnels', api.declaredTunnels, 10_000)
+  const error = failed ? t('Could not load the tunnels; retrying.') : null
 
   return (
     <div className="flex flex-col gap-4">

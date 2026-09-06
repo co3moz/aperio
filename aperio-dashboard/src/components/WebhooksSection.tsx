@@ -41,7 +41,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
-import { usePoll } from '@/hooks/usePoll'
+import { useStream } from '@/hooks/useStream'
 import { api, ApiError, type Webhook, type WebhookDelivery } from '@/lib/api'
 import { formatRelativeTime, splitList } from '@/lib/format'
 import { useI18n } from '@/i18n'
@@ -266,7 +266,7 @@ function DeleteWebhookButton({ hook, onDone }: { hook: Webhook; onDone: () => vo
 function DeliveriesTable() {
   const { t } = useI18n()
   const canMutate = useHasRole('operator')
-  const { data: deliveries, refresh } = usePoll(api.webhookDeliveries, 10_000)
+  const { data: deliveries, refresh } = useStream('deliveries', api.webhookDeliveries, 10_000)
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const redeliver = async (d: WebhookDelivery) => {
@@ -338,7 +338,7 @@ function DeliveriesTable() {
 export function WebhooksSection() {
   const { t } = useI18n()
   const canMutate = useHasRole('operator')
-  const { data: hooks, refresh } = usePoll(api.webhooks, 15_000)
+  const { data: hooks, refresh } = useStream('webhooks', api.webhooks, 15_000)
 
   return (
     <section className="flex flex-col gap-3">

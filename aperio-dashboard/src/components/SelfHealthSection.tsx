@@ -2,7 +2,7 @@ import { DownloadIcon, HeartPulseIcon } from 'lucide-react'
 import { SectionHeader } from './shared'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { usePoll } from '@/hooks/usePoll'
+import { useStream } from '@/hooks/useStream'
 import { api, type SelfHealth } from '@/lib/api'
 import { formatBytes, formatCount, formatUptime, NO_VALUE } from '@/lib/format'
 import { useI18n } from '@/i18n'
@@ -13,7 +13,7 @@ import { useHasRole } from '@/lib/session'
 export function SelfHealthSection() {
   const { t } = useI18n()
   const isAdmin = useHasRole('admin')
-  const { data } = usePoll<SelfHealth>(() => api.selfHealth(), 15000)
+  const { data } = useStream<SelfHealth>('self_health', () => api.selfHealth(), 15000)
 
   const tiles: [string, string][] = data
     ? [

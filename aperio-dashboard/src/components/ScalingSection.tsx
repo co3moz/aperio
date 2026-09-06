@@ -24,7 +24,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { usePoll } from '@/hooks/usePoll'
+import { useStream } from '@/hooks/useStream'
 import { useI18n } from '@/i18n'
 import { api, ApiError, type ScalingRecord } from '@/lib/api'
 import { useHasRole } from '@/lib/session'
@@ -118,7 +118,7 @@ function DisarmButton({ record, onDone }: { record: ScalingRecord; onDone: () =>
 export function ScalingSection() {
   const { t } = useI18n()
   const canMutate = useHasRole('operator')
-  const { data: records, refresh } = usePoll(api.scaling, 10_000)
+  const { data: records, refresh } = useStream('scaling', api.scaling, 10_000)
 
   return (
     // min-w-0: this table has more columns than most, and without it the flex

@@ -10,7 +10,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { usePoll } from '@/hooks/usePoll'
+import { useStream } from '@/hooks/useStream'
 import { api, type UptimeEntry } from '@/lib/api'
 import { NO_VALUE } from '@/lib/format'
 import { useI18n } from '@/i18n'
@@ -68,7 +68,7 @@ function StatusBadge({ status }: { status: UptimeEntry['status'] }) {
 /** Uptime/SLA table: per-service availability with daily history strips. */
 export function UptimeSection() {
   const { t } = useI18n()
-  const { data: entries } = usePoll(api.uptime, 15_000)
+  const { data: entries } = useStream('uptime', api.uptime, 15_000)
 
   return (
     <section className="flex flex-col gap-3">

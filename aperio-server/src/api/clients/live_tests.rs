@@ -44,7 +44,12 @@ async fn live_stream_emits_stats_traffic_and_ends_on_shutdown() {
   let token = seed_session(&state, Role::Viewer, Some("v"), None).await;
   let headers = cookie_headers(&token);
 
-  let sse = live_stream_handler(State(state.clone()), headers).await;
+  let sse = live_stream_handler(
+    State(state.clone()),
+    headers,
+    axum::extract::Query(Default::default()),
+  )
+  .await;
   let resp = sse.into_response();
   let mut body = resp.into_body().into_data_stream();
 
@@ -95,7 +100,12 @@ async fn live_stream_fences_notifications_to_the_subscriber_org() {
   let token = seed_session(&state, Role::Viewer, Some("v"), None).await;
   let headers = cookie_headers(&token);
 
-  let sse = live_stream_handler(State(state.clone()), headers).await;
+  let sse = live_stream_handler(
+    State(state.clone()),
+    headers,
+    axum::extract::Query(Default::default()),
+  )
+  .await;
   let resp = sse.into_response();
   let mut body = resp.into_body().into_data_stream();
 
@@ -150,7 +160,12 @@ async fn live_stream_ends_when_the_session_it_opened_with_is_revoked() {
   insert_client(&state, "c1", |_| {}).await;
   let token = seed_session(&state, Role::Viewer, Some("v"), None).await;
 
-  let sse = live_stream_handler(State(state.clone()), cookie_headers(&token)).await;
+  let sse = live_stream_handler(
+    State(state.clone()),
+    cookie_headers(&token),
+    axum::extract::Query(Default::default()),
+  )
+  .await;
   let mut body = sse.into_response().into_body().into_data_stream();
 
   let first = timeout(Duration::from_secs(2), body.next())
@@ -286,4 +301,162 @@ async fn a_limit_returns_the_newest_matches() {
   // Without a limit the order is unchanged, which the live view relies on.
   let all = query(&state, &[]).await;
   assert_eq!(all.first().unwrap().id, "a");
+}
+
+// --- topics on the stream (planned_features.md #167) -----------------------
+
+fn topics(list: &str) -> axum::extract::Query<std::collections::HashMap<String, String>> {
+  let mut params = std::collections::HashMap::new();
+  params.insert("topics".to_string(), list.to_string());
+  axum::extract::Query(params)
+}
+
+/// Reads frames until one carries `event: <name>`, returning its data line.
+async fn frame_named(
+  body: &mut axum::body::BodyDataStream,
+  name: &str,
+  attempts: usize,
+) -> Option<String> {
+  use futures_util::StreamExt;
+  use std::time::Duration;
+  use tokio::time::timeout;
+  for _ in 0..attempts {
+    let frame = timeout(Duration::from_secs(3), body.next()).await.ok()??;
+    let bytes = frame.ok()?;
+    let text = String::from_utf8_lossy(&bytes).to_string();
+    if text.contains(&format!("event: {name}\n")) {
+      return Some(text);
+    }
+  }
+  None
+}
+
+#[tokio::test]
+async fn a_topic_is_sent_on_connect_and_again_when_its_store_changes() {
+  use axum::response::IntoResponse;
+
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  let resp = live_stream_handler(State(state.clone()), headers, topics("tokens,maintenance"))
+    .await
+    .into_response();
+  assert_eq!(resp.status(), StatusCode::OK);
+  let mut body = resp.into_body().into_data_stream();
+
+  // On connect: the snapshot, then every topic once.
+  assert!(frame_named(&mut body, "stats", 1).await.is_some());
+  let tokens = frame_named(&mut body, "tokens", 3)
+    .await
+    .expect("the token list on connect");
+  assert!(tokens.contains("data: []"), "{tokens}");
+  assert!(frame_named(&mut body, "maintenance", 3).await.is_some());
+
+  // A token is created (the audited path is what every write takes): the
+  // list is sent again, and nothing else is, since the maintenance store
+  // did not move.
+  state
+    .audit("token_created", "aperio", "127.0.0.1", "streamed")
+    .await;
+  let again = frame_named(&mut body, "tokens", 4)
+    .await
+    .expect("the token list after the change");
+  assert!(again.contains("event: tokens"));
+}
+
+#[tokio::test]
+async fn a_change_in_another_organization_is_not_sent() {
+  use axum::response::IntoResponse;
+
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  let resp = live_stream_handler(State(state.clone()), headers, topics("maintenance"))
+    .await
+    .into_response();
+  let mut body = resp.into_body().into_data_stream();
+  assert!(frame_named(&mut body, "maintenance", 3).await.is_some());
+
+  // Acme's flag moved; master's stream is not told. What arrives in the
+  // next few frames is the two-second stats snapshot and nothing else.
+  state
+    .audit_in(
+      "maintenance_on",
+      "acme-admin",
+      "127.0.0.1",
+      Some("acme".to_string()),
+      "x",
+    )
+    .await;
+  assert!(
+    frame_named(&mut body, "maintenance", 2).await.is_none(),
+    "another organization's change does not cross the fence"
+  );
+}
+
+#[tokio::test]
+async fn an_unknown_topic_is_refused_by_name_and_a_forbidden_one_too() {
+  use axum::response::IntoResponse;
+
+  let state = Arc::new(test_state());
+  let admin = admin_headers(&state).await;
+  let resp = live_stream_handler(State(state.clone()), admin, topics("tokens,bogus"))
+    .await
+    .into_response();
+  assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+  let text = String::from_utf8_lossy(&axum::body::to_bytes(resp.into_body(), 4096).await.unwrap())
+    .to_string();
+  assert!(text.contains("bogus"), "{text}");
+
+  // A viewer may watch the token list and not the user list, exactly as the
+  // endpoints themselves answer; the refusal names the topic.
+  let token = seed_session(&state, Role::Viewer, Some("v"), None).await;
+  let resp = live_stream_handler(
+    State(state.clone()),
+    cookie_headers(&token),
+    topics("tokens,users"),
+  )
+  .await
+  .into_response();
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  let text = String::from_utf8_lossy(&axum::body::to_bytes(resp.into_body(), 4096).await.unwrap())
+    .to_string();
+  assert!(text.contains("`users`"), "{text}");
+
+  let resp = live_stream_handler(
+    State(state.clone()),
+    cookie_headers(&token),
+    topics("tokens"),
+  )
+  .await
+  .into_response();
+  assert_eq!(resp.status(), StatusCode::OK);
+
+  // The super-admin's topics ask the same question the handler would.
+  let resp = live_stream_handler(State(state.clone()), cookie_headers(&token), topics("orgs"))
+    .await
+    .into_response();
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_lagged_change_bus_refreshes_every_change_driven_topic() {
+  use axum::response::IntoResponse;
+
+  let state = Arc::new(test_state());
+  let headers = admin_headers(&state).await;
+  let resp = live_stream_handler(State(state.clone()), headers, topics("webhooks"))
+    .await
+    .into_response();
+  let mut body = resp.into_body().into_data_stream();
+  assert!(frame_named(&mut body, "webhooks", 3).await.is_some());
+
+  // Far more changes than the bus holds, none of them about webhooks: the
+  // stream cannot know what it missed and sends the list again rather than
+  // guessing it did not move.
+  for _ in 0..600 {
+    state.changed(super::topics::Topic::Tokens, None);
+  }
+  assert!(
+    frame_named(&mut body, "webhooks", 4).await.is_some(),
+    "a lagged bus is answered with a refresh"
+  );
 }

@@ -45,7 +45,7 @@ import { Label } from '@/components/ui/label'
 import { nameError, slug } from '@/lib/names'
 import { Spinner } from '@/components/ui/spinner'
 import { emitAppEvent } from '@/hooks/useAppEvent'
-import { usePoll } from '@/hooks/usePoll'
+import { useStream } from '@/hooks/useStream'
 import { useI18n } from '@/i18n'
 import { usePaneFocus } from '@/lib/paneFocus'
 import { api, ApiError, type Organization, type OrgUsage } from '@/lib/api'
@@ -608,7 +608,7 @@ function OidcForm({ org }: { org: Organization }) {
 
 export function OrganizationsSection() {
   const { t } = useI18n()
-  const { data: orgs, refresh } = usePoll(api.orgs, 30_000)
+  const { data: orgs, refresh } = useStream('orgs', api.orgs, 30_000)
   // The sidebar's organization picker lists the same set, so it hears about a
   // create, a rename or a delete instead of waiting out its own poll.
   const changed = useCallback(() => {

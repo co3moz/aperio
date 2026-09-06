@@ -1,5 +1,5 @@
 import { ClockIcon, GlobeIcon, InboxIcon, RefreshCwIcon, SendIcon, Trash2Icon } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import {
   RecordEmpty,
@@ -12,6 +12,7 @@ import {
 import { MethodBadge, StatusBadge } from './badges'
 import { Button } from '@/components/ui/button'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
+import { useStream } from '@/hooks/useStream'
 import { useI18n } from '@/i18n'
 import { api, ApiError, type InboxDetail, type InboxSummary } from '@/lib/api'
 
@@ -37,21 +38,12 @@ function decodeBody(b64: string | null, t: (key: string) => string): string {
  */
 export function InboxSection() {
   const { t } = useI18n()
-  const [entries, setEntries] = useState<InboxSummary[] | null>(null)
+  // Pushed as each inbound webhook lands, which is the moment somebody
+  // watching this page wants it.
+  const { data: entries, refresh: reload } = useStream<InboxSummary[]>('inbox', api.inbox, 10_000)
   const [openId, setOpenId] = useState<string | null>(null)
   const [detail, setDetail] = useState<InboxDetail | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-
-  const reload = useCallback(() => {
-    api
-      .inbox()
-      .then((rows) => setEntries(rows))
-      .catch(() => setEntries([]))
-  }, [])
-
-  useEffect(() => {
-    reload()
-  }, [reload])
 
   useEffect(() => {
     if (!openId) {

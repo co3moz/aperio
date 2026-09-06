@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { usePoll } from '@/hooks/usePoll'
+import { useStream } from '@/hooks/useStream'
 import { useI18n } from '@/i18n'
 import { api, ApiError } from '@/lib/api'
 
@@ -22,7 +22,7 @@ import { api, ApiError } from '@/lib/api'
  */
 export function MessagesSection() {
   const { t } = useI18n()
-  const { data: subscribers, refresh } = usePoll(api.subscribers, 5_000)
+  const { data: subscribers, refresh } = useStream('subscribers', api.subscribers, 5_000)
   const [topic, setTopic] = useState('')
   const [payload, setPayload] = useState('')
   const [atLeastOnce, setAtLeastOnce] = useState(false)

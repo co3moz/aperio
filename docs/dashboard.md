@@ -6,7 +6,9 @@ The admin dashboard lives at `/aperio` (login: `aperio` / master token, or a nam
 
 ![Overview: stat tiles and the live request-rate chart](images/dashboard-overview.png)
 
-Connected clients, a request-rate chart, lifetime average response time, and today's traffic, persisted across restarts. The whole live view is pushed over a single Server-Sent Events stream (`/aperio/api/stream`): `stats` events (the connections list and counters, every 2s), `traffic` events (one per request) and `notification` events (see below) rather than polling. It falls back to polling only if the stream can't be established; the session-expiry check is the one thing still polled (once a minute).
+Connected clients, a request-rate chart, lifetime average response time, and today's traffic, persisted across restarts. The whole live view is pushed over a single Server-Sent Events stream (`/aperio/api/stream`): `stats` events (the connections list and counters, every 2s), `traffic` events (one per request) and `notification` events (see below) rather than polling. It falls back to polling only if the stream can't be established.
+
+**Every other page rides the same connection.** A page that shows a list (tokens, users, sessions, webhooks and their deliveries, the inbox, maintenance flags, autoscaling records, organizations, subscribers, topology, stage latencies, uptime, route trends, the slowest endpoints, tunnels, the audit ring, the cache and self-health cards, and the session's own expiry) names it as a *topic* on the stream (`?topics=tokens,uptime`, or the bare `?tokens&uptime`), and the server sends that endpoint's document as an event of the same name: once on connect, and again the moment the store behind it changes, so a colleague's edit appears without a poll coming round. What changes continuously rather than on an edit (topology, latencies, uptime) is sent on its own beat of the two-second tick instead. The dashboard opens one connection for whatever set of topics the mounted pages ask for and reopens it when that set changes; the per-page polls remain only as the fallback while the stream is down, and the five-minute version check is the one request still made on its own. A topic the caller's role may not read is refused at the connection with the topic named, never silently left out.
 
 ## Notifications
 
@@ -159,7 +161,7 @@ The settings sit in one accordion, grouped by what they govern. The full descrip
 
 **What is deliberately not here.** The master token, `HOST`/`PORT`, `data_dir`, proxy trust, secure cookies, OIDC, metrics, the access log and the outbound callback policy never become dashboard overrides: they are security- or startup-critical, and a compromised dashboard session must not be able to move them. Every one is still settable from `aperio-server.yaml` (or its environment spelling) and needs a restart. The pane lists them read-only rather than hiding them, so the screen still answers "what is this server actually running".
 
-The live stream re-checks the session on every tick, so signing out (or being signed out) closes it within a couple of seconds rather than when the tab does.
+The live stream re-checks the session on every tick, so signing out (or being signed out) closes it within a couple of seconds rather than when the tab does. The session's own document travels on the stream too (`session`), re-sent when the users or sessions of its organization change, so a grant taken away is on screen at once.
 
 Server settings are a whole-server concern, so this pane and its export/import are reserved for the master super-admin; a named organization admin manages their own organization, not the server.
 

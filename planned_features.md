@@ -120,45 +120,6 @@ there is nothing to build, whatever *Recurring checks* holds.
   the last 24 hours"; back the bell with the audit log's alert events so the
   count survives a reload.
 
-- [ ] **#167 One stream, not one stream plus twenty polls.** The dashboard
-  pushes stats, traffic and notifications over `/aperio/api/stream` and then
-  polls everything else: tokens, users, sessions, webhooks and their
-  deliveries, the inbox, maintenance flags, scaling records, topology, stage
-  latencies, uptime, organizations, subscribers, tunnels, route trends, slow
-  endpoints, the audit ring, the session's own lifetime, twenty `usePoll` and
-  `setInterval` sites at five to sixty seconds. A viewer sitting on the Users
-  pane with Breakdown open fires roughly ten requests every fifteen seconds
-  against a server that already holds an open connection to them, each one a
-  session validation, an organization fence and a lock, for a table that
-  changed once this week. Fold them into the stream: the URL names the
-  topics it wants (`/aperio/api/stream?topics=orgs,uptime,session`; the
-  bare-key form `?orgs&uptime&session` reads well too, pick one and accept
-  it), the server sends each as a named SSE event, and the dashboard opens
-  one EventSource per mounted set of topics through a `useStream(topic)`
-  hook that replaces `usePoll` (an EventSource cannot change its
-  subscription, so a changed topic set reopens the connection, which is one
-  request rather than twenty a minute). Two kinds of topic: **change-driven**
-  ones (tokens, users, sessions, webhooks, inbox, maintenance, scaling,
-  organizations, subscribers) are pushed when the store behind them is
-  written, which the server already knows since every write is an audit
-  event, so a table updates the moment a colleague edits it instead of up to
-  fifteen seconds later; **tick-driven** ones (uptime, topology, stage
-  latencies, route trends, slow endpoints, tunnels) ride the existing
-  two-second tick at a coarser cadence of their own, since they change
-  continuously and a push per change would be a push per request. `session`
-  is a third shape: one event on connect with the expiry and the grants, and
-  another whenever the session's row changes (a grant taken away, a
-  revocation), which is also what lets the stream close itself when the
-  session ends rather than the client noticing on its next poll. Rules: an
-  unnamed topic set means today's three events, so an older dashboard keeps
-  working; a topic the caller's role may not read is refused at the upgrade
-  with the topic named, not silently omitted; every event carries the same
-  organization fence its polled twin has; and the polling fallback stays,
-  per topic, for a proxy that buffers SSE. `health` at five minutes can stay
-  a poll, it is the one thing worth checking over a *second* connection.
-  Measure before and after with the access log: requests per viewer-minute
-  on an idle dashboard is the number, and it should drop from tens to about
-  one.
 
 ## Withdrawn
 
@@ -573,6 +534,63 @@ so.
   2025-09, with no rc since March. Neither is close.
 
 ## Completed
+
+- [x] **#167 One stream, not one stream plus twenty polls.** The dashboard
+  pushes stats, traffic and notifications over `/aperio/api/stream` and then
+  polls everything else: tokens, users, sessions, webhooks and their
+  deliveries, the inbox, maintenance flags, scaling records, topology, stage
+  latencies, uptime, organizations, subscribers, tunnels, route trends, slow
+  endpoints, the audit ring, the session's own lifetime, twenty `usePoll` and
+  `setInterval` sites at five to sixty seconds. A viewer sitting on the Users
+  pane with Breakdown open fires roughly ten requests every fifteen seconds
+  against a server that already holds an open connection to them, each one a
+  session validation, an organization fence and a lock, for a table that
+  changed once this week. Fold them into the stream: the URL names the
+  topics it wants (`/aperio/api/stream?topics=orgs,uptime,session`; the
+  bare-key form `?orgs&uptime&session` reads well too, pick one and accept
+  it), the server sends each as a named SSE event, and the dashboard opens
+  one EventSource per mounted set of topics through a `useStream(topic)`
+  hook that replaces `usePoll` (an EventSource cannot change its
+  subscription, so a changed topic set reopens the connection, which is one
+  request rather than twenty a minute). Two kinds of topic: **change-driven**
+  ones (tokens, users, sessions, webhooks, inbox, maintenance, scaling,
+  organizations, subscribers) are pushed when the store behind them is
+  written, which the server already knows since every write is an audit
+  event, so a table updates the moment a colleague edits it instead of up to
+  fifteen seconds later; **tick-driven** ones (uptime, topology, stage
+  latencies, route trends, slow endpoints, tunnels) ride the existing
+  two-second tick at a coarser cadence of their own, since they change
+  continuously and a push per change would be a push per request. `session`
+  is a third shape: one event on connect with the expiry and the grants, and
+  another whenever the session's row changes (a grant taken away, a
+  revocation), which is also what lets the stream close itself when the
+  session ends rather than the client noticing on its next poll. Rules: an
+  unnamed topic set means today's three events, so an older dashboard keeps
+  working; a topic the caller's role may not read is refused at the upgrade
+  with the topic named, not silently omitted; every event carries the same
+  organization fence its polled twin has; and the polling fallback stays,
+  per topic, for a proxy that buffers SSE. `health` at five minutes can stay
+  a poll, it is the one thing worth checking over a *second* connection.
+  Measure before and after with the access log: requests per viewer-minute
+  on an idle dashboard is the number, and it should drop from tens to about
+  one. shipped: the
+  `?topics=` form, with the bare-key spelling accepted too; a `Topic` per
+  polled endpoint in `api/clients/topics.rs`, whose document is the
+  handler's own answer, so there is one query per list and not two; a
+  change bus fed from the audit path (every store write is an audit event,
+  so the event name is the map) plus the one unaudited write a page watches,
+  an inbox row landing; a quarter-second coalescing window so an import
+  sends each topic once; a lagged bus answered by refreshing every
+  change-driven topic rather than guessing; and a `useStream` hook in the
+  dashboard with the shape of `usePoll`, over a hub that keeps one
+  `EventSource` for the union of mounted topics. Where it differed: the
+  delivery log and subscribers are tick-driven rather than change-driven,
+  since the delivery worker and the tunnel's subscribe frames are off the
+  audit path and a tick is honest where a hook would be one more place to
+  forget; `admin_keys`, `cache_stats` and `self_health` joined the list,
+  they were polls too; and the requests-per-viewer-minute number is
+  unmeasured (rule 21), the count of poll sites went from twenty to one,
+  the five-minute version check.
 
 - [x] **#159 `aperio-client api token create` / `update` cannot set `topics`,
   `allow_bind` or `allow_server_side`.** Found while auditing `docs/messaging.md`,

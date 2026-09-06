@@ -1195,4 +1195,5 @@ export const tr: Record<string, string> = {
   'Streams per visitor': 'Ziyaretçi başına akış',
   'the server admits {max} requests at once across every service; one arriving with no slot free is refused rather than queued': 'sunucu her servis genelinde aynı anda {max} isteği kabul eder; boş yuva yokken gelen bir istek kuyruğa alınmaz, reddedilir',
   'caching applies to GET; a {method} always reaches a client': 'önbellekleme GET için geçerlidir; bir {method} her zaman bir istemciye ulaşır',
+  'Could not load the tunnels; retrying.': 'Tüneller yüklenemedi; yeniden deneniyor.',
 }
