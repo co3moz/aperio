@@ -7,7 +7,14 @@ import { BaseServerFor, BaseBackendFor } from '../base/fixtures.js'
 
 /** This file's own trio: the spec rewrites the client's config to drive a
  *  hot reload, which no other file should see. */
-class ReloadServer extends BaseServerFor() {}
+/** The stream below runs at forty requests a second for several seconds,
+ *  past what the per-IP bucket refills; the reload is what is under test,
+ *  not the limiter. */
+class ReloadServer extends BaseServerFor() {
+  _env() {
+    return { ...super._env(), APERIO_IP_LIMIT_MAX: '100000', APERIO_IP_LIMIT_REFILL: '10000' }
+  }
+}
 class ReloadBackend extends BaseBackendFor() {}
 
 const HOST = 'reload.e2e.local'

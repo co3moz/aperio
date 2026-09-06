@@ -6,6 +6,10 @@ import { ClientFor } from '../../lib/client.js'
 import { waitFor } from '../../lib/env.js'
 import { AuthCheckEndpoint } from './auth.test.js'
 
+/** This file's own endpoint: the last phase takes it down, and a dependency
+ *  is one instance for every class that names it. */
+class ViaClientEndpoint extends AuthCheckEndpoint {}
+
 /**
  * `forward` asked over the tunnel (planned_features #157): the endpoint that
  * decides is reachable from the client's network only, and a client declares
@@ -26,7 +30,7 @@ export class ViaClientBackend extends StandardBackendBase() {}
 /** A client whose gate is its own endpoint, asked over the tunnel. The URL is
  *  the endpoint's loopback address, which only means anything on this side. */
 export class ViaClientClient extends ClientFor(() => ViaClientServer, () => ViaClientBackend) {
-  declare endpoint: AuthCheckEndpoint
+  declare endpoint: ViaClientEndpoint
   _autoStart() {
     return false
   }
@@ -57,7 +61,7 @@ export class ViaClientClient extends ClientFor(() => ViaClientServer, () => ViaC
 export class ForwardViaClientSpec extends Test({
   timeout: 90_000,
   dependencies: {
-    endpoint: () => AuthCheckEndpoint,
+    endpoint: () => ViaClientEndpoint,
     server: () => ViaClientServer,
     backend: () => ViaClientBackend,
     client: () => ViaClientClient,
