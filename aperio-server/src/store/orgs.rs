@@ -518,6 +518,22 @@ impl OrgStore {
       .find(|o| o.panel_hostname.as_deref() == Some(host))
   }
 
+  /// Whose login page a *traffic* hostname is under the login fence
+  /// (`planned_features.md` #151): the one organization whose allowlist
+  /// covers it. An organization with no allowlist has no fence, so it claims
+  /// nothing here, and a hostname two fences cover is nobody's page rather
+  /// than the first one's.
+  pub fn fenced_login_org(&self, host: &str) -> Option<&Organization> {
+    let mut covering = self
+      .orgs
+      .iter()
+      .filter(|o| !o.hostnames.is_empty() && hostname_in_org_allowlist(host, &o.hostnames));
+    match (covering.next(), covering.next()) {
+      (Some(o), None) => Some(o),
+      _ => None,
+    }
+  }
+
   /// Every organization's panel hostname.
   pub fn panel_hostnames(&self) -> Vec<String> {
     self

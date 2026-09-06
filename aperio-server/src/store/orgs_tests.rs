@@ -629,3 +629,31 @@ fn the_panel_is_set_cleared_and_found() {
   assert!(again.panel_hostnames().is_empty());
   let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Under the login fence, a traffic hostname is the login page of the one
+/// organization fencing it; an unfenced organization claims nothing, and two
+/// fences make it nobody's.
+#[test]
+fn a_fenced_login_page_belongs_to_the_one_organization_fencing_the_hostname() {
+  let dir = temp_dir();
+  let mut store = OrgStore::load(&dir);
+  let acme = store
+    .create("acme", vec!["*.acme.test".to_string()], None)
+    .unwrap();
+  store.create("open", Vec::new(), None).unwrap();
+  assert_eq!(
+    store
+      .fenced_login_org("www.acme.test")
+      .map(|o| o.id.as_str()),
+    Some(acme.id.as_str()),
+    "the unfenced organization does not get in the way"
+  );
+  assert!(store.fenced_login_org("www.beta.test").is_none());
+  store
+    .create("also", vec!["www.acme.test".to_string()], None)
+    .unwrap();
+  assert!(
+    store.fenced_login_org("www.acme.test").is_none(),
+    "two fences over one name make it nobody's page"
+  );
+}
