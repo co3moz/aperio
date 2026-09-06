@@ -1,10 +1,11 @@
 # Kubernetes
 
-A Helm chart for the server, and a sidecar for the client. Both are in
-[`charts/`](../tools/charts/).
+A Helm chart for the server, and a sidecar for the client. The chart is in
+[`tools/charts/aperio-server`](../tools/charts/aperio-server/); the sidecar is
+a few lines of pod spec, shown below.
 
 ```bash
-helm install aperio ./charts/aperio-server \
+helm install aperio ./tools/charts/aperio-server \
   --set existingSecret=aperio-token \
   --set ingress.enabled=true \
   --set ingress.hosts[0].host=tunnel.example.com
@@ -44,7 +45,7 @@ Service, the Ingress, the probes.
 You can check a values file against the real thing before installing it:
 
 ```bash
-helm template aperio ./charts/aperio-server -f my-values.yaml \
+helm template aperio ./tools/charts/aperio-server -f my-values.yaml \
   | yq 'select(.kind == "ConfigMap") | .data["aperio-server.yaml"]' > /tmp/aperio-server.yaml
 APERIO_SERVER_TOKEN=x APERIO_SERVER_CONFIG=/tmp/aperio-server.yaml aperio-server --check-config
 ```
@@ -57,7 +58,7 @@ Secret you already manage:
 
 ```bash
 kubectl create secret generic aperio-token --from-literal=token="$(openssl rand -hex 32)"
-helm install aperio ./charts/aperio-server --set existingSecret=aperio-token
+helm install aperio ./tools/charts/aperio-server --set existingSecret=aperio-token
 ```
 
 It arrives as `APERIO_SERVER_TOKEN`, which wins over the file. Everything else
@@ -108,7 +109,7 @@ NetworkPolicy and no cluster DNS entry has to exist for the two to talk.
             - containerPort: 3000
 
         - name: aperio-client
-          image: ghcr.io/co3moz/aperio-client:0.9.0
+          image: ghcr.io/co3moz/aperio-client:0.11.0
           env:
             - name: APERIO_SERVER_URL
               value: https://tunnel.example.com

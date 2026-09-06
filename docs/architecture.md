@@ -19,8 +19,10 @@ connections.
 
 The wire protocol is a tagged JSON message enum (`TunnelMessage`) with a small
 set of binary frames layered on top for bulk body data. `PROTOCOL_VERSION`
-(currently 8) is bumped on breaking changes so version skew surfaces in logs
-and on the dashboard rather than failing obscurely.
+(currently 9) is bumped when a frame changes shape, so version skew surfaces
+in logs and on the dashboard rather than failing obscurely; a message type an
+older peer can ignore is added without a bump. [Tunnel
+Protocol](tunnel-protocol.md#protocol-versions) lists every version.
 
 Key messages:
 
@@ -31,8 +33,10 @@ Key messages:
   webhook inbox, per-service response timeout, device key, …). The server
   applies changes idempotently on each heartbeat, so a client re-announces
   its state on every reconnect.
-- **`Request` / response**, a buffered request/response pair. Small bodies
-  ride inside the JSON (base64).
+- **`Request` / `Response`**, a buffered request/response pair. Since
+  protocol v5 and v6 a buffered body travels as bytes in the same binary
+  frame as its JSON envelope; against an older peer it falls back to base64
+  inside the JSON.
 - **Streamed bodies (protocol v2)**, `RequestStart`/`Chunk`/`End` and raw
   binary chunk frames (`[tag][id_len][id][payload]`) carry large bodies without
   the base64+JSON overhead. The tag byte never collides with a zlib-compressed
@@ -46,6 +50,10 @@ Key messages:
   [Tunnel Protocol](tunnel-protocol.md).
 - **Compression**, when both sides agree, JSON frames are zlib-compressed;
   inflation is output-bounded to prevent a decompression bomb.
+- **`AuthAsk` / `AuthVerdict`**, a `forward` visitor gate with `via: client`
+  asked of the client that would serve the request, so the deciding endpoint
+  can live on the client's network. The server composes the question and
+  enforces the answer's header allowlist; the client only makes the call.
 
 The frame decoder and the JSON/zlib paths are the primary corruption surface
 and are exercised by the [`tools/fuzz/`](../tools/fuzz) targets.
@@ -149,9 +157,12 @@ The practical consequences:
   windows, maintenance flags, and the token-seen-IP / outlier-ejection tracking.
   These are deliberately not persisted; a restart starts them clean.
 
-Configuration is layered (environment defaults < dashboard overrides <
-`aperio-server.yaml` file) into an immutable `ServerConfig` snapshot behind an
-`RwLock`; a hot-reload swaps the snapshot atomically and audits the key diff.
-The file is last on purpose: it is what an operator writes, versions and
-reviews, so a stored override it contradicts is dropped at startup rather than
-silently outranking it.
+Configuration is layered into an immutable `ServerConfig` snapshot behind an
+`RwLock`: environment defaults, then the live-editable keys of
+`aperio-server.yaml`, then the dashboard's persisted overrides for the keys the
+file leaves alone. The file wins for every key it writes: a stored override
+that contradicts it is dropped at startup (audited as
+`settings_override_dropped`), and the dashboard refuses to set such a key
+while the file names it, because the file is what an operator writes, versions
+and reviews. A hot-reload of the file swaps the snapshot atomically and audits
+the key diff.

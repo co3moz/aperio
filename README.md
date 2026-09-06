@@ -54,7 +54,7 @@ brew install --formula https://github.com/co3moz/aperio/releases/latest/download
 On an ordinary Linux box, a package with a hardened service unit:
 
 ```bash
-sudo dpkg -i aperio-client_0.9.0_amd64.deb    # or rpm -i, both attached to every release
+sudo dpkg -i aperio-client_0.11.0_amd64.deb   # or rpm -i, both attached to every release
 sudo cp /etc/aperio/aperio-client.yaml.example /etc/aperio/myapp.yaml
 sudo systemctl enable --now aperio-client@myapp
 ```

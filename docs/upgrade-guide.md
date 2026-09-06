@@ -121,8 +121,9 @@ against new server, because that is the one a deployment actually produces,
 the server being upgraded first and then running ahead of its fleet for a
 while.
 
-At the time of writing, every released client from **v0.1.0 onward** passes
-that slice against the v0.9.0 server.
+The report has so far found every released client from **v0.1.0 onward**
+passing that slice against the newest server; the run after each release is
+what keeps that sentence honest.
 
 The supported window is therefore **one release of skew, gated**, and
 everything older, measured after each release and reported rather than
@@ -133,6 +134,34 @@ takes the binaries as inputs:
 APERIO_CLIENT_BIN=/path/to/old/aperio-client npm --prefix tests/e2e run test:compat
 APERIO_SERVER_BIN=/path/to/old/aperio-server npm --prefix tests/e2e run test:compat
 ```
+
+## Upgrading to 0.12.0: what an OIDC login is, and a wider default
+
+Two recorded configuration changes, both reported by the `version:` check
+above. Neither needs a coordinated cutover.
+
+**A global OIDC login is no longer the super-admin.** Every address on the
+allowed-emails list used to sign in as the built-in `aperio` account. Now an
+OIDC login is matched to a dashboard user record by email and holds that
+record's grants; an email with no record is granted `oidc.default_grants`,
+which is empty by default, and is refused a session until something reaches
+it, with a message to ask an administrator. Before upgrading a server that
+uses OIDC, decide what a signed-in email should be: create a record per person
+ahead of their login (`aperio-client api user create --username
+alice@example.com --grant <org>:<role>`), map the provider's groups with
+`oidc.group_grants`, or set `oidc.default_grants: [master:admin]`, which
+restores exactly what every allowed email got before. Per-organization OIDC is
+unchanged by default. See [Organizations](organizations.md#oidc-identity-is-the-providers-authorization-is-aperios).
+
+**A named Admin of master used to be the super-admin under another name.**
+Such a user, and an admin key scoped to master, is read as `*: admin` at the
+first start so nothing that worked stops working, and each one is written to
+the audit log as `grants_widened_on_upgrade`. The Users page shows a notice
+while any user still carries `*`; narrow them by hand.
+
+**`max_tunnels` defaults to 64, up from 10.** A client holds one connection
+per service and a reload briefly wants two, so ten refused ordinary fleets as
+full. Write `max_tunnels: 10` if ten was meant as a fence.
 
 ## Upgrading to 0.10.0: routes are closed by default
 

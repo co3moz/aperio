@@ -179,6 +179,23 @@ Results come back newest first. `GET /aperio/api/export/audit.csv` takes exactly
 
 The organization fence is applied around the search, never inside it: filters can only narrow what a caller may already see, and a filtered request from a child-org user cannot reach another organization's events.
 
+### Every event, by what it is about
+
+The audit API filters on `event` **exactly**, so the names matter. This is the whole catalogue, grouped the way the dashboard's filter groups them; a test in `aperio-server` checks that every event the server records appears both here and in that filter, so a new event cannot slip out of either.
+
+| Group | Events |
+| --- | --- |
+| Sign-in | `login_success`, `login_failed`, `login_lockout` (the escalating lockout engaged), `oidc_login_success`, `oidc_login_denied` (an email outside the allowlist, or one whose record reaches nothing), `passkey_registered`, `passkey_deleted`, `totp_enabled`, `totp_disabled`, `totp_admin_reset`, `session_revoked`, `sessions_cleared` (sign out everywhere else) |
+| Tokens and keys | `token_created`, `token_updated`, `token_revoked`, `token_rotated`, `token_refreshed` (a TTL slid forward by the token itself), `token_expiring`, `token_new_ip` (a token connected from an address it never used), `token_pin_mismatch` (a pinned token presented from another device), `canary_tripped`, `admin_key_created`, `admin_key_revoked`, `share_created` |
+| Clients and tunnels | `client_connected`, `client_disconnected`, `client_draining`, `client_enabled`, `client_disabled` (the kill switch), `client_overrule` (a bind overridden from the dashboard), `tunnel_created`, `tunnel_deleted` (ephemeral tunnels), `tunnel_denied` (a bind refused by the token or the fence), `tcp_stream_opened`, `udp_stream_opened`, `expose_stream_opened` (a public `expose:` port accepted a connection) |
+| Users and organizations | `user_created`, `user_updated`, `user_deleted`, `user_grant_added`, `user_grant_removed` (each carrying who made the change, or the identity-provider group that caused it), `grants_widened_on_upgrade` (a pre-grants master Admin read as `*`, written once at the first start), `org_created`, `org_renamed`, `org_deleted`, `org_hostnames_set`, `org_panel_set`, `org_quota_updated`, `org_oidc_updated` |
+| Configuration | `config_reloaded` (`aperio-server.yaml` re-applied, with the key diff), `settings_updated`, `settings_override_dropped` (a stored dashboard override the file also sets, dropped at startup), `maintenance_on`, `maintenance_off`, `cache_purged` |
+| Data | `export_created`, `import_applied`, `db_backup`, `data_purged` (the right-to-erasure purge, with per-surface counts), `retention_pruned` (each hourly pruning cycle, with per-surface counts), `disk_pruned` (the store cap enforced), `request_replayed` |
+| Alerts and scaling | `alert_triggered`, `alert_resolved`, `disk_usage_warning`, `scaling_requested`, `scaling_failed`, `scaling_disarmed` (the breaker, or an operator) |
+| Webhooks and messages | `webhook_created`, `webhook_deleted`, `webhook_tested`, `webhook_refired` (an inbox entry re-dispatched), `webhook_redelivered`, `message_published` (a message published from the dashboard or the API) |
+
+Every event carries the acting user (`aperio` for the built-in admin, `system` for server-initiated events, `-` where no trusted identity exists, such as a failed login), the actor's IP, the organization it belongs to, and a details line. The webhook events below are a subset of these, the ones worth pushing somewhere; everything in this table is on disk.
+
 ## Webhooks
 
 Define webhooks from the dashboard (name, URL, subscribed events, `*` for all). Where an [outbound policy](threat-model.md) is configured, a URL it does not permit is rejected at creation with the reason rather than failing quietly later. A webhook belongs to the organization that created it and fires only for that organization's events (see [Organizations](organizations.md)). Events are delivered as JSON POSTs with a 10 s timeout:
@@ -193,6 +210,9 @@ Available events, grouped by what they are about:
 - **Tokens**: `token_created`, `token_revoked`, `token_rotated`, `token_expiring`, `token_new_ip`, `token_pin_mismatch`, `canary_tripped`.
 - **Tunnels and shares**: `tunnel_created`, `tunnel_deleted`, `share_created`.
 - **Operations**: `maintenance_on`, `maintenance_off`, `settings_updated`, `import_applied`, `user_created`, `user_grant_added`, `user_grant_removed`.
+- **Testing**: `webhook_test`, the synthetic event the *Test* button sends (below).
+
+The same events are published to subscribed clients on the `$aperio/` topics, see [Messages Between Clients](messaging.md#server-events).
 - **Capacity and alerting**: `alert_triggered`, `alert_resolved`, `scaling_requested`, `org_usage`, `disk_usage_warning`.
 - **Housekeeping**: `db_backup`, `disk_pruned`.
 

@@ -4,7 +4,7 @@ Organizations turn one Aperio server into several isolated tenants. Each organiz
 
 ## The master organization
 
-There is always exactly one implicit **master** organization. Everything created without an organization belongs to it: the built-in `aperio` admin (who signs in with the master token or the dashboard password), the master token's own tunnel clients, and any tokens or users minted while master is selected. Master is not a stored record, internally it is simply "no organization" (`org_id: null`); the API refers to it by the reserved id `master`.
+There is always exactly one implicit **master** organization. Everything created without an organization belongs to it: the built-in `aperio` admin (who signs in with the master token), the master token's own tunnel clients, and any tokens or users minted while master is selected. Master is not a stored record, internally it is simply "no organization" (`org_id: null`); the API refers to it by the reserved id `master`.
 
 ## Child organizations
 
@@ -19,14 +19,14 @@ curl -b cookies.txt https://tunnel.example.com/aperio/api/orgs
 
 # Create a child organization (optionally fenced to its own hostnames)
 curl -b cookies.txt -X POST -H 'Content-Type: application/json' \
-  --data '{"name":"Acme","hostnames":["acme.com","*.acme.example.com"]}' \
+  --data '{"name":"acme","custom_name":"Acme Inc.","hostnames":["acme.com","*.acme.example.com"]}' \
   https://tunnel.example.com/aperio/api/orgs
 
 # Delete an (empty) child organization, refused while it still has users or tokens
 curl -b cookies.txt -X DELETE https://tunnel.example.com/aperio/api/orgs/<id>
 ```
 
-Organization names are unique (case-insensitive); `master` is reserved. A child organization can only be deleted once all of its users and tokens are removed, so nothing is silently orphaned. All of these endpoints require the master super-admin (below).
+An organization's `name` is a handle, `a-z`, `0-9` and `_`, unique and with `master` reserved; anything a person should read goes in `custom_name`, which can be changed at any time (see [Names](configuration.md#names)). A child organization can only be deleted once all of its users and tokens are removed, so nothing is silently orphaned. All of these endpoints require Admin in the master organization (below).
 
 ## The super-admin and switching organizations
 
@@ -118,7 +118,7 @@ curl -b cookies.txt -X PUT -H 'Content-Type: application/json' \
   https://tunnel.example.com/aperio/api/orgs/<id>/hostnames
 
 # From the command line
-aperio-client api org create --name Acme --hostname acme.com,*.acme.example.com
+aperio-client api org create --name acme --hostname acme.com,*.acme.example.com
 aperio-client api org hostnames <id> --hostname "*.acme.example.com"
 ```
 

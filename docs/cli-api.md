@@ -83,7 +83,7 @@ aperio-client api token revoke <id>
 aperio-client api token refresh [--secret apr_...]
 ```
 
-`create` and `rotate` print the secret once. `refresh` authenticates with the token secret itself (defaulting to `--server-token`), so a long-running job can slide its own expiry forward without holding an admin key. See [Tokens & Authentication](tokens-and-auth.md).
+`create` and `rotate` print the secret once. `refresh` authenticates with the token secret itself (defaulting to `--server-token`), so a long-running job can slide its own expiry forward without holding an admin key. A token's `topics` (the messaging grant) and `allow_bind` / `allow_server_side` have no flag here yet; set them from the dashboard's token editor or with a direct `POST` / `PUT /aperio/api/tokens`. See [Tokens & Authentication](tokens-and-auth.md).
 
 ### Ephemeral tunnels
 
@@ -199,7 +199,7 @@ Shows the records clients have armed with their live pool capacity and utilizati
 
 ```bash
 aperio-client api stats            # live snapshot: clients, requests, latency
-aperio-client api history --unit week --count 8
+aperio-client api history --unit week --count 8         # or --from 2026-01-01 --to 2026-03-31
 aperio-client api uptime
 aperio-client api logs             # recent proxied requests
 aperio-client api topology

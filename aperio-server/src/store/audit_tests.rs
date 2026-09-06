@@ -609,3 +609,31 @@ fn every_audit_event_is_offered_by_the_dashboard_filter() {
       .join("\n  ")
   );
 }
+
+/// `docs/observability.md` carries the whole catalogue of audit events, and a
+/// catalogue kept by hand is right on the day it is written. This checks it
+/// from the side whose change breaks it (CLAUDE.md rule 25): every event the
+/// server records has to be named in the docs table too.
+#[test]
+fn every_audit_event_is_in_the_observability_docs() {
+  let doc = std::fs::read_to_string("../docs/observability.md").expect("docs/observability.md");
+  let listed = std::fs::read_to_string("../aperio-dashboard/src/lib/auditEvents.ts")
+    .expect("the dashboard's event list");
+  // The dashboard list is already proven complete by the test above, so it
+  // is the enumeration here; scanning the sources twice would be two copies
+  // of the same walk.
+  let missing: Vec<&str> = listed
+    .split('\'')
+    .filter(|piece| {
+      !piece.is_empty()
+        && piece.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+        && piece.contains('_')
+        && !doc.contains(&format!("`{piece}`"))
+    })
+    .collect();
+  assert!(
+    missing.is_empty(),
+    "audit events not named in docs/observability.md (add them to the catalogue table there):\n  {}",
+    missing.join("\n  ")
+  );
+}

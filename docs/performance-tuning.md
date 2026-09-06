@@ -68,7 +68,7 @@ per request when they are:
 
 ## Which limit produced a 429
 
-Six different ceilings answer `429`, and raising the wrong one is a slow way
+Eight different ceilings answer `429`, and raising the wrong one is a slow way
 to spend an afternoon. Every refusal names itself in a header:
 
 ```
@@ -87,6 +87,7 @@ One `curl -i` while a load test runs is enough to tell them apart:
 | `token-rate` | The access token's requests-per-second ceiling | `max_rps` on the token |
 | `token-quota` | The access token's daily byte quota | `daily_max_bytes` on the token |
 | `org-quota` | The organization's monthly byte quota | the organization's quota |
+| `streams-per-ip` | Streamed responses one visitor address holds open at once | `max_streams_per_ip` (env `APERIO_MAX_STREAMS_PER_IP`) |
 
 `Retry-After` is present on the limits that refill and absent on the quotas,
 which have no honest number to give in seconds.

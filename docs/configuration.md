@@ -587,7 +587,7 @@ A token in the `Authorization` header is Aperio's credential and is stripped bef
 
 #### What a client may declare, and how that is agreed
 
-A client may write `none`, `basic`, `bearer` and `jwt`. `forward` is server-only: its URL would be called by the *server*, from the server's network, so a client writing `localhost:7070` would mean the server's localhost and not its own.
+A client may write `none`, `basic`, `bearer`, `jwt`, `aperio`, and `forward` with `via: client`. A bare `forward` is refused on a client: its URL would otherwise be called by the *server*, from the server's network, so `localhost:7070` written in a client's file would mean the server's localhost and not its own. `via: client` is what makes the same word mean the client's network, and the server never dials a URL a client chose.
 
 Which of those actually travel is **negotiated on the handshake rather than assumed**. The server announces the methods it accepts from a client on the upgrade response, and a client whose `auth:` needs one that is missing **does not serve that service**: it says which side is too old and retries, instead of connecting under a gate the server was never told about. A server too old to send the announcement sends nothing, which reads as "only what the scalar `visitor_auth` can carry", since that is the only field such a server reads: `method: none`, or a `basic` naming a *single* `user:password`. A gate whose method is one of those two but whose shape is not, `basic` with two users, say, is refused there as well, and the message says the server is too old rather than naming the method: the method is not the problem, the shape is, and there is one credential's worth of room in the field it would have to travel in.
 
@@ -605,8 +605,8 @@ The gate has always been a wall: it decided whether a request continued and told
 
 | Header | Value |
 | --- | --- |
-| `x-aperio-visitor-how` | `session`, `bearer` or `share`, how they were admitted. |
-| `x-aperio-visitor-id` | The email or username behind a session. Absent for `bearer`, which identifies a caller rather than a person. |
+| `x-aperio-visitor-how` | How they were admitted: `session`, `bearer`, `jwt`, `forward` or `share`. |
+| `x-aperio-visitor-id` | The email or username behind a session, or the `x-auth-user` a `forward` endpoint answered with. Absent for `bearer` and `jwt`, which identify a caller rather than a person, and for a share link. |
 
 The secret itself does not travel: an `Authorization` header that opened Aperio's gate is stripped before the request is forwarded, on the same rule that already strips the `aperio_session` and `aperio_share` cookies while leaving every other cookie alone. A credential addressed to the gate is not addressed to what is behind it. An `Authorization` header that did *not* open the gate is the visitor's own and passes through untouched.
 
@@ -681,7 +681,7 @@ lb_strategy: primary-standby
 cache: true
 ```
 
-The file is read once at startup and takes precedence over environment variables and over dashboard overrides for the keys it writes. It is not hot-reloaded, use the dashboard's live settings for runtime changes.
+The file takes precedence over environment variables and over dashboard overrides for every key it writes: a stored override for such a key is dropped at startup (audited as `settings_override_dropped`) and the dashboard refuses to set it while the file names it. Its live-editable keys and structured sections are re-applied on edit, see [Hot-reload](#hot-reload); the rest needs a restart.
 
 #### Per-route rate limits (`rate_limits:`)
 
@@ -778,7 +778,7 @@ Dashboard overrides (./data/settings.json), these win over env/yaml at runtime:
 
 #### Hot-reload
 
-`aperio-server.yaml` is watched for changes: edits are applied live, without a restart. The re-applied surface is the **live-editable settings** (the same set the dashboard can change, cache, failover, rate limits, lockout, body/concurrency limits, audit rotation, `require_hostname_bind`, `tunnel_compression`, `ui_language`, `preview_noindex`, `server_auth`) plus the structured `headers:`, `routes:` and `error_pages:` sections. **Structural keys are not hot-reloaded** and need a restart: `host`/`port`/`data_dir`, proxy-trust flags, OIDC, the random-subdomain pattern, the `504_page`/`503_page` file paths, and `expose:` ports. Dashboard overrides still win over the file. Set `APERIO_CONFIG_HOT_RELOAD=0` to disable the watcher. Reloads are audit-logged (`config_reloaded`).
+`aperio-server.yaml` is watched for changes: edits are applied live, without a restart. The re-applied surface is the **live-editable settings** (the same set the dashboard can change, cache, failover, rate limits, lockout, body/concurrency limits, audit rotation, `require_hostname_bind`, `tunnel_compression`, `ui_language`, `preview_noindex`, `server_auth`) plus the structured `headers:`, `routes:` and `error_pages:` sections. **Structural keys are not hot-reloaded** and need a restart: `host`/`port`/`data_dir`, proxy-trust flags, OIDC, the random-subdomain pattern, the `504_page`/`503_page` file paths, and `expose:` ports. A key the file writes cannot be overridden from the dashboard, so a reload never fights an override: the dashboard keeps the keys the file leaves alone. Set `APERIO_CONFIG_HOT_RELOAD=0` to disable the watcher. Reloads are audit-logged (`config_reloaded`).
 
 #### Server-side header rules (`headers:`)
 
@@ -1090,38 +1090,196 @@ Discovery is fetched from `<issuer>/.well-known/openid-configuration` at startup
 
 ## HTTP endpoints
 
-| Endpoint | Description | Auth |
+Every endpoint the server answers, grouped by what it is for. The same list, with request and response schemas, is the OpenAPI document at `GET /aperio/api/openapi.json` (a dashboard session or admin key), which the dashboard's *API Explorer* renders and `aperio-client api openapi` prints; `aperio-client api ...` wraps most of these as commands, see [Admin API from the CLI](cli-api.md). A test in `aperio-server` checks that every annotated endpoint appears here, so a row missing from this table fails the build rather than the reader.
+
+Three things hold for the whole `/aperio/api/` surface. The credential is a dashboard session cookie or a programmatic admin key (`Authorization: Bearer`), and the role floor is the one the dashboard enforces: reads need `viewer`, mutations `operator`, and users, sessions, settings, organizations and admin keys `admin`, with a few endpoints reserved for **Admin in master**, the server-global ones. A caller's organization fence applies before anything else, so a child organization's session only ever sees its own rows. And `APERIO_ADMIN_ALLOWED_IPS` fences the dashboard and the API to operator addresses, while the login, the probes, the OIDC flow and the visitor-auth endpoints stay reachable from anywhere.
+
+| Endpoint | What it does | Credential |
 | --- | --- | --- |
-| `/*` (fallback) | Proxied to tunnel clients. | visitor password / OIDC if configured |
-| `GET /aperio/ws` | Tunnel endpoint for clients. | master or dynamic token (Bearer / `x-auth-token`) |
-| `GET /aperio/tunnels` | Lists the tunnels the presented token may bind (see [Tunnels](emergency-tunnels.md)). | a tunnel token |
-| `GET /aperio/tunnels/:client_id` | Per-client tunnel discovery for `--bind-tunnels`. | master, the client's own token, or one in its organization with `allow_bind` |
-| `GET /aperio` | Admin dashboard. | dashboard session |
-| `GET /aperio/api/stats`, `/api/logs`, `/api/audit` | Live stats, request log, audit events. | dashboard session |
-| `GET/POST /aperio/api/tokens`, `PUT/DELETE /aperio/api/tokens/:id` | Dynamic token management. | dashboard session |
-| `GET/POST /aperio/api/webhooks`, `DELETE /aperio/api/webhooks/:id` | Webhook management. | dashboard session |
-| `GET /aperio/api/requests/:id`, `POST /aperio/api/requests/:id/replay` | Request inspector & replay. | dashboard session |
-| `POST /aperio/api/clients/:id/override`, `POST /aperio/api/clients/:id/enabled` | Temporary bind overrule / enable-disable toggle. | dashboard session |
-| `GET /aperio/api/activity` | Request volume per bucket (total and failed) over the requested span, for the activity chart's long views. `range=15m` (default, 5-second slices), `2h` (2-minute) or `1d` (15-minute). | dashboard session |
-| `GET /aperio/api/explain` | Dry run: which rule would answer a request to a hostname and path, and what every other stage saw. Spends no rate limit and wakes nothing. | dashboard session (operator+) |
-| `GET/POST /aperio/api/maintenance` | List / toggle maintenance mode for a hostname, a `*.example.com` subdomain wildcard, or `*` (master only). `reason` and `ttl_seconds` are optional: the reason reaches the 503 page, the window lifts the flag by itself. | dashboard session |
-| `POST /aperio/api/share` | Generate a signed share link (see [Share Links](share-links.md)). | dashboard session |
-| `GET/PUT /aperio/api/settings` | Read / edit runtime server settings (persisted overrides on top of env defaults). | master super-admin |
-| `GET /aperio/api/tunnels` | Lists the tunnels declared by the connected clients of the caller's organization (name, target, client, token, protocol, availability), the dashboard's Tunnels view. | master token (Bearer) or dashboard session |
-| `POST /aperio/api/tunnels`, `DELETE /aperio/api/tunnels/:id` | Programmatic ephemeral tunnel provisioning. See [Ephemeral Tunnels](ephemeral-tunnels.md). | master token (Bearer) or dashboard session |
-| `GET/POST /aperio/auth` | Login page / login API. |  |
-| `GET /aperio/oidc/login`, `/aperio/oidc/callback` | OIDC flow. |  |
-| `GET /aperio/metrics` | Prometheus metrics. | metrics token |
-| `GET /aperio/health` | Liveness probe. Without a credential the body is `status` and the default `ui_language` (the login page reads it before any session exists). With the master token, a tunnel token, a dashboard session or an admin key it also carries the server version, the tunnel protocol version, the connected client count, uptime and the request total, which is what `aperio check` and `aperio api health` send. | none for liveness; a credential for the numbers |
-| `GET /aperio/healthz` | Liveness probe for a container runtime: `200` with an empty body, no locks taken. Use this for a Docker `HEALTHCHECK` or a Kubernetes `livenessProbe`; `/aperio/health` builds a JSON document and takes two locks, and a probe that waits on a lock reports a busy process as a dead one. | none |
-| `GET /aperio/readyz` | Readiness probe: `200` while the server should receive traffic, `503` from the moment a shutdown signal arrives. Pair it with `APERIO_SHUTDOWN_DRAIN`: readiness turns off so the load balancer stops sending new requests, and the drain gives the ones already in flight time to finish. Never wire this to a `livenessProbe`, restarting on it would kill the drain it exists to protect. | none |
-| `GET /aperio/api/openapi.json` | OpenAPI 3.1 document describing this whole API (generated from the handlers; point Swagger UI or a client generator at it). | dashboard session |
-| `GET /aperio/api/export` | Logical JSON dump, a failsafe for upgrades and migrations. `?include=` names the sections: `tokens`, `webhooks`, `users`, `organizations`, `scaling`, `settings_overrides` (the default set), plus `statistics`, `uptime`, `activity` (the two-hour and one-day request-volume rings behind the dashboard chart), `inbox`, `admin_keys`. Without `organizations`, only the master organization's rows travel. Sessions and the audit log are never included. | master super-admin |
-| `POST /aperio/api/import` | Applies a dump; each present section **replaces** the corresponding store. | master super-admin |
-| `GET/POST /aperio/api/users`, `PUT/DELETE /aperio/api/users/:id` | Dashboard user management (create/edit/delete, roles). | dashboard session (**admin**) |
-| `GET /aperio/api/scaling`, `DELETE /aperio/api/scaling/:id` | Autoscaling records armed by clients, with live pool utilization, see [Autoscaling](autoscaling.md). | dashboard session |
-| `GET /aperio/api/edge/ask?domain=`, `GET /aperio/api/edge/traefik` | Live hostname inventory for a reverse proxy in front of Aperio (Caddy on-demand TLS, Traefik HTTP provider), see [Behind a Dynamic Edge Proxy](edge-proxy.md). | `APERIO_EDGE_TOKEN` |
-| `GET/POST /aperio/api/orgs`, `DELETE /aperio/api/orgs/:id`, `PUT /aperio/api/orgs/:id/hostnames`, `POST /aperio/api/orgs/select` | Organization management, hostname allowlist, and switching, see [Organizations](organizations.md). | master super-admin |
+| `/*` (fallback) | Proxied to tunnel clients, through the visitor gate. | the route's `auth:` policy, a share link, or a dashboard session on a hostname the caller's organization serves |
+| `GET /aperio` | The dashboard, and its assets under `/aperio/assets/`. | a dashboard session; a browser without one is sent to the login |
+| `GET /aperio/auth` | The login page. | none |
+| `GET /aperio/oidc/login`, `GET /aperio/oidc/callback` | The OIDC flow; `?org=<id>` starts a child organization's own. | none |
+| `GET /aperio/ws` | The tunnel endpoint clients connect to. | a tunnel token, as `Authorization: Bearer` or `x-auth-token` |
+| `GET /aperio/tcp`, `GET /aperio/udp` | The relay endpoints a binder dials for a declared tunnel. | a tunnel token that may bind it |
+| `GET /aperio/tunnels/:client_id` | Per-client tunnel discovery, the older spelling of `GET /aperio/tunnels` below. | master, the client's own token, or one in its organization with `allow_bind` |
+| `GET /aperio/api/openapi.json` | The OpenAPI 3.1 document describing everything below. | a dashboard session or admin key |
+
+#### Probes and the tunnel
+
+| Endpoint | What it does | Credential |
+| --- | --- | --- |
+| `GET /aperio/health` | Liveness probe. Without a credential: status and the default UI language. | none for liveness; the master token, a tunnel token, a dashboard session or an admin key for the numbers |
+| `GET /aperio/healthz` | Liveness probe: 200 with an empty body, no locks taken. For container HEALTHCHECKs and Kubernetes livenessProbe. | none |
+| `GET /aperio/metrics` | Prometheus text-format metrics. Requires the metrics token as `?token=` or `Authorization: Bearer`. | the metrics token (`APERIO_METRICS_TOKEN`), as `?token=` or `Authorization: Bearer` |
+| `GET /aperio/readyz` | Readiness probe: 200 while the server should receive traffic, 503 once it is shutting down. | none |
+| `GET /aperio/tunnels` | Lists the tunnels the presented token may bind. | a tunnel token (master, the declaring client's own, or one in its organization with `allow_bind`) |
+
+#### Signing in
+
+| Endpoint | What it does | Credential |
+| --- | --- | --- |
+| `GET /aperio/api/session` | Remaining lifetime of the presented dashboard session. | a dashboard session or admin key |
+| `POST /aperio/auth` | Login form submission (form-encoded username/password). On success sets the aperio_session cookie and redirects. | none (this is how a session is made) |
+| `POST /aperio/auth/logout` | Drops the server-side session and expires the session cookie. | the session being ended |
+| `GET /aperio/auth/passkey` | True when passkey sign-in is configured (APERIO_WEBAUTHN_ORIGIN set). | none |
+| `POST /aperio/auth/passkey/discoverable/finish` | Completes a usernameless passkey sign-in; the credential's user handle identifies the account. | none (this is how a session is made) |
+| `POST /aperio/auth/passkey/discoverable/start` | Starts a usernameless passkey sign-in; the returned challenge lets the authenticator pick from its resident credentials. | none (this is how a session is made) |
+| `POST /aperio/auth/passkey/finish` | Completes a passkey sign-in; on success the aperio_session cookie is set (TOTP is not required for passkey sign-ins). | none (this is how a session is made) |
+| `POST /aperio/auth/passkey/start` | Starts a passkey sign-in for a username: returns the WebAuthn request challenge and a ceremony id. | none (this is how a session is made) |
+
+#### Live view, reports and diagnostics
+
+| Endpoint | What it does | Credential |
+| --- | --- | --- |
+| `GET /aperio/api/activity` | Request volume per bucket (total and failed) for the activity chart: `range=15m` (5-second slices, the default), `2h` (2-minute) or `1d` (15-minute). | a dashboard session or admin key (viewer+) |
+| `GET /aperio/api/bandwidth` | Bytes in/out per token and hostname, bucketed per day or month (unit=day|month, count). | a dashboard session or admin key (viewer+) |
+| `GET /aperio/api/clients/{id}/config` | Effective configuration of one connection as a YAML document, plus every setting whose effective value differs from what was configured (a bandwidth budget divided across parallel connections, a cache opt-in the server ignores, an active overrule). | a dashboard session or admin key (viewer+) |
+| `POST /aperio/api/clients/{id}/enabled` | Kill switch: enable/disable routing to one client without dropping its tunnel. | a dashboard session or admin key (operator+) |
+| `POST /aperio/api/clients/{id}/override` | Temporarily overrule a client's hostname/path bind server-side (empty values clear the override). | a dashboard session or admin key (operator+) |
+| `GET /aperio/api/config/schema/{kind}` | JSON Schema of a configuration file, for editors and the dashboard's config builder. | a dashboard session or admin key (viewer+) |
+| `GET /aperio/api/explain` | Dry run: which rule would answer a request to this hostname and path, and what every other stage saw. | a dashboard session or admin key (operator+) |
+| `GET /aperio/api/export/traffic.csv` | Per-period traffic history as CSV (requests, bytes, latency) for the caller's org. | a dashboard session or admin key (viewer+) |
+| `GET /aperio/api/logs` | Recent proxied requests (bounded ring buffer), optionally filtered by status, method and path. | a dashboard session or admin key (viewer+) |
+| `GET /aperio/api/requests/{id}` | Full captured transaction (headers and possibly-truncated bodies) for the request inspector. | a dashboard session or admin key (viewer+) |
+| `POST /aperio/api/requests/{id}/replay` | Re-dispatches a captured request through the tunnel and returns the fresh response. | a dashboard session or admin key (operator+) |
+| `GET /aperio/api/route-trends` | Per-route status-code trend: one-minute buckets (2xx/3xx/4xx/5xx counts) over the last 30 minutes. | a dashboard session or admin key (viewer+) |
+| `GET /aperio/api/self-health` | Server process/memory/store/cache self-health snapshot. | a dashboard session or admin key, **Admin in master** |
+| `GET /aperio/api/slow-endpoints` | Slowest endpoints by recent-window p95 latency (host|path, avg/p50/p95/max, request and 5xx counts). | a dashboard session or admin key (viewer+) |
+| `GET /aperio/api/stage-stats` | Rolling per-stage latency statistics (mean/stddev/last, µs) per route, with anomaly verdicts. | a dashboard session or admin key (viewer+) |
+| `GET /aperio/api/stats` | Live statistics snapshot: counters, persistent stats, and the active client connections. | a dashboard session or admin key (viewer+) |
+| `GET /aperio/api/stats/history` | Chronological traffic buckets (requests, success/failed, bytes, latency) for a rolling window (unit=day|week|month|year + count) or a custom day range (from/to, YYYY-MM-DD). | a dashboard session or admin key (viewer+) |
+| `GET /aperio/api/stream` | Server-Sent Events stream: named `traffic` events (one per proxied request), periodic `stats` events, and `notification` events (server events, as webhooks receive them). | a dashboard session or admin key (viewer+) |
+| `GET /aperio/api/topology` | The routing map: routes, tunnel clients and backends, plus the routing the server owns with no client behind it (static routes:, public expose: ports, offline token-granted binds) and the client-to-client dependencies of bound tunnels. | a dashboard session or admin key (viewer+) |
+| `GET /aperio/api/uptime` | Uptime/SLA summary per service entity: current status, uptime percentages for today / 7 days / 30 days of observed time, and the last 30 daily buckets (seconds up/degraded/down). | a dashboard session or admin key (viewer+) |
+
+#### Tokens
+
+| Endpoint | What it does | Credential |
+| --- | --- | --- |
+| `GET /aperio/api/tokens` | Lists dynamic API tokens (hashes stripped; only the display prefix is exposed). | a dashboard session or admin key (viewer+) |
+| `POST /aperio/api/tokens` | Creates a dynamic token; the plaintext secret is returned exactly once. | a dashboard session or admin key (operator+) |
+| `POST /aperio/api/tokens/refresh` | Slides a TTL-token's expiry forward by its creation TTL. Authenticates with the token secret itself (Bearer); no dashboard session needed. | the token's own secret, as `Authorization: Bearer` |
+| `PUT /aperio/api/tokens/{id}` | Edits a token's scope/limits/expiry in place without changing the secret. | a dashboard session or admin key (operator+) |
+| `DELETE /aperio/api/tokens/{id}` | Revokes a token and immediately drops any tunnel connections using it. | a dashboard session or admin key (operator+) |
+| `POST /aperio/api/tokens/{id}/rotate` | Rotates a token's secret; the old secret stays valid for grace_seconds. | a dashboard session or admin key (operator+) |
+
+#### Ephemeral tunnels
+
+| Endpoint | What it does | Credential |
+| --- | --- | --- |
+| `GET /aperio/api/tunnels` | Lists the tunnels declared by this organization's connected clients. | the master token as `Authorization: Bearer`, or a dashboard session / admin key (viewer+) |
+| `POST /aperio/api/tunnels` | Programmatically provisions an ephemeral tunnel (scoped short-lived token + hostname). | the master token as `Authorization: Bearer`, or a dashboard session / admin key (operator+) |
+| `DELETE /aperio/api/tunnels/{id}` | Deletes an ephemeral tunnel: revokes its token and drops its live connection. | the master token as `Authorization: Bearer`, or a dashboard session / admin key (operator+) |
+
+#### Maintenance, share links and the cache
+
+| Endpoint | What it does | Credential |
+| --- | --- | --- |
+| `POST /aperio/api/cache/purge` | Drops response-cache entries matching a hostname and/or URI prefix; empty body clears the whole cache (admin only). | a dashboard session or admin key, **Admin in master** |
+| `GET /aperio/api/cache/stats` | Response-cache entry count, byte size, and hit/miss rate. | a dashboard session or admin key, **Admin in master** |
+| `GET /aperio/api/maintenance` | Hostnames and patterns currently in maintenance mode (`*` = every hostname, `*.example.com` = every subdomain of it, `*-pi.example.com` = one label's shape). | a dashboard session or admin key (viewer+) |
+| `POST /aperio/api/maintenance` | Turns maintenance mode on/off for a hostname, a `*.example.com` subdomain wildcard, a partial label like `*-pi.example.com`, or `*` (503 page while on). | a dashboard session or admin key (operator+) |
+| `POST /aperio/api/purge` | Right-to-erasure: deletes traffic records (logs, inspector captures, stats aggregates, cache, access-log lines) matching a hostname, token label, or visitor IP (admin only). | a dashboard session or admin key, **Admin in master** |
+| `POST /aperio/api/share` | Mints a signed, expiring share link that grants visitors gate-free access to a host/path scope. | a dashboard session or admin key (operator+) |
+
+#### Webhooks and the inbox
+
+| Endpoint | What it does | Credential |
+| --- | --- | --- |
+| `GET /aperio/api/inbox` | Inbound webhooks persisted for services with webhook_inbox: true (newest first, payloads omitted). | a dashboard session or admin key (viewer+) |
+| `DELETE /aperio/api/inbox` | Deletes every webhook inbox entry of the caller's organization. | a dashboard session or admin key (operator+) |
+| `GET /aperio/api/inbox/{id}` | One webhook inbox entry with redacted headers and payload. | a dashboard session or admin key (viewer+) |
+| `DELETE /aperio/api/inbox/{id}` | Deletes one webhook inbox entry. | a dashboard session or admin key (operator+) |
+| `POST /aperio/api/inbox/{id}/refire` | Re-dispatches a stored webhook to the currently connected client for its route. | a dashboard session or admin key (operator+) |
+| `GET /aperio/api/webhooks` | Lists webhook definitions (signing secrets are never exposed, only a signed flag). | a dashboard session or admin key (viewer+) |
+| `POST /aperio/api/webhooks` | Creates a webhook; an optional HMAC signing secret (16-128 chars) enables signed deliveries. | a dashboard session or admin key (operator+) |
+| `GET /aperio/api/webhooks/deliveries` | Recent webhook delivery outcomes (attempts, status, payload), newest first. | a dashboard session or admin key (viewer+) |
+| `POST /aperio/api/webhooks/deliveries/{id}/redeliver` | Queues a redelivery of the logged payload to the webhook's current URL (fresh signature, normal retry policy); the outcome lands in the delivery log as a new row. | a dashboard session or admin key (operator+) |
+| `DELETE /aperio/api/webhooks/{id}` | Deletes a webhook definition. | a dashboard session or admin key (operator+) |
+| `POST /aperio/api/webhooks/{id}/test` | Sends one synthetic `webhook_test` event through the real delivery path (outbound policy, signature, timeout) and returns what the receiver answered. | a dashboard session or admin key (operator+) |
+
+#### Messages between clients
+
+| Endpoint | What it does | Credential |
+| --- | --- | --- |
+| `POST /aperio/api/publish` | Publishes a message to the subscribers of this organization (operator). | a dashboard session or admin key (operator+) |
+| `GET /aperio/api/subscribers` | Lists the client processes subscribed to messages in this organization, and their topic filters. | a dashboard session or admin key (viewer+) |
+
+#### Autoscaling
+
+| Endpoint | What it does | Credential |
+| --- | --- | --- |
+| `GET /aperio/api/scaling` | Autoscaling records armed for this organization, with live pool capacity and utilization. | a dashboard session or admin key (viewer+) |
+| `DELETE /aperio/api/scaling/{id}` | Disarms an autoscaling record. A running client that still declares the block re-arms it on its next heartbeat. | a dashboard session or admin key (operator+) |
+
+#### Users, sessions and second factors
+
+| Endpoint | What it does | Credential |
+| --- | --- | --- |
+| `GET /aperio/api/me/passkeys` | Lists the signed-in user's registered passkeys (id, name, created_at only). | the signed-in user's own dashboard session (any role) |
+| `POST /aperio/api/me/passkeys/register/finish` | Completes passkey registration with the browser's credential response and stores the passkey on the user. | the signed-in user's own dashboard session (any role) |
+| `POST /aperio/api/me/passkeys/register/start` | Starts passkey registration for the signed-in dashboard user: returns the WebAuthn creation challenge and a ceremony id. | the signed-in user's own dashboard session (any role) |
+| `DELETE /aperio/api/me/passkeys/{id}` | Deletes one of the signed-in user's passkeys. | the signed-in user's own dashboard session (any role) |
+| `DELETE /aperio/api/me/totp` | Disables TOTP for the signed-in user. Requires a currently valid authenticator code (or an unused recovery code). | the signed-in user's own dashboard session (any role) |
+| `POST /aperio/api/me/totp/enable` | Completes TOTP enrollment by verifying a code against the pending secret. | the signed-in user's own dashboard session (any role) |
+| `POST /aperio/api/me/totp/setup` | Begins TOTP enrollment for the signed-in dashboard user: returns a fresh secret and otpauth:// URL. | the signed-in user's own dashboard session (any role) |
+| `GET /aperio/api/sessions` | Live sessions with identity, IP, User-Agent and age; the caller's own session is marked. | a dashboard session or admin key (admin+) |
+| `DELETE /aperio/api/sessions` | Ends every live session except the caller's own; everyone else must sign in again. | a dashboard session or admin key (admin+) |
+| `DELETE /aperio/api/sessions/{id}` | Ends one session immediately; its cookie stops working on the next request. | a dashboard session or admin key (admin+) |
+| `GET /aperio/api/users` | Lists dashboard users (admin only; password hashes are never exposed). | a dashboard session or admin key (admin+) |
+| `POST /aperio/api/users` | Creates a dashboard user with a role, or a list of per-organization grants (admin only). | a dashboard session or admin key (admin+) |
+| `PUT /aperio/api/users/{id}` | Updates a user's role or grants, enabled state, or password (admin only). | a dashboard session or admin key (admin+) |
+| `DELETE /aperio/api/users/{id}` | Deletes a dashboard user (admin only). Live sessions of that user are dropped. | a dashboard session or admin key (admin+) |
+| `DELETE /aperio/api/users/{id}/totp` | Clears TOTP for a user (admin only), the escape hatch when someone loses their authenticator and recovery codes. | a dashboard session or admin key (admin+) |
+
+#### Organizations
+
+| Endpoint | What it does | Credential |
+| --- | --- | --- |
+| `GET /aperio/api/orgs` | Lists organizations (master super-admin only): the implicit master org plus child orgs, with user/token counts. | a dashboard session or admin key, **Admin in master** |
+| `POST /aperio/api/orgs` | Creates a child organization (master super-admin only). | a dashboard session or admin key, **Admin in master** |
+| `POST /aperio/api/orgs/select` | Switches the session's active organization (stored on the session). | a dashboard session or admin key whose grants reach the target (viewer+) |
+| `DELETE /aperio/api/orgs/{id}` | Deletes an empty child organization (master super-admin only); rejected while it still has users or tokens. | a dashboard session or admin key, **Admin in master** |
+| `PUT /aperio/api/orgs/{id}/custom-name` | Sets an organization's display name; the handle it is addressed by never changes (master admin). | a dashboard session or admin key, **Admin in master** |
+| `PUT /aperio/api/orgs/{id}/hostnames` | Replaces a child org's hostname allowlist (empty list = unrestricted). | a dashboard session or admin key, **Admin in master** |
+| `PUT /aperio/api/orgs/{id}/oidc` | Sets or clears a child org's OIDC override (empty issuer clears). | a dashboard session or admin key, **Admin in master** |
+| `PUT /aperio/api/orgs/{id}/panel` | Sets or clears an organization's panel hostname, a name inside its allowlist whose root is its dashboard (Admin of that organization). | a dashboard session or admin key, Admin of that organization |
+| `PUT /aperio/api/orgs/{id}/quota` | Sets a child org's quotas (max clients/tokens/users, monthly bytes). | a dashboard session or admin key, **Admin in master** |
+| `GET /aperio/api/orgs/{id}/usage` | Current-month usage vs quota for an organization; also emits an org_usage webhook. | a dashboard session or admin key, **Admin in master** |
+
+#### Admin keys
+
+| Endpoint | What it does | Credential |
+| --- | --- | --- |
+| `GET /aperio/api/admin-keys` | Lists programmatic admin keys (hashes stripped). | a dashboard session or admin key, **Admin in master** |
+| `POST /aperio/api/admin-keys` | Creates a scoped admin key; the secret is returned once. | a dashboard session or admin key, **Admin in master** |
+| `DELETE /aperio/api/admin-keys/{id}` | Revokes an admin key. | a dashboard session or admin key, **Admin in master** |
+
+#### Audit log
+
+| Endpoint | What it does | Credential |
+| --- | --- | --- |
+| `GET /aperio/api/audit` | Audit events for the caller's organization. Unfiltered: the recent ring. | a dashboard session or admin key (viewer+) |
+| `GET /aperio/api/audit/verify` | Verifies the audit log hash chain across all files; reports any broken line (master admin only). | a dashboard session or admin key, **Admin in master** |
+| `GET /aperio/api/export/audit.csv` | Audit events matching the same filters as /aperio/api/audit, as CSV, from the durable log. | a dashboard session or admin key (viewer+) |
+
+#### Server settings, backup and import
+
+| Endpoint | What it does | Credential |
+| --- | --- | --- |
+| `GET /aperio/api/export` | Downloads a logical dump. ?include= names the sections (tokens, webhooks, users, organizations, scaling, settings_overrides, statistics, uptime, activity, inbox, admin_keys); omitted, the six configuration sections. | a dashboard session or admin key, **Admin in master** |
+| `POST /aperio/api/import` | Applies a dump created by /aperio/api/export; every section present in the document replaces its store, a missing one leaves it untouched (admin only). | a dashboard session or admin key, **Admin in master** |
+| `GET /aperio/api/settings` | Effective server settings plus which keys are overridden from the dashboard. | a dashboard session or admin key, **Admin in master** |
+| `PUT /aperio/api/settings` | Applies dashboard settings overrides live and persists them (missing keys keep env defaults). | a dashboard session or admin key, **Admin in master** |
+
+#### Edge proxy and telemetry
+
+| Endpoint | What it does | Credential |
+| --- | --- | --- |
+| `GET /aperio/api/edge/ask` | Answers 200 when the hostname is currently served, 404 otherwise. | `APERIO_EDGE_TOKEN`, as `Authorization: Bearer` or `?token=` |
+| `GET /aperio/api/edge/traefik` | Traefik dynamic configuration: one router per served hostname, pointing at this server. | `APERIO_EDGE_TOKEN`, as `Authorization: Bearer` or `?token=` |
+| `POST /aperio/otlp/v1/{signal}` | Forwards an OTLP protobuf export from a tunnel client to the server's configured collector. | a tunnel token carrying `allow_otel`, with `otel_bridge` on |
 
 ## Runnable examples
 

@@ -4,7 +4,7 @@ Ready-to-adapt configuration pairs for common Aperio scenarios. Every folder con
 
 ## Conventions
 
-- **Every client file describes its backends under `services:`**, even the ones that expose exactly one. That is the shape a config file has; naming a single backend at the top level (`target:`, `serve:`, `hostname:`, …) still works but is deprecated and goes away in 0.9.0. Single-service mode lives on in the CLI one-liner and the `APERIO_TARGET` family, where a one-liner is the point.
+- **Every client file describes its backends under `services:`**, even the ones that expose exactly one. That is the shape a config file has; naming a single backend at the top level (`target:`, `serve:`, `hostname:`, …) has not been accepted since 0.9.0, a client that finds one refuses to start and names the keys. Single-service mode lives on in the CLI one-liner and the `APERIO_TARGET` family, where a one-liner is the point.
 - `https://tunnel.example.com`, the public URL of your Aperio server.
 - `apr_<scenario>_change_me`, a placeholder token; replace it with a long random string of your own.
 - One folder per scenario. Where a feature reads differently with one service than with several, the folder shows both.

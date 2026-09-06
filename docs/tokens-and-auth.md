@@ -56,7 +56,7 @@ The new secret is returned exactly once (like creation). `grace_seconds: 0` (or 
 
 ## Protecting proxied traffic
 
-A gate is written as `auth:`, on the server for every route or on a client's service for its own traffic, and it names a **method**. Five exist: `none` (deliberately open), `basic` (a `user:password` login), `bearer` (an opaque secret in a header, for callers with no browser), `jwt` (a token the visitor already holds, verified against its issuer's keys) and `forward` (ask an endpoint you run). [Configuration](configuration.md#visitor-authentication) is the reference; the two below are what most deployments start with.
+A gate is written as `auth:`, on the server for every route or on a client's service for its own traffic, and it names a **method**. Six exist: `none` (deliberately open), `basic` (a `user:password` login), `bearer` (an opaque secret in a header, for callers with no browser), `jwt` (a token the visitor already holds, verified against its issuer's keys), `forward` (ask an endpoint you run, on the server's network or, with `via: client`, on the client's) and `aperio` (this server's own sign-in, for a route that should ask for a dashboard session rather than a password of its own). [Configuration](configuration.md#visitor-authentication) is the reference; the two below are what most deployments start with.
 
 - **Visitor password**, `APERIO_SERVER_AUTH=user:password` shows a login form to every visitor. It is the scalar spelling of `auth: {method: basic, users: ...}` and still works exactly as it always did.
 
@@ -76,7 +76,7 @@ A client can opt its own service out of the gate by declaring itself **public** 
 
 ### Client-set visitor password (per service)
 
-Instead of opting out, a client can supply its **own** gate for its service, `--visitor-auth user:password`, env `APERIO_VISITOR_AUTH`, or per `services:` entry `auth:`. The flag and the environment variable are single values, so they always mean `basic`; in the file a client may write any method except `forward`, whose URL the *server* would call, from the server's network. The server then gates that service with what the client declared, whether or not the server itself set `APERIO_SERVER_AUTH`:
+Instead of opting out, a client can supply its **own** gate for its service, `--visitor-auth user:password`, env `APERIO_VISITOR_AUTH`, or per `services:` entry `auth:`. The flag and the environment variable are single values, so they always mean `basic`; in the file a client may write any method, with one rule: a `forward` must say `via: client`, so the endpoint is asked over the tunnel on the client's own network, since the server never dials a URL a client chose. The server then gates that service with what the client declared, whether or not the server itself set `APERIO_SERVER_AUTH`:
 
 - It reuses the same *may publish public services* token permission (master always may); a client without it has its `auth` ignored (and logged).
 - When set, it **supersedes** the server's own visitor password *for that service*: the `APERIO_SERVER_AUTH` credentials no longer work there, only the client's, plus the always-valid `aperio:<master token>`.
@@ -90,7 +90,7 @@ To let specific people through a protected site *without* an account, use [Share
 
 The dashboard password is the master token. To let someone in without handing them root, create a named dashboard user (Users page) or give them their own [organization](organizations.md) rather than sharing a second server-wide password; `APERIO_DASHBOARD=0` disables the dashboard entirely. The Prometheus endpoint always requires its own token (`APERIO_METRICS_TOKEN`).
 
-Named dashboard users are created on the *Users* page and carry a role (viewer / operator / admin). The built-in `aperio` admin, which is the master token and the OIDC logins, is the super-admin.
+Named dashboard users are created on the *Users* page and carry a list of grants, one `(organization, role)` pair each, with `viewer`, `operator` or `admin` in every organization they reach. The built-in `aperio` admin, the master token, is the super-admin. An OIDC login is matched to a dashboard user record by email and holds exactly that record's grants; an email with no record gets `oidc.default_grants`, which is empty unless configured, and is refused until something is granted to it. See [Organizations](organizations.md#oidc-identity-is-the-providers-authorization-is-aperios).
 
 **The two planes are separate.** Signing in with a visitor password creates a session for viewing sites, not for administering Aperio, and only the master token, a named user, a passkey or OIDC create a dashboard session. A dashboard session does still carry its holder past the visitor gate, fenced to the hostnames their own [organization](organizations.md) serves.
 

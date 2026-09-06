@@ -20,7 +20,7 @@ Probe cadence is tunable: `APERIO_HEALTH_INTERVAL` (default 10 s), `APERIO_HEALT
 
 ## Config hot-reload
 
-When a config file is present (`./aperio.yaml` or `--config`), edits are detected within ~5 s: the current connection is dropped gracefully and the service restarts with the freshly resolved configuration, every setting applies, including timeouts, concurrency, bandwidth, health probing, and redirect limits. The usual layering applies on reload (CLI > `./aperio.yaml` > env > `~/.aperio.yaml`); a file that no longer parses (or resolves to an invalid configuration) is ignored with a warning rather than killing the client.
+When a config file is present (`./aperio.yaml` or `--config`), edits are detected within ~5 s and applied **make-before-break**: the replacement connections are brought up with the freshly resolved configuration first, and only once the server routes to them are the old ones told to drain and closed, so a visitor never sees the gap. Every setting applies, including timeouts, concurrency, bandwidth, health probing, and redirect limits. The usual layering applies on reload (CLI > `./aperio.yaml` > env > `~/.aperio.yaml`); a file that no longer parses (or resolves to an invalid configuration) is ignored with a warning rather than killing the client. The handover briefly wants two connections per service, which is why the server's `max_tunnels` default rose to 64.
 
 ## Graceful shutdown
 

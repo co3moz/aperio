@@ -663,7 +663,7 @@ you write yourself, is where hardening quietly does not happen. Both packages
 can be installed on the same machine; they share no files.
 
 \begin{lstlisting}[language=aperiosh]
-sudo dpkg -i aperio-server_0.9.0_amd64.deb   # or: rpm -i aperio-server-...rpm
+sudo dpkg -i aperio-server_0.11.0_amd64.deb  # or: rpm -i aperio-server-...rpm
 sudoedit /etc/aperio/aperio-server.yaml      # set server.token
 sudo systemctl enable --now aperio-server
 \end{lstlisting}
@@ -1612,7 +1612,7 @@ system, which is why it is fuzzed continuously
 \section{Flow control}
 \label{sec:flow-control}
 
-The current protocol version is 8. Version 3 added flow control for
+The current protocol version is 9. Version 3 added flow control for
 everything that streams; version 5 moved a buffered response body out of
 JSON and into the frame that carries its envelope, version 6 did the same
 for a buffered request body, in the direction an upload travels, and
@@ -2269,8 +2269,8 @@ reports whether one is set, never what it is.
 
 The dashboard lives at \code{/aperio} and is a React application embedded
 into the server binary; there is nothing extra to deploy. Sign in as
-\code{aperio} with the master token, with a separate dashboard password,
-as a named user, or through OIDC.
+\code{aperio} with the master token, as a named user, with a passkey, or
+through OIDC.
 
 \screenshot{dashboard-overview.png}{Overview: the live request rate, the
 counters, and the connected clients. The chart's four ranges are the same
@@ -3874,7 +3874,7 @@ complete list, it is authoritative, and it always matches the running build.
 
 One WebSocket carries every kind of traffic for a service, multiplexed by
 request id. Messages are JSON objects tagged with \code{type}. The
-current protocol version is 8, negotiated per connection, and each step
+current protocol version is 9, negotiated per connection, and each step
 is additive: v2 moves chunk payloads onto binary frames with a compact
 \code{[tag][id\_len][id][payload]} header instead of base64; v3 adds the
 per-stream pause/resume pair (Section~\ref{sec:flow-control}); v4 adds
@@ -3900,7 +3900,13 @@ several is served as several, each routed by its own binds, gated by
 its own \code{auth:}, ejected on its own backend failures and shown
 separately in the dashboard, which is what \code{multiplex: true} on
 the client produces; identity across heartbeats is by the name the
-client gives a service, so a multiplexed one needs a \code{name:}. An
+client gives a service, so a multiplexed one needs a \code{name:}. v9 lets a service entry carry \code{server\_side\_target},
+asking the server to reach the target itself, and a Ping carry the client's
+\code{name}. Messages an older peer can ignore are added without a bump:
+\code{HostnameAssigned}, \code{Draining} and \code{ServerShutdown},
+the compression offer, \code{OtlpExport}, and the \code{AuthAsk} /
+\code{AuthVerdict} pair that carries a \code{forward} gate asked over
+the tunnel. An
 empty list is refused, since a client that serves nothing is a
 disconnect written the long way. Whether a list may be sent at all is
 negotiated rather than assumed: the server announces its protocol

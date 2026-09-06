@@ -248,3 +248,37 @@ fn every_openapi_exemption_is_for_a_route_that_exists() {
     );
   }
 }
+
+/// `docs/configuration.md` lists every endpoint, and a list kept by hand is
+/// right on the day it is written. Checked from the side whose change breaks
+/// it (CLAUDE.md rule 25): every annotated route has to appear there, spelled
+/// `METHOD /aperio/...` with `:name` path parameters.
+#[test]
+fn every_annotated_endpoint_is_in_the_configuration_docs() {
+  let doc = std::fs::read_to_string("../docs/configuration.md").expect("docs/configuration.md");
+  let openapi = ApiDoc::openapi();
+  let mut missing = Vec::new();
+  for (path, item) in &openapi.paths.paths {
+    let methods = [
+      ("GET", item.get.is_some()),
+      ("POST", item.post.is_some()),
+      ("PUT", item.put.is_some()),
+      ("DELETE", item.delete.is_some()),
+      ("PATCH", item.patch.is_some()),
+    ];
+    for (method, present) in methods {
+      if !present {
+        continue;
+      }
+      let spelled = format!("`{method} {path}`");
+      if !doc.contains(&spelled) {
+        missing.push(spelled);
+      }
+    }
+  }
+  assert!(
+    missing.is_empty(),
+    "endpoints not listed in docs/configuration.md (add a row to the HTTP endpoints table):\n  {}",
+    missing.join("\n  ")
+  );
+}

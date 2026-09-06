@@ -6,12 +6,28 @@ Everything between server and client flows over one persistent WebSocket connect
 
 WebSocket upgrade requests from visitors are detected automatically and proxied end-to-end: the public WS connection is relayed through the tunnel to your backend in real time. Socket.io (WebSocket transport), GraphQL subscriptions, and raw `ws://` endpoints work with zero configuration, and the same hostname/path routing rules apply.
 
-## Chunked body streaming
+## Protocol versions
 
-The current `PROTOCOL_VERSION` is **8**. Every version below is negotiated on
+The current `PROTOCOL_VERSION` is **9**. Every version below is negotiated on
 connect, so a client and a server that disagree still work: each feature falls
 back to what the older side understands, and the mismatch is logged on both
-sides and shown on the dashboard.
+sides and shown on the dashboard. The number is bumped when a *frame* changes
+shape; a new message type that an older peer can safely ignore is added without
+a bump, and the last rows of the table are those.
+
+| Version | What it added |
+| --- | --- |
+| v2 | Streamed request bodies (`RequestStart` / `RequestChunk` / `RequestEnd`) and raw binary chunk frames instead of base64 inside JSON. |
+| v3 | Per-stream flow control, `StreamPause` / `StreamResume`, for everything that streams. |
+| v4 | Messages between clients: `Subscribe`, `Unsubscribe`, `Publish`, `PublishAck`, `SubscribeRefused`, `PublishRefused`. |
+| v5 | A buffered response travels as one binary frame, envelope and body together. |
+| v6 | The same for a buffered request body, server to client. |
+| v7 | TCP, UDP and binary WebSocket relay payloads travel as raw binary frames. |
+| v8 | A Ping may describe the connection's work as a `services` list: several services on one connection. |
+| v9 | A service entry may carry `server_side_target`, and a Ping may carry the client's `name`. |
+| no bump | `HostnameAssigned`, `Draining` and `ServerShutdown` (informational), `CompressionStart` / `CompressionAck` (an offer a peer may never answer), `OtlpExport` (the OTel bridge), and `AuthAsk` / `AuthVerdict` (a `forward` gate asked over the tunnel with `via: client`). Each reaches only a peer that declared the feature behind it or can ignore it, which is what makes them safe without a bump. [The Embedded Profile](embedded-profile.md) classifies every message for a device that implements the protocol by hand. |
+
+## Chunked body streaming
 
 Since protocol v5 a **buffered response travels as one binary frame**: the envelope and the body in a single message, with the body as bytes. Before v5 the body was base64-encoded into the JSON, which is a third more bytes on the wire, an encode pass on the client and a decode pass on the server, and a string the size of the response held on both sides. The frame is only sent to a server that announced v5; an older one still gets base64 in JSON, and a v5 server still understands it.
 
@@ -19,13 +35,13 @@ Protocol **v6** does the same in the other direction: a **buffered request body*
 
 Protocol **v7** closes the last base64 leg: the **relay payloads** travel as raw binary frames too. A TCP chunk (`FRAME_TCP_DATA`), a UDP datagram (`FRAME_UDP_DATAGRAM`) and a *binary* WebSocket frame (`FRAME_WS_DATA_BIN`) carry their bytes verbatim in a `[tag][id_len][stream id][payload]` frame, where before they were base64-encoded inside a `TcpData` / `UdpDatagram` / `WsData` JSON message: a third more bytes on the wire, plus an encode, a JSON parse and a decode on every 16 KB chunk, in both directions. Text WebSocket frames keep the JSON shape, since they were never encoded and there is nothing to save.
 
-Protocol **v9** lets a service ask to be served by the server itself, with `server_side_target` on its entry, and lets a client say what it is called with `name`.
-
 Protocol **v8** starts describing a connection's work as a *list*. A Ping may carry `services: [...]`, where each entry says what the top-level per-service fields have always said on their own: its binds, its target's announced limits, its gate, its cache and resilience settings. When the list is present it is authoritative and the singular fields are ignored, so the two spellings can never half-agree; when it is absent, which is every client before v8 and every ordinary one-service client after it, nothing changes at all.
 
 This is one connection for several services of the same client process, and **both halves have shipped**: the server serves a list of several since 0.10.0, and a client produces one when its config says `multiplex: true` (see [One connection for several services](configuration.md#one-connection-for-several-services)). Each declared service is routed by its own binds, gated by its own `auth:` and `allowed_ips:`, ejected on its own backend failures without touching its neighbours, and shown and controlled separately in the dashboard. Identity across heartbeats is by the *name* the client gives a service, which is why a multiplexed one must have one; an unnamed service adopts a service that has none yet, so adding a `name:` to a service that was running without one keeps its counters rather than starting a second entry beside it.
 
 An empty list is still refused. A client saying it serves nothing is a disconnect written the long way, and treating it as "no list" would silently keep serving what it just retired.
+
+Protocol **v9** lets a service ask to be served by the server itself, with `server_side_target` on its entry, and lets a client say what it is called with `name`.
 
 **Multiplexing is negotiated on the handshake, not assumed.** The server announces the protocol version it speaks in an `x-aperio-protocol` response header on the WebSocket upgrade, which is the only moment early enough to matter: the `Pong` carries the same number, but by the time one arrives the first Ping has already gone out, and this is the first capability that changes what that Ping is allowed to say. A client whose config asks for multiplexing against a server below v8 holds those services back and logs which side has to move, instead of connecting and having the server read the singular fields, bring up the first service and silently drop the rest. A server too old to send the header cannot have the capability, so an absent header reads as "no", never as "assume yes"; a client carrying one service never consults it.
 
@@ -42,6 +58,10 @@ Response bodies over 32 KB are streamed through the tunnel in chunks (256 KB aga
 Protocol v2 peers additionally exchange body chunks as **raw binary WebSocket frames** instead of base64-in-JSON, removing the ~33% base64 overhead. Both features negotiate automatically via the heartbeat protocol version: older peers transparently fall back to buffered bodies and base64 frames.
 
 One trade-off: streamed uploads cannot fail over or be replayed from the request inspector, because the body is consumed as it is forwarded.
+
+## A gate asked over the tunnel
+
+A `forward` visitor-auth method with `via: client` is decided by an endpoint on the *client's* network. The server, holding a request it cannot yet admit, sends an `AuthAsk` frame to the connection that would serve the request, carrying the composed question: the request line as `X-Forwarded-*` headers plus the allow-listed request headers, the URL to ask, and a timeout. The client calls the endpoint and answers with an `AuthVerdict`, a status and the allow-listed response headers, never a body. Either frame is ignored by a peer that does not know it, and the method itself is negotiated on the handshake like every other client-declared gate, so no protocol bump was needed. See [Visitor authentication](configuration.md#the-forward-method).
 
 ## Messages between clients (v4)
 

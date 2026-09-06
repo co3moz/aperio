@@ -11,7 +11,7 @@ Nothing new is dialled and nothing new is opened. The message goes over the WebS
 From anywhere with an admin session or key:
 
 ```bash
-aperio-client api POST /publish -d '{"topic":"deploy/web","payload":"v1.9.2"}'
+aperio-client api publish deploy/web --payload v1.9.2
 ```
 
 Or over HTTP directly:
@@ -149,7 +149,7 @@ Everything the server already reports through webhooks is also published on the 
 | Clients | `$aperio/client/connected`, `$aperio/client/disconnected`, `$aperio/client/draining` |
 | Tokens | `$aperio/token/created`, `$aperio/token/revoked`, `$aperio/token/rotated`, `$aperio/token/expiring`, `$aperio/token/new/ip`, `$aperio/token/pin/mismatch`, `$aperio/canary/tripped` |
 | Tunnels and shares | `$aperio/tunnel/created`, `$aperio/tunnel/deleted`, `$aperio/share/created` |
-| Operations | `$aperio/maintenance/on`, `$aperio/maintenance/off`, `$aperio/settings/updated`, `$aperio/import/applied`, `$aperio/user/created` |
+| Operations | `$aperio/maintenance/on`, `$aperio/maintenance/off`, `$aperio/settings/updated`, `$aperio/import/applied`, `$aperio/user/created`, `$aperio/user/grant/added`, `$aperio/user/grant/removed` |
 | Capacity and alerting | `$aperio/alert/triggered`, `$aperio/alert/resolved`, `$aperio/scaling/requested`, `$aperio/org/usage`, `$aperio/disk/usage/warning` |
 | Housekeeping | `$aperio/db/backup`, `$aperio/disk/pruned` |
 
@@ -169,8 +169,13 @@ Delivery is fenced on the organization exactly as an ordinary message is, and th
 Messaging is a token capability, off unless the token carries it. A dynamic token has a **topics** list of filters, and one rule covers both directions: a token that may subscribe to `deploy/#` may publish on it, and a token with an empty list can do neither.
 
 ```bash
-aperio-client api POST /tokens -d '{"name":"deploy-runner","topics":["deploy/#"]}'
+# against the server's admin API; the dashboard's token editor has the same field
+curl -b cookies.txt -X POST -H 'Content-Type: application/json' \
+  --data '{"name":"deploy-runner","topics":["deploy/#"]}' \
+  https://tunnel.example.com/aperio/api/tokens
 ```
+
+`aperio-client api token create` does not take a `topics` flag yet; set them in the dashboard or with the call above.
 
 The list is a fence, not a wish: a subscription is permitted when a granted filter *covers* it. `deploy/#` covers `deploy/web` and `deploy/+`, and does not cover `#`, otherwise subscribing to everything would be the way around a scope that named one subtree. `*` is accepted and stored as `#`, since that is how the hostname and path lists spell "everything". Neither `#` nor `*` reaches `$aperio/`, which is granted only by a filter that names it (`["#", "$aperio/client/#"]` is a token that may talk on any topic of its own *and* watch clients connect).
 
