@@ -156,7 +156,7 @@ pub struct ServerFileConfig {
   pub metrics: Option<MetricsSetting>,
   /// OIDC single sign-on for the dashboard
   #[serde(default)]
-  #[schemars(extend("examples" = [{"issuer": "https://accounts.example.com", "client_id": "aperio", "client_secret": "${OIDC_SECRET}", "redirect_url": "https://tunnel.example.com/aperio/oidc/callback"}]))]
+  #[schemars(extend("examples" = [{"issuer": "https://accounts.example.com", "client_id": "aperio", "client_secret": "s3cret-from-your-provider", "redirect_url": "https://tunnel.example.com/aperio/oidc/callback"}]))]
   pub oidc: Option<OidcGroup>,
   /// OpenTelemetry trace export
   #[serde(default)]
@@ -516,7 +516,7 @@ pub struct ServerFileConfig {
   #[schemars(extend("examples" = [7]))]
   pub backup_keep: Option<u64>,
   /// Flat spelling of `backup.key` (env: APERIO_BACKUP_KEY).
-  #[schemars(extend("examples" = ["${APERIO_BACKUP_KEY}"]))]
+  #[schemars(extend("examples" = ["3d5f8b1c9a24e7f06b83d1c45e29a7f8b6d0c3e15a927f4b8c6d1e0a3f725b9c4"]))]
   pub backup_key: Option<String>,
   /// Flat spelling of `backup.key_file` (env: APERIO_BACKUP_KEY_FILE).
   #[schemars(extend("examples" = ["/etc/aperio/backup.key"]))]

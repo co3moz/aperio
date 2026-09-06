@@ -318,6 +318,8 @@ services:
 
 Only this spelling is expanded. A bare `$NAME` is left exactly as written, because `$` appears in generated passwords, regular expressions and the shell snippets inside `run:` commands, and a config loader that rewrote those would corrupt files that work today. A variable that is not set and has no default is an error naming the variable, not an empty string: substituting nothing produces a file that still parses and means something else (`hostname: .example.com`, or an empty token), which then fails somewhere unrelated. Expansion happens per file, so an included fragment reports its own name.
 
+This is a **client** feature. `aperio-server.yaml` expands nothing, so a `${VAR}` written there is the value itself, not a reference to one: a `backup.key` or an `oidc.client_secret` spelled that way is a secret that reads as a placeholder and is neither. To keep a server secret out of the file, leave the key unset and set its `APERIO_*` variable instead, remembering that a key the file does write wins over the environment.
+
 ### Typos and literal secrets
 
 A key nothing recognizes has always been ignored silently, which is the most expensive kind of typo: the file says the setting is configured and the behavior says it is not. Unknown keys now produce a warning naming the key they were probably meant to be (`` `hostnme` is not a setting; did you mean `hostname`? ``), at the top level and inside `services:` entries, against the same generated schema editors complete from. It stays a warning rather than an error, so a file carrying keys for a newer client than the one running still starts.

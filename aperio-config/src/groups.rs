@@ -198,8 +198,11 @@ pub struct OidcGroup {
   /// OIDC client id.
   #[schemars(extend("examples" = ["aperio"]))]
   pub client_id: Option<String>,
-  /// OIDC client secret.
-  #[schemars(extend("examples" = ["${OIDC_SECRET}"]))]
+  /// OIDC client secret. The server's config file expands nothing, so a
+  /// `${VAR}` written here is the value; to keep the secret out of the file,
+  /// leave the key unset and set `APERIO_OIDC_CLIENT_SECRET` instead, since a
+  /// key the file writes wins over the environment.
+  #[schemars(extend("examples" = ["s3cret-from-your-provider"]))]
   pub client_secret: Option<String>,
   /// Allowed OIDC login emails.
   #[schemars(extend("examples" = [["alice@example.com", "ops@example.com"]]))]
@@ -392,9 +395,10 @@ pub struct BackupGroup {
   /// Encryption key for snapshots, as 64 hex characters or base64 of 32
   /// bytes. Unset writes snapshots in the clear, as before. Prefer
   /// `key_file`: a key written here is a key in a config file, which backups
-  /// and configuration management copy around
-  /// (env: APERIO_BACKUP_KEY).
-  #[schemars(extend("examples" = ["${APERIO_BACKUP_KEY}"]))]
+  /// and configuration management copy around, and the server's config file
+  /// expands nothing, so a `${VAR}` written here is the key rather than a
+  /// reference to one (env: APERIO_BACKUP_KEY).
+  #[schemars(extend("examples" = ["3d5f8b1c9a24e7f06b83d1c45e29a7f8b6d0c3e15a927f4b8c6d1e0a3f725b9c4"]))]
   pub key: Option<String>,
   /// File holding the encryption key, which is what a secret manager mounts.
   /// Refused when it is inside `dir`: whoever has the backups would have the
