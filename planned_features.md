@@ -367,6 +367,83 @@ there is nothing to build, whatever *Recurring checks* holds.
   `CONFIG_CHANGES` entry; `CHANGELOG.md`, the docs table, the book and the
   `AUTH_METHODS` list are the surfaces.
 
+- [ ] **#156 A configuration reload takes a service off the air for minutes,
+  and the connection it replaced is never reaped.** Reported from a running
+  deployment and reproduced in the code by reading: a client with three
+  services reloads its config, two services reconnect at once, and the third
+  is refused `503` eight times over 2 minutes 16 seconds before it gets in.
+  On the server that client sits in the list marked draining the whole time,
+  with nothing to drain. Four defects compound, and each one is separately
+  fixable.
+
+  **1. The client tears down before it builds.** The reload supervisor sends
+  `cancel` to every running service, awaits every task, and only then calls
+  `spawn_services` with the new specs (`aperio-client/src/lib.rs`). The await
+  includes the drain, so there is a window with no connection at all, by
+  construction. Meanwhile the server has already stopped routing to the old
+  one, because `routing/select.rs` filters `!c.draining`. A feature written
+  so that a reload would be invisible to visitors therefore guarantees a gap.
+  Make-before-break is the shape: open the replacement, let it declare and
+  become routable, then drain and close the one it replaces. Nothing new is
+  needed on the wire, the server already carries several connections per
+  service and load-balances across them.
+
+  **2. The old socket is dropped without a Close frame.** The loop breaks and
+  the stream is dropped; the client sends `Message::Close` nowhere. On a
+  direct connection the TCP close is noticed at once, which is why this never
+  showed up in the e2e suite. Through a proxy chain, and the reporting
+  deployment is behind Cloudflare and Traefik, an abrupt close can take
+  minutes to surface, and until it does the server believes the connection is
+  alive.
+
+  **3. Nothing on the server reaps a connection that stopped heart-beating.**
+  `last_ping_at` is recorded on every Ping and `is_healthy(client_down_threshold)`
+  reads it, but only to keep the connection out of routing. Removing the
+  handle and giving back its `active_tunnel_count` slot happens in exactly one
+  place, when the read loop ends (`tunnel/ws/upgrade.rs`), and there is no read
+  timeout on the socket. So a ghost keeps its slot, its place in the
+  organization quota and its row in the dashboard, which is the "draining with
+  nothing to drain" in the report, for as long as the operating system keeps
+  the socket. This is the smallest fix and the one that cuts every case: a
+  connection whose last Ping is older than a threshold gets closed and removed
+  on the server's own timer, whatever the socket thinks.
+
+  **4. Then the cap bites, and the backoff multiplies it.** `max_tunnels`
+  defaults to **10**, and a client holds one connection per service unless it
+  multiplexes, so a reload transiently wants 2N. With ghosts from earlier
+  reloads still holding slots the new connections are refused `503`, and the
+  client's reconnect backoff doubles to a 60 second ceiling
+  (`reconnect_delay`), so the service stays down long after the obstacle
+  cleared: in the report the third service connected on its first attempt
+  after a 59.9 second sleep. A `503` meaning "this server is full" is not the
+  same failure as a refused TCP connection, and the client already proves it
+  can tell known-transient refusals apart, `fast_reconnect` exists for the
+  server announcing its own restart.
+
+  **Also to decide, same path.** `drain_inflight_for` polls
+  `shared.inflight_requests`, which is one counter for the whole process
+  (`Shared`), so one service's in-flight work holds up an unrelated
+  connection's drain. And the count only drops when `handle_incoming_request`
+  returns, which for a streamed response means when the stream ends: an SSE
+  feed or a live log is a response that never ends, so the drain burns its
+  whole budget (default 10 seconds) on every reload, waiting for something
+  that cannot finish. The counter is also decremented by a bare `fetch_sub`
+  at the end of the spawned task rather than by a guard, so a panic on that
+  path leaks it permanently and every later reload waits the full budget.
+  Splitting this into its own id is reasonable if #156 gets long; it is
+  written here because it is the same reload and the same 10 seconds.
+
+  **Whether `max_tunnels: 10` is still the right default** belongs with it.
+  It was a file-descriptor fence from when a client was one connection; today
+  one client with a `services:` list holds one per service, and multiplexing
+  is opt-in.
+
+  **What to verify while fixing.** The e2e suite runs client and server on one
+  host, so defect 2 is invisible there and defect 3 nearly so: the reap wants
+  a test that holds a connection open and stops sending Pings, and the
+  make-before-break change wants one that reloads under load and asserts no
+  request fails, which is the promise the drain was added to keep.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
