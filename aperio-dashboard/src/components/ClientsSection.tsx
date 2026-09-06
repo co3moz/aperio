@@ -7,7 +7,7 @@ import { ClientConfigDialog } from './ClientConfigDialog'
 import { groupClientsByInstance } from '@/lib/clientGroups'
 import { EmptyRow, RecordEmpty, RecordList, RecordRow, SectionHeader, StatusDot, rowKeys } from './shared'
 import { useIsMobile } from '@/hooks/use-mobile'
-import { TintBadge } from './badges'
+import { HostLink, TintBadge } from './badges'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -76,7 +76,9 @@ function BindList({ binds, override }: { binds: string[]; override: string[] }) 
   const [primary, ...rest] = binds
   return (
     <div className="flex flex-wrap items-center gap-1">
-      <TintBadge tint="lime">{primary}</TintBadge>
+      <HostLink host={primary}>
+        <TintBadge tint="lime">{primary}</TintBadge>
+      </HostLink>
       {rest.length > 0 && (
         <Tooltip>
           <TooltipTrigger render={<span />}>
@@ -88,9 +90,9 @@ function BindList({ binds, override }: { binds: string[]; override: string[] }) 
                 {t('{count} more hostname(s) routed here', { count: rest.length })}
               </span>
               {rest.map((b) => (
-                <span key={b} className="font-mono text-xs">
-                  {b}
-                </span>
+                <HostLink key={b} host={b}>
+                  <span className="font-mono text-xs">{b}</span>
+                </HostLink>
               ))}
             </div>
           </TooltipContent>

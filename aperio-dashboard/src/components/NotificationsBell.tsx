@@ -1,5 +1,6 @@
 import { BellIcon } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -74,6 +75,24 @@ export function NotificationsBell({ notifications }: { notifications: ServerNoti
   // Newest first: a bell is read from the top.
   const rows = useMemo(() => [...notifications].reverse(), [notifications])
 
+  // The live list forgets what happened while the tab was closed; the audit
+  // log does not. Each time the panel opens, the alerts recorded since
+  // yesterday are counted there, so the bell answers "did anything fire
+  // overnight" and not only "since I loaded this page".
+  const [recentAlerts, setRecentAlerts] = useState<number | null>(null)
+  useEffect(() => {
+    if (!open) return
+    let live = true
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    api
+      .audit({ event: 'alert_triggered', from: since, limit: 500 })
+      .then((rows) => live && setRecentAlerts(rows.length))
+      .catch(() => live && setRecentAlerts(null))
+    return () => {
+      live = false
+    }
+  }, [open])
+
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
       <DropdownMenuTrigger
@@ -104,7 +123,16 @@ export function NotificationsBell({ notifications }: { notifications: ServerNoti
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80 max-w-[calc(100vw-2rem)] p-0">
         <div className="flex items-center justify-between border-b px-3 py-2">
-          <span className="text-sm font-semibold">{t('Notifications')}</span>
+          <span className="flex flex-col">
+            <span className="text-sm font-semibold">{t('Notifications')}</span>
+            {recentAlerts !== null && (
+              <span className={cn('text-xs', recentAlerts > 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground')}>
+                {recentAlerts > 0
+                  ? t('{count} alert(s) since yesterday, see the audit log', { count: recentAlerts })
+                  : t('No alerts since yesterday')}
+              </span>
+            )}
+          </span>
           {unread.length > 0 && (
             <span className="text-xs text-muted-foreground">
               {t('{count} new', { count: unread.length })}

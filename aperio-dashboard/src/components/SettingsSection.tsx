@@ -41,6 +41,7 @@ import {
 } from '@/lib/api'
 import { formatBytes, parseByteSize } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { formatRelativeTime } from '@/lib/format'
 import { useI18n } from '@/i18n'
 import {
   GROUPS,
@@ -408,6 +409,32 @@ export function SettingsSection() {
    *  the server started with. */
   const isOverridden = (key: string) => overrides[key] !== undefined && overrides[key] !== null
 
+  // Who changed an overridden setting, and when: the audit log knows, the
+  // settings document does not. `settings_updated` carries the keys it
+  // touched in its details, newest first, so the first row naming a key is
+  // its last change. Re-read whenever the document does, which is after
+  // every save.
+  const [lastChange, setLastChange] = useState<Record<string, { actor: string; timestamp: string }>>({})
+  useEffect(() => {
+    let live = true
+    api
+      .audit({ event: 'settings_updated', limit: 100 })
+      .then((rows) => {
+        if (!live) return
+        const seen: Record<string, { actor: string; timestamp: string }> = {}
+        for (const row of rows) {
+          for (const key of row.details.split(',').map((k) => k.trim())) {
+            if (key && !seen[key]) seen[key] = { actor: row.actor, timestamp: row.timestamp }
+          }
+        }
+        setLastChange(seen)
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [data])
+
   /** True when aperio-server.yaml sets this key. The file wins, so the field
    *  is shown rather than offered: typing here would be refused on save. */
   const fromFile = (key: string) => (data?.file_keys ?? []).includes(key)
@@ -417,9 +444,15 @@ export function SettingsSection() {
   const overrideControls = (f: FieldSpec) => {
     const overridden = isOverridden(f.key)
     if (!overridden) return null
+    const change = lastChange[f.key]
     return (
       <span className="inline-flex items-center gap-1">
         <TintBadge tint="amber">{t('override')}</TintBadge>
+        {change && (
+          <span className="text-xs text-muted-foreground" title={change.timestamp}>
+            {t('by {actor}, {when}', { actor: change.actor, when: formatRelativeTime(change.timestamp, t) })}
+          </span>
+        )}
         <Tooltip>
           <TooltipTrigger
             render={

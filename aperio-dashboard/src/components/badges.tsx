@@ -52,3 +52,27 @@ export function StatusBadge({ status, error }: { status: number | null; error?: 
     </TintBadge>
   )
 }
+
+/**
+ * A hostname you can open (planned_features #166): what an operator does
+ * next with a name on screen is look at the site, so the badge is a link.
+ * A pattern (`*.example.com`) is not an address and stays plain text. The
+ * click stops at the link, so a row that opens something on click does not
+ * open it too.
+ */
+export function HostLink({ host, children }: { host: string; children: React.ReactNode }) {
+  if (!host || host.includes('*')) return <>{children}</>
+  return (
+    <a
+      href={`https://${host}`}
+      target="_blank"
+      rel="noreferrer"
+      title={`https://${host}`}
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+      className="rounded-full outline-none hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {children}
+    </a>
+  )
+}

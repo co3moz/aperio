@@ -1235,4 +1235,9 @@ export const tr: Record<string, string> = {
   'Unhealthy': 'Sağlıksız',
   'Available': 'Erişilebilir',
   'Unavailable': 'Erişilemez',
+  'Run the client with it': 'İstemciyi bununla çalıştır',
+  "Replace 3000 with your service's port; the Clients page has a wizard for Docker and yaml.": '3000 yerine servisinin portunu yaz; Clients sayfasında Docker ve yaml için bir sihirbaz var.',
+  'by {actor}, {when}': '{actor} tarafından, {when}',
+  '{count} alert(s) since yesterday, see the audit log': 'Dünden beri {count} alarm, denetim günlüğüne bak',
+  'No alerts since yesterday': 'Dünden beri alarm yok',
 }

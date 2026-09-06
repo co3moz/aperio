@@ -1229,4 +1229,9 @@ export const ja: Record<string, string> = {
   'Unhealthy': '異常',
   'Available': '利用可能',
   'Unavailable': '利用不可',
+  'Run the client with it': 'これでクライアントを起動',
+  "Replace 3000 with your service's port; the Clients page has a wizard for Docker and yaml.": '3000 をサービスのポートに置き換えてください。クライアントページに Docker と yaml 用のウィザードがあります。',
+  'by {actor}, {when}': '{actor} が {when}',
+  '{count} alert(s) since yesterday, see the audit log': '昨日から {count} 件のアラート、監査ログを参照',
+  'No alerts since yesterday': '昨日からアラートはありません',
 }

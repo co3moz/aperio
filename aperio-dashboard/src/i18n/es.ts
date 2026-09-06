@@ -1231,4 +1231,9 @@ export const es: Record<string, string> = {
   'Unhealthy': 'No saludable',
   'Available': 'Disponible',
   'Unavailable': 'No disponible',
+  'Run the client with it': 'Ejecuta el cliente con él',
+  "Replace 3000 with your service's port; the Clients page has a wizard for Docker and yaml.": 'Sustituye 3000 por el puerto de tu servicio; la página Clientes tiene un asistente para Docker y yaml.',
+  'by {actor}, {when}': 'por {actor}, {when}',
+  '{count} alert(s) since yesterday, see the audit log': '{count} alerta(s) desde ayer, ver el registro de auditoría',
+  'No alerts since yesterday': 'Sin alertas desde ayer',
 }

@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Term } from './Term'
 import { toast } from 'sonner'
 import { CopyButton, EmptyRow, SectionHeader, SkeletonRows } from './shared'
-import { TintBadge, type Tint } from './badges'
+import { HostLink, TintBadge, type Tint } from './badges'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,15 +45,32 @@ import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 import { useHasRole } from '@/lib/session'
 
-function BadgeList({ items, fallback, tint }: { items: string[]; fallback: string; tint: Tint }) {
+function BadgeList({
+  items,
+  fallback,
+  tint,
+  hosts,
+}: {
+  items: string[]
+  fallback: string
+  tint: Tint
+  /** The items are hostnames: each one that is an address opens the site. */
+  hosts?: boolean
+}) {
   const shown = items.length ? items : [fallback]
   return (
     <div className="flex flex-wrap gap-1">
-      {shown.map((item) => (
-        <TintBadge key={item} tint={tint}>
-          {item}
-        </TintBadge>
-      ))}
+      {shown.map((item) =>
+        hosts ? (
+          <HostLink key={item} host={item}>
+            <TintBadge tint={tint}>{item}</TintBadge>
+          </HostLink>
+        ) : (
+          <TintBadge key={item} tint={tint}>
+            {item}
+          </TintBadge>
+        ),
+      )}
     </div>
   )
 }
@@ -345,6 +362,7 @@ function TokenFormDialog({
 // Shows the freshly created secret exactly once, with a copy button.
 function CreatedTokenDialog({ secret, onClose }: { secret: string | null; onClose: () => void }) {
   const { t } = useI18n()
+  const runLine = `aperio-client 3000 --server-url ${window.location.origin} --server-token ${secret ?? ''}`
   return (
     <Dialog
       open={secret !== null}
@@ -362,6 +380,20 @@ function CreatedTokenDialog({ secret, onClose }: { secret: string | null; onClos
             {secret}
           </code>
           <CopyButton value={secret ?? ''} size="sm" />
+        </div>
+        {/* The next thing anyone does with a token is run a client with it,
+            so the line to run is here rather than two pages away. */}
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium text-muted-foreground">{t('Run the client with it')}</span>
+          <div className="flex items-start gap-3">
+            <pre className="min-w-0 flex-1 overflow-x-auto rounded-2xl bg-muted px-3 py-2 font-mono text-xs">
+              {runLine}
+            </pre>
+            <CopyButton value={runLine} size="sm" />
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {t('Replace 3000 with your service\'s port; the Clients page has a wizard for Docker and yaml.')}
+          </span>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
@@ -474,7 +506,7 @@ export function TokensSection() {
                     <code className="font-mono text-xs">{tok.token_prefix}…</code>
                   </TableCell>
                   <TableCell>
-                    <BadgeList items={tok.hostnames} fallback="*" tint="lime" />
+                    <BadgeList items={tok.hostnames} fallback="*" tint="lime" hosts />
                   </TableCell>
                   <TableCell>
                     <BadgeList items={tok.paths} fallback="*" tint="lime" />

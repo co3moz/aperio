@@ -27,19 +27,6 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
-- [ ] **#166 Four things the panel stops one step short of.** A hostname is
-  plain text everywhere it appears (Clients, Tokens, Topology); make it a link
-  that opens the site, since that is what an operator does next. Creating a
-  token shows the secret and stops; the wizard's "run the client like this"
-  snippet belongs on that screen too, filled in with the token. A changed
-  setting says what it is now and not who changed it or when, although the
-  audit log knows; show the last `settings_updated` actor and time beside an
-  overridden field. The notification bell is live and forgets: an alert that
-  fired while the tab was closed is gone, and the bell never says "3 alerts in
-  the last 24 hours"; back the bell with the audit log's alert events so the
-  count survives a reload.
-
-
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
@@ -453,6 +440,25 @@ so.
   2025-09, with no rc since March. Neither is close.
 
 ## Completed
+
+- [x] **#166 Four things the panel stops one step short of.** A hostname is
+  plain text everywhere it appears (Clients, Tokens, Topology); make it a link
+  that opens the site, since that is what an operator does next. Creating a
+  token shows the secret and stops; the wizard's "run the client like this"
+  snippet belongs on that screen too, filled in with the token. A changed
+  setting says what it is now and not who changed it or when, although the
+  audit log knows; show the last `settings_updated` actor and time beside an
+  overridden field. The notification bell is live and forgets: an alert that
+  fired while the tab was closed is gone, and the bell never says "3 alerts in
+  the last 24 hours"; back the bell with the audit log's alert events so the
+  count survives a reload. shipped: `HostLink`
+  on the Clients and Tokens hostname badges (a pattern stays text), the
+  run line under a created token's secret, the last `settings_updated`
+  actor and time beside an overridden field, and a since-yesterday alert
+  count in the bell read from the audit log when it opens. Where it
+  differed: the Topology map's route names are SVG text and stay plain;
+  and the bell counts rather than replays, since a list of yesterday's
+  alerts is what the Audit Log already is.
 
 - [x] **#165 Keyboard, colour and the phone.** Twenty-one `aria-label`s, three
   `onKeyDown`s and one `autoFocus` across forty-five components: the tables

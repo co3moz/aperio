@@ -1212,4 +1212,9 @@ export const zh: Record<string, string> = {
   'Unhealthy': '异常',
   'Available': '可用',
   'Unavailable': '不可用',
+  'Run the client with it': '用它运行客户端',
+  "Replace 3000 with your service's port; the Clients page has a wizard for Docker and yaml.": '把 3000 换成你的服务端口；客户端页面有针对 Docker 和 yaml 的向导。',
+  'by {actor}, {when}': '由 {actor}，{when}',
+  '{count} alert(s) since yesterday, see the audit log': '自昨天起 {count} 条警报，见审计日志',
+  'No alerts since yesterday': '自昨天起无警报',
 }
