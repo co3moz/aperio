@@ -380,6 +380,45 @@ async fn a_v8_ping_declaring_one_service_is_the_shape_that_already_worked() {
   );
 }
 
+/// The reconnect wait in `proxy/forward.rs` sleeps on `client_connected`
+/// and re-asks `route_exists` each time it changes. The socket opening set
+/// the flag once, before any bind existed, so a waiter woke to no route and
+/// then slept until the gateway timeout: the flag was already `true` and
+/// nothing said it again. The first heartbeat is where the route appears,
+/// and it has to be the second thing that says so.
+#[tokio::test]
+async fn the_first_heartbeat_wakes_whoever_is_waiting_for_the_route() {
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  wait_client_id(&state).await;
+
+  // Subscribed after the connect notification, exactly like a request that
+  // woke on it, found nothing declared, and went back to waiting.
+  let mut rx = state.client_connected.subscribe();
+  rx.mark_unchanged();
+
+  send(&mut ws, &base_ping()).await;
+  tokio::time::timeout(Duration::from_secs(2), rx.changed())
+    .await
+    .expect("the first heartbeat must notify the reconnect waiters")
+    .unwrap();
+  assert!(*rx.borrow());
+  let _ = read_until_pong(&mut ws).await;
+
+  // A later heartbeat changes nothing a waiter is waiting for, so it stays
+  // quiet: the route it declares is the route that already exists.
+  rx.mark_unchanged();
+  send(&mut ws, &base_ping()).await;
+  let _ = read_until_pong(&mut ws).await;
+  assert!(
+    tokio::time::timeout(Duration::from_millis(200), rx.changed())
+      .await
+      .is_err(),
+    "a second heartbeat is not a new route"
+  );
+}
+
 #[tokio::test]
 async fn a_ping_carrying_client_health_stores_it_on_the_handle() {
   let state = Arc::new(test_state());

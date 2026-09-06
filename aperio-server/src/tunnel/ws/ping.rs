@@ -199,6 +199,9 @@ impl ConnCtx {
     // What the declarations decide but cannot do under the lock.
     let mut deferred = declare::Deferred::default();
     let mut ceiling_ctx: Option<(Option<String>, u32)> = None;
+    // Whether this Ping is the one that brings the connection's routes into
+    // being. See the notification after the lock.
+    let mut first_ping = false;
     // Bind context for the autoscaling upsert, captured under the
     // clients lock and used after it is released (the scaling store
     // must never be locked while the clients map is).
@@ -365,6 +368,7 @@ impl ConnCtx {
         if let Some(v) = version.as_ref() {
           handle.client_version = Some(v.clone());
         }
+        first_ping = handle.last_ping_at.is_none();
         handle.last_ping_at = Some(Instant::now());
 
         for (declaration, service_index) in declarations.iter().zip(indexes) {
@@ -375,6 +379,21 @@ impl ConnCtx {
         over_ceiling =
           service_connection_over_ceiling(&clients, client_id, group.as_deref(), &cid, ceiling);
       }
+    }
+
+    // A route exists from this line, not from the upgrade. The connect
+    // notification went out when the socket opened, and a request that was
+    // waiting for this client to come back woke on it, found no bind
+    // declared yet, and went back to waiting for the *next* change of the
+    // same flag, which never came: the flag was already `true`. That held
+    // the request for the whole gateway timeout while the client sat there
+    // serving. Said again here, on the heartbeat that declares the binds,
+    // so a waiter re-asks `route_exists` at the moment the answer changes.
+    // Only the first heartbeat of a connection, because that is the one that
+    // turns a connection into a route; a later one changes nothing a waiter
+    // is waiting for.
+    if first_ping {
+      state.client_connected.send_replace(true);
     }
 
     // A connection past what this token may hold for one service.

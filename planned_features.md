@@ -27,6 +27,28 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
+- [ ] **#168 A request in the gap between a client's connect and its first
+  heartbeat is refused, not held.** Found by the startup budget spec
+  (`tests/e2e/specs/timing/budget.test.ts`): the server logs "Tunnel client
+  connected" at the upgrade, and the client's binds, `public` and `auth:`
+  arrive with its first Ping a few milliseconds later. A request landing in
+  that gap finds a connected client with no bind (so `route_exists` says the
+  fallback pool is up and the reconnect wait is skipped) and a route nothing
+  has declared (so the closed posture answers its stealth `504`), and gets
+  the refusal at once. The window is milliseconds, so a visitor rarely sees
+  it, but it is the one moment a reconnecting site answers "not here" while
+  the client is right there. Treat a connection younger than its first Ping
+  as *arriving* rather than *absent*: `worth_waiting_for_route` should say
+  yes while any connection of the route's organization has connected and not
+  yet declared. The other half is done: the wait now ends on the declaration,
+  since the first heartbeat re-notifies `client_connected` (before that, a
+  request held for a *returning* client slept through the whole gateway
+  timeout, the flag it waited on being already set). What is left is the
+  first-connect case, where nothing has dropped and so nothing waits. The
+  budget spec measures time-to-first-200 and so passes either way; a phase
+  asking once, right after the connect log, is the test to write when this
+  lands.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
