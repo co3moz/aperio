@@ -200,6 +200,10 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  // An account that signs in through the identity provider only: the
+  // username is the email the provider vouches for, and there is no
+  // password to type.
+  const [sso, setSso] = useState(false)
   const [role, setRole] = useState<Role>('viewer')
   const [grants, setGrants] = useState<UserGrant[]>([{ org: 'master', role: 'viewer' }])
   const [error, setError] = useState<string | null>(null)
@@ -217,6 +221,7 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
     if (next) {
       setUsername('')
       setPassword('')
+      setSso(false)
       setRole('viewer')
       setGrants([{ org: 'master', role: 'viewer' }])
       setError(null)
@@ -226,7 +231,7 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
 
   // The server refuses a short password; saying so here costs a round-trip
   // less than being told after the click.
-  const ready = username.trim().length > 0 && password.length >= MIN_PASSWORD
+  const ready = username.trim().length > 0 && (sso || password.length >= MIN_PASSWORD)
 
   const submit = async () => {
     if (!ready || busy) return
@@ -235,7 +240,7 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
     try {
       await api.createUser({
         username: username.trim(),
-        password,
+        ...(sso ? {} : { password }),
         ...(editGrants ? { grants } : { role }),
       })
       setOpen(false)
@@ -271,16 +276,24 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
               autoComplete="off"
             />
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="user-pass">{t('Password (min. 8 characters)')}</Label>
-            <Input
-              id="user-pass"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="new-password"
-            />
-          </div>
+          <label className="flex items-center justify-between gap-3 rounded-3xl border px-4 py-3">
+            <span className="text-sm font-medium">
+              {t('Signs in through the identity provider only (no password)')}
+            </span>
+            <Switch checked={sso} onCheckedChange={setSso} />
+          </label>
+          {!sso && (
+            <div className="grid gap-2">
+              <Label htmlFor="user-pass">{t('Password (min. 8 characters)')}</Label>
+              <Input
+                id="user-pass"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+          )}
           {editGrants ? (
             <GrantsEditor value={grants} onChange={setGrants} />
           ) : (
@@ -567,9 +580,12 @@ function GrantBadges({ user }: { user: DashboardUser }) {
       {user.grants
         .filter((g) => g.org !== home)
         .map((g) => (
-          <TintBadge key={g.org} tint={g.org === '*' ? 'red' : ROLE_TINT[g.role]}>
-            <Building2Icon className="size-3" /> {label(g.org)} · {LABEL[g.role]}
-          </TintBadge>
+          <span key={g.org} title={g.source ? `${t('Group')}: ${g.source}` : undefined}>
+            <TintBadge tint={g.org === '*' ? 'red' : ROLE_TINT[g.role]}>
+              <Building2Icon className="size-3" /> {label(g.org)} · {LABEL[g.role]}
+              {g.source ? ' ·' : ''}
+            </TintBadge>
+          </span>
         ))}
     </>
   )
@@ -622,6 +638,7 @@ export function UsersSection() {
                     <span className="text-xs font-normal text-muted-foreground">{t('(you)')}</span>
                   )}
                   <RoleBadge role={u.role} />
+                  {u.sso && <TintBadge tint="blue">SSO</TintBadge>}
                   <GrantBadges user={u} />
                   {u.enabled ? (
                     <TintBadge tint="green">{t('active')}</TintBadge>

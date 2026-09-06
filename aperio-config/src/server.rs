@@ -642,6 +642,15 @@ pub struct ServerFileConfig {
   pub oidc_redirect_url: Option<String>,
   /// Deprecated spelling of `oidc.client_secret` (env: APERIO_OIDC_CLIENT_SECRET).
   pub oidc_client_secret: Option<String>,
+  /// Flat spelling of `oidc.default_grants` (env: APERIO_OIDC_DEFAULT_GRANTS).
+  #[schemars(extend("examples" = [["master:viewer"]]))]
+  pub oidc_default_grants: Option<Vec<String>>,
+  /// Flat spelling of `oidc.groups_claim` (env: APERIO_OIDC_GROUPS_CLAIM).
+  #[schemars(extend("examples" = ["groups"]))]
+  pub oidc_groups_claim: Option<String>,
+  /// Flat spelling of `oidc.group_grants` (env: APERIO_OIDC_GROUP_GRANTS).
+  #[schemars(extend("examples" = [["aperio-admins=master:admin", "auditors=*:viewer"]]))]
+  pub oidc_group_grants: Option<Vec<String>>,
 
   // --- Structured sections (read directly, not env-mapped) ---
   /// Server-wide request/response header rewrite rules applied to all traffic.

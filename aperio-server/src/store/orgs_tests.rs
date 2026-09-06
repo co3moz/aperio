@@ -184,6 +184,8 @@ fn test_set_oidc_set_and_clear() {
     client_id: "cid".into(),
     client_secret: "secret".into(),
     allowed_emails: vec!["*@example.com".into()],
+    default_role: Some(crate::store::users::Role::Admin),
+    group_grants: Vec::new(),
   };
   let updated = store.set_oidc(&org.id, Some(oidc)).unwrap();
   assert_eq!(

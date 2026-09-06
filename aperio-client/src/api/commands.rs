@@ -454,9 +454,10 @@ pub(crate) struct UserCreateArgs {
   /// Login name
   #[arg(long, value_name = "USERNAME")]
   pub(crate) username: String,
-  /// Password, at least 8 characters; `-` reads it from stdin
+  /// Password, at least 8 characters; `-` reads it from stdin. Omit it for an
+  /// account that signs in through the identity provider only
   #[arg(long, value_name = "PASSWORD")]
-  pub(crate) password: String,
+  pub(crate) password: Option<String>,
   /// Role: viewer, operator, or admin, in the organization you are acting in
   #[arg(long, value_name = "ROLE", required_unless_present = "grants")]
   pub(crate) role: Option<String>,
@@ -548,6 +549,14 @@ pub(crate) struct OrgOidcArgs {
   /// Email address allowed to sign in; repeat for several
   #[arg(long = "allowed-email", value_name = "EMAIL")]
   pub(crate) allowed_emails: Vec<String>,
+  /// What an email with no record is granted here at its first login:
+  /// admin (the default), operator, viewer, or none
+  #[arg(long = "default-role", value_name = "ROLE")]
+  pub(crate) default_role: Option<String>,
+  /// What a value of the provider's groups claim means here, `<group>=<role>`;
+  /// repeat for several
+  #[arg(long = "group-grant", value_name = "GROUP=ROLE")]
+  pub(crate) group_grants: Vec<String>,
 }
 
 #[derive(Args)]

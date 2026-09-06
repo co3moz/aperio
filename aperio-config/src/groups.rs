@@ -213,6 +213,23 @@ pub struct OidcGroup {
   /// OIDC redirect URL override.
   #[schemars(extend("examples" = ["https://tunnel.example.com/aperio/oidc/callback"]))]
   pub redirect_url: Option<String>,
+  /// What an email with no dashboard user record is granted at its first
+  /// login, as `<org>:<role>` entries: `<org>` is a child organization's
+  /// handle or id, `master`, or `*` for every organization. Empty (the
+  /// default) means the login is refused until an admin grants something;
+  /// `master:admin` is what a global login was before 0.12.0.
+  #[schemars(extend("examples" = [["master:viewer"], ["master:admin"]]))]
+  pub default_grants: Option<Vec<String>>,
+  /// The claim that carries the directory's groups, read from userinfo and
+  /// then from the ID token. Default: `groups`.
+  #[schemars(extend("examples" = ["groups", "roles"]))]
+  pub groups_claim: Option<String>,
+  /// What each group means, as `<group>=<org>:<role>`. Applied at every
+  /// login: a grant the map produces is written, one it produced before and
+  /// no longer does is taken back, and a grant an admin wrote by hand is
+  /// left alone unless the map names the same organization.
+  #[schemars(extend("examples" = [["aperio-admins=master:admin", "acme-ops=acme:operator", "auditors=*:viewer"]]))]
+  pub group_grants: Option<Vec<String>>,
 }
 
 /// OpenTelemetry trace export.

@@ -440,6 +440,8 @@ fn oidc_req(
     client_id: client_id.into(),
     client_secret: client_secret.into(),
     allowed_emails: allowed_emails.into_iter().map(String::from).collect(),
+    default_role: None,
+    group_grants: Vec::new(),
   })
 }
 
@@ -1082,4 +1084,91 @@ async fn deleting_an_organization_strips_the_grants_that_named_it() {
     .map(|g| g.label())
     .collect();
   assert_eq!(labels, vec![format!("{acme}:admin")]);
+}
+
+// ---------------------------------------------------------------------------
+// per-organization OIDC grant policy (planned_features.md #154)
+// ---------------------------------------------------------------------------
+
+fn oidc_policy_req(default_role: Option<&str>, group_grants: &[&str]) -> Json<OrgOidcRequest> {
+  Json(OrgOidcRequest {
+    issuer: "https://issuer.example".into(),
+    client_id: "cid".into(),
+    client_secret: "secret".into(),
+    allowed_emails: vec!["*@acme.com".into()],
+    default_role: default_role.map(str::to_string),
+    group_grants: group_grants.iter().map(|s| s.to_string()).collect(),
+  })
+}
+
+#[tokio::test]
+async fn the_org_oidc_policy_is_stored_and_validated() {
+  let state = Arc::new(test_state());
+  let org_id = make_org(&state, "acme").await;
+  let stored = |state: &Arc<AppState>| {
+    let state = state.clone();
+    let org_id = org_id.clone();
+    async move {
+      state
+        .org_store
+        .lock()
+        .await
+        .find(&org_id)
+        .unwrap()
+        .oidc
+        .clone()
+        .unwrap()
+    }
+  };
+
+  // Absent means Admin, what such a login always was.
+  let resp = orgs_oidc_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    admin_headers(&state).await,
+    Path(org_id.clone()),
+    oidc_policy_req(None, &[]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert_eq!(stored(&state).await.default_role, Some(Role::Admin));
+
+  // `none` is nothing until an admin grants it; a map entry is kept as
+  // written.
+  let resp = orgs_oidc_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    admin_headers(&state).await,
+    Path(org_id.clone()),
+    oidc_policy_req(
+      Some("none"),
+      &["acme-ops=operator", " acme-admins = admin "],
+    ),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  let cfg = stored(&state).await;
+  assert_eq!(cfg.default_role, None);
+  assert_eq!(
+    cfg.group_grants,
+    vec!["acme-ops=operator", "acme-admins = admin"]
+  );
+
+  // A role that is not one, and a map entry that names no role, are refused.
+  for (role, map) in [
+    (Some("root"), vec![]),
+    (None, vec!["acme-ops"]),
+    (None, vec!["=admin"]),
+    (None, vec!["acme-ops=owner"]),
+  ] {
+    let resp = orgs_oidc_handler(
+      State(state.clone()),
+      ConnectInfo(test_peer()),
+      admin_headers(&state).await,
+      Path(org_id.clone()),
+      oidc_policy_req(role, &map),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "{role:?} {map:?}");
+  }
 }

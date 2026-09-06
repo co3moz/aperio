@@ -198,10 +198,12 @@ pub(crate) fn build_call(
     ApiCommand::User(UserCmd::Create(a)) => {
       let mut body = Map::new();
       body.insert("username".into(), Value::String(a.username.clone()));
-      body.insert(
-        "password".into(),
-        Value::String(read_maybe_stdin(&a.password)?),
-      );
+      if let Some(password) = &a.password {
+        body.insert(
+          "password".into(),
+          Value::String(read_maybe_stdin(password)?),
+        );
+      }
       put_opt(&mut body, "role", a.role.clone());
       if !a.grants.is_empty() {
         body.insert("grants".into(), Value::Array(parse_grants(&a.grants)?));
@@ -265,6 +267,8 @@ pub(crate) fn build_call(
         "client_id": a.client_id.clone().unwrap_or_default(),
         "client_secret": a.client_secret.clone().unwrap_or_default(),
         "allowed_emails": a.allowed_emails.clone(),
+        "default_role": a.default_role.clone(),
+        "group_grants": a.group_grants.clone(),
       }),
     ),
     ApiCommand::Org(OrgCmd::Usage { id }) => Call::get(format!("/aperio/api/orgs/{}/usage", id)),

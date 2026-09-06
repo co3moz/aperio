@@ -197,6 +197,40 @@ pub struct ConfigChange {
 /// recorded here in the same commit that makes it (see CLAUDE.md).
 pub const CONFIG_CHANGES: &[ConfigChange] = &[
   ConfigChange {
+    // Written mid-cycle before the release number is known; corrected at
+    // the release (CLAUDE.md rule 19). Until then it is dormant, which is
+    // what an unreleased change should be.
+    version: "0.12.0",
+    surface: ConfigSurface::Server,
+    // `Breaking`, not `Security`: nothing the file claims to protect stops
+    // being protected, the opposite happened. A file that configures OIDC
+    // and says nothing about grants used to make every allowed email the
+    // super-admin; now such an email is refused a session until something
+    // is granted to it, and the operator who relied on "allowed email means
+    // admin" has to write that down. `Always`, because the people affected
+    // are precisely the ones who never wrote the new key.
+    severity: ChangeSeverity::Breaking,
+    applies: Applies::Always,
+    fields: &[
+      "oidc.default_grants",
+      "oidc.group_grants",
+      "oidc.groups_claim",
+      "oidc.allowed_emails",
+      "oidc_allowed_emails",
+    ],
+    summary: "a global OIDC login is no longer the super-admin: an email with no dashboard user \
+              record is granted `oidc.default_grants`, empty by default, and is refused a session \
+              until something reaches it",
+    action: "if OIDC is configured, decide what a signed-in email should be. Create a dashboard \
+              user record per person ahead of their login, with the grants they need, or map the \
+              provider's groups with `oidc.group_grants` (`<group>=<org>:<role>`), or set \
+              `oidc.default_grants` (`master:admin` restores exactly what every allowed email got \
+              before). An email that reaches nothing is told to ask an administrator, and a record \
+              is created for it so the grant has a name to land on. Per-organization OIDC is \
+              unchanged by default (Admin in its organization) and can now be narrowed with \
+              `default_role` and `group_grants` on the organization.",
+  },
+  ConfigChange {
     version: "0.11.0",
     surface: ConfigSurface::Server,
     // `Migration`, not `Breaking`. This widens what a file already allows, so

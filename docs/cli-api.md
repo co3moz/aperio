@@ -154,6 +154,7 @@ aperio-client api inbox clear
 aperio-client api user list
 aperio-client api user create --username alice --password - --role operator
 aperio-client api user create --username carol --password - --grant <acme-id>:admin --grant <beta-id>:viewer   # from master: one user, several organizations
+aperio-client api user create --username alice@example.com --grant <acme-id>:admin              # no --password: signs in through the identity provider only
 aperio-client api user update <id> [--role viewer] [--grant <org>:<role> ...] [--disable] [--password -]
 aperio-client api user delete <id>
 aperio-client api user sessions
@@ -165,7 +166,7 @@ aperio-client api org create --name acme [--hostname acme.com,*.acme.example.com
 aperio-client api org hostnames <id> [--hostname "*.acme.example.com"]
 aperio-client api org quota <id> [--max-clients 10] [--max-tokens 20] [--max-users 5] [--max-bytes-month 0]
 aperio-client api org custom-name <id> [--name "Acme Inc."]   # omit --name to show the handle again
-aperio-client api org oidc <id> [--issuer https://idp.example.com --client-id ... --client-secret ... --allowed-email a@acme.com]
+aperio-client api org oidc <id> [--issuer https://idp.example.com --client-id ... --client-secret ... --allowed-email a@acme.com] [--default-role none] [--group-grant acme-ops=operator]
 aperio-client api org usage <id>
 aperio-client api org delete <id>
 aperio-client api org select [<id>]

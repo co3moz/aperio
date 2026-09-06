@@ -144,9 +144,28 @@ A server-assigned **random subdomain** is exempt: the tenant cannot influence wh
 
 Set it from the dashboard in Organizations → the gauge icon → *Allowed hostnames*, or in the create dialog.
 
-## Per-organization OIDC (SSO)
+## OIDC: identity is the provider's, authorization is Aperio's
 
-An organization can bring its own identity provider. Configure its issuer, client id/secret, and allowed emails (`PUT /aperio/api/orgs/{id}/oidc`, or the OIDC panel in the org's quota dialog), then its members sign in at `/aperio/oidc/login?org=<id>`. The resulting session is **bound to that organization**, the user is an admin *within* their org (their tokens, users, and traffic) but never the master super-admin, and cannot switch to other orgs. It is a dashboard identity: it also carries its holder past the visitor gate, but only on hostnames their own organization serves. Organizations without an override fall back to the global `APERIO_OIDC_*` (yaml `oidc_*`) settings.
+An OIDC login is matched to a **dashboard user record by email**. The identity provider says who this is; the record says what they may do, under exactly the [grant rules](#grants-one-user-several-organizations) above. The record is the same row a named user has, with no password: create it ahead of the first login from the Users page (*Signs in through the identity provider only*) or with `aperio-client api user create --username alice@example.com --grant <acme-id>:admin`, which is how a fleet admin wants it, the person exists with the grants already written before they sign in.
+
+- **An email with no record** gets `oidc.default_grants` (`APERIO_OIDC_DEFAULT_GRANTS`, `<org>:<role>` entries, `*` and `master` allowed), empty by default. Empty means the login is refused with a message to ask an administrator, and a record is created anyway, with no grants, so the grant has a name to land on; it shows on the Users page as an SSO account. `master:admin` restores what every allowed email got before 0.12.0.
+- **A directory that is the source of truth** maps its groups: `oidc.groups_claim` (`APERIO_OIDC_GROUPS_CLAIM`, default `groups`) names the claim, read from userinfo and then from the ID token, and `oidc.group_grants` (`APERIO_OIDC_GROUP_GRANTS`) says what each value means, `<group>=<org>:<role>`, for example `aperio-admins=master:admin, acme-ops=acme:operator, auditors=*:viewer`. At every login the map is applied to the record: a grant the map produces is written, one it produced before and no longer does is taken back, and a grant an admin wrote by hand is left alone unless the map names the same organization, where the directory wins. Every grant a login writes or removes is an audit event (`user_grant_added`, `user_grant_removed`) naming the group that caused it.
+- **The honest limit:** a person removed from a group loses the access at their **next login**, not before, and a session lasts a day. A deployment that needs it sooner disables the record, which ends every session at once.
+- **The allowed-emails list stays** as the gate in front of all of this: it is what keeps the provider's whole tenant from signing in at all. `*` through a group claim is still `*`, so the map is server configuration and a per-organization table cannot name it.
+
+### Per-organization OIDC (SSO)
+
+An organization can bring its own identity provider. Configure its issuer, client id/secret, and allowed emails (`PUT /aperio/api/orgs/{id}/oidc`, or the OIDC panel in the org's quota dialog), then its members sign in at `/aperio/oidc/login?org=<id>`. The record such a login matches or creates **lives in that organization**, so the organization's own admins manage it, and the session is **bound to that organization**: whatever else the record holds, it acts there and nowhere else, never as the master super-admin, and cannot switch. Two more fields say what the tenant's people get:
+
+- `default_role`: what an email with no record is granted in the organization at its first login, `admin` (the default, what such a login always was), `operator`, `viewer`, or `none` for nothing until an admin grants it;
+- `group_grants`: `<group>=<role>` entries, the same map as above with the organization fixed, so a tenant's directory hands out roles inside the tenant and nothing beyond.
+
+```bash
+aperio-client api org oidc <id> --issuer https://idp.acme.com --client-id ... --client-secret ... \
+  --allowed-email '*@acme.com' --default-role none --group-grant acme-ops=operator --group-grant acme-admins=admin
+```
+
+It is a dashboard identity: it also carries its holder past the visitor gate, but only on hostnames their own organization serves. Organizations without an override fall back to the global `APERIO_OIDC_*` (yaml `oidc.*`) settings.
 
 ## Runnable examples
 

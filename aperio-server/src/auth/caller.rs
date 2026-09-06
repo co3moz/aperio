@@ -182,14 +182,36 @@ pub(crate) async fn resolve_caller(state: &AppState, headers: &HeaderMap) -> Opt
     };
     if let Some((username, selected, bound_org, role)) = session {
       // A session fixed to an organization is fixed whatever else it says:
-      // that is the per-organization OIDC login, and it is read before the
-      // username so no row sharing the name can widen it.
+      // that is the per-organization OIDC login. Its record, when it has one,
+      // is read for the role in that organization and nothing else, so a
+      // row sharing the name cannot widen it past the organization whose
+      // identity provider vouched for it.
       let identity = if let Some(org) = bound_org {
-        Some(Identity::Oidc {
-          email: username.unwrap_or_default(),
-          bound_org: Some(org),
-          role,
-        })
+        let users = state.users.lock().await;
+        match username
+          .as_deref()
+          .and_then(|name| users.find_by_username(name))
+        {
+          Some(user) => Some(Identity::Named {
+            username: user.username.clone(),
+            grants: user
+              .role_in(Some(&org))
+              .map(|role| vec![Grant::new(GrantOrg::Child(org.clone()), role)])
+              .unwrap_or_default(),
+          }),
+          None
+            if username
+              .as_deref()
+              .is_some_and(|name| users.is_disabled_username(name)) =>
+          {
+            None
+          }
+          None => Some(Identity::Oidc {
+            email: username.unwrap_or_default(),
+            bound_org: Some(org),
+            role,
+          }),
+        }
       } else {
         match username {
           None => Some(Identity::BuiltIn { role }),

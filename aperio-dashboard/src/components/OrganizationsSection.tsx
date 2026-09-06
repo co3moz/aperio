@@ -451,7 +451,14 @@ function EditOrgDialog({ org, onSaved }: { org: Organization; onSaved: () => voi
 // session to this org. The secret is write-only; empty issuer clears the config.
 function OidcForm({ org }: { org: Organization }) {
   const { t } = useI18n()
-  const [f, setF] = useState({ issuer: '', clientId: '', clientSecret: '', emails: '' })
+  const [f, setF] = useState({
+    issuer: '',
+    clientId: '',
+    clientSecret: '',
+    emails: '',
+    defaultRole: 'admin',
+    groupGrants: '',
+  })
   const [busy, setBusy] = useState(false)
 
   const save = async () => {
@@ -462,6 +469,11 @@ function OidcForm({ org }: { org: Organization }) {
         client_id: f.clientId.trim(),
         client_secret: f.clientSecret,
         allowed_emails: f.emails
+          .split(',')
+          .map((e) => e.trim())
+          .filter(Boolean),
+        default_role: f.defaultRole,
+        group_grants: f.groupGrants
           .split(',')
           .map((e) => e.trim())
           .filter(Boolean),
@@ -504,6 +516,25 @@ function OidcForm({ org }: { org: Organization }) {
           placeholder={t('Allowed emails (comma)')}
           value={f.emails}
           onChange={(e) => setF((s) => ({ ...s, emails: e.target.value }))}
+        />
+        {/* What an email nothing was granted to gets at its first login.
+            Admin is what such a login always was; `none` means the login is
+            refused until an admin grants something on the Users page. */}
+        <select
+          className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+          aria-label={t('Default role for a new email')}
+          value={f.defaultRole}
+          onChange={(e) => setF((s) => ({ ...s, defaultRole: e.target.value }))}
+        >
+          <option value="admin">{t('Default role for a new email')}: {t('Admin')}</option>
+          <option value="operator">{t('Default role for a new email')}: {t('Operator')}</option>
+          <option value="viewer">{t('Default role for a new email')}: {t('Viewer')}</option>
+          <option value="none">{t('Default role for a new email')}: {t('None (grant by hand)')}</option>
+        </select>
+        <Input
+          placeholder={t('Group grants (group=role, comma-separated)')}
+          value={f.groupGrants}
+          onChange={(e) => setF((s) => ({ ...s, groupGrants: e.target.value }))}
         />
       </div>
       <Button size="sm" className="mt-2" onClick={save} disabled={busy}>

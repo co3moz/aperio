@@ -3585,6 +3585,12 @@ the machine-readable catalogue, which is the one that cannot drift.
 \rowsep
 \code{APERIO\_OIDC\_REDIRECT\_URL} & Fixed callback URL; otherwise derived from the request \code{Host} (and \code{X-Forwarded-Proto} when \code{APERIO\_TRUST\_PROXY=1}). Recommended to set explicitly. & derived \\
 \rowsep
+\code{APERIO\_OIDC\_DEFAULT\_GRANTS} & What an email with no dashboard user record is granted at its first login, comma-separated \code{<org>:<role>} entries. Empty means the login is refused until an administrator grants something; \code{master:admin} is what every allowed email got before 0.12.0. Yaml: \code{oidc.default\_grants}. & empty \\
+\rowsep
+\code{APERIO\_OIDC\_GROUPS\_CLAIM} & The claim that carries the provider's groups, read from userinfo and then from the ID token. Yaml: \code{oidc.groups\_claim}. & \code{groups} \\
+\rowsep
+\code{APERIO\_OIDC\_GROUP\_GRANTS} & What each group means, comma-separated \code{<group>=<org>:<role>} entries, applied at every login: produced grants are written, ones no longer produced are taken back, hand-written ones are left alone. Yaml: \code{oidc.group\_grants}. & empty \\
+\rowsep
 \bottomrule
 \end{longtable}
 

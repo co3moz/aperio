@@ -52,6 +52,30 @@ pub(crate) async fn resolve_org_oidc(
     return Some(rt.clone());
   }
   let cfg = state.org_store.lock().await.find(org_id)?.oidc.clone()?;
+  // The tenant's directory hands out roles inside the tenant and nothing
+  // beyond: every grant here names this organization, whatever the table
+  // says, and `*` cannot be written into it.
+  let here = crate::store::grants::GrantOrg::Child(org_id.to_string());
+  let group_grants = cfg
+    .group_grants
+    .iter()
+    .filter_map(|entry| {
+      let (group, role) = entry.split_once('=')?;
+      let role = Role::parse(role)?;
+      Some((
+        group.trim().to_string(),
+        crate::store::grants::Grant::new(here.clone(), role),
+      ))
+    })
+    .collect();
+  let grants = crate::oidc::OidcGrantPolicy {
+    default_grants: cfg
+      .default_role
+      .map(|role| vec![crate::store::grants::Grant::new(here.clone(), role)])
+      .unwrap_or_default(),
+    groups_claim: String::new(),
+    group_grants,
+  };
   match crate::oidc::build_runtime(
     &state.config().outbound_policy,
     &cfg.issuer,
@@ -60,6 +84,7 @@ pub(crate) async fn resolve_org_oidc(
     cfg.allowed_emails.clone(),
     "openid email profile".to_string(),
     None,
+    grants,
   )
   .await
   {
@@ -266,8 +291,14 @@ pub(crate) async fn oidc_callback_handler(
   #[derive(Deserialize)]
   struct TokenResponse {
     access_token: String,
+    /// The ID token, when the provider sends one: read for the groups claim
+    /// when userinfo does not carry it. It came from the token endpoint over
+    /// TLS, the same trust the userinfo answer gets, so its payload is read
+    /// without a signature check, and nothing in it decides who this is.
+    #[serde(default)]
+    id_token: Option<String>,
   }
-  let access_token = match token_res {
+  let (access_token, id_token) = match token_res {
     // Bounded while it is read, like every other answer the server takes from
     // somewhere it does not run: an endpoint that decides how much memory a
     // login costs is an endpoint that can end the process.
@@ -276,7 +307,7 @@ pub(crate) async fn oidc_callback_handler(
         .await
         .and_then(|body| serde_json::from_str::<TokenResponse>(&body).ok())
       {
-        Some(t) => t.access_token,
+        Some(t) => (t.access_token, t.id_token),
         None => {
           error!("OIDC token response was unreadable, oversized, or not a token response");
           return (StatusCode::BAD_GATEWAY, "OIDC token exchange failed").into_response();
@@ -293,25 +324,22 @@ pub(crate) async fn oidc_callback_handler(
     }
   };
 
-  // Fetch the verified identity from the issuer (trusted via TLS).
-  #[derive(Deserialize)]
-  struct UserInfo {
-    email: Option<String>,
-    #[serde(default)]
-    email_verified: Option<bool>,
-  }
+  // Fetch the verified identity from the issuer (trusted via TLS). Read as
+  // a document rather than a fixed shape, because the groups claim is named
+  // by configuration.
   let userinfo = http
     .get(&rt.userinfo_endpoint)
     .bearer_auth(&access_token)
     .send()
     .await;
-  let (email, email_verified) = match userinfo {
+  let info: serde_json::Value = match userinfo {
     Ok(res) if res.status().is_success() => {
       match crate::outbound::read_bounded(res, OIDC_MAX_ANSWER_BYTES)
         .await
-        .and_then(|body| serde_json::from_str::<UserInfo>(&body).ok())
+        .and_then(|body| serde_json::from_str::<serde_json::Value>(&body).ok())
+        .filter(|v| v.is_object())
       {
-        Some(u) => (u.email.unwrap_or_default(), u.email_verified),
+        Some(v) => v,
         None => {
           error!("OIDC userinfo was unreadable, oversized, or not a userinfo document");
           return (StatusCode::BAD_GATEWAY, "OIDC userinfo failed").into_response();
@@ -322,6 +350,20 @@ pub(crate) async fn oidc_callback_handler(
       return (StatusCode::BAD_GATEWAY, "OIDC userinfo failed").into_response();
     }
   };
+  let email = info
+    .get("email")
+    .and_then(|v| v.as_str())
+    .unwrap_or_default()
+    .to_string();
+  let email_verified = info.get("email_verified").and_then(|v| v.as_bool());
+  // The directory's groups: from userinfo, else from the ID token's payload.
+  let groups = claim_values(&info, rt.grants.claim()).unwrap_or_else(|| {
+    id_token
+      .as_deref()
+      .and_then(jwt_payload)
+      .and_then(|payload| claim_values(&payload, rt.grants.claim()))
+      .unwrap_or_default()
+  });
 
   // Refuse an identity the IdP explicitly reports as unverified: the allowlist
   // is keyed on email, so without this an attacker who can set an arbitrary
@@ -371,18 +413,40 @@ pub(crate) async fn oidc_callback_handler(
       .into_response();
   }
 
+  // The identity provider has said who this is. What they may do is the
+  // record's to say (`planned_features.md` #154): matched by email, created
+  // at the first login with the policy's default grants, and kept in step
+  // with the groups claim through the map. A record nothing reaches gets no
+  // session: the login is refused with a message that says an admin has to
+  // grant something, rather than a dashboard that shows nothing.
+  let role_at_home = match settle_record(
+    &state,
+    &rt,
+    &email,
+    bound_org.as_deref(),
+    &groups,
+    &caller_ip.to_string(),
+  )
+  .await
+  {
+    Ok(role) => role,
+    Err(resp) => return resp,
+  };
+
   info!("OIDC login success for {}", email);
   state
-    .audit(
+    .audit_in(
       "oidc_login_success",
       &email,
       &caller_ip.to_string(),
-      &format!("email={}", email),
+      bound_org.clone(),
+      &format!("email={} groups={}", email, groups.join("|")),
     )
     .await;
 
-  // Create a global session identical to the password login flow. OIDC
-  // logins are allowlisted identities and act as admins.
+  // Create a global session identical to the password login flow. The role
+  // recorded here is informational: what the dashboard enforces is read
+  // from the record on every request.
   let session_token = uuid::Uuid::new_v4().to_string();
   state.sessions.lock().await.insert(
     &session_token,
@@ -395,10 +459,10 @@ pub(crate) async fn oidc_callback_handler(
       plane: crate::store::sessions::Plane::Admin,
       scope_host: None,
       username: Some(email.clone()),
-      role: Role::Admin,
+      role: role_at_home,
       selected_org: None,
-      // A per-org login is fixed to that org (an org-scoped admin, never the
-      // master super-admin); a global OIDC login stays master.
+      // A per-org login is fixed to that org, whatever its record holds
+      // elsewhere; a global OIDC login is what its record says.
       bound_org: bound_org.clone(),
     },
   );
@@ -409,6 +473,213 @@ pub(crate) async fn oidc_callback_handler(
     .header("Location", redirect_after)
     .body(Body::empty())
     .unwrap()
+}
+
+/// The values of claim `name` in a claims document: an array of strings, or
+/// one string. `None` when the claim is absent, so a caller can look
+/// somewhere else.
+fn claim_values(doc: &serde_json::Value, name: &str) -> Option<Vec<String>> {
+  match doc.get(name)? {
+    serde_json::Value::Array(items) => Some(
+      items
+        .iter()
+        .filter_map(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect(),
+    ),
+    serde_json::Value::String(s) => Some(
+      s.split([',', ' '])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect(),
+    ),
+    _ => None,
+  }
+}
+
+/// The payload of a JWT, decoded and parsed, signature not checked: see the
+/// note on `id_token` above for why that is acceptable here and for what it
+/// is used for, which is never the identity.
+fn jwt_payload(token: &str) -> Option<serde_json::Value> {
+  use base64::prelude::*;
+  let payload = token.split('.').nth(1)?;
+  let bytes = BASE64_URL_SAFE_NO_PAD.decode(payload).ok()?;
+  serde_json::from_slice(&bytes).ok()
+}
+
+/// Matches the login to its dashboard user record, creating one at the first
+/// login, applies the group map, and answers with the role at home for the
+/// session to record. `Err` is the response to send instead of a session: a
+/// record nothing reaches.
+///
+/// A per-organization login lives in that organization: its record has that
+/// home, its default grant names it, and its map cannot name anything else.
+#[allow(clippy::result_large_err)] // see api/tokens.rs
+async fn settle_record(
+  state: &AppState,
+  rt: &crate::oidc::OidcRuntime,
+  email: &str,
+  bound_org: Option<&str>,
+  groups: &[String],
+  ip: &str,
+) -> Result<Role, Response> {
+  use crate::store::grants::{self, Grant, GrantOrg};
+  // A grant in a config file may name an organization by handle; the store
+  // knows them by id. Resolved against a snapshot, so no two stores are
+  // locked at once.
+  let orgs: Vec<(String, String)> = state
+    .org_store
+    .lock()
+    .await
+    .list()
+    .iter()
+    .map(|o| (o.id.clone(), o.name.clone()))
+    .collect();
+  let resolve = |g: Grant| -> Grant {
+    let GrantOrg::Child(name) = &g.org else {
+      return g;
+    };
+    match orgs
+      .iter()
+      .find(|(id, handle)| id == name || handle.eq_ignore_ascii_case(name))
+    {
+      Some((id, _)) => Grant {
+        org: GrantOrg::Child(id.clone()),
+        ..g
+      },
+      None => g,
+    }
+  };
+  let mapped: Vec<Grant> = rt.grants.mapped(groups).into_iter().map(resolve).collect();
+  let defaults: Vec<Grant> = rt
+    .grants
+    .default_grants
+    .iter()
+    .cloned()
+    .map(resolve)
+    .collect();
+
+  let mut users = state.users.lock().await;
+  let (id, before, created) = match users.find_by_username(email) {
+    Some(user) => (user.id.clone(), user.grants.clone(), false),
+    None => {
+      // A disabled record is a refusal, not a new account under the same
+      // name: `find_by_username` skips disabled rows on purpose.
+      if users.is_disabled_username(email) {
+        return Err(
+          (
+            StatusCode::FORBIDDEN,
+            "403 Forbidden - This account is disabled",
+          )
+            .into_response(),
+        );
+      }
+      let user = users
+        .create_sso(email, bound_org.map(str::to_string), defaults)
+        .map_err(crate::api::users::user_error)?;
+      (user.id.clone(), user.grants.clone(), true)
+    }
+  };
+  // The map owns what it produces; with no map, the record is what an admin
+  // wrote and stays so. At a first login the defaults count as added too,
+  // so the audit line says where every grant came from.
+  let (next, mut added, removed) = if rt.grants.group_grants.is_empty() && !created {
+    (before.clone(), Vec::new(), Vec::new())
+  } else {
+    grants::apply_group_map(&before, mapped)
+  };
+  if created {
+    for g in &next {
+      if !added.contains(g) {
+        added.push(g.clone());
+      }
+    }
+  }
+  let user = if next != before {
+    users
+      .set_grants_from_login(&id, next)
+      .map_err(crate::api::users::user_error)?
+  } else {
+    users.get(&id).cloned().expect("looked up above")
+  };
+  drop(users);
+
+  let via = |g: &Grant, fallback: &str| match &g.source {
+    Some(group) => format!("group:{group}"),
+    None => fallback.to_string(),
+  };
+  for g in &added {
+    state
+      .audit_in(
+        "user_grant_added",
+        email,
+        ip,
+        bound_org.map(str::to_string),
+        &format!(
+          "username={} org={} role={} via={}",
+          email,
+          g.org.as_str(),
+          g.role.as_str(),
+          via(g, "oidc_default")
+        ),
+      )
+      .await;
+  }
+  for g in &removed {
+    state
+      .audit_in(
+        "user_grant_removed",
+        email,
+        ip,
+        bound_org.map(str::to_string),
+        &format!(
+          "username={} org={} role={} via={}",
+          email,
+          g.org.as_str(),
+          g.role.as_str(),
+          via(g, "oidc_map")
+        ),
+      )
+      .await;
+  }
+
+  // What the session may act in: the whole record for a global login, this
+  // organization alone for a per-organization one.
+  let reaches = match bound_org {
+    Some(org) => user.role_in(Some(org)).is_some(),
+    None => !user.grants.is_empty(),
+  };
+  if !reaches {
+    warn!(
+      "OIDC login for {} refused: the record reaches nothing{}",
+      email,
+      if created {
+        " (created at this login)"
+      } else {
+        ""
+      }
+    );
+    state
+      .audit_in(
+        "oidc_login_denied",
+        email,
+        ip,
+        bound_org.map(str::to_string),
+        &format!("email={} no_grants=true created={}", email, created),
+      )
+      .await;
+    return Err(
+      (
+        StatusCode::FORBIDDEN,
+        "403 Forbidden - Your identity was verified, but no organization has been granted to this \
+         account yet. Ask an Aperio administrator to grant one on the Users page.",
+      )
+        .into_response(),
+    );
+  }
+  Ok(user.role_in(user.org_id.as_deref()).unwrap_or(Role::Viewer))
 }
 
 /// Validates a redirect path to prevent open redirect attacks.

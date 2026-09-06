@@ -3587,6 +3587,47 @@
           "null"
         ]
       },
+      "oidc_default_grants": {
+        "description": "Flat spelling of `oidc.default_grants` (env: APERIO_OIDC_DEFAULT_GRANTS).",
+        "type": [
+          "array",
+          "null"
+        ],
+        "examples": [
+          [
+            "master:viewer"
+          ]
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "oidc_group_grants": {
+        "description": "Flat spelling of `oidc.group_grants` (env: APERIO_OIDC_GROUP_GRANTS).",
+        "type": [
+          "array",
+          "null"
+        ],
+        "examples": [
+          [
+            "aperio-admins=master:admin",
+            "auditors=*:viewer"
+          ]
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "oidc_groups_claim": {
+        "description": "Flat spelling of `oidc.groups_claim` (env: APERIO_OIDC_GROUPS_CLAIM).",
+        "type": [
+          "string",
+          "null"
+        ],
+        "examples": [
+          "groups"
+        ]
+      },
       "oidc_issuer": {
         "description": "Deprecated spelling of `oidc.issuer` (env: APERIO_OIDC_ISSUER).",
         "type": [
@@ -5575,6 +5616,52 @@
             ],
             "examples": [
               "s3cret-from-your-provider"
+            ]
+          },
+          "default_grants": {
+            "description": "What an email with no dashboard user record is granted at its first\nlogin, as `<org>:<role>` entries: `<org>` is a child organization's\nhandle or id, `master`, or `*` for every organization. Empty (the\ndefault) means the login is refused until an admin grants something;\n`master:admin` is what a global login was before 0.12.0.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "examples": [
+              [
+                "master:viewer"
+              ],
+              [
+                "master:admin"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "group_grants": {
+            "description": "What each group means, as `<group>=<org>:<role>`. Applied at every\nlogin: a grant the map produces is written, one it produced before and\nno longer does is taken back, and a grant an admin wrote by hand is\nleft alone unless the map names the same organization.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "examples": [
+              [
+                "aperio-admins=master:admin",
+                "acme-ops=acme:operator",
+                "auditors=*:viewer"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "groups_claim": {
+            "description": "The claim that carries the directory's groups, read from userinfo and\nthen from the ID token. Default: `groups`.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "groups",
+              "roles"
             ]
           },
           "issuer": {

@@ -81,7 +81,7 @@ async fn list_returns_only_effective_org_users() {
 fn create_req(username: &str, password: &str, role: &str) -> Json<UserCreateRequest> {
   Json(UserCreateRequest {
     username: username.to_string(),
-    password: password.to_string(),
+    password: Some(password.to_string()),
     role: Some(role.to_string()),
     grants: None,
   })
@@ -793,7 +793,7 @@ fn grant(org: &str, role: &str) -> GrantRequest {
 fn create_with_grants(username: &str, grants: Vec<GrantRequest>) -> Json<UserCreateRequest> {
   Json(UserCreateRequest {
     username: username.to_string(),
-    password: "long-password".to_string(),
+    password: Some("long-password".to_string()),
     role: None,
     grants: Some(grants),
   })

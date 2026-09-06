@@ -99,17 +99,145 @@ impl<'de> Deserialize<'de> for GrantOrg {
 pub struct Grant {
   pub org: GrantOrg,
   pub role: Role,
+  /// Where this grant came from when it was not written by hand: the group
+  /// claim value an OIDC login mapped it from (`planned_features.md` #154).
+  /// A mapped grant is the directory's to take back at the next login; a
+  /// hand-written one is left alone by the map.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub source: Option<String>,
 }
 
 impl Grant {
   pub fn new(org: GrantOrg, role: Role) -> Grant {
-    Grant { org, role }
+    Grant {
+      org,
+      role,
+      source: None,
+    }
+  }
+
+  /// A grant an OIDC group claim produced.
+  pub fn mapped(org: GrantOrg, role: Role, group: &str) -> Grant {
+    Grant {
+      org,
+      role,
+      source: Some(group.to_string()),
+    }
   }
 
   /// `acme:operator`, the spelling audit records and the CLI use.
   pub fn label(&self) -> String {
     format!("{}:{}", self.org.as_str(), self.role.as_str())
   }
+
+  /// The inverse of [`Grant::label`]: `<org>:<role>`, where `<org>` is a
+  /// child id or handle, `master`, or `*`. The role is the last segment, so
+  /// nothing an organization is called may contain a colon, which a handle
+  /// cannot anyway.
+  pub fn parse(raw: &str) -> Result<Grant, String> {
+    let Some((org, role)) = raw.trim().rsplit_once(':') else {
+      return Err(format!("a grant is written <org>:<role>, got {raw:?}"));
+    };
+    let Some(role) = Role::parse(role) else {
+      return Err(format!(
+        "unknown role {role:?} in {raw:?}: viewer, operator, or admin"
+      ));
+    };
+    if org.trim().is_empty() {
+      return Err(format!("a grant is written <org>:<role>, got {raw:?}"));
+    }
+    Ok(Grant::new(GrantOrg::parse(org), role))
+  }
+}
+
+/// A comma-separated list of `<org>:<role>` grants, as an environment
+/// variable carries it. Empty in, empty out.
+pub fn parse_list(raw: &str) -> Result<Vec<Grant>, String> {
+  raw
+    .split(',')
+    .map(str::trim)
+    .filter(|s| !s.is_empty())
+    .map(Grant::parse)
+    .collect()
+}
+
+/// A comma-separated list of `<group>=<org>:<role>` entries: what a value of
+/// the OIDC groups claim means. The group is everything before the first
+/// `=`, so a group name may not contain one.
+pub fn parse_group_map(raw: &str) -> Result<Vec<(String, Grant)>, String> {
+  raw
+    .split(',')
+    .map(str::trim)
+    .filter(|s| !s.is_empty())
+    .map(|entry| {
+      let Some((group, grant)) = entry.split_once('=') else {
+        return Err(format!(
+          "a group mapping is written <group>=<org>:<role>, got {entry:?}"
+        ));
+      };
+      let group = group.trim();
+      if group.is_empty() {
+        return Err(format!(
+          "a group mapping is written <group>=<org>:<role>, got {entry:?}"
+        ));
+      }
+      Grant::parse(grant).map(|g| (group.to_string(), g))
+    })
+    .collect()
+}
+
+/// Applies what a login's group claims mapped to onto a record's grants.
+///
+/// The map owns what it produced: a grant it produces now is written, a grant
+/// it produced before and no longer does is removed, and a grant written by
+/// hand (no `source`) is left alone unless the map now names the same
+/// organization, where the directory wins. Returns the new list and what
+/// changed, `(next, added, removed)`, for the audit log; nothing here is
+/// persisted.
+pub fn apply_group_map(
+  current: &[Grant],
+  mapped: Vec<Grant>,
+) -> (Vec<Grant>, Vec<Grant>, Vec<Grant>) {
+  let mut next: Vec<Grant> = Vec::new();
+  let mut added = Vec::new();
+  let mut removed = Vec::new();
+  // Hand-written grants stay unless the map names their organization.
+  for g in current.iter().filter(|g| g.source.is_none()) {
+    if mapped.iter().any(|m| m.org == g.org) {
+      removed.push(g.clone());
+    } else {
+      next.push(g.clone());
+    }
+  }
+  // Mapped grants from before stay only while the map still produces them.
+  for g in current.iter().filter(|g| g.source.is_some()) {
+    if !mapped
+      .iter()
+      .any(|m| m.org == g.org && m.role == g.role && m.source == g.source)
+    {
+      removed.push(g.clone());
+    }
+  }
+  for m in mapped {
+    let unchanged = current
+      .iter()
+      .any(|g| g.org == m.org && g.role == m.role && g.source == m.source);
+    if !unchanged {
+      added.push(m.clone());
+    }
+    // Two groups naming one organization: the higher role wins, so a person
+    // in both the viewers and the admins of Acme is an Admin there.
+    match next.iter_mut().find(|g| g.org == m.org) {
+      Some(have) if have.source.is_some() => {
+        if m.role > have.role {
+          *have = m;
+        }
+      }
+      Some(have) => *have = m,
+      None => next.push(m),
+    }
+  }
+  (next, added, removed)
 }
 
 /// The single grant `*` Admin: what the built-in account holds, and what a

@@ -158,3 +158,88 @@ fn diff_reports_a_role_change_as_remove_plus_add() {
   let (added, removed) = diff(&after, &after);
   assert!(added.is_empty() && removed.is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// the text spellings and the login map (planned_features.md #154)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_grant_parses_from_org_colon_role_and_nothing_else() {
+  assert_eq!(
+    Grant::parse("acme:operator").unwrap(),
+    child("acme", Role::Operator)
+  );
+  assert_eq!(
+    Grant::parse(" master:admin ").unwrap(),
+    Grant::new(GrantOrg::Master, Role::Admin)
+  );
+  assert_eq!(
+    Grant::parse("*:viewer").unwrap(),
+    Grant::new(GrantOrg::All, Role::Viewer)
+  );
+  for bad in ["acme", "acme:", ":admin", "acme:root", ""] {
+    assert!(Grant::parse(bad).is_err(), "{bad:?} parsed");
+  }
+  assert_eq!(
+    parse_list(" master:viewer, acme:admin ,").unwrap(),
+    vec![
+      Grant::new(GrantOrg::Master, Role::Viewer),
+      child("acme", Role::Admin)
+    ]
+  );
+  assert!(parse_list("").unwrap().is_empty());
+  assert!(parse_list("acme").is_err());
+}
+
+#[test]
+fn a_group_map_parses_group_equals_grant() {
+  let map = parse_group_map("aperio-admins=master:admin, acme-ops=acme:operator,auditors=*:viewer")
+    .unwrap();
+  assert_eq!(map.len(), 3);
+  assert_eq!(map[0].0, "aperio-admins");
+  assert_eq!(map[1].1, child("acme", Role::Operator));
+  assert_eq!(map[2].1, Grant::new(GrantOrg::All, Role::Viewer));
+  assert!(parse_group_map("").unwrap().is_empty());
+  for bad in ["ops", "=acme:admin", "ops=acme", "ops=acme:root"] {
+    assert!(parse_group_map(bad).is_err(), "{bad:?} parsed");
+  }
+}
+
+#[test]
+fn the_map_owns_what_it_produced_and_leaves_hand_written_grants_alone() {
+  let by_hand = Grant::new(GrantOrg::Master, Role::Viewer);
+  let ops = Grant::mapped(GrantOrg::Child("acme".into()), Role::Admin, "ops");
+  let aud = Grant::mapped(GrantOrg::All, Role::Viewer, "aud");
+
+  // First login: both groups.
+  let (next, added, removed) = apply_group_map(
+    std::slice::from_ref(&by_hand),
+    vec![ops.clone(), aud.clone()],
+  );
+  assert_eq!(next, vec![by_hand.clone(), ops.clone(), aud.clone()]);
+  assert_eq!(added, vec![ops.clone(), aud.clone()]);
+  assert!(removed.is_empty());
+
+  // Second login: out of the ops group. The mapped grant goes, the hand one
+  // stays, and the unchanged mapped one is neither added nor removed.
+  let (next, added, removed) = apply_group_map(&next, vec![aud.clone()]);
+  assert_eq!(next, vec![by_hand.clone(), aud.clone()]);
+  assert!(added.is_empty());
+  assert_eq!(removed, vec![ops.clone()]);
+
+  // The directory wins over a hand-written grant in the organization it
+  // names, and says so as a removal plus an addition.
+  let mapped_master = Grant::mapped(GrantOrg::Master, Role::Admin, "aperio-admins");
+  let (next, added, removed) = apply_group_map(&next, vec![aud.clone(), mapped_master.clone()]);
+  assert_eq!(next, vec![aud.clone(), mapped_master.clone()]);
+  assert_eq!(added, vec![mapped_master.clone()]);
+  assert_eq!(removed, vec![by_hand.clone()]);
+
+  // Two groups naming one organization: the higher role wins.
+  let low = Grant::mapped(GrantOrg::Child("acme".into()), Role::Viewer, "acme-all");
+  let high = Grant::mapped(GrantOrg::Child("acme".into()), Role::Admin, "acme-admins");
+  let (next, _, _) = apply_group_map(&[], vec![low.clone(), high.clone()]);
+  assert_eq!(next, vec![high.clone()]);
+  let (next, _, _) = apply_group_map(&[], vec![high.clone(), low.clone()]);
+  assert_eq!(next, vec![high]);
+}

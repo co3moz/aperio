@@ -547,6 +547,14 @@ pub(crate) struct OrgOidcRequest {
   pub(crate) client_secret: String,
   #[serde(default)]
   pub(crate) allowed_emails: Vec<String>,
+  /// The role an email with no record gets in this organization at its
+  /// first login: `admin` (the default, what such a login always was),
+  /// `operator`, `viewer`, or `none` for nothing until an admin grants it.
+  #[serde(default)]
+  pub(crate) default_role: Option<String>,
+  /// What each value of the groups claim means here, `<group>=<role>`.
+  #[serde(default)]
+  pub(crate) group_grants: Vec<String>,
 }
 
 /// Sets or clears a child org's OIDC SSO override (master super-admin only).
@@ -595,11 +603,45 @@ pub(crate) async fn orgs_oidc_handler(
       )
         .into_response();
     }
+    let default_role = match payload.default_role.as_deref().map(str::trim) {
+      None | Some("") | Some("admin") => Some(crate::store::users::Role::Admin),
+      Some("none") => None,
+      Some(raw) => match crate::store::users::Role::parse(raw) {
+        Some(role) => Some(role),
+        None => {
+          return (
+            StatusCode::BAD_REQUEST,
+            "default_role must be admin, operator, viewer, or none",
+          )
+            .into_response();
+        }
+      },
+    };
+    let mut group_grants = Vec::new();
+    for entry in &payload.group_grants {
+      let entry = entry.trim();
+      if entry.is_empty() {
+        continue;
+      }
+      let ok = entry.split_once('=').is_some_and(|(g, r)| {
+        !g.trim().is_empty() && crate::store::users::Role::parse(r).is_some()
+      });
+      if !ok {
+        return (
+          StatusCode::BAD_REQUEST,
+          format!("group_grants entries are written <group>=<role>, got {entry:?}"),
+        )
+          .into_response();
+      }
+      group_grants.push(entry.to_string());
+    }
     Some(crate::store::orgs::OrgOidc {
       issuer: payload.issuer.trim().to_string(),
       client_id: payload.client_id.trim().to_string(),
       client_secret: payload.client_secret,
       allowed_emails,
+      default_role,
+      group_grants,
     })
   };
   let configured = oidc.is_some();

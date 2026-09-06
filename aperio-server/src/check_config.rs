@@ -464,6 +464,26 @@ pub(crate) fn run() -> i32 {
     (None, Some(_)) => r.fail("APERIO_OIDC_CLIENT_ID is set but APERIO_OIDC_ISSUER is missing"),
     (None, None) => {}
   }
+  // The grant spellings: a value that does not parse would refuse the start,
+  // and a mapping silently dropped would be a person silently not granted.
+  if let Some(raw) = env("APERIO_OIDC_DEFAULT_GRANTS") {
+    match crate::store::grants::parse_list(&raw) {
+      Ok(list) => r.ok(&format!(
+        "APERIO_OIDC_DEFAULT_GRANTS parses ({} grant(s))",
+        list.len()
+      )),
+      Err(e) => r.fail(&format!("APERIO_OIDC_DEFAULT_GRANTS: {e}")),
+    }
+  }
+  if let Some(raw) = env("APERIO_OIDC_GROUP_GRANTS") {
+    match crate::store::grants::parse_group_map(&raw) {
+      Ok(map) => r.ok(&format!(
+        "APERIO_OIDC_GROUP_GRANTS parses ({} group(s))",
+        map.len()
+      )),
+      Err(e) => r.fail(&format!("APERIO_OIDC_GROUP_GRANTS: {e}")),
+    }
+  }
 
   // --- Data dir ---
   if let Some(dir) = env("APERIO_DATA_DIR") {

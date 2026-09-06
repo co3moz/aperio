@@ -541,6 +541,9 @@ export interface ReachableOrg {
 export interface UserGrant {
   org: string
   role: Role
+  /** The identity provider's group this grant was mapped from, when it was
+   *  not written by hand; the map takes it back when the group is gone. */
+  source?: string | null
 }
 
 /** An organization as listed for the master super-admin. */
@@ -593,6 +596,11 @@ export interface OrgOidcPayload {
   client_id: string
   client_secret: string
   allowed_emails: string[]
+  /** What an email with no record is granted here at its first login:
+   *  `admin` (the default), `operator`, `viewer`, or `none`. */
+  default_role?: string
+  /** What each value of the provider's groups claim means here, `group=role`. */
+  group_grants?: string[]
 }
 
 /** One armed autoscaling record, with the live state of its pool. */
@@ -658,6 +666,8 @@ export interface DashboardUser {
   org_id: string | null
   /** What this user may do, per organization. */
   grants: UserGrant[]
+  /** Signs in through the identity provider only: no password. */
+  sso: boolean
 }
 
 export interface LiveSession {
@@ -850,7 +860,7 @@ export const api = {
     mutate(`/me/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   createUser: (payload: {
     username: string
-    password: string
+    password?: string
     role?: Role
     grants?: UserGrant[]
   }) => request<DashboardUser>('/users', json('POST', payload)),

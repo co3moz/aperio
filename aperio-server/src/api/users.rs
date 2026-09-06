@@ -26,13 +26,20 @@ fn user_view(u: &User) -> serde_json::Value {
     "totp": u.totp_secret.is_some(),
     "org_id": u.org_id,
     "grants": grants_view(&u.grants),
+    "sso": u.sso(),
   })
 }
 
 fn grants_view(grants: &[Grant]) -> Vec<serde_json::Value> {
   grants
     .iter()
-    .map(|g| serde_json::json!({ "org": g.org.as_str(), "role": g.role.as_str() }))
+    .map(|g| {
+      serde_json::json!({
+        "org": g.org.as_str(),
+        "role": g.role.as_str(),
+        "source": g.source,
+      })
+    })
     .collect()
 }
 
@@ -227,8 +234,11 @@ pub(crate) fn user_error(e: UserError) -> axum::response::Response {
 #[derive(Deserialize, utoipa::ToSchema)]
 pub(crate) struct UserCreateRequest {
   pub(crate) username: String,
-  /// At least 8 characters.
-  pub(crate) password: String,
+  /// At least 8 characters. Omit it for an account that signs in through
+  /// the identity provider only: the username is then the email the
+  /// provider vouches for, and nothing typed at the login form verifies.
+  #[serde(default)]
+  pub(crate) password: Option<String>,
   /// One of `viewer`, `operator`, `admin`: the role in the organization the
   /// caller is acting in. The one-grant spelling; `grants` is the general one
   /// and wins when both are sent.
@@ -297,7 +307,10 @@ pub(crate) async fn users_create_handler(
           .into_response();
       }
     }
-    users.create_with_grants(&payload.username, &payload.password, org, grants)
+    match &payload.password {
+      Some(password) => users.create_with_grants(&payload.username, password, org, grants),
+      None => users.create_sso(&payload.username, org, grants),
+    }
   };
   match created {
     Ok(user) => {

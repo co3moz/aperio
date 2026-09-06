@@ -154,67 +154,6 @@ there is nothing to build, whatever *Recurring checks* holds.
   their org's name on the login form and no other tenant's credentials
   accepted on it. And nothing existing changes: a deployment that never
   sets either setting is byte-for-byte where it is today.
-- [ ] **#154 OIDC identity is the provider's, authorization is Aperio's:
-  grants on a record matched by email, then a claim-to-grant map.** A global
-  OIDC login creates a session with `Role::Admin` and no organization, so
-  every address on the allowed-emails list is the super-admin, the same
-  hole [[#153]] closes for named users, wearing an identity provider. A
-  per-organization OIDC login is an Admin inside its organization, which is
-  at least fenced, but still the top role, for everyone, with no way to say
-  less. Aperio speaks OIDC only; LDAP reaches it, in practice, through an
-  identity provider that fronts the directory, Keycloak, Authentik, Dex,
-  and arrives as a group claim, so this entry is what "an LDAP user's
-  permissions" means here.
-
-  **First half: the record.** An OIDC login is matched to a dashboard user
-  by email and takes the grants on that record, under exactly the rules of
-  #153; the identity provider says who this is, the record says what they
-  may do. The record is the same `User` row with no password, created from
-  the Users page or `aperio-client api user` ahead of the first login,
-  which is how a fleet admin wants it: the person exists in Aperio before
-  they sign in, with the grants already written. An email with no record
-  gets a configurable default, `oidc_default_grants` (`APERIO_OIDC_DEFAULT_GRANTS`),
-  empty by default, which means the login succeeds and sees nothing until
-  somebody grants something, and never means Admin anywhere. The
-  allowed-emails list stays as the gate in front of all of this, since it is
-  what keeps the provider's whole tenant from signing in at all.
-
-  **Second half: the map.** For a deployment that wants the directory to be
-  the source of truth, a claim-to-grant map: `oidc_groups_claim`
-  (`APERIO_OIDC_GROUPS_CLAIM`, default `groups`) names the claim, and a
-  table in yaml, `oidc_group_grants`, says what each value means,
-  `aperio-acme-admin` is `acme: admin`, `aperio-auditors` is `*: viewer`.
-  Per-organization OIDC gets the same table on its org record, restricted
-  to grants inside that organization, so a tenant's directory can hand out
-  Viewer and Operator to its own people and nothing beyond. On each login
-  the map is applied to the record: grants the map produces are written,
-  grants it stopped producing are removed, and grants an admin wrote by
-  hand are left alone, marked as such, so a person removed from a group in
-  the directory loses the access at their next login and not before. That
-  "not before" is the honest limit of a login-time map, and it is said in
-  the docs next to the session lifetime; a deployment that needs it faster
-  disables the user, which [[#153]] already makes immediate.
-
-  **What does not change.** The two halves compose and neither replaces
-  the other: the map only fills the record, and a deployment with no map
-  has a record per person, which is the smaller and more auditable setup
-  and the one to build first. `*` through a group claim is still `*`, so
-  the mapping table is master-only to write, and a per-org table cannot
-  name it. Every grant a login writes or removes is an audit event naming
-  the claim value that caused it, so "why does this person have Operator
-  in Acme" has an answer that points at the directory.
-
-  **Surfaces.** The two settings and the two tables in yaml, env for the
-  scalars per the configuration rules, the docs table, the book, and the
-  OIDC section of `docs/organizations.md`. No `CONFIG_CHANGES` entry for
-  the map, which is additive, but one for the global login's default:
-  today's file says nothing and gets a super-admin, the new one gets an
-  empty grant set, and an operator who relied on "allowed email means
-  admin" must write `master: admin` into `oidc_default_grants` to keep it.
-  That is a changed default, so `Always`, and `Breaking` rather than
-  `Security`, since nothing the file claims to protect stops being
-  protected; it is the opposite.
-
 - [ ] **#155 A gate that is Aperio's own login, so a route can say "sign in"
   without inventing a password.** [[#108]] abolished the throwaway
   `auth: DUMMY:DUMMY`, and it came back through the other door. Under
@@ -933,6 +872,83 @@ so.
   2025-09, with no rc since March. Neither is close.
 
 ## Completed
+
+- [x] **#154 OIDC identity is the provider's, authorization is Aperio's:
+  grants on a record matched by email, then a claim-to-grant map.** shipped,
+  both halves at once: the record matched by email and created at the first
+  login (`create_sso`, no password, grants may be empty), `oidc.default_grants`,
+  `oidc.groups_claim` and `oidc.group_grants` with their env spellings, the
+  map applied at every login through `grants::apply_group_map` with the
+  group written on the grant as its `source`, `default_role` and
+  `group_grants` on the organization's OIDC record, the `CONFIG_CHANGES`
+  entry for the changed default, the `--check-config` validation, the CLI
+  and dashboard fields, and a record that reaches nothing refused with a
+  message rather than handed a session to a dashboard that shows nothing.
+  Where it differed from the plan: the groups claim is read from the ID
+  token too when userinfo has none, since that is where most providers put
+  it; a per-organization login keeps Admin as its default (`none` narrows
+  it), since that login was already fenced and narrowing it on an upgrade
+  would lock tenants out; and a bound session reads its record for the role
+  in its organization only, so a record granted elsewhere cannot be widened
+  by a tenant's provider. The original entry: A global
+  OIDC login creates a session with `Role::Admin` and no organization, so
+  every address on the allowed-emails list is the super-admin, the same
+  hole [[#153]] closes for named users, wearing an identity provider. A
+  per-organization OIDC login is an Admin inside its organization, which is
+  at least fenced, but still the top role, for everyone, with no way to say
+  less. Aperio speaks OIDC only; LDAP reaches it, in practice, through an
+  identity provider that fronts the directory, Keycloak, Authentik, Dex,
+  and arrives as a group claim, so this entry is what "an LDAP user's
+  permissions" means here.
+
+  **First half: the record.** An OIDC login is matched to a dashboard user
+  by email and takes the grants on that record, under exactly the rules of
+  #153; the identity provider says who this is, the record says what they
+  may do. The record is the same `User` row with no password, created from
+  the Users page or `aperio-client api user` ahead of the first login,
+  which is how a fleet admin wants it: the person exists in Aperio before
+  they sign in, with the grants already written. An email with no record
+  gets a configurable default, `oidc_default_grants` (`APERIO_OIDC_DEFAULT_GRANTS`),
+  empty by default, which means the login succeeds and sees nothing until
+  somebody grants something, and never means Admin anywhere. The
+  allowed-emails list stays as the gate in front of all of this, since it is
+  what keeps the provider's whole tenant from signing in at all.
+
+  **Second half: the map.** For a deployment that wants the directory to be
+  the source of truth, a claim-to-grant map: `oidc_groups_claim`
+  (`APERIO_OIDC_GROUPS_CLAIM`, default `groups`) names the claim, and a
+  table in yaml, `oidc_group_grants`, says what each value means,
+  `aperio-acme-admin` is `acme: admin`, `aperio-auditors` is `*: viewer`.
+  Per-organization OIDC gets the same table on its org record, restricted
+  to grants inside that organization, so a tenant's directory can hand out
+  Viewer and Operator to its own people and nothing beyond. On each login
+  the map is applied to the record: grants the map produces are written,
+  grants it stopped producing are removed, and grants an admin wrote by
+  hand are left alone, marked as such, so a person removed from a group in
+  the directory loses the access at their next login and not before. That
+  "not before" is the honest limit of a login-time map, and it is said in
+  the docs next to the session lifetime; a deployment that needs it faster
+  disables the user, which [[#153]] already makes immediate.
+
+  **What does not change.** The two halves compose and neither replaces
+  the other: the map only fills the record, and a deployment with no map
+  has a record per person, which is the smaller and more auditable setup
+  and the one to build first. `*` through a group claim is still `*`, so
+  the mapping table is master-only to write, and a per-org table cannot
+  name it. Every grant a login writes or removes is an audit event naming
+  the claim value that caused it, so "why does this person have Operator
+  in Acme" has an answer that points at the directory.
+
+  **Surfaces.** The two settings and the two tables in yaml, env for the
+  scalars per the configuration rules, the docs table, the book, and the
+  OIDC section of `docs/organizations.md`. No `CONFIG_CHANGES` entry for
+  the map, which is additive, but one for the global login's default:
+  today's file says nothing and gets a super-admin, the new one gets an
+  empty grant set, and an operator who relied on "allowed email means
+  admin" must write `master: admin` into `oidc_default_grants` to keep it.
+  That is a changed default, so `Always`, and `Breaking` rather than
+  `Security`, since nothing the file claims to protect stops being
+  protected; it is the opposite.
 
 - [x] **#153 Per-organization grants on a dashboard user, instead of one
   role in one organization.** shipped: `grants` on the user record and on

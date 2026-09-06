@@ -127,6 +127,7 @@ async fn build_runtime_rejects_empty_issuer() {
     vec!["*".into()],
     "openid".into(),
     None,
+    OidcGrantPolicy::default(),
   )
   .await
   .err()
@@ -144,6 +145,7 @@ async fn build_runtime_rejects_missing_client_credentials() {
     vec!["*".into()],
     "openid".into(),
     None,
+    OidcGrantPolicy::default(),
   )
   .await
   .err()
@@ -158,6 +160,7 @@ async fn build_runtime_rejects_missing_client_credentials() {
     vec!["*".into()],
     "openid".into(),
     None,
+    OidcGrantPolicy::default(),
   )
   .await
   .err()
@@ -175,6 +178,7 @@ async fn build_runtime_rejects_empty_allowed_emails() {
     Vec::new(),
     "openid".into(),
     None,
+    OidcGrantPolicy::default(),
   )
   .await
   .err()
@@ -197,6 +201,7 @@ async fn build_runtime_success_trims_issuer_and_maps_endpoints() {
     vec!["a@x.com".into()],
     "openid email".into(),
     Some("https://app.example/callback".into()),
+    OidcGrantPolicy::default(),
   )
   .await
   .expect("runtime should build");
@@ -229,6 +234,7 @@ async fn build_runtime_errors_on_non_200_discovery() {
     vec!["*".into()],
     "openid".into(),
     None,
+    OidcGrantPolicy::default(),
   )
   .await
   .err()
@@ -252,6 +258,7 @@ async fn build_runtime_errors_on_connection_refused() {
     vec!["*".into()],
     "openid".into(),
     None,
+    OidcGrantPolicy::default(),
   )
   .await
   .err()
@@ -270,6 +277,7 @@ async fn build_runtime_errors_on_malformed_json() {
     vec!["*".into()],
     "openid".into(),
     None,
+    OidcGrantPolicy::default(),
   )
   .await
   .err()
@@ -291,6 +299,7 @@ async fn build_runtime_errors_when_userinfo_missing() {
     vec!["*".into()],
     "openid".into(),
     None,
+    OidcGrantPolicy::default(),
   )
   .await
   .err()
@@ -392,6 +401,7 @@ async fn the_issuer_goes_through_the_outbound_policy() {
     vec!["*".into()],
     "openid".into(),
     None,
+    OidcGrantPolicy::default(),
   )
   .await
   .err()

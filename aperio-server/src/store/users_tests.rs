@@ -530,7 +530,9 @@ fn import_converts_rows_from_an_older_dump() {
   let legacy = User {
     id: "u1".into(),
     username: "root".into(),
-    password_hash: String::new(),
+    // Every account from before grants existed had a password; an empty hash
+    // is an identity-provider account, which is never an old row.
+    password_hash: "$argon2id$v=19$m=19456,t=2,p=1$c2FsdA$aGFzaA".into(),
     role: Role::Admin,
     org_id: None,
     grants: Vec::new(),
@@ -544,5 +546,41 @@ fn import_converts_rows_from_an_older_dump() {
   };
   assert_eq!(store.import(vec![legacy]), 1);
   assert_eq!(labels(&store.list()[0]), vec!["*:admin"]);
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_sso_record_has_no_password_and_may_start_with_nothing() {
+  let dir = temp_dir();
+  let mut store = UserStore::load(&dir);
+  let rec = store
+    .create_sso("sso@example.com", None, Vec::new())
+    .unwrap();
+  assert!(rec.sso());
+  assert!(rec.grants.is_empty());
+  assert_eq!(rec.role, Role::Viewer, "the compatibility role at home");
+  assert!(
+    store.verify("sso@example.com", "").is_none()
+      && store.verify("sso@example.com", "anything").is_none(),
+    "nothing typed at the login form verifies"
+  );
+  // The name is taken like any other.
+  assert!(
+    store
+      .create_sso("SSO@example.com", None, Vec::new())
+      .is_err()
+  );
+  // A login may leave the list empty; an admin may not.
+  let id = rec.id.clone();
+  assert!(store.set_grants_from_login(&id, Vec::new()).is_ok());
+  assert!(matches!(
+    store.set_grants(&id, Vec::new()),
+    Err(UserError::Invalid(_))
+  ));
+  // And the record survives a reload as it was.
+  let again = UserStore::load(&dir);
+  let back = again.get(&id).unwrap();
+  assert!(back.sso());
+  assert!(back.grants.is_empty());
   let _ = std::fs::remove_dir_all(&dir);
 }

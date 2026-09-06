@@ -109,6 +109,12 @@ impl User {
     grants::role_in(&self.grants, org)
   }
 
+  /// True for an account that signs in through the identity provider only:
+  /// it has no password hash, so nothing typed at the login form verifies.
+  pub fn sso(&self) -> bool {
+    self.password_hash.is_empty()
+  }
+
   /// The home organization as a grant target.
   pub fn home(&self) -> GrantOrg {
     GrantOrg::from_org_id(self.org_id.as_deref())
@@ -122,13 +128,21 @@ impl User {
   }
 }
 
+/// True for a row written before grants existed: no grants, and a password,
+/// which every account had back then. An account that signs in through the
+/// identity provider has no password and may hold no grants yet, and that is
+/// a real record, not an old one.
+fn is_legacy_row(u: &User) -> bool {
+  u.grants.is_empty() && !u.sso()
+}
+
 /// Gives every row without grants the grants it stood for, and returns the
 /// usernames that came out wider than a single organization: the master
 /// Admins, who become `*` Admin. Called on load and on import, so a dump
 /// from an older release converts the same way a database does.
 fn convert_legacy_rows(users: &mut [User]) -> Vec<String> {
   let mut widened = Vec::new();
-  for u in users.iter_mut().filter(|u| u.grants.is_empty()) {
+  for u in users.iter_mut().filter(|u| is_legacy_row(u)) {
     let (grants, wide) = grants::legacy_grants(u.role, u.org_id.as_deref());
     u.grants = grants;
     if wide {
@@ -219,7 +233,7 @@ impl UserStore {
     if !users.is_empty() {
       info!("Loaded {} dashboard user(s) from the store", users.len());
     }
-    let converted = users.iter().filter(|u| u.grants.is_empty()).count();
+    let converted = users.iter().filter(|u| is_legacy_row(u)).count();
     let widened = convert_legacy_rows(&mut users);
     let mut store = UserStore {
       conn,
@@ -306,6 +320,34 @@ impl UserStore {
     grants: Vec<Grant>,
   ) -> Result<User, UserError> {
     let grants = grants::normalize(grants).map_err(UserError::Invalid)?;
+    self.create_record(username, Some(password), org_id, grants)
+  }
+
+  /// Creates an account that signs in through the identity provider only: no
+  /// password, and possibly no grants yet, which is the record an OIDC login
+  /// leaves behind for an email nothing has been granted to, so an admin can
+  /// grant something to a name that exists (`planned_features.md` #154).
+  pub fn create_sso(
+    &mut self,
+    username: &str,
+    org_id: Option<String>,
+    grants: Vec<Grant>,
+  ) -> Result<User, UserError> {
+    let grants = if grants.is_empty() {
+      Vec::new()
+    } else {
+      grants::normalize(grants).map_err(UserError::Invalid)?
+    };
+    self.create_record(username, None, org_id, grants)
+  }
+
+  fn create_record(
+    &mut self,
+    username: &str,
+    password: Option<&str>,
+    org_id: Option<String>,
+    grants: Vec<Grant>,
+  ) -> Result<User, UserError> {
     let name = username.trim();
     if name.is_empty() {
       return Err(UserError::Invalid("username is required".into()));
@@ -324,15 +366,20 @@ impl UserStore {
         name
       )));
     }
-    if password.len() < 8 {
-      return Err(UserError::Invalid(
-        "password must be at least 8 characters".into(),
-      ));
-    }
+    let password_hash = match password {
+      Some(p) if p.len() < 8 => {
+        return Err(UserError::Invalid(
+          "password must be at least 8 characters".into(),
+        ));
+      }
+      Some(p) => hash_password(p).map_err(UserError::Invalid)?,
+      // Nothing verifies against an empty hash, which is the point.
+      None => String::new(),
+    };
     let mut user = User {
       id: uuid::Uuid::new_v4().to_string(),
       username: name.to_string(),
-      password_hash: hash_password(password).map_err(UserError::Invalid)?,
+      password_hash,
       role: Role::Viewer,
       org_id,
       grants,
@@ -355,6 +402,23 @@ impl UserStore {
   /// caller may make this change is the API's question.
   pub fn set_grants(&mut self, id: &str, grants: Vec<Grant>) -> Result<User, UserError> {
     let grants = grants::normalize(grants).map_err(UserError::Invalid)?;
+    self.set_grants_raw(id, grants)
+  }
+
+  /// Replaces a user's grants as an OIDC login's group map produced them,
+  /// which may be nothing at all: a person removed from every group keeps
+  /// the record and loses the access, and the login that found this out has
+  /// already been refused a session.
+  pub fn set_grants_from_login(&mut self, id: &str, grants: Vec<Grant>) -> Result<User, UserError> {
+    let grants = if grants.is_empty() {
+      Vec::new()
+    } else {
+      grants::normalize(grants).map_err(UserError::Invalid)?
+    };
+    self.set_grants_raw(id, grants)
+  }
+
+  fn set_grants_raw(&mut self, id: &str, grants: Vec<Grant>) -> Result<User, UserError> {
     self.commit(|store| {
       let user = store
         .users

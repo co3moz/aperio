@@ -249,6 +249,21 @@ pub struct OrgOidc {
   pub client_secret: String,
   /// Allowed email patterns (exact, `*@domain`, or `*`).
   pub allowed_emails: Vec<String>,
+  /// The role an email with no record is granted in this organization at
+  /// its first login; `None` = nothing until an admin grants something. Reads
+  /// as Admin on a row written before the field existed, which is what such a
+  /// login was, so no tenant is locked out by an upgrade.
+  #[serde(default = "legacy_default_role")]
+  pub default_role: Option<super::users::Role>,
+  /// What each value of the groups claim means here, `<group>=<role>`; the
+  /// organization is always this one, so a tenant's directory hands out
+  /// roles inside the tenant and nothing beyond.
+  #[serde(default)]
+  pub group_grants: Vec<String>,
+}
+
+fn legacy_default_role() -> Option<super::users::Role> {
+  Some(super::users::Role::Admin)
 }
 
 /// Persistent store of child organizations, backed by the `organizations`

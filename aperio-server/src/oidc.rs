@@ -1,6 +1,43 @@
 use serde::Deserialize;
 use tracing::{error, info, warn};
 
+use crate::store::grants::{self, Grant};
+
+/// What an OIDC login is granted: the identity provider says who this is, and
+/// this says what they may do (`planned_features.md` #154). Empty by default,
+/// which means an email with no record signs in to nothing until somebody
+/// grants something, and never means Admin anywhere.
+#[derive(Clone, Default)]
+pub struct OidcGrantPolicy {
+  /// The grants an email with no record starts with, at its first login.
+  pub default_grants: Vec<Grant>,
+  /// The claim that carries the directory's groups; `groups` when unset.
+  pub groups_claim: String,
+  /// What each value of that claim means, as `(group, grant)`.
+  pub group_grants: Vec<(String, Grant)>,
+}
+
+impl OidcGrantPolicy {
+  /// The claim to read, `groups` unless the policy names another.
+  pub fn claim(&self) -> &str {
+    if self.groups_claim.trim().is_empty() {
+      "groups"
+    } else {
+      self.groups_claim.trim()
+    }
+  }
+
+  /// The grants the claim values `groups` map to.
+  pub fn mapped(&self, groups: &[String]) -> Vec<Grant> {
+    self
+      .group_grants
+      .iter()
+      .filter(|(group, _)| groups.iter().any(|g| g == group))
+      .map(|(group, grant)| Grant::mapped(grant.org.clone(), grant.role, group))
+      .collect()
+  }
+}
+
 /// Runtime OIDC configuration resolved from the issuer's discovery document.
 #[derive(Clone)]
 pub struct OidcRuntime {
@@ -14,6 +51,8 @@ pub struct OidcRuntime {
   pub allowed_emails: Vec<String>,
   /// Optional fixed redirect URL (otherwise derived from the request Host).
   pub redirect_url_override: Option<String>,
+  /// What a login is granted, see [`OidcGrantPolicy`].
+  pub grants: OidcGrantPolicy,
 }
 
 #[derive(Deserialize)]
@@ -79,6 +118,9 @@ pub(crate) enum FetchFailure {
 /// is safe to call for a per-organization override (a bad tenant config must
 /// not take the whole server down). `load_from_env` maps the error to a fatal
 /// startup exit; the per-org path surfaces it as a login failure.
+// Six settings and a policy, which is what an OIDC client is; a parameter
+// struct would be the same list with a name on it.
+#[allow(clippy::too_many_arguments)]
 pub async fn build_runtime(
   policy: &crate::outbound::OutboundPolicy,
   issuer: &str,
@@ -87,6 +129,7 @@ pub async fn build_runtime(
   allowed_emails: Vec<String>,
   scopes: String,
   redirect_url_override: Option<String>,
+  grants: OidcGrantPolicy,
 ) -> Result<OidcRuntime, String> {
   let issuer = issuer.trim().trim_end_matches('/');
   if issuer.is_empty() {
@@ -125,6 +168,25 @@ pub async fn build_runtime(
     scopes,
     allowed_emails,
     redirect_url_override,
+    grants,
+  })
+}
+
+/// The grant policy from `APERIO_OIDC_DEFAULT_GRANTS`, `APERIO_OIDC_GROUPS_CLAIM`
+/// and `APERIO_OIDC_GROUP_GRANTS`. A value that does not parse is an error
+/// naming the variable, since a mapping silently dropped is a person silently
+/// not granted.
+pub fn grant_policy_from_env() -> Result<OidcGrantPolicy, String> {
+  let default_grants =
+    grants::parse_list(&std::env::var("APERIO_OIDC_DEFAULT_GRANTS").unwrap_or_default())
+      .map_err(|e| format!("APERIO_OIDC_DEFAULT_GRANTS: {e}"))?;
+  let group_grants =
+    grants::parse_group_map(&std::env::var("APERIO_OIDC_GROUP_GRANTS").unwrap_or_default())
+      .map_err(|e| format!("APERIO_OIDC_GROUP_GRANTS: {e}"))?;
+  Ok(OidcGrantPolicy {
+    default_grants,
+    groups_claim: std::env::var("APERIO_OIDC_GROUPS_CLAIM").unwrap_or_default(),
+    group_grants,
   })
 }
 
@@ -147,6 +209,19 @@ pub async fn load_from_env(policy: &crate::outbound::OutboundPolicy) -> Option<O
   let redirect_url_override = std::env::var("APERIO_OIDC_REDIRECT_URL")
     .ok()
     .filter(|s| !s.trim().is_empty());
+  let grants = match grant_policy_from_env() {
+    Ok(g) => g,
+    Err(e) => {
+      error!("OIDC configuration error: {e}");
+      std::process::exit(1);
+    }
+  };
+  if grants.default_grants.is_empty() && grants.group_grants.is_empty() {
+    info!(
+      "OIDC: an email with no dashboard user record signs in to nothing; set oidc.default_grants \
+       or oidc.group_grants, or create the records ahead of the first login"
+    );
+  }
   if redirect_url_override.is_none() {
     // Not fatal: deriving works, and requiring the key would break every
     // deployment that never set it. But it is worth saying out loud, because
@@ -165,6 +240,7 @@ pub async fn load_from_env(policy: &crate::outbound::OutboundPolicy) -> Option<O
     allowed_emails,
     scopes,
     redirect_url_override,
+    grants,
   )
   .await
   {

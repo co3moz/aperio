@@ -20,6 +20,7 @@ fn oidc_runtime(base: &str, allowed: Vec<String>) -> crate::oidc::OidcRuntime {
     scopes: "openid email".to_string(),
     allowed_emails: allowed,
     redirect_url_override: Some("http://localhost/aperio/oidc/callback".to_string()),
+    grants: crate::oidc::OidcGrantPolicy::default(),
   }
 }
 
@@ -109,6 +110,7 @@ async fn oidc_callback_success_creates_session() {
   let mut state = test_state();
   state.oidc = Some(oidc_runtime(&base, vec!["*".to_string()]));
   let state = Arc::new(state);
+  record_for(&state, "user@allow.com").await;
   seed_oidc_state(&state, "csrf1", None).await;
   let resp = call_oidc_callback(
     state.clone(),
@@ -164,6 +166,7 @@ async fn a_normal_sized_token_response_is_not_refused_as_oversized() {
   let mut state = test_state();
   state.oidc = Some(oidc_runtime(&base, vec!["*".to_string()]));
   let state = Arc::new(state);
+  record_for(&state, "user@allow.com").await;
   seed_oidc_state(&state, "csrf-big", None).await;
   let resp = call_oidc_callback(
     state.clone(),
@@ -544,4 +547,434 @@ async fn an_admin_session_is_still_an_admin_session() {
     crate::auth::dashboard_role(&state, &headers).await,
     Some(Role::Admin)
   );
+}
+
+// ---------------------------------------------------------------------------
+// the record behind an OIDC login (planned_features.md #154)
+// ---------------------------------------------------------------------------
+
+use crate::store::grants::{Grant, GrantOrg};
+
+/// A dashboard user record for `email`, Viewer in master, the shape an admin
+/// creates ahead of somebody's first login.
+async fn record_for(state: &AppState, email: &str) -> String {
+  state
+    .users
+    .lock()
+    .await
+    .create_sso(
+      email,
+      None,
+      vec![Grant::new(GrantOrg::Master, Role::Viewer)],
+    )
+    .unwrap()
+    .id
+}
+
+/// A runtime whose grant policy is `policy`.
+fn oidc_runtime_with(base: &str, policy: crate::oidc::OidcGrantPolicy) -> crate::oidc::OidcRuntime {
+  let mut rt = oidc_runtime(base, vec!["*".to_string()]);
+  rt.grants = policy;
+  rt
+}
+
+/// Like `mock_oidc_server`, but the userinfo answer changes per call, so two
+/// logins in a row can arrive with different groups.
+async fn mock_oidc_sequence(token_body: &str, info_bodies: Vec<String>) -> String {
+  use std::sync::atomic::{AtomicUsize, Ordering};
+  let token_body = token_body.to_string();
+  let info_bodies = Arc::new(info_bodies);
+  let calls = Arc::new(AtomicUsize::new(0));
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let addr = listener.local_addr().unwrap();
+  tokio::spawn(async move {
+    while let Ok((mut sock, _)) = listener.accept().await {
+      let (token_body, info_bodies, calls) =
+        (token_body.clone(), info_bodies.clone(), calls.clone());
+      tokio::spawn(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut buf = [0u8; 8192];
+        let n = sock.read(&mut buf).await.unwrap_or(0);
+        if n == 0 {
+          return;
+        }
+        let body = if buf.starts_with(b"POST") {
+          token_body
+        } else {
+          let i = calls.fetch_add(1, Ordering::SeqCst);
+          info_bodies[i.min(info_bodies.len() - 1)].clone()
+        };
+        let resp = format!(
+          "HTTP/1.1 200 X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+          body.len()
+        );
+        let _ = sock.write_all(resp.as_bytes()).await;
+      });
+    }
+  });
+  format!("http://{addr}")
+}
+
+async fn grants_of(state: &AppState, email: &str) -> Vec<String> {
+  state
+    .users
+    .lock()
+    .await
+    .list()
+    .iter()
+    .find(|u| u.username.eq_ignore_ascii_case(email))
+    .map(|u| u.grants.iter().map(|g| g.label()).collect())
+    .unwrap_or_default()
+}
+
+async fn login(state: &Arc<AppState>, csrf: &str, bound: Option<&str>) -> Response {
+  seed_oidc_state(state, csrf, bound.map(str::to_string)).await;
+  call_oidc_callback(state.clone(), oidc_query(&[("code", "c"), ("state", csrf)])).await
+}
+
+#[tokio::test]
+async fn an_email_with_a_record_is_what_the_record_says() {
+  let base = mock_oidc_server(
+    200,
+    "{\"access_token\":\"AT\"}",
+    200,
+    "{\"email\":\"user@allow.com\"}",
+  )
+  .await;
+  let mut state = test_state();
+  state.oidc = Some(oidc_runtime(&base, vec!["*".to_string()]));
+  let state = Arc::new(state);
+  record_for(&state, "user@allow.com").await;
+  let resp = login(&state, "csrf-rec", None).await;
+  assert_eq!(resp.status(), StatusCode::FOUND);
+  let cookie = resp
+    .headers()
+    .get("set-cookie")
+    .and_then(|v| v.to_str().ok())
+    .and_then(|c| c.split(';').next())
+    .and_then(|kv| kv.split_once('='))
+    .map(|(_, v)| v.to_string())
+    .unwrap();
+  let headers = cookie_headers(&cookie);
+  // Viewer in master, as the record says, and not the super-admin the login
+  // used to mint.
+  assert_eq!(dashboard_role(&state, &headers).await, Some(Role::Viewer));
+  assert!(!is_master_admin(&state, &headers).await);
+}
+
+#[tokio::test]
+async fn an_email_with_no_record_and_no_defaults_is_refused_and_recorded() {
+  let base = mock_oidc_server(
+    200,
+    "{\"access_token\":\"AT\"}",
+    200,
+    "{\"email\":\"new@allow.com\"}",
+  )
+  .await;
+  let mut state = test_state();
+  state.oidc = Some(oidc_runtime(&base, vec!["*".to_string()]));
+  let state = Arc::new(state);
+  let resp = login(&state, "csrf-new", None).await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  assert_eq!(
+    state.sessions.lock().await.len(),
+    0,
+    "no session was minted"
+  );
+  // The record exists, with no password and nothing granted, so an admin has
+  // a name to grant something to.
+  let users = state.users.lock().await;
+  let rec = users
+    .list()
+    .iter()
+    .find(|u| u.username == "new@allow.com")
+    .expect("a record was created");
+  assert!(rec.sso());
+  assert!(rec.grants.is_empty());
+  assert!(users.verify("new@allow.com", "anything").is_none());
+}
+
+#[tokio::test]
+async fn default_grants_seed_the_first_login_only() {
+  let base = mock_oidc_server(
+    200,
+    "{\"access_token\":\"AT\"}",
+    200,
+    "{\"email\":\"new@allow.com\"}",
+  )
+  .await;
+  let mut state = test_state();
+  state.oidc = Some(oidc_runtime_with(
+    &base,
+    crate::oidc::OidcGrantPolicy {
+      default_grants: vec![Grant::new(GrantOrg::Master, Role::Operator)],
+      ..Default::default()
+    },
+  ));
+  let state = Arc::new(state);
+  assert_eq!(
+    login(&state, "csrf-d1", None).await.status(),
+    StatusCode::FOUND
+  );
+  assert_eq!(
+    grants_of(&state, "new@allow.com").await,
+    vec!["master:operator"]
+  );
+  // Narrowed by hand afterwards, the defaults do not come back.
+  let id = state
+    .users
+    .lock()
+    .await
+    .find_by_username("new@allow.com")
+    .unwrap()
+    .id
+    .clone();
+  state
+    .users
+    .lock()
+    .await
+    .set_grants(&id, vec![Grant::new(GrantOrg::Master, Role::Viewer)])
+    .unwrap();
+  assert_eq!(
+    login(&state, "csrf-d2", None).await.status(),
+    StatusCode::FOUND
+  );
+  assert_eq!(
+    grants_of(&state, "new@allow.com").await,
+    vec!["master:viewer"]
+  );
+}
+
+#[tokio::test]
+async fn the_group_map_adds_at_one_login_and_takes_away_at_the_next() {
+  let base = mock_oidc_sequence(
+    "{\"access_token\":\"AT\"}",
+    vec![
+      "{\"email\":\"ops@allow.com\",\"groups\":[\"acme-ops\",\"auditors\"]}".to_string(),
+      "{\"email\":\"ops@allow.com\",\"groups\":[\"auditors\"]}".to_string(),
+    ],
+  )
+  .await;
+  let mut state = test_state();
+  let acme = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", Vec::new(), None)
+    .unwrap()
+    .id;
+  state.oidc = Some(oidc_runtime_with(
+    &base,
+    crate::oidc::OidcGrantPolicy {
+      default_grants: Vec::new(),
+      groups_claim: String::new(),
+      group_grants: vec![
+        // By handle, which the login resolves to the id.
+        (
+          "acme-ops".into(),
+          Grant::new(GrantOrg::Child("acme".into()), Role::Admin),
+        ),
+        ("auditors".into(), Grant::new(GrantOrg::All, Role::Viewer)),
+      ],
+    },
+  ));
+  let state = Arc::new(state);
+  // A hand-written grant, which the map leaves alone.
+  state
+    .users
+    .lock()
+    .await
+    .create_sso(
+      "ops@allow.com",
+      None,
+      vec![Grant::new(GrantOrg::Master, Role::Viewer)],
+    )
+    .unwrap();
+
+  assert_eq!(
+    login(&state, "csrf-g1", None).await.status(),
+    StatusCode::FOUND
+  );
+  assert_eq!(
+    grants_of(&state, "ops@allow.com").await,
+    vec![
+      "*:viewer".to_string(),
+      "master:viewer".to_string(),
+      format!("{acme}:admin")
+    ]
+  );
+  let sources: Vec<Option<String>> = state
+    .users
+    .lock()
+    .await
+    .find_by_username("ops@allow.com")
+    .unwrap()
+    .grants
+    .iter()
+    .map(|g| g.source.clone())
+    .collect();
+  assert_eq!(
+    sources,
+    vec![
+      Some("auditors".to_string()),
+      None,
+      Some("acme-ops".to_string())
+    ]
+  );
+
+  // Out of the ops group: the Acme grant goes, the rest stays.
+  assert_eq!(
+    login(&state, "csrf-g2", None).await.status(),
+    StatusCode::FOUND
+  );
+  assert_eq!(
+    grants_of(&state, "ops@allow.com").await,
+    vec!["*:viewer".to_string(), "master:viewer".to_string()]
+  );
+}
+
+#[tokio::test]
+async fn groups_in_the_id_token_count_when_userinfo_carries_none() {
+  use base64::prelude::*;
+  let payload = BASE64_URL_SAFE_NO_PAD.encode("{\"sub\":\"1\",\"groups\":[\"aperio-admins\"]}");
+  let token_body =
+    format!("{{\"access_token\":\"AT\",\"id_token\":\"eyJhbGciOiJub25lIn0.{payload}.c2ln\"}}");
+  let base = mock_oidc_server(200, token_body, 200, "{\"email\":\"root@allow.com\"}").await;
+  let mut state = test_state();
+  state.oidc = Some(oidc_runtime_with(
+    &base,
+    crate::oidc::OidcGrantPolicy {
+      group_grants: vec![(
+        "aperio-admins".into(),
+        Grant::new(GrantOrg::Master, Role::Admin),
+      )],
+      ..Default::default()
+    },
+  ));
+  let state = Arc::new(state);
+  assert_eq!(
+    login(&state, "csrf-jwt", None).await.status(),
+    StatusCode::FOUND
+  );
+  assert_eq!(
+    grants_of(&state, "root@allow.com").await,
+    vec!["master:admin"]
+  );
+}
+
+#[tokio::test]
+async fn a_per_org_login_lives_in_its_organization_and_reaches_nothing_else() {
+  let base = mock_oidc_server(
+    200,
+    "{\"access_token\":\"AT\"}",
+    200,
+    "{\"email\":\"staff@acme.com\"}",
+  )
+  .await;
+  let state = test_state();
+  let acme = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", Vec::new(), None)
+    .unwrap()
+    .id;
+  let beta = state
+    .org_store
+    .lock()
+    .await
+    .create("beta", Vec::new(), None)
+    .unwrap()
+    .id;
+  // The org's runtime, as `resolve_org_oidc` would build it: the default
+  // role names the organization.
+  let rt = oidc_runtime_with(
+    &base,
+    crate::oidc::OidcGrantPolicy {
+      default_grants: vec![Grant::new(GrantOrg::Child(acme.clone()), Role::Operator)],
+      ..Default::default()
+    },
+  );
+  state.org_oidc.lock().await.insert(acme.clone(), rt);
+  let state = Arc::new(state);
+
+  let resp = login(&state, "csrf-org", Some(&acme)).await;
+  assert_eq!(resp.status(), StatusCode::FOUND);
+  let rec = state
+    .users
+    .lock()
+    .await
+    .find_by_username("staff@acme.com")
+    .cloned()
+    .unwrap();
+  assert_eq!(rec.org_id.as_deref(), Some(acme.as_str()), "lives in Acme");
+  assert_eq!(rec.role_in(Some(&acme)), Some(Role::Operator));
+  let cookie = resp
+    .headers()
+    .get("set-cookie")
+    .and_then(|v| v.to_str().ok())
+    .and_then(|c| c.split(';').next())
+    .and_then(|kv| kv.split_once('='))
+    .map(|(_, v)| v.to_string())
+    .unwrap();
+  let headers = cookie_headers(&cookie);
+  assert_eq!(effective_org(&state, &headers).await, Some(acme.clone()));
+  assert_eq!(dashboard_role(&state, &headers).await, Some(Role::Operator));
+
+  // A record granted elsewhere only: Acme's provider vouched for the email,
+  // and that opens Acme alone, which here is nothing.
+  state
+    .users
+    .lock()
+    .await
+    .create_sso(
+      "beta@acme.com",
+      None,
+      vec![Grant::new(GrantOrg::Child(beta), Role::Admin)],
+    )
+    .unwrap();
+  let base2 = mock_oidc_server(
+    200,
+    "{\"access_token\":\"AT\"}",
+    200,
+    "{\"email\":\"beta@acme.com\"}",
+  )
+  .await;
+  let rt = oidc_runtime_with(&base2, crate::oidc::OidcGrantPolicy::default());
+  state.org_oidc.lock().await.insert(acme.clone(), rt);
+  let resp = login(&state, "csrf-org2", Some(&acme)).await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_disabled_record_is_refused_rather_than_recreated() {
+  let base = mock_oidc_server(
+    200,
+    "{\"access_token\":\"AT\"}",
+    200,
+    "{\"email\":\"gone@allow.com\"}",
+  )
+  .await;
+  let mut state = test_state();
+  state.oidc = Some(oidc_runtime_with(
+    &base,
+    crate::oidc::OidcGrantPolicy {
+      default_grants: vec![Grant::new(GrantOrg::Master, Role::Admin)],
+      ..Default::default()
+    },
+  ));
+  let state = Arc::new(state);
+  let id = record_for(&state, "gone@allow.com").await;
+  state
+    .users
+    .lock()
+    .await
+    .update(&id, None, Some(false), None)
+    .unwrap();
+  assert_eq!(
+    login(&state, "csrf-gone", None).await.status(),
+    StatusCode::FORBIDDEN
+  );
+  assert_eq!(state.users.lock().await.list().len(), 1, "no second record");
+  assert_eq!(state.sessions.lock().await.len(), 0);
 }
