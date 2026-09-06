@@ -4,6 +4,7 @@ import {
   ChartPieIcon,
   ConstructionIcon,
   GaugeIcon,
+  HeartPulseIcon,
   GlobeIcon,
   KeyRoundIcon,
   LayoutDashboardIcon,
@@ -28,6 +29,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { OrgSwitcher } from './OrgSwitcher'
+import type { PaneSpec } from './PaneDialog'
 import {
   Sidebar,
   SidebarContent,
@@ -39,6 +41,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarRail,
 } from '@/components/ui/sidebar'
 import { useI18n } from '@/i18n'
@@ -58,6 +63,7 @@ export type Page =
   | 'maintenance'
   | 'scaling'
   | 'settings'
+  | 'server'
   | 'export'
   | 'webhooks'
   | 'messages'
@@ -115,6 +121,10 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
       // what keeps their links working.
       { id: 'settings', label: 'Settings', icon: Settings2Icon, hint: 'Server, organizations and users', docs: 'dashboard.md#settings-dialog', minRole: 'admin' },
       { id: 'audit', label: 'Tools', icon: WrenchIcon, hint: 'Audit log, API explorer and config builder', docs: 'dashboard.md#tools' },
+      // The server itself, as distinct from the traffic through it: the
+      // process, its store and its cache, which used to sit at the bottom
+      // of the Breakdown page where nobody looking for the server looked.
+      { id: 'server', label: 'Server Health', icon: HeartPulseIcon, hint: 'Process, store and cache health', docs: 'observability.md#server-self-health', minRole: 'admin', masterOnly: true },
     ],
   },
 ]
@@ -133,6 +143,9 @@ export function pagesForRole(role: Role, masterAdmin = false): PageSpec[] {
 
 export function AppSidebar({
   page,
+  overlay,
+  settingsPanes,
+  toolsPanes,
   onNavigate,
   username,
   sessionSeconds,
@@ -146,6 +159,12 @@ export function AppSidebar({
   onOpenPasskeys,
 }: {
   page: Page
+  /** The dialog pane open over the page, if one is. */
+  overlay: Page | null
+  /** The panes this session may open, listed under Settings and Tools so
+   *  every one has a door of its own (planned_features #162). */
+  settingsPanes: PaneSpec<Page>[]
+  toolsPanes: PaneSpec<Page>[]
   onNavigate: (page: Page) => void
   /** Signed-in identity, shown in the footer entry. */
   username: string
@@ -200,18 +219,38 @@ export function AppSidebar({
               <SidebarGroupLabel>{t(group.label)}</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {pages.map((p) => (
-                    <SidebarMenuItem key={p.id}>
-                      <SidebarMenuButton
-                        tooltip={t(p.label)}
-                        isActive={page === p.id}
-                        onClick={() => onNavigate(p.id)}
-                      >
-                        <p.icon />
-                        <span>{t(p.label)}</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
+                  {pages.map((p) => {
+                    const children = p.id === 'settings' ? settingsPanes : p.id === 'audit' ? toolsPanes : []
+                    const childOpen = children.some((c) => c.id === overlay)
+                    return (
+                      <SidebarMenuItem key={p.id}>
+                        <SidebarMenuButton
+                          tooltip={t(p.label)}
+                          isActive={overlay ? childOpen : page === p.id}
+                          onClick={() => onNavigate(p.id)}
+                        >
+                          <p.icon />
+                          <span>{t(p.label)}</span>
+                        </SidebarMenuButton>
+                        {children.length > 0 && (
+                          <SidebarMenuSub>
+                            {children.map((c) => (
+                              <SidebarMenuSubItem key={c.id}>
+                                <SidebarMenuSubButton
+                                  render={<button type="button" className="w-full" />}
+                                  isActive={overlay === c.id}
+                                  onClick={() => onNavigate(c.id)}
+                                >
+                                  <c.icon />
+                                  <span>{t(c.label)}</span>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            ))}
+                          </SidebarMenuSub>
+                        )}
+                      </SidebarMenuItem>
+                    )
+                  })}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>

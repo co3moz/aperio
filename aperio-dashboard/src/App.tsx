@@ -49,6 +49,7 @@ import { StatusDot } from './components/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 import { useLiveData } from './hooks/useLiveData'
 import { usePoll } from './hooks/usePoll'
@@ -311,13 +312,14 @@ export default function App() {
   const selectedOrg = session?.selected_org ?? 'master'
   const allowedPages = useMemo(() => pagesForRole(role, masterAdmin), [role, masterAdmin])
   // The dialog panes this session may open, in the order the dialogs list them.
-  const panes = useMemo(
-    () =>
-      [...SETTINGS_PANES, ...TOOLS_PANES].filter(
-        (p) => ROLE_ORDER[role] >= ROLE_ORDER[p.minRole] && (!p.masterOnly || masterAdmin),
-      ),
+  const mayOpen = useCallback(
+    (p: { minRole: Role; masterOnly?: boolean }) =>
+      ROLE_ORDER[role] >= ROLE_ORDER[p.minRole] && (!p.masterOnly || masterAdmin),
     [role, masterAdmin],
   )
+  const settingsPanes = useMemo(() => SETTINGS_PANES.filter(mayOpen), [mayOpen])
+  const toolsPanes = useMemo(() => TOOLS_PANES.filter(mayOpen), [mayOpen])
+  const panes = useMemo(() => [...settingsPanes, ...toolsPanes], [settingsPanes, toolsPanes])
   // Only the super-admin may read the settings, so only they get them in the
   // palette; for anyone else the request is a guaranteed 403.
   //
@@ -461,10 +463,10 @@ export default function App() {
         username={session?.username ?? 'aperio'}
         onOpenTotp={() => setTotpOpen(true)}
         onOpenPasskeys={() => setPasskeysOpen(true)}
-        // With a dialog open, its sidebar entry is what is active, even though
-        // the page under it has not changed. The Tools entry stands for three
-        // panes and carries the id of the first, so the other two answer to it.
-        page={overlay ? (isToolsPage(overlay) ? 'audit' : overlay) : page}
+        page={page}
+        overlay={overlay}
+        settingsPanes={settingsPanes}
+        toolsPanes={toolsPanes}
         onNavigate={goto}
         sessionSeconds={session?.expires_in_seconds ?? null}
         version={health?.version ?? null}
@@ -572,14 +574,29 @@ export default function App() {
               {page === 'tunnels' && <TunnelsSection />}
               {page === 'traffic' && <TrafficSection logs={logs} onInspect={setInspect} />}
               {page === 'breakdown' && (
+                // Two questions, two tabs: how much traffic, and how each
+                // route is doing. Seven sections in one scroll answered both
+                // at once and neither at a glance.
+                <Tabs defaultValue="traffic" className="gap-6">
+                  <TabsList>
+                    <TabsTrigger value="traffic">{t('Traffic')}</TabsTrigger>
+                    <TabsTrigger value="routes">{t('Routes & latency')}</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="traffic" className="flex flex-col gap-6">
+                    <TrafficBreakdownSection stats={stats} />
+                    <BandwidthSection />
+                  </TabsContent>
+                  <TabsContent value="routes" className="flex flex-col gap-6">
+                    <RouteTrendsSection />
+                    <SlowEndpointsSection />
+                    <StageStatsSection />
+                  </TabsContent>
+                </Tabs>
+              )}
+              {page === 'server' && (
                 <div className="flex flex-col gap-6">
-                  <TrafficBreakdownSection stats={stats} />
-                  <RouteTrendsSection />
-                  <BandwidthSection />
-                  <SlowEndpointsSection />
-                  <StageStatsSection />
-                  <CacheStatsSection />
                   <SelfHealthSection />
+                  <CacheStatsSection />
                 </div>
               )}
               {page === 'topology' && (

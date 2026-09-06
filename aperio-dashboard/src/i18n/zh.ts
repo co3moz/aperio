@@ -1187,4 +1187,7 @@ export const zh: Record<string, string> = {
   'Docs': '文档',
   'The built-in account is aperio, with the master token as its password; a named user signs in with their own.': '内置账户是 aperio，密码为主令牌；命名用户使用自己的凭据登录。',
   'About this page': '关于本页',
+  'Server Health': '服务器健康',
+  'Process, store and cache health': '进程、存储与缓存健康',
+  'Routes & latency': '路由与延迟',
 }

@@ -1206,4 +1206,7 @@ export const ru: Record<string, string> = {
   'Docs': 'Документация',
   'The built-in account is aperio, with the master token as its password; a named user signs in with their own.': 'Встроенная учётная запись — aperio, пароль — мастер-токен; именованный пользователь входит со своими данными.',
   'About this page': 'Об этой странице',
+  'Server Health': 'Состояние сервера',
+  'Process, store and cache health': 'Состояние процесса, хранилища и кеша',
+  'Routes & latency': 'Маршруты и задержка',
 }

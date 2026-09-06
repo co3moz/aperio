@@ -27,20 +27,6 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
-- [ ] **#162 Six panes have no door: navigation hides half the product.** Twelve
-  full pages sit in the sidebar; Organizations, Users, Webhooks, the Inbox,
-  Messages and Export live inside the Settings dialog and Audit, the API
-  explorer and the Config builder inside Tools, reachable only by knowing they
-  are there (the code says so itself: "the only way to Organizations is to
-  open Settings and know it is in there"). "Tools" is a grab-bag whose id is
-  `audit`. Breakdown stacks seven unrelated sections into one three-screen
-  scroll (history, route trends, bandwidth, slow endpoints, stage latencies,
-  cache, self-health). Give the dialogs' panes their own sidebar rows as
-  children of Settings and Tools (a collapsible group, the dialog still opens
-  over the page, so nothing about the URL model changes), split Breakdown into
-  tabs with the traffic history first, and move Cache and Self-health under
-  System where an operator looks for the server rather than the traffic.
-
 - [ ] **#163 A glossary for the six words nobody outside the project knows.**
   The UI says "bind" eleven times and "drain", "eject", "canary", "expose" and
   "overrule" with no definition next to any of them, and the Tunnels page
@@ -503,6 +489,24 @@ so.
   2025-09, with no rc since March. Neither is close.
 
 ## Completed
+
+- [x] **#162 Six panes have no door: navigation hides half the product.** Twelve
+  full pages sit in the sidebar; Organizations, Users, Webhooks, the Inbox,
+  Messages and Export live inside the Settings dialog and Audit, the API
+  explorer and the Config builder inside Tools, reachable only by knowing they
+  are there (the code says so itself: "the only way to Organizations is to
+  open Settings and know it is in there"). "Tools" is a grab-bag whose id is
+  `audit`. Breakdown stacks seven unrelated sections into one three-screen
+  scroll (history, route trends, bandwidth, slow endpoints, stage latencies,
+  cache, self-health). Give the dialogs' panes their own sidebar rows as
+  children of Settings and Tools (a collapsible group, the dialog still opens
+  over the page, so nothing about the URL model changes), split Breakdown into
+  tabs with the traffic history first, and move Cache and Self-health under
+  System where an operator looks for the server rather than the traffic. shipped: the sidebar
+  lists each pane the session may open under Settings and Tools (the
+  dialog still opens over the page, the URL model is untouched), Breakdown
+  is two tabs, and Cache and Self-health are a *Server Health* page under
+  System for the master super-admin. Where it differed: nothing.
 
 - [x] **#161 Say each thing once: the explanatory paragraphs are read on every
   visit.** Thirty-three UI strings run past 120 characters; Topology's opening

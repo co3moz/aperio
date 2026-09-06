@@ -57,7 +57,9 @@ The *Topology* page (Traffic group) draws the reverse-tunnel mesh as a live thre
 
 ## Route trends
 
-The *Breakdown* page opens with **route trends**: for every hostname, one bar per minute over the last 30 minutes, height by request volume, color by the worst status class seen in that minute (green 2xx/3xx, amber 4xx, red 5xx), plus the window's request count and 5xx error rate. The glanceable "which route started erroring, and when". In-memory (last 60 minutes tracked, up to 100 routes); raw data at `GET /aperio/api/route-trends`.
+The *Breakdown* page has two tabs, *Traffic* (the history chart, the per-token and per-hostname breakdown, and bandwidth) and *Routes & latency* (route trends, the slowest endpoints, stage latencies). The server's own figures, the self-health card and the cache statistics, are the *Server Health* page under *System*, for the master super-admin.
+
+The *Routes & latency* tab opens with **route trends**: for every hostname, one bar per minute over the last 30 minutes, height by request volume, color by the worst status class seen in that minute (green 2xx/3xx, amber 4xx, red 5xx), plus the window's request count and 5xx error rate. The glanceable "which route started erroring, and when". In-memory (last 60 minutes tracked, up to 100 routes); raw data at `GET /aperio/api/route-trends`.
 
 ## Bandwidth accounting
 
@@ -139,7 +141,7 @@ When a session's grants reach more than one organization, the built-in `aperio` 
 
 ![The settings dialog, open over the page underneath rather than replacing it](images/dashboard-settings.png)
 
-The configuration screens open as a **dialog over whatever page you were on**, not as pages of their own: you open a setting, change it, and leave, and the traffic table you were watching is still there when you close it. Nothing about the dialog is in the URL, so a reload returns to the page underneath with the dialog shut, which is why a settings form holding unsaved edits asks before it is discarded, whether you close the dialog, switch panes, or reload the browser. Its panes are **Server Settings**, **Organizations**, **Users** (with the admin keys and the active sessions), **Webhooks**, **Webhook Inbox**, **Messages** and **Export & Import**; each is still reachable by role (a viewer sees the webhook and messages panes only, organizations, server settings and export are the master super-admin's).
+The configuration screens open as a **dialog over whatever page you were on**, not as pages of their own: you open a setting, change it, and leave, and the traffic table you were watching is still there when you close it. Each pane has a row of its own in the sidebar, under *Settings* and *Tools*, so Organizations or the Audit Log are one click from anywhere rather than a dialog and a guess away. Nothing about the dialog is in the URL, so a reload returns to the page underneath with the dialog shut, which is why a settings form holding unsaved edits asks before it is discarded, whether you close the dialog, switch panes, or reload the browser. Its panes are **Server Settings**, **Organizations**, **Users** (with the admin keys and the active sessions), **Webhooks**, **Webhook Inbox**, **Messages** and **Export & Import**; each is still reachable by role (a viewer sees the webhook and messages panes only, organizations, server settings and export are the master super-admin's).
 
 ## Server settings
 

@@ -1210,4 +1210,7 @@ export const tr: Record<string, string> = {
   'Docs': 'Doküman',
   'The built-in account is aperio, with the master token as its password; a named user signs in with their own.': 'Yerleşik hesap aperio, şifresi master token; adlandırılmış bir kullanıcı kendi bilgileriyle girer.',
   'About this page': 'Bu sayfa hakkında',
+  'Server Health': 'Sunucu Sağlığı',
+  'Process, store and cache health': 'Süreç, depo ve önbellek sağlığı',
+  'Routes & latency': 'Rotalar ve gecikme',
 }
