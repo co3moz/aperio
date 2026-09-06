@@ -462,6 +462,64 @@ there is nothing to build, whatever *Recurring checks* holds.
   it costs a public hostname, a second gate to rotate, and a full trip out
   through the proxy and back.
 
+- [ ] **#158 The mutation sweep's five survivors: one test to write, three to
+  mark skipped, one already gone.** From a `cargo mutants` run over the scoped
+  set ([[#127]], `.cargo/mutants.toml`). Read one at a time, because a
+  survivor is either a missing assertion or a line that does nothing, and
+  these are three of one and two of the other.
+
+  **1. `redaction_enabled -> true` (`redact.rs`). Skip.** The function is a
+  `OnceLock` around one environment read, so the first caller in a process
+  fixes the answer for every later one and the parsing cannot be exercised
+  both ways from a test. That is exactly why `redaction_setting` was split out
+  underneath it and is tested both ways; what is left is the wrapper, whose
+  default is `true`, so a test process that does not set the variable cannot
+  tell the mutant from the original. Killing it means a subprocess test
+  asserting redaction off, to cover a branch already covered one function
+  below.
+
+  **2. `*b > 0.0` becomes `>= 0.0` in the inline burst fallback
+  (`check_route_rate_limit`). This is the real gap; write the test.** `burst:`
+  is documented as defaulting to the `rps` value, and
+  `rl.burst.filter(|b| *b > 0.0).unwrap_or(rl.rps).max(1.0)` is what
+  implements it. With the mutant, a `burst: 0` is kept instead of falling back,
+  and `.max(1.0)` turns it into `1.0`, so a route written `rps: 10, burst: 0`
+  admits one request where the documentation promises ten. The test belongs in
+  `admission_tests.rs`: an inline `routes:` entry with
+  `rate_limit: {rps: 10, burst: 0}`, ten immediate calls admitted and the
+  eleventh refused.
+
+  **3. `match guard cfg.route_limits.is_empty()` becomes `false`. Already
+  gone.** The guard was removed and the comment standing in its place says
+  why: `matched` over no rules is `None` already, so the fast path did
+  nothing, which is precisely how a sweep found it. Nothing to do.
+
+  **This one carries a lesson about the report itself.** Two of the five line
+  numbers no longer point at the code they describe, so the run was made
+  against an older tree. A survivor list is a snapshot; map each entry back by
+  *content* before acting on it, and re-run before concluding anything about
+  what is still alive.
+
+  **4 and 5. The two `<` that become `<=` in the garbage-collection retains
+  (`check_route_rate_limit`, `charge_rate_limit`). Skip, as a class.** They
+  bound a housekeeping sweep: whether a bucket last used exactly 600.000000
+  seconds ago is kept or dropped is not observable by anything, and a test
+  pinning it would assert the tie-break of a timer.
+
+  **How to mark a skip is the decision this entry actually needs, and the
+  obvious mechanism does not fit.** `#[mutants::skip]` and `exclude_re` are
+  both *per function*, and these two mutants live inside functions that also
+  hold real ones, #2 among them: silencing the function would silence the gap
+  it was supposed to find. So the shape is to extract the staleness predicate
+  into one small named helper and skip that. It is the better code anyway,
+  since the same `now.duration_since(v.last_updated) < Duration::from_secs(600)`
+  is written four times in this file. Then #1 takes the attribute on its own
+  function, with the reason beside it the way rule 27 asks a lint allowance to
+  be written where it fires. `#[mutants::skip]` needs the tiny no-op `mutants`
+  crate as a dependency; `exclude_re` in `.cargo/mutants.toml` needs none but
+  keeps the reason in a file nobody opens while editing the code. Decide once,
+  here, because every later sweep will otherwise re-report the same three.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
