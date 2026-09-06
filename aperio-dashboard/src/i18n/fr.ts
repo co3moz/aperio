@@ -1205,4 +1205,5 @@ export const fr: Record<string, string> = {
   'Documentation for this page': 'Documentation de cette page',
   'Docs': 'Docs',
   'The built-in account is aperio, with the master token as its password; a named user signs in with their own.': 'Le compte intégré est aperio, avec le jeton maître comme mot de passe ; un utilisateur nommé se connecte avec le sien.',
+  'About this page': 'À propos de cette page',
 }

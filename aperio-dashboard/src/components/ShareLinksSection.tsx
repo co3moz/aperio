@@ -79,12 +79,12 @@ export function ShareLinksSection() {
 
   return (
     <section className="flex flex-col gap-3">
-      <SectionHeader title={t('Share Links')} />
+      <SectionHeader
+        title={t('Share Links')}
+        description={t('Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless, they cannot be listed later, they simply expire.')}
+      />
       <Card className="py-5">
         <CardContent className="flex flex-col gap-4 px-5">
-          <p className="text-sm text-muted-foreground">
-            {t('Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless, they cannot be listed later, they simply expire.')}
-          </p>
           {canMutate && (
           <form onSubmit={create} className="flex flex-wrap items-center gap-2">
             <Input

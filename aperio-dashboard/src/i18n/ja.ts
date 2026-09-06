@@ -1203,4 +1203,5 @@ export const ja: Record<string, string> = {
   'Documentation for this page': 'このページのドキュメント',
   'Docs': 'ドキュメント',
   'The built-in account is aperio, with the master token as its password; a named user signs in with their own.': '組み込みアカウントは aperio で、パスワードはマスタートークンです。名前付きユーザーは自分の資格情報でサインインします。',
+  'About this page': 'このページについて',
 }

@@ -18,6 +18,10 @@ project follows semantic versioning per release tag.
 
 - **An OIDC login is what its dashboard user record says, not the super-admin.** A global OIDC login created a session with the Admin role and no organization, so every address on the allowed-emails list was the built-in super-admin wearing an identity provider; a per-organization login was an Admin inside its organization, for everyone, with no way to say less. The login is now matched to a dashboard user record by email and takes the grants on it, created at the first login with `oidc.default_grants` (`APERIO_OIDC_DEFAULT_GRANTS`), empty by default, which means an email nothing reaches is refused a session, told to ask an administrator, and recorded as an account with no password and no grants so the grant has a name to land on. `master:admin` restores exactly what every allowed email got before. Per-organization OIDC is unchanged by default, Admin in its organization, and can now be narrowed with `default_role` (`admin`, `operator`, `viewer`, `none`) on the organization. Recorded in `CONFIG_CHANGES` as a changed default.
 
+### Changed
+
+- **A page's explanatory paragraph folds away once read.** The paragraph that opens Topology, Autoscaling, Share Links, the overrule dialog and a dozen other pages was read on every visit and pushed the table it explains below the fold. It now sits behind an info button beside the page title: open on the first visit, closed for good once closed, remembered per page in the browser. A one-sentence description stays under the title as before.
+
 ### Added
 
 - **The dashboard tells a newcomer what to do first.** The login form says that the built-in account is `aperio` with the master token as its password, and that a named user signs in with their own. An Overview with no client connected shows the three steps that make a tunnel, mint a token, run the client next to the service, watch it appear, each one click from the page that does it, with the client's command line filled in with this server's address; the card leaves when a client connects. Every page header links to the documentation article for that page.

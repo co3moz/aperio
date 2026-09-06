@@ -1,9 +1,10 @@
-import { CheckIcon, CopyIcon } from 'lucide-react'
+import { CheckIcon, CopyIcon, InfoIcon } from 'lucide-react'
 import { useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TableCell, TableRow } from '@/components/ui/table'
 import { useI18n } from '@/i18n'
+import { ABOUT_FOLD_CHARS, aboutClosed, rememberAbout } from '@/lib/about'
 import { highlight } from '@/lib/highlight'
 import { cn } from '@/lib/utils'
 
@@ -89,13 +90,48 @@ export function SectionHeader({
   description?: string
   children?: ReactNode
 }) {
+  const { t } = useI18n()
+  // A sentence stays under the title. A paragraph is the page's "about":
+  // useful the first time, noise the fiftieth, and in the way of the table
+  // it explains, so it folds behind the title's info button and stays
+  // folded once the reader closed it (planned_features #161).
+  const folds = !!description && description.length > ABOUT_FOLD_CHARS
+  const [open, setOpen] = useState(() => !folds || !aboutClosed(title))
+  const toggle = () => {
+    setOpen((was) => {
+      rememberAbout(title, was)
+      return !was
+    })
+  }
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h2 className="font-heading text-lg font-semibold tracking-tight">{title}</h2>
-        {description && <p className="text-sm text-muted-foreground">{description}</p>}
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <h2 className="font-heading text-lg font-semibold tracking-tight">{title}</h2>
+          {folds && (
+            <button
+              type="button"
+              onClick={toggle}
+              aria-expanded={open}
+              aria-label={t('About this page')}
+              title={t('About this page')}
+              className={cn(
+                'rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground',
+                open && 'text-primary',
+              )}
+            >
+              <InfoIcon className="size-4" />
+            </button>
+          )}
+        </div>
+        {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
       </div>
-      {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
+      {description && !folds && <p className="text-sm text-muted-foreground">{description}</p>}
+      {folds && open && (
+        <p className="rounded-2xl border border-dashed px-4 py-3 text-sm text-muted-foreground">
+          {description}
+        </p>
+      )}
     </div>
   )
 }

@@ -27,21 +27,6 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
-- [ ] **#161 Say each thing once: the explanatory paragraphs are read on every
-  visit.** Thirty-three UI strings run past 120 characters; Topology's opening
-  paragraph is 555 characters over four lines, and Autoscaling, Share Links,
-  the overrule dialog and Maintenance's empty state are in the same range.
-  They are good text and they are in the wrong place: a paragraph that
-  explains a page is useful the first time and noise the fiftieth, and it
-  pushes the table it explains below the fold. The same page is also
-  described three times, the sidebar hint, the header's subtitle and the
-  page's own paragraph ("Requests in real time, table or console" and "Live
-  Tunnel Traffic" say one thing twice on one screen). Move every page
-  paragraph into a collapsible "About this page" block, open on the first
-  visit and remembered closed (localStorage is enough, it is a per-viewer
-  convenience), and drop the header subtitle, since the sidebar hint already
-  carries it. Keep the one-sentence form where a sentence is all there is.
-
 - [ ] **#162 Six panes have no door: navigation hides half the product.** Twelve
   full pages sit in the sidebar; Organizations, Users, Webhooks, the Inbox,
   Messages and Export live inside the Settings dialog and Audit, the API
@@ -518,6 +503,28 @@ so.
   2025-09, with no rc since March. Neither is close.
 
 ## Completed
+
+- [x] **#161 Say each thing once: the explanatory paragraphs are read on every
+  visit.** Thirty-three UI strings run past 120 characters; Topology's opening
+  paragraph is 555 characters over four lines, and Autoscaling, Share Links,
+  the overrule dialog and Maintenance's empty state are in the same range.
+  They are good text and they are in the wrong place: a paragraph that
+  explains a page is useful the first time and noise the fiftieth, and it
+  pushes the table it explains below the fold. The same page is also
+  described three times, the sidebar hint, the header's subtitle and the
+  page's own paragraph ("Requests in real time, table or console" and "Live
+  Tunnel Traffic" say one thing twice on one screen). Move every page
+  paragraph into a collapsible "About this page" block, open on the first
+  visit and remembered closed (localStorage is enough, it is a per-viewer
+  convenience), and drop the header subtitle, since the sidebar hint already
+  carries it. Keep the one-sentence form where a sentence is all there is. shipped: `SectionHeader`
+  folds a description past 140 characters behind an info button beside the
+  title, open on the first visit and remembered closed per page
+  (`lib/about.ts`, tested); the one page paragraph that lived outside a
+  header (Share Links) moved into it. Where it differed: the header's
+  one-line subtitle stays. The entry assumed the sidebar showed the hints;
+  it does not, the header is the only place that one line appears, and one
+  line is not the problem the paragraphs were.
 
 - [x] **#160 The first ten minutes: a newcomer is told nothing.** Found in the
   UX review of 2026-09-06. The login form says "Sign in to continue" and not

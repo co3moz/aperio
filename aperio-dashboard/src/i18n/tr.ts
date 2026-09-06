@@ -1209,4 +1209,5 @@ export const tr: Record<string, string> = {
   'Documentation for this page': 'Bu sayfanın dokümantasyonu',
   'Docs': 'Doküman',
   'The built-in account is aperio, with the master token as its password; a named user signs in with their own.': 'Yerleşik hesap aperio, şifresi master token; adlandırılmış bir kullanıcı kendi bilgileriyle girer.',
+  'About this page': 'Bu sayfa hakkında',
 }
