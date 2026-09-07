@@ -141,7 +141,12 @@ export class StartupBudgetSpec extends Test({
 
   /** A request through the tunnel that is up, end to end. */
   async aRequestThroughTheTunnelIsAnsweredWithinTheBudget() {
-    await this.server._waitForClients(1)
+    // Up means declared, not merely connected: the previous phase ends at
+    // the connect log, and the binds follow with the first heartbeat. On a
+    // fast machine a request between the two lands in the gap that #168
+    // describes and is refused, which is a finding about that gap and not
+    // about how long a request takes.
+    await this.client._waitRoutable(HOST, '/hello')
     timeout(BUDGET_MS)
     const res = await this.server._fetch('/hello', { host: HOST })
     assert.equal(res.status, 200)
