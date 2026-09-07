@@ -592,60 +592,11 @@ pub(crate) async fn run_service(
               .collect();
 
             let ping_task = tokio::spawn(async move {
-              // The first Ping goes out immediately: it announces the binds,
-              // version/protocol, and health before any traffic is routed.
-              loop {
-                // The supervisor asked for this connection to end: a config
-                // reload, a shutdown, or an elastic pool giving it back. The
-                // cancel signal does not say which, and neither do these
-                // lines: whichever of the three it was has already logged its
-                // own reason, and guessing here is how a pool retirement came
-                // to announce a configuration change that never happened.
-                if *cancel_ping.borrow() {
-                  // Announce the drain before dropping the socket. Without
-                  // this, ending a connection killed whatever was in flight:
-                  // the visitor saw a failure caused by a change that was
-                  // meant to be invisible to them. `Draining` stops the
-                  // server dispatching anything new here, which is what makes
-                  // the wait below terminate rather than chase a moving
-                  // target.
-                  if reload_drain_ping.is_zero() {
-                    info!("Closing this connection...");
-                  } else {
-                    info!("Draining before closing this connection...");
-                    if let Ok(json) = serde_json::to_string(&TunnelMessage::Draining {}) {
-                      let _ = tx_ping.send(Message::Text(json.into())).await;
-                    }
-                    // This connection's own work, not the process's: a
-                    // sibling service's in-flight request is not a reason to
-                    // hold this socket open.
-                    drain_connection_inflight(&connection_inflight_ping, reload_drain_ping).await;
-                  }
-                  // A Close frame, so the server learns at once rather than
-                  // when the operating system gets round to it. Dropping the
-                  // socket is noticed immediately on a direct connection and
-                  // minutes later through a proxy chain, and until then the
-                  // server believed this connection alive, kept its slot and
-                  // refused the replacement as one connection too many.
-                  let _ = tx_ping.send(Message::Close(None)).await;
-                  let _ = abort_tx_ping.send(AbortReason::Requested).await;
-                  break;
-                }
-
-                // Check last Pong receipt time (max 15s limit)
-                let elapsed = {
-                  let lock = last_pong_time_ping.lock().await;
-                  lock.elapsed()
-                };
-                if elapsed > Duration::from_secs(15) {
-                  warn!(
-                    "Liveness check failed: no Pong received for {} seconds. Resetting connection.",
-                    elapsed.as_secs()
-                  );
-                  let _ = abort_tx_ping.send(AbortReason::Liveness).await;
-                  break;
-                }
-
+              // One heartbeat, built from this moment's figures. A closure
+              // rather than inline in the loop because the drain below needs
+              // one too, and the drain's is the one that has to be the same
+              // frame the server has always answered.
+              let build_ping = || -> TunnelMessage {
                 // This heartbeat's description of every service on the
                 // connection: the settled values, with the three that move
                 // read now so everything in the frame describes one moment.
@@ -675,7 +626,7 @@ pub(crate) async fn run_service(
                 // says nothing the singular fields do not: what it would
                 // change is which servers can read the Ping at all.
                 let first = &decls[0];
-                let ping_msg = TunnelMessage::Ping {
+                TunnelMessage::Ping {
                   // Also sent for a single service when it asks to be served
                   // from the server, because that ask exists only in the list:
                   // the singular fields are the shim an older server reads and
@@ -736,7 +687,83 @@ pub(crate) async fn run_service(
                   metrics_labels: first.metrics_labels.clone(),
                   drain_secs: drain_secs_ping,
                   config_notes: first.config_notes.clone(),
+                }
+              };
+              // The first Ping goes out immediately: it announces the binds,
+              // version/protocol, and health before any traffic is routed.
+              loop {
+                // The supervisor asked for this connection to end: a config
+                // reload, a shutdown, or an elastic pool giving it back. The
+                // cancel signal does not say which, and neither do these
+                // lines: whichever of the three it was has already logged its
+                // own reason, and guessing here is how a pool retirement came
+                // to announce a configuration change that never happened.
+                if *cancel_ping.borrow() {
+                  // Announce the drain before dropping the socket. Without
+                  // this, ending a connection killed whatever was in flight:
+                  // the visitor saw a failure caused by a change that was
+                  // meant to be invisible to them. `Draining` stops the
+                  // server dispatching anything new here, which is what makes
+                  // the wait below terminate rather than chase a moving
+                  // target.
+                  if reload_drain_ping.is_zero() {
+                    info!("Closing this connection...");
+                  } else {
+                    info!("Draining before closing this connection...");
+                    if let Ok(json) = serde_json::to_string(&TunnelMessage::Draining {}) {
+                      let _ = tx_ping.send(Message::Text(json.into())).await;
+                    }
+                    // A heartbeat right behind it, and its Pong is the proof
+                    // the server has read the Draining. The server reads one
+                    // connection's frames in order and answers in that order,
+                    // so by the time the Pong is here, anything it dispatched
+                    // to this connection before reading the Draining is ahead
+                    // of the Pong on the same socket, already read by the
+                    // dispatch loop, and in the count below. Without this the
+                    // count was read the moment the Draining was queued,
+                    // usually as zero, and a request that crossed it on the
+                    // wire was closed on: a 502 for a visitor, from a reload
+                    // written to be invisible (`planned_features.md` #156).
+                    // A Pong to the heartbeat before this one, still on its
+                    // way, would satisfy the wait early; heartbeats are five
+                    // seconds apart and a round trip is milliseconds, so that
+                    // is the old race narrowed to one round trip.
+                    let asked = Instant::now();
+                    if let Ok(json) = serde_json::to_string(&build_ping()) {
+                      let _ = tx_ping.send(Message::Text(json.into())).await;
+                    }
+                    wait_for_pong_after(&last_pong_time_ping, asked, DRAIN_ACK_BUDGET).await;
+                    // This connection's own work, not the process's: a
+                    // sibling service's in-flight request is not a reason to
+                    // hold this socket open.
+                    drain_connection_inflight(&connection_inflight_ping, reload_drain_ping).await;
+                  }
+                  // A Close frame, so the server learns at once rather than
+                  // when the operating system gets round to it. Dropping the
+                  // socket is noticed immediately on a direct connection and
+                  // minutes later through a proxy chain, and until then the
+                  // server believed this connection alive, kept its slot and
+                  // refused the replacement as one connection too many.
+                  let _ = tx_ping.send(Message::Close(None)).await;
+                  let _ = abort_tx_ping.send(AbortReason::Requested).await;
+                  break;
+                }
+
+                // Check last Pong receipt time (max 15s limit)
+                let elapsed = {
+                  let lock = last_pong_time_ping.lock().await;
+                  lock.elapsed()
                 };
+                if elapsed > Duration::from_secs(15) {
+                  warn!(
+                    "Liveness check failed: no Pong received for {} seconds. Resetting connection.",
+                    elapsed.as_secs()
+                  );
+                  let _ = abort_tx_ping.send(AbortReason::Liveness).await;
+                  break;
+                }
+
+                let ping_msg = build_ping();
                 if let Ok(ping_str) = serde_json::to_string(&ping_msg) {
                   // Timed from the moment it is queued, which is the same
                   // queue every other frame waits in: a round trip that

@@ -472,6 +472,37 @@ pub(crate) async fn drain_connection_inflight(inflight: &Arc<AtomicUsize>, budge
   }
 }
 
+/// How long a drain waits for the server to acknowledge its `Draining`
+/// before counting what is in flight anyway. A round trip is milliseconds; a
+/// server that has not answered in this long is not going to, and the drain
+/// then does what it did before the acknowledgement existed.
+pub(crate) const DRAIN_ACK_BUDGET: Duration = Duration::from_secs(2);
+
+/// Waits until a Pong newer than `after` has been recorded, or `budget` is
+/// spent. The dispatch loop stamps `last_pong` when it reads a Pong, so a
+/// stamp past `after` means the server has read and answered everything the
+/// heartbeat sent at `after` was queued behind.
+pub(crate) async fn wait_for_pong_after(
+  last_pong: &Arc<tokio::sync::Mutex<Instant>>,
+  after: Instant,
+  budget: Duration,
+) -> bool {
+  let deadline = Instant::now() + budget;
+  loop {
+    if *last_pong.lock().await > after {
+      return true;
+    }
+    if Instant::now() >= deadline {
+      warn!(
+        "No Pong within {:?} of announcing the drain; counting what is in flight anyway.",
+        budget
+      );
+      return false;
+    }
+    tokio::time::sleep(Duration::from_millis(10)).await;
+  }
+}
+
 pub(crate) async fn drain_inflight_for(shared: &Shared, budget: Duration) {
   if budget.is_zero() {
     return;

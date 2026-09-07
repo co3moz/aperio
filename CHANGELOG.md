@@ -79,6 +79,8 @@ project follows semantic versioning per release tag.
 
 - **A visitor who asked during a client's restart waited out the whole gateway timeout, while the client sat there serving.** The reconnect wait woke when the returning client's socket opened, found no route declared yet, since the binds arrive with the client's first heartbeat a few milliseconds later, and went back to sleep waiting for a change of a flag that was already set. The first heartbeat now wakes the waiters again, and a request held for a returning client is answered the moment its route is declared. Found by the new startup-budget suite, which holds a server start, a client connect, a client leaving, and a client coming back and answering its first request, each to three hundred milliseconds.
 
+- **A client's configuration reload could still cost one visitor a `502`.** The reload's drain announced `Draining` to the server and then read its own in-flight count at once, which was zero whenever nothing had arrived yet, and closed. A request the server dispatched in that same instant, before it had read the `Draining`, landed on a closing socket. The drain now sends a heartbeat behind the `Draining` and waits for its `Pong` before counting: the server answers in order, so the `Pong` is the proof that everything dispatched before the `Draining` was read has arrived. Seen once on CI, in the reload-under-load phase, as one `502` in two hundred requests.
+
 ## [0.11.0] - 2026-09-02
 
 ### Security

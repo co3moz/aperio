@@ -662,6 +662,103 @@ async fn test_run_service_cancel_while_connected() {
 }
 
 // ---------------------------------------------------------------------------
+// run_service: a reload's drain does not close on the server until the server
+// has read the Draining.
+// ---------------------------------------------------------------------------
+
+/// The drain used to read this connection's in-flight count the moment the
+/// `Draining` was queued, which was zero whenever the server had not yet
+/// dispatched anything, and then close. A request the server dispatched in
+/// the same instant, before it read the `Draining`, arrived on a socket that
+/// was closing and became a visitor's 502. Now the drain sends a heartbeat
+/// behind the `Draining` and waits for its Pong: the server answers in order,
+/// so the Pong is the proof that everything dispatched before the `Draining`
+/// was read is already here. The mock below withholds that Pong for a while,
+/// and the Close must wait for it.
+#[tokio::test]
+async fn a_reload_drain_closes_only_after_the_server_has_read_the_draining() {
+  init_tracing();
+  let (listener, ws_url) = loopback_ws().await;
+  let spec = test_spec(&ws_url, "http://127.0.0.1:9");
+  let shared = test_shared();
+  let (cancel_tx, cancel_rx) = watch::channel(false);
+  let svc = tokio::spawn(run_service(
+    vec![ServiceRuntime::new(
+      spec.clone(),
+      BackendHealth::for_spec(&spec),
+    )],
+    shared,
+    cancel_rx,
+    true,
+    1,
+    ConnectionCeiling::new(),
+  ));
+
+  let (stream, _) = listener.accept().await.unwrap();
+  let mut ws = accept_async(stream).await.unwrap();
+  const WITHHELD: Duration = Duration::from_millis(500);
+
+  // The mock server: heartbeats before the Draining are answered at once,
+  // the one behind it only after a while, and the time from the Draining to
+  // the Close is what the test is about.
+  let mock = tokio::spawn(async move {
+    let mut draining_at: Option<Instant> = None;
+    loop {
+      let Some(Ok(frame)) = ws.next().await else {
+        panic!("the socket ended before a Close frame");
+      };
+      match frame {
+        Message::Text(text) => match serde_json::from_str::<TunnelMessage>(&text) {
+          Ok(TunnelMessage::Draining {}) => draining_at = Some(Instant::now()),
+          Ok(TunnelMessage::Ping { .. }) => {
+            if draining_at.is_some() {
+              tokio::time::sleep(WITHHELD).await;
+            }
+            let pong = TunnelMessage::Pong {
+              timestamp: 1,
+              version: None,
+              protocol: None,
+            };
+            let _ = ws
+              .send(Message::Text(serde_json::to_string(&pong).unwrap().into()))
+              .await;
+          }
+          _ => {}
+        },
+        Message::Close(_) => {
+          return draining_at
+            .expect("a Close with no Draining before it")
+            .elapsed();
+        }
+        _ => {}
+      }
+    }
+  });
+
+  // A reload-style cancel; the ping task notices it at the top of its loop,
+  // which is one heartbeat interval away at most.
+  tokio::time::sleep(Duration::from_millis(200)).await;
+  cancel_tx.send(true).unwrap();
+
+  let draining_to_close = tokio::time::timeout(Duration::from_secs(15), mock)
+    .await
+    .expect("the mock saw a Close")
+    .unwrap();
+  assert!(
+    draining_to_close >= WITHHELD,
+    "the Close came {draining_to_close:?} after the Draining, before the server had answered"
+  );
+  assert!(
+    draining_to_close < WITHHELD + Duration::from_secs(1),
+    "the Close came {draining_to_close:?} after the Draining: it waited for the deadline, not for the Pong"
+  );
+  tokio::time::timeout(Duration::from_secs(10), svc)
+    .await
+    .expect("run_service exits after the drain")
+    .unwrap();
+}
+
+// ---------------------------------------------------------------------------
 // run_service: connection-level failures.
 // ---------------------------------------------------------------------------
 
