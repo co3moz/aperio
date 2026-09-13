@@ -140,6 +140,34 @@ fn lists_dashboard_overrides_and_masks_secret_keys() {
   let _ = std::fs::remove_dir_all(&data);
 }
 
+/// An override the file also sets is dropped by the runtime, so the report has
+/// to show it as dropped rather than as the value in force.
+#[test]
+fn a_dashboard_override_the_file_also_sets_is_reported_as_dropped() {
+  let _g = EnvGuard::acquire();
+  let data = fresh_data_dir();
+  load_config("max_body_size: 10\n");
+  std::fs::write(
+    data.join("settings.json"),
+    r#"{"max_body_size": 99, "cache_enabled": true}"#,
+  )
+  .unwrap();
+
+  let out = render();
+
+  assert!(out.contains("cache_enabled"), "{out}");
+  assert!(
+    !out.contains("max_body_size ="),
+    "a dropped override must not read as active: {out}"
+  );
+  assert!(
+    out.contains("dropped, the file sets them: max_body_size"),
+    "{out}"
+  );
+
+  let _ = std::fs::remove_dir_all(&data);
+}
+
 #[test]
 fn summarizes_over_long_values() {
   let _g = EnvGuard::acquire();

@@ -159,14 +159,14 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
     _ if services_win => pass(
       "target",
       format!(
-        "{} service(s) configured (from ./aperio.yaml)",
+        "{} service(s) configured (from the local config file)",
         settings.services.len()
       ),
     ),
     _ if !settings.tunnels.is_empty() => pass(
       "target",
       format!(
-        "none, {} tunnel(s) declared (from ./aperio.yaml)",
+        "none, {} tunnel(s) declared (from the local config file)",
         settings.tunnels.len()
       ),
     ),
@@ -177,7 +177,7 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
     _ if !settings.bind_tunnels.is_empty() => pass(
       "target",
       format!(
-        "none, binds {} tunnel(s) (from ./aperio.yaml)",
+        "none, binds {} tunnel(s) (from the local config file)",
         settings.bind_tunnels.len()
       ),
     ),
@@ -190,7 +190,7 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
       pass(
         "target",
         format!(
-          "none, messaging only, {} subscription(s) (from ./aperio.yaml)",
+          "none, messaging only, {} subscription(s) (from the local config file)",
           settings.subscribe.len()
         ),
       )

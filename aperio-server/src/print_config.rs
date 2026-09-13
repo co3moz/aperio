@@ -84,16 +84,24 @@ pub(crate) fn render() -> String {
     out.push('\n');
   }
 
-  // Persisted dashboard overrides win over the environment and the file.
+  // Persisted dashboard overrides, minus any the file also sets: the runtime
+  // drops those, so printing one as active would describe a value the server
+  // is not using.
   let settings_path = std::path::PathBuf::from(&data_dir).join("settings.json");
   match std::fs::read_to_string(&settings_path) {
     Ok(raw) => match serde_json::from_str::<serde_json::Value>(&raw) {
       Ok(serde_json::Value::Object(map)) => {
-        let set: Vec<(&String, &serde_json::Value)> =
-          map.iter().filter(|(_, v)| !v.is_null()).collect();
+        let file_layer = crate::settings::file_overrides();
+        let stored: crate::settings::SettingsOverrides =
+          serde_json::from_value(serde_json::Value::Object(map.clone())).unwrap_or_default();
+        let dropped = crate::settings::conflicting_keys(&file_layer, &stored);
+        let set: Vec<(&String, &serde_json::Value)> = map
+          .iter()
+          .filter(|(k, v)| !v.is_null() && !dropped.contains(k))
+          .collect();
         let _ = writeln!(
           out,
-          "Dashboard overrides ({}), these win over env/yaml at runtime:",
+          "Dashboard overrides ({}), these apply to keys aperio-server.yaml leaves alone:",
           settings_path.display()
         );
         if set.is_empty() {
@@ -106,6 +114,13 @@ pub(crate) fn render() -> String {
             other => other.to_string(),
           };
           let _ = writeln!(out, "  {k:<width$} = {}", display_value(k, &raw));
+        }
+        if !dropped.is_empty() {
+          let _ = writeln!(
+            out,
+            "  (dropped, the file sets them: {})",
+            dropped.join(", ")
+          );
         }
       }
       _ => {

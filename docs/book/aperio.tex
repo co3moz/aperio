@@ -540,7 +540,7 @@ restart \\
 Response cache, captured requests, live traffic buffer & memory only,
 bounded \\
 Dashboard settings overrides & \code{settings.json} in the data
-directory; wins over file and environment \\
+directory; applies to the keys the file leaves alone \\
 \bottomrule
 \end{longtable}
 
@@ -1530,8 +1530,11 @@ connection \code{cache off}.
 
 \section{What gets cached}
 
-Only \code{GET}, only successful responses, and only when the backend's
-\code{Cache-Control} says so. Aperio does not invent freshness. Responses
+Only \code{GET}, and only when the backend's \code{Cache-Control} says so,
+and by default only successful responses; a service that sets
+\code{cache.negative\_ttl} also has its \code{404}/\code{410} answers held
+briefly, so a hot missing URL cannot hammer the backend. Aperio does not
+invent freshness. Responses
 carrying \code{Set-Cookie}, \code{Authorization}-varying content, or
 \code{no-store} are never cached.
 

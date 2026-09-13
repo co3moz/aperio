@@ -246,7 +246,7 @@ impl Source {
   pub(crate) fn label(&self) -> &'static str {
     match self {
       Source::Cli => "CLI argument",
-      Source::LocalFile => "./aperio.yaml",
+      Source::LocalFile => "the local config file",
       Source::Env => "environment",
       Source::HomeFile => "~/.aperio.yaml",
     }

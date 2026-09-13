@@ -780,8 +780,9 @@ Settings (3 set, the rest use defaults):
 
 Structured aperio-server.yaml sections: headers
 
-Dashboard overrides (./data/settings.json), these win over env/yaml at runtime:
+Dashboard overrides (./data/settings.json), these apply to keys aperio-server.yaml leaves alone:
   cache_enabled = true
+  (dropped, the file sets them: gateway_timeout_secs)
 ```
 
 #### Hot-reload
