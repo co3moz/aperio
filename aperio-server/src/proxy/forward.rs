@@ -123,24 +123,35 @@ pub(crate) async fn proxy_http_request(
   };
   let scaling_enabled = state.config().scaling_enabled;
   let declaration_pending = || crate::routing::route_declaration_pending(&state);
+  let declaration_pending_at_entry = declaration_pending().await;
   // A declaration is worth waiting for only when the gate above refused the
   // route for "nothing declares this": a route already answerable needs
   // nothing from the arriving connection.
-  let wait_for_declaration = undeclared.is_some() && declaration_pending().await;
+  let wait_for_declaration = undeclared.is_some() && declaration_pending_at_entry;
   if (!route_up().await
     && worth_waiting_for_route(
       last_disconnect,
       Instant::now(),
       state.config().gateway_timeout,
       scaling_enabled,
-      declaration_pending().await,
+      declaration_pending_at_entry,
     ))
     || wait_for_declaration
   {
-    // Wait for a client to reconnect, or for the arriving connection's first
-    // heartbeat, bounded by the configured gateway timeout.
+    // A declaration that has not arrived within the server's own down
+    // threshold is not *arriving*: the connection is down by then, so the
+    // hold is capped there rather than at the full gateway timeout. A client
+    // that reconnects and declares ends the wait long before either bound.
+    let wait_budget = if declaration_pending_at_entry {
+      state
+        .config()
+        .client_down_threshold
+        .min(state.config().gateway_timeout)
+    } else {
+      state.config().gateway_timeout
+    };
     let mut rx = state.client_connected.subscribe();
-    let timeout_fut = tokio::time::sleep(state.config().gateway_timeout);
+    let timeout_fut = tokio::time::sleep(wait_budget);
     tokio::pin!(timeout_fut);
 
     let mut reconnected = false;
@@ -154,8 +165,10 @@ pub(crate) async fn proxy_http_request(
         break;
       }
       // The declaration this request was held for has landed, or the client
-      // declared somewhere else: stop rather than sleep to the timeout.
-      if wait_for_declaration && !declaration_pending().await {
+      // declared somewhere else: stop rather than sleep for a route that is
+      // not coming. Guarded on what was pending at entry, so a pure reconnect
+      // wait (nothing has connected yet) is not cut short before anyone does.
+      if declaration_pending_at_entry && !declaration_pending().await {
         break;
       }
       tokio::select! {

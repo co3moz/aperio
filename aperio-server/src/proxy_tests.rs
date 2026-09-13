@@ -825,6 +825,48 @@ pub(crate) async fn handler_holds_a_request_until_the_client_declares_its_route(
   assert_eq!(resp.status(), StatusCode::OK);
 }
 
+#[tokio::test]
+pub(crate) async fn a_wrong_declaration_does_not_hold_a_request_open_ended() {
+  // Open posture with strict hostname binding: the gate allows the request,
+  // but no bound route exists and a connection is still arriving, so it is
+  // held. When that connection declares a *different* host there is nothing
+  // left to wait for, and the request must not sleep to the gateway timeout.
+  // The hold's reason is the declaration, not the gate, so this is the case a
+  // break keyed on `undeclared` alone gets wrong.
+  let mut cfg = test_config();
+  cfg.default_access = crate::settings::DefaultAccess::Allow;
+  cfg.require_hostname_bind = true;
+  cfg.gateway_timeout = std::time::Duration::from_secs(30);
+  let state = connected(cfg);
+  mark_connected(&state).await;
+
+  let mut c = mock_client(None, None, None, None);
+  c.last_ping_at = None;
+  state.clients.write().await.insert("c1".to_string(), c);
+
+  let s2 = state.clone();
+  tokio::spawn(async move {
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    {
+      let mut clients = s2.clients.write().await;
+      if let Some(c) = clients.get_mut("c1") {
+        c.last_ping_at = Some(Instant::now());
+        c.sole_mut().declared_hostname = Some("other.example.com".to_string());
+      }
+    }
+    let _ = s2.client_connected.send_replace(true);
+  });
+
+  let mut req = get("/hello");
+  req
+    .headers_mut()
+    .insert("host", HeaderValue::from_static("wanted.example.com"));
+  let resp = tokio::time::timeout(std::time::Duration::from_secs(1), run(state, req))
+    .await
+    .expect("the request must stop waiting once the declaration named another host");
+  assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
+}
+
 // --- SWR, denial, preview, limiter, coalescing ------------------------------
 
 #[tokio::test]

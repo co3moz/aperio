@@ -416,14 +416,40 @@ async fn a_connection_awaiting_its_first_ping_is_a_pending_declaration() {
   );
 }
 
-/// A token-granted bind applies at the upgrade, so it is a declaration before
-/// the first Ping and the connection is not treated as still arriving.
+/// A token-granted bind lets the connection be routed before the first Ping,
+/// but `public:` / `auth:` still ride that Ping, so the visitor gate has seen
+/// nothing declare the route open yet. The declaration is pending all the same.
 #[tokio::test]
-async fn a_token_granted_bind_is_declared_from_the_upgrade() {
+async fn a_token_granted_bind_does_not_end_the_declaration_wait() {
   let state = crate::test_support::test_state();
   let mut c = crate::test_support::mock_client(None, None, None, None);
   c.last_ping_at = None;
   c.sole_mut().assigned_hostnames = vec!["granted.example.com".to_string()];
+  state.clients.write().await.insert("a".to_string(), c);
+  assert!(route_declaration_pending(&state).await);
+
+  state
+    .clients
+    .write()
+    .await
+    .get_mut("a")
+    .unwrap()
+    .last_ping_at = Some(Instant::now());
+  assert!(!route_declaration_pending(&state).await);
+}
+
+/// A connection silent past the down threshold has not declared and is down
+/// by routing's own measure, so it must not hold requests open any longer: one
+/// client that connects and never heartbeats cannot turn every request to an
+/// undeclared route into a wait.
+#[tokio::test]
+async fn a_connection_silent_past_the_down_threshold_is_not_arriving() {
+  let state = crate::test_support::test_state();
+  let mut c = crate::test_support::mock_client(None, None, None, None);
+  c.last_ping_at = None;
+  c.connected_at = Instant::now()
+    .checked_sub(state.config().client_down_threshold + Duration::from_secs(1))
+    .expect("the clock has been running that long");
   state.clients.write().await.insert("a".to_string(), c);
   assert!(!route_declaration_pending(&state).await);
 }

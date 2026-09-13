@@ -427,13 +427,20 @@ pub(crate) async fn route_exists(
 /// A route that already has a candidate does not need this, and the caller
 /// asks it only once the visitor gate has said nothing declares the route.
 /// The wait a caller gives it is bounded by its own gateway timeout.
+///
+/// Health is asked too, with the same threshold routing uses: a connection
+/// silent past `client_down_threshold` has not declared and is down, so it is
+/// not *arriving* any more and must not hold a request open (that would let
+/// one authenticated client that connects and never heartbeats turn every
+/// request to an undeclared route into a wait).
 pub(crate) async fn route_declaration_pending(state: &AppState) -> bool {
+  let down_threshold = state.config().client_down_threshold;
   state
     .clients
     .read()
     .await
     .values()
-    .any(|c| c.awaiting_declaration())
+    .any(|c| c.awaiting_declaration() && c.is_healthy(down_threshold))
 }
 
 /// The pool members on one side of a canary split.
