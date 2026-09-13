@@ -256,12 +256,28 @@ fn resolve_target_falls_back_and_explains_an_unsupported_protocol() {
 /// Serves one connection: reads a little, then writes `reply`.
 fn serve_once(reply: &'static [u8]) -> u16 {
   use std::io::{Read, Write};
+  /// The client always sends the HTTP/2 preface (24 bytes) and an empty
+  /// SETTINGS frame (9 bytes) before it waits for the reply.
+  const CLIENT_HELLO_LEN: usize = 33;
   let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
   let port = listener.local_addr().expect("addr").port();
   std::thread::spawn(move || {
     if let Ok((mut sock, _)) = listener.accept() {
-      let mut buf = [0u8; 64];
-      let _ = sock.read(&mut buf);
+      // Drain the whole client hello before answering. A single read can
+      // return after only the preface, and writing the reply and closing then
+      // makes the client's remaining SETTINGS bytes reset the connection
+      // instead of reading the reply, which flaked these tests.
+      sock
+        .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+        .ok();
+      let mut buf = [0u8; CLIENT_HELLO_LEN];
+      let mut got = 0;
+      while got < CLIENT_HELLO_LEN {
+        match sock.read(&mut buf[got..]) {
+          Ok(0) | Err(_) => break,
+          Ok(n) => got += n,
+        }
+      }
       let _ = sock.write_all(reply);
     }
   });
