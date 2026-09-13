@@ -717,6 +717,16 @@
           }
         ]
       },
+      "server_side": {
+        "description": "Let the server reach this service's target itself instead of relaying\nthrough this client, when the server's `server_side_targets:` permits\nthat address (needs a token that allows it). Written at the top level it\nis the default for every `services:` entry; per entry it governs that one\nservice. Cannot be combined with `serve:`. Default: `false`.",
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "examples": [
+          true
+        ]
+      },
       "services": {
         "description": "Expose several backends from one client, each on its own tunnel connection\n(replaces the single top-level `target`).",
         "type": [

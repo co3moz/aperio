@@ -250,3 +250,48 @@ export class UnpermittedSpec extends Test({
     assert.notEqual(res.status, 200)
   }
 }
+
+/**
+ * A file-less client: the same ask through `APERIO_SERVER_SIDE=1`.
+ *
+ * The per-entry spelling is proven by the refusals above. This one proves the
+ * environment spelling reaches the same field, because a container has no file
+ * to write it in; the declaration line names the target, so the assertion is
+ * that the server says it took the hop.
+ */
+export class FlatDirectClient extends AperioClientBase({
+  dependencies: { server: () => ServerSideServer, envweb: () => DirectBackend },
+}) {
+  _serverUrl() {
+    return this.server._url
+  }
+  _serverToken() {
+    return this.server._token
+  }
+  _backendUrl() {
+    return this.envweb._url
+  }
+  _hostname() {
+    return 'ss-env.e2e.local'
+  }
+  _env() {
+    return { APERIO_SERVER_SIDE: '1' }
+  }
+}
+
+export class FlatServerSideSpec extends Test({
+  timeout: 120_000,
+  dependencies: {
+    server: () => ServerSideServer,
+    flat: () => FlatDirectClient,
+  },
+}) {
+  async theEnvironmentSpellingMovesTheLastHopToo() {
+    const target = this.flat._backendUrl()
+    assert.ok(target, 'the flat client must name a backend to reach')
+    await this.server._waitForLog(`serves ${target} from this server`)
+    const res = await this.server._fetch('/hello?env=1', { host: 'ss-env.e2e.local' })
+    assert.equal(res.status, 200)
+    assert.match(res.body, /GET \/hello\?env=1/, res.body)
+  }
+}

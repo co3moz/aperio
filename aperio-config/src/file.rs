@@ -268,6 +268,13 @@ pub struct FileConfig {
   /// Default: `false`.
   #[schemars(extend("examples" = [true]))]
   pub public: Option<bool>,
+  /// Let the server reach this service's target itself instead of relaying
+  /// through this client, when the server's `server_side_targets:` permits
+  /// that address (needs a token that allows it). Written at the top level it
+  /// is the default for every `services:` entry; per entry it governs that one
+  /// service. Cannot be combined with `serve:`. Default: `false`.
+  #[schemars(extend("examples" = [true]))]
+  pub server_side: Option<bool>,
   /// Gate this client behind your own visitor login instead of the server's.
   /// A `user:password` scalar, one `{method: ...}` block, or a list of them.
   #[schemars(extend("examples" = ["admin:s3cret", {"method": "none"}]))]

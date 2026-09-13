@@ -163,6 +163,10 @@ pub(crate) struct ClientSettings {
   pub(crate) health_threshold: u32,
   /// Ask the server to skip its visitor auth gate for this service.
   pub(crate) public: bool,
+  /// Ask the server to reach this service's target itself instead of relaying
+  /// through this client (top-level default for every entry, or the single
+  /// service of a file-less client).
+  pub(crate) server_side: bool,
   /// This service's visitor gate: the `user:password` scalar that predates
   /// the grammar, one `{method: ...}` block, or a list of them
   /// (None = no override, the server's own gate applies).

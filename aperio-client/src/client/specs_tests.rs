@@ -352,3 +352,71 @@ fn an_entry_that_does_not_ask_sends_no_target() {
   let specs = build_specs(&settings, "base-id", false).unwrap();
   assert!(specs[0].server_side_target.is_none());
 }
+
+/// The file-wide spelling is the default for every entry that leaves it out.
+///
+/// This is the shape a container needs: `APERIO_SERVER_SIDE=1` has no entry to
+/// sit on, so it has to reach each service, and an entry that says
+/// `server_side: false` keeps its hop on the client.
+#[test]
+fn a_file_wide_server_side_reaches_every_entry_that_does_not_opt_out() {
+  let mut settings = base_settings();
+  settings.server_side = true;
+  settings.services = vec![
+    ServiceEntry {
+      name: Some("web".into()),
+      target: Some("http://127.0.0.1:9113".into()),
+      ..Default::default()
+    },
+    ServiceEntry {
+      name: Some("api".into()),
+      target: Some("http://127.0.0.1:9114".into()),
+      server_side: Some(false),
+      ..Default::default()
+    },
+  ];
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  assert_eq!(
+    specs[0].server_side_target.as_deref(),
+    Some("http://127.0.0.1:9113")
+  );
+  assert!(
+    specs[1].server_side_target.is_none(),
+    "an entry that opts out keeps its hop on the client"
+  );
+}
+
+/// A file-less client has no entry to carry it, so the top-level value reaches
+/// the one service it runs.
+#[test]
+fn the_single_service_shape_takes_server_side_from_the_settings() {
+  let mut settings = base_settings();
+  settings.server_side = true;
+  let specs = build_specs(&settings, "base-id", false).unwrap();
+  assert_eq!(
+    specs[0].server_side_target.as_deref(),
+    Some("http://localhost:3000")
+  );
+}
+
+/// `server_side:` moves the last hop to the server, so it cannot coexist with
+/// `serve:`, whose files are on this machine, at either shape.
+#[test]
+fn server_side_and_serve_are_refused_together() {
+  let mut settings = base_settings();
+  settings.server_side = true;
+  settings.serve = Some("./site".into());
+  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  assert!(err.contains("server_side"), "{err}");
+
+  let mut settings = base_settings();
+  settings.services = vec![ServiceEntry {
+    name: Some("ss".into()),
+    target: Some("http://127.0.0.1:9115".into()),
+    serve: Some("./site".into()),
+    server_side: Some(true),
+    ..Default::default()
+  }];
+  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  assert!(err.contains("server_side"), "{err}");
+}

@@ -348,6 +348,13 @@ pub(crate) fn resolve_settings(
     .max(1),
     public: o.public
       || layered(None, local.public, env_bool("APERIO_PUBLIC"), home.public).unwrap_or(false),
+    server_side: layered(
+      None,
+      local.server_side,
+      env_bool("APERIO_SERVER_SIDE"),
+      home.server_side,
+    )
+    .unwrap_or(false),
     // The CLI flag and the environment variable are scalars, so they can only
     // ever mean `basic` with one credential; a file may say more than that.
     visitor_auth: layered(

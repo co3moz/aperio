@@ -61,6 +61,7 @@ pub(crate) fn base_settings() -> ClientSettings {
     health_timeout: 5,
     health_threshold: 2,
     public: false,
+    server_side: false,
     visitor_auth: None,
     allowed_ips: Vec::new(),
     headers: None,

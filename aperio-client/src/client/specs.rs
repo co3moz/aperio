@@ -295,6 +295,13 @@ pub(crate) fn build_specs(
         );
       }
     };
+    if settings.server_side && settings.serve.is_some() {
+      return Err(
+        "CRITICAL ERROR: server_side: and serve: cannot be combined; the files are on this \
+         machine, and a server reaching the target itself cannot serve them!"
+          .to_string(),
+      );
+    }
     let (connections_min, connections) =
       clamp_connections(settings.connections.as_ref(), "the service");
     let (top_public, top_visitor_auth) =
@@ -309,10 +316,9 @@ pub(crate) fn build_specs(
       ws_url,
       ws_urls: ws_urls.clone(),
       client_name: settings.name.clone(),
-      // Not offered on the single-service shape: `server_side:` is a
-      // `services:` key, and the top-level spellings are the deprecated form
-      // this project is retiring, so a new feature does not grow one.
-      server_side_target: None,
+      // The env/file spelling of a `services:` entry's `server_side:`, for a
+      // file-less client: the same field, applied to the one service.
+      server_side_target: settings.server_side.then(|| target.clone()),
       target,
       hostnames: settings.hostnames.clone(),
       path: settings.path.clone(),
@@ -447,7 +453,10 @@ pub(crate) fn build_specs(
         client_name: settings.name.clone(),
         // The address travels with the ask, so the server is told where to go
         // only by a service that asked it to go there.
-        server_side_target: entry.server_side.unwrap_or(false).then(|| target.clone()),
+        server_side_target: entry
+          .server_side
+          .unwrap_or(settings.server_side)
+          .then(|| target.clone()),
         target,
         hostnames: entry
           .hostname

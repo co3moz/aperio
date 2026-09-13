@@ -243,6 +243,7 @@ fn base_settings() -> ClientSettings {
     health_timeout: 0,
     health_threshold: 0,
     public: false,
+    server_side: false,
     visitor_auth: None,
     allowed_ips: Vec::new(),
     headers: None,
