@@ -10,3 +10,5 @@ random_subdomain: "*-preview.example.com"
 # Keep preview environments out of search engines: noindex headers and a
 # disallow-all robots.txt on the random hostnames.
 preview_noindex: true
+
+version: 0.11.0

@@ -12,3 +12,5 @@ bind-tunnels:
   mongo: 15000                  # listen on 127.0.0.1:15000 instead of 27017
   ssh: 2022
   dns: 5300                     # 53 is privileged, so name a port you can bind
+
+version: 0.11.0

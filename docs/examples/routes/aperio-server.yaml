@@ -23,3 +23,5 @@ routes:
     respond:
       content_type: text/plain
       body: "User-agent: *\nDisallow: /\n"
+
+version: 0.11.0

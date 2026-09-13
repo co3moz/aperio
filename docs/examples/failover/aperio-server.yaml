@@ -14,3 +14,5 @@ failover:
   # Keep POST/PATCH out of failover (default), a re-dispatched request may
   # reach a backend twice. Set true only if your backends are idempotent.
   all_methods: false
+
+version: 0.11.0

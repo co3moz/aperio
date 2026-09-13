@@ -19,3 +19,5 @@ trusted_proxies:
 # Session cookies default to Secure when proxy trust is on; set explicitly
 # if your public URL is https but trust_proxy is off.
 secure_cookies: true
+
+version: 0.11.0

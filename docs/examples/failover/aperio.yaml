@@ -9,3 +9,5 @@ services:
 # A stable id lets the server's `wait` failover recognize this client when
 # it reconnects after a crash or redeploy.
 client_id: 8b1a9953-c461-4f21-a04f-2b3e5d5cbe11
+
+version: 0.11.0

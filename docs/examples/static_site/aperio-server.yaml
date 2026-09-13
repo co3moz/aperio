@@ -1,3 +1,5 @@
 server:
   token: apr_static_multi_change_me
 port: 8080
+
+version: 0.11.0

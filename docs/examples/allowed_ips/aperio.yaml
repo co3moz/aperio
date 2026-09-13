@@ -16,3 +16,5 @@ services:
     target: http://localhost:4000
     hostname: app.example.com
     # no allowed_ips: open to every visitor
+
+version: 0.11.0

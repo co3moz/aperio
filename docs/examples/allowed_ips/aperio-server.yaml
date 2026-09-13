@@ -6,3 +6,5 @@ port: 8080
 # meaningless (every visitor would appear as the proxy).
 # trusted_proxies:
 #   - 10.0.0.0/8
+
+version: 0.11.0

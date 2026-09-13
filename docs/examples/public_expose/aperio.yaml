@@ -8,3 +8,5 @@ server:
 tunnels:
   - name: ssh
     target: 127.0.0.1:22
+
+version: 0.11.0

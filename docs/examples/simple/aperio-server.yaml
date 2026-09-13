@@ -10,3 +10,5 @@ port: 8080
 # Directory for persisted state (tokens, stats, audit log). Mount a volume
 # here when running in Docker.
 data_dir: ./data
+
+version: 0.11.0

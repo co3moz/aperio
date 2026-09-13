@@ -6,3 +6,5 @@ port: 8080
 # master token) creates them over the API or from the dashboard sidebar. There
 # is nothing tenant-specific to configure in this file; see the README for the
 # create / select / mint-token flow.
+
+version: 0.11.0

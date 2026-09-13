@@ -10,3 +10,5 @@ services:
     # the backend it probes, so it lives on the entry.
     health:
       endpoint: /health
+
+version: 0.11.0

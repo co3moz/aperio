@@ -7,3 +7,5 @@ services:
   # purpose: the server's own auth: is what a share link is allowed past.
   - target: http://localhost:3000
     hostname: app.example.com
+
+version: 0.11.0

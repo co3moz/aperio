@@ -28,3 +28,5 @@ services:
         add:
           Cache-Control: no-store
         remove: [Server, X-Powered-By]
+
+version: 0.11.0

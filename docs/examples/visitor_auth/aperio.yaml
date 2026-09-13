@@ -20,3 +20,5 @@ services:
   - name: app
     target: http://localhost:5000
     hostname: app.example.com
+
+version: 0.11.0

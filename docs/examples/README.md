@@ -10,6 +10,7 @@ Since 0.10.0 the server is **closed by default**, so a route nothing declares an
 - `https://tunnel.example.com`, the public URL of your Aperio server.
 - `apr_<scenario>_change_me`, a placeholder token; replace it with a long random string of your own.
 - One folder per scenario. Where a feature reads differently with one service than with several, the folder shows both.
+- Every file declares `version:` (the release it was written for), so the binary can warn when a later upgrade changes how a file like this is read instead of staying quiet.
 
 | Folder | Scenario |
 | --- | --- |

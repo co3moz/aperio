@@ -5,3 +5,5 @@ port: 8080
 cache:
   enabled: true
   max_bytes: 67108864
+
+version: 0.11.0

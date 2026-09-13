@@ -14,3 +14,5 @@ services:
     public: true
     target: http://localhost:3000
     hostname: app.example.com
+
+version: 0.11.0

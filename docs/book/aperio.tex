@@ -2766,6 +2766,21 @@ is the scaling shape exactly, so it gets the scaling treatment:
 subject to it, because an operator naming an issuer on their own network
 is describing their deployment rather than aiming the server at it.
 
+\begin{longtable}{@{}R{0.28}R{0.49}R{0.17}@{}}
+\toprule
+\textbf{Variable} & \textbf{Description} & \textbf{Default} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Variable} & \textbf{Description} & \textbf{Default} \\
+\midrule
+\endhead
+\code{APERIO\_JWKS\_ALLOW\_HTTP} & \code{1} = permit a plain-http \code{jwks\_url} on a \code{jwt} visitor gate \textbf{declared by a client}. The server fetches that URL from its own network before any signature is checked, so https is the floor by default. A \code{jwt} gate in the server's own configuration is not subject to it. \\
+\rowsep
+\code{APERIO\_JWKS\_ALLOW\_PRIVATE} & \code{1} = permit a client-declared \code{jwks\_url} that resolves to a private, loopback or link-local address. Off by default, so a tunnel-token holder cannot aim the server at a metadata service or an internal admin port. \\
+\bottomrule
+\end{longtable}
+
 \chapter{Behind a dynamic edge proxy}
 \label{ch:edge}
 

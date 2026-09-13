@@ -37,3 +37,5 @@ scaling:
 # timer only starts after the first served request, so a slow boot cannot
 # make the instance exit before it is ever used.
 idle_timeout: 10m
+
+version: 0.11.0
