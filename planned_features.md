@@ -27,6 +27,19 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
+- [ ] **#169 Upgrade `argon2` to 0.6.0 and prove a stored hash still
+  verifies.** Found by the recurring dependency check (`#134`): `0.6.0` is
+  stable since 2026-08-27, after the last look saw `0.6.0-rc.8`. It buys
+  currency and whatever the release fixed, not a smaller duplicate graph
+  (`#134` explains why: `crypto-common 0.1.7` holds `rand_core 0.6`
+  regardless). Two things to do with the bump: a password hash written by 0.5
+  must still verify under 0.6, a check driven the way the `rusqlite` jump's
+  compatibility check was (write a database with the old build, read it with
+  the new), and the direct `rand_core = "0.6"` declarations in `aperio-server`
+  and `aperio-client` are worth removing if `OsRng`/`RngCore` can come through
+  `argon2::password_hash::rand_core` everywhere, as `totp.rs` already does.
+  `Cargo.lock` moves `argon2` 0.5.3 to 0.6.0 and `password-hash` 0.5 with it.
+
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
@@ -433,11 +446,16 @@ so.
   changes until the answer is yes, at which point it becomes a piece of work
   with an id in *Future ideas*.
 
-  **Checked: 2026-08-19.** `webauthn-rs` is at 0.5.5 stable with `0.6.1-dev`
-  ahead of it, published the same day, and its `-dev` channel has run in
-  parallel for years: `0.5.0-dev` preceded stable `0.5.0` by about six months.
-  `argon2` is at `0.6.0-rc.8`, the eighth candidate in a run that started
-  2025-09, with no rc since March. Neither is close.
+  **The `argon2` half is open as `#169`.** The 2026-09-13 check found `0.6.0`
+  stable, so this entry now waits only on `webauthn-rs`; the duplicate sweep
+  and the stored-credential check stay together with whichever upgrade moves
+  first.
+
+  **Checked: 2026-09-13.** `webauthn-rs` is still `0.5.5` stable with
+  `0.6.1-dev` ahead of it, both from 2026-04-30, and no stable `0.6` line
+  exists. `argon2` published **`0.6.0` stable on 2026-08-27**, the first
+  stable in the candidate run that started 2025-09, so its half is tracked as
+  `#169`; the last check's `0.6.0-rc.8` was four weeks behind this.
 
 ## Completed
 
