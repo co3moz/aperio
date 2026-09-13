@@ -275,7 +275,13 @@ export class FlatDirectClient extends AperioClientBase({
     return 'ss-env.e2e.local'
   }
   _env() {
-    return { APERIO_SERVER_SIDE: '1' }
+    // The flat form has no `hostname:` key, so the bind travels as
+    // APERIO_HOSTNAME. Without it this client is an unbound fallback for every
+    // hostname on the shared server, and it answered the refused-target test's
+    // request (200 instead of the 504 that test asserts) whenever it happened
+    // to still be connected when that spec ran. It only showed on CI, where
+    // the two specs overlapped.
+    return { APERIO_HOSTNAME: 'ss-env.e2e.local', APERIO_SERVER_SIDE: '1' }
   }
 }
 
