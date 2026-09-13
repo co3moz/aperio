@@ -4,12 +4,14 @@ server:
 
 services:
   - name: www
+    public: true
     target: http://localhost:3000
     hostname: www.example.com
     cache: true
     resilience: true             # keep answering from cache while offline
 
   - name: api
+    public: true
     target: http://localhost:4000
     hostname: api.example.com
     # no cache/resilience: stale API responses would be worse than a 504

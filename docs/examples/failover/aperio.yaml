@@ -4,6 +4,7 @@ server:
 
 services:
   - target: http://localhost:3000
+    public: true
 
 # A stable id lets the server's `wait` failover recognize this client when
 # it reconnects after a crash or redeploy.

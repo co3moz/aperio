@@ -18,11 +18,18 @@ visitor.**
   hostname. Fully untrusted.
 - **Server**, the Aperio server: the public front door, router, and admin
   surface. Trusted to route and to enforce policy, but treated by the client as
-  a potentially-hostile relay (it never receives the client's local
-  credentials, only proxied traffic).
+  a potentially-hostile relay. It does receive the credentials a client chooses
+  to put in its own declarations, the per-service visitor password, an
+  autoscaling endpoint's bearer secret, an `expose:` tunnel key, because the
+  server is the side that must act on them; what it never receives is the
+  client's backend credentials, the database password or API key it uses to
+  reach the local service.
 - **Client**, the `aperio-client` process running next to a service. Trusted;
-  it dials **outbound** to the server, so nothing on the client's side accepts
-  inbound connections.
+  it dials **outbound** to the server, so the tunnel itself needs no inbound
+  port. What the client does listen on is opt-in and local: the message faces
+  (`messages_listen` / `messages_mqtt_listen`, loopback unless the operator
+  binds them wider) and a `--bind-tunnels` run, which opens the local ports it
+  was asked to relay.
 - **Backend**, the local service the client forwards to. Trusted; reached only
   over the loopback/private address the client was pointed at.
 
@@ -55,9 +62,13 @@ Controls:
 - Session authentication with role-based access (viewer / operator / admin) and
   optional TOTP / passkey second factor.
 - **A visitor's session is not an admin session.** The credentials that gate
-  proxied traffic, the server's visitor password and a client's own `auth:`,
-  create a session for viewing sites and nothing else. Only the master token, a
-  named user, a passkey or OIDC open this surface. The reverse is deliberate:
+  proxied traffic, the server's visitor password and a client's own `auth:`
+  (with `basic` or `jwt`), create a session for viewing sites and nothing else.
+  A client's `auth: {method: aperio}` is the exception: it admits this server's
+  own identities (a dashboard session, the master token, a passkey or OIDC)
+  and takes no visitor credential of its own. Opening the admin surface takes
+  the master token, a named user, a passkey, OIDC, or a programmatic admin key.
+  The reverse is deliberate:
   an admin session does carry its holder past the visitor gate, fenced to the
   hostnames their own organization serves.
 - Optional network fence: `APERIO_ADMIN_ALLOWED_IPS` (yaml `admin_allowed_ips`) restricts the dashboard and

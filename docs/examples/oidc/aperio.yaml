@@ -3,5 +3,7 @@ server:
   token: apr_oidc_change_me
 
 services:
+  # No `public: true` on purpose: the server's OIDC gate is the point of this
+  # example, and declaring the route public would walk around it.
   - target: http://localhost:3000
     hostname: app.example.com

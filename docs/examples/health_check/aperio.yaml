@@ -10,12 +10,14 @@ health:
 
 services:
   - name: web
+    public: true
     target: http://localhost:3000
     hostname: app.example.com
     health:
       endpoint: /health           # probed independently of the API
 
   - name: api
+    public: true
     target: http://localhost:4000
     hostname: api.example.com
     health:
@@ -23,5 +25,6 @@ services:
       interval: 5                 # per-entry override: probe faster
 
   - name: docs
+    public: true
     target: http://localhost:5000
     path: /docs                   # no probe: routed as long as the tunnel is up

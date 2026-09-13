@@ -775,9 +775,10 @@ and keep per-project files down to a target and a hostname.
 \subsection*{Server}
 
 \begin{enumerate}[leftmargin=1.5em]
-  \item Dashboard overrides in \code{settings.json} (highest, runtime)
   \item \code{aperio-server.yaml}
-  \item environment variables (lowest)
+  \item environment variables for the keys the file leaves alone, with
+  dashboard overrides (\code{settings.json}) applying to those same keys at
+  runtime
 \end{enumerate}
 
 The mechanism is worth knowing because it explains the order: at startup
@@ -854,7 +855,9 @@ cache, failover, rate limits, lockout, body and concurrency limits, the
 stream flow-control watermarks, audit rotation,
 \code{require\_hostname\_bind}, tunnel compression, UI language, preview
 noindex, visitor auth, plus the structured \code{headers:},
-\code{routes:} and \code{error\_pages:} sections. Grouped and flat
+\code{routes:}, \code{error\_pages:}, \code{rate\_limits:},
+\code{fallbacks:}, \code{waf:}, \code{maintenance\_windows:},
+\code{alert\_rules:} and \code{denied\_ips:} sections. Grouped and flat
 spellings are folded identically on reload, so a file written with blocks
 reloads exactly like one written flat.
 
@@ -936,11 +939,13 @@ server:
   url: https://tunnel.example.com
   token: apr_xxxxxxxxxxxxxxxx
 
-target: http://localhost:3000
-hostname: app.example.com
-target_health: /health        # polled locally; failing means "do not route here"
-connections: 4                # parallel tunnel connections, no head-of-line stalls
-max_concurrent: 32            # what this backend can take at once
+services:
+  - target: http://localhost:3000
+    hostname: app.example.com
+    health:
+      endpoint: /health          # polled locally; failing means "do not route here"
+    connections: 4               # parallel tunnel connections, no head-of-line stalls
+    max_concurrent: 32           # what this backend can take at once
 \end{codecard}
 
 A gRPC or HTTP/2 backend is the same file with \code{h2c://localhost:50051}
@@ -1106,7 +1111,9 @@ Two client keys make it a statement about the deployment:
 \begin{lstlisting}[language=aperioyaml]
 server: https://tunnel.example.com
 token: <token>
-target: http://127.0.0.1:3000
+
+services:
+  - target: http://127.0.0.1:3000
 
 tls_min_version: "1.3"
 # Rarely needed. Unset means rustls' own preference order, which is
@@ -1799,7 +1806,7 @@ A list is \textbf{any-of}: the first method that admits the visitor
 admits them. That is the shape "a browser signs in, a script presents a
 key" needs, and it is why this is a list rather than a choice, since a
 single choice cannot be widened into one later without changing every
-line already written. Two methods exist today:
+line already written. Six methods exist today:
 
 \begin{description}[leftmargin=1.6em,style=nextline]
   \item[\code{none}] Deliberately open. The long spelling of a client's
@@ -1820,7 +1827,7 @@ line already written. Two methods exist today:
   \item[\code{jwt}] A token the visitor already holds, verified against
         keys the issuer publishes (\code{jwks\_url:}) or a shared secret
         (\code{hmac\_secret:}). No round trip per request, which is the
-        operational difference from a future \code{forward}. Server-side
+        operational difference from \code{forward}. Server-side
         only, like \code{bearer}.
   \item[\code{bearer}] An opaque secret presented as
         \code{Authorization: Bearer <secret>}. \code{secret:} takes one
@@ -1995,8 +2002,10 @@ and told the backend nothing, so an application behind a tunnel could not
 greet anyone without building a second login beside Aperio's.
 \code{visitor\_identity\_headers} adds two headers to the forwarded
 request: \code{x-aperio-visitor-how}, which is \code{session},
-\code{bearer} or \code{share}, and \code{x-aperio-visitor-id}, the email
-or username behind a session where there is one. A \code{bearer} secret
+\code{bearer}, \code{share}, \code{jwt} or \code{forward}, and
+\code{x-aperio-visitor-id}, the email
+or username behind a session where there is one, or the \code{x-auth-user}
+a \code{forward} endpoint returned. A \code{bearer} secret
 identifies a caller rather than a person, so it carries no id.
 
 The secret itself does not travel. An \code{Authorization} header that
@@ -2961,7 +2970,7 @@ declaration cannot shadow them: a command reading them has to be able to
 trust that they describe the message it is handling.
 
 \begin{codecard}[aperiosh]{The publishing side, from anywhere with an admin credential}
-aperio-client api POST /publish -d '{"topic":"deploy/web","payload":"v1.9.2"}'
+aperio-client api publish deploy/web --payload v1.9.2
 \end{codecard}
 
 The answer says how far it went (\code{clients}, \code{connections});
@@ -3226,8 +3235,9 @@ import there breaks the fuzz build.
 
 Every setting below is an \code{APERIO\_*} environment variable and an
 equivalent \code{aperio-server.yaml} key: the same name lowercased,
-without the prefix. The file wins over the environment; dashboard
-overrides win over both. These tables are maintained by hand alongside
+without the prefix. The file wins over the environment; a dashboard
+override applies only to the keys the file leaves alone, because a key the
+file writes belongs to the file. These tables are maintained by hand alongside
 \code{docs/configuration.md}; \code{aperio-server --print-schema} emits
 the machine-readable catalogue, which is the one that cannot drift.
 
@@ -3257,7 +3267,7 @@ the machine-readable catalogue, which is the one that cannot drift.
 \rowsep
 \code{APERIO\_LB\_STRATEGY} & Load balancing: \code{round-robin}, \code{primary-standby}, or \code{sticky}. & \code{round-robin} \\
 \rowsep
-\code{APERIO\_MAX\_TUNNELS} & Max simultaneously connected tunnel connections; a client holds one per service, and a reload briefly wants two. Was \code{10} before 0.12.0. & \code{64} \\
+\code{APERIO\_MAX\_TUNNELS} & Max simultaneously connected tunnel connections; a client holds one per service, and a reload briefly wants two. Was \code{10} before 0.11.0. & \code{64} \\
 \rowsep
 \code{APERIO\_MAX\_CONNECTIONS\_PER\_SERVICE} & Parallel tunnel connections one client may open for a single service (its \code{connections:}), announced to the client on connect. A token's \code{max\_connections} may lower it, never raise it. & \code{16} \\
 \rowsep
@@ -3313,7 +3323,7 @@ the machine-readable catalogue, which is the one that cannot drift.
 \endhead
 \code{APERIO\_REQUIRE\_HOSTNAME\_BIND} & \code{1} = clients without a hostname bind never receive traffic (strict multi-tenant mode). & \code{0} \\
 \rowsep
-\code{APERIO\_VISITOR\_IDENTITY\_HEADERS} & \code{1} = tell the backend who the visitor is, as \code{x-aperio-visitor-how} (\code{session} / \code{bearer} / \code{share}) and \code{x-aperio-visitor-id} (the email or username behind a session, where there is one). Off by default, the same new trust surface as \code{APERIO\_IDENTITY\_HEADERS}. An open or ungated route identifies nobody and sends neither header. & \code{0} \\
+\code{APERIO\_VISITOR\_IDENTITY\_HEADERS} & \code{1} = tell the backend who the visitor is, as \code{x-aperio-visitor-how} (\code{session} / \code{bearer} / \code{share} / \code{jwt} / \code{forward}) and \code{x-aperio-visitor-id} (the email or username behind a session, where there is one, or the \code{x-auth-user} a \code{forward} endpoint returned). Off by default, the same new trust surface as \code{APERIO\_IDENTITY\_HEADERS}. An open or ungated route identifies nobody and sends neither header. & \code{0} \\
 \rowsep
 \code{APERIO\_DEFAULT\_ACCESS} & What a route nobody gated means: \code{deny}, the default since 0.10.0, where a route is served because something declared it reachable rather than because nothing declared otherwise, or \code{allow}, what the server did before 0.10.0. An undeclared route is refused with the answer an unclaimed hostname already gives, so its existence does not leak. A gated route is untouched either way. An unreadable value refuses the start rather than being guessed at. & \code{deny} \\
 \rowsep
@@ -3372,7 +3382,7 @@ the machine-readable catalogue, which is the one that cannot drift.
 \rowsep
 \code{APERIO\_MAX\_WS\_CONNECTIONS} & Max concurrently-live proxied public WebSockets (they are long-lived, so they get their own ceiling separate from the request limit above); beyond it an upgrade gets \code{503}. \code{0} = no cap. & \code{10000} \\
 \rowsep
-\code{APERIO\_MAX\_TUNNELS} & Max simultaneously connected tunnel clients. & \code{10} \\
+\code{APERIO\_MAX\_TUNNELS} & Max simultaneously connected tunnel connections. & \code{64} \\
 \rowsep
 \code{APERIO\_MAX\_CONNECTIONS\_PER\_SERVICE} & Parallel tunnel connections one client may open for a single service (its \code{connections:}), announced to the client on connect. A token's \code{max\_connections} may lower it, never raise it. & \code{16} \\
 \rowsep
@@ -3426,7 +3436,7 @@ the machine-readable catalogue, which is the one that cannot drift.
 \rowsep
 \code{APERIO\_STREAM\_RESUME\_BYTES} & Backlog under which a paused producer is asked to resume. Kept well below the pause mark so the pair cannot flap; a value at or above it is repaired to a quarter of it. & \code{524288} (512 KB) \\
 \rowsep
-\code{APERIO\_STREAM\_BACKLOG\_LIMIT} & Hard per-stream backlog cap: a stream whose producer cannot be paused (a pre-v3 client, or one ignoring the pause) is dropped past this many buffered bytes. A value below the pause mark is repaired to twice it. & \code{16777216} (16 MB) \\
+\code{APERIO\_STREAM\_BACKLOG\_LIMIT} & Hard per-stream backlog cap: a stream whose producer cannot be paused (a pre-v3 client, or one ignoring the pause) is dropped past this many buffered bytes. A value below twice the pause mark is raised to twice it, so there is always room to pause before the cap bites. & \code{16777216} (16 MB) \\
 \rowsep
 \code{APERIO\_VERSION} & The Aperio version this configuration was written for, e.g. \code{0.5.0} (yaml \code{version:}). Reports every recorded configuration-format change between it and this build, and refuses to start on a security-relevant one (Section~\ref{sec:config-version}). Unset disables the check. &  \\
 \rowsep
@@ -3550,6 +3560,8 @@ the machine-readable catalogue, which is the one that cannot drift.
 \rowsep
 \code{APERIO\_SCALING\_ALLOW\_HTTP} & \code{1} = permit a plain-http autoscaling endpoint. The URL comes from a client, so https is the floor by default. & \code{0} \\
 \rowsep
+\code{APERIO\_SCALING\_ALLOW\_PRIVATE} & \code{1} = permit an endpoint that resolves to a private, loopback or link-local address. Off by default, since the URL comes from a client. & \code{0} \\
+\rowsep
 \code{APERIO\_SCALING\_RECORD\_TTL} & Seconds after which an autoscaling record nothing has re-announced is dropped. & \code{2592000} (30 days) \\
 \rowsep
 \bottomrule
@@ -3598,7 +3610,7 @@ the machine-readable catalogue, which is the one that cannot drift.
 \rowsep
 \code{APERIO\_OIDC\_REDIRECT\_URL} & Fixed callback URL; otherwise derived from the request \code{Host} (and \code{X-Forwarded-Proto} when \code{APERIO\_TRUST\_PROXY=1}). Recommended to set explicitly. & derived \\
 \rowsep
-\code{APERIO\_OIDC\_DEFAULT\_GRANTS} & What an email with no dashboard user record is granted at its first login, comma-separated \code{<org>:<role>} entries. Empty means the login is refused until an administrator grants something; \code{master:admin} is what every allowed email got before 0.12.0. Yaml: \code{oidc.default\_grants}. & empty \\
+\code{APERIO\_OIDC\_DEFAULT\_GRANTS} & What an email with no dashboard user record is granted at its first login, comma-separated \code{<org>:<role>} entries. Empty means the login is refused until an administrator grants something; \code{master:admin} is what every allowed email got before 0.11.0. Yaml: \code{oidc.default\_grants}. & empty \\
 \rowsep
 \code{APERIO\_OIDC\_GROUPS\_CLAIM} & The claim that carries the provider's groups, read from userinfo and then from the ID token. Yaml: \code{oidc.groups\_claim}. & \code{groups} \\
 \rowsep
@@ -3664,11 +3676,11 @@ settings are required: the token, the server URL, and the target.
 \rowsep
 \code{APERIO\_PRIORITY} & \code{--priority} & \code{priority} & Load-balancing priority tier announced to the server (0 = primary, higher = standby; effective with \code{APERIO\_LB\_STRATEGY=primary-standby}). \\
 \rowsep
-\code{APERIO\_BANDWIDTH} &  & \code{bandwidth} & Link capacity of this client's network, e.g. \code{8mbit}, \code{500kbit}, \code{2MB}, or plain bytes/second. The server paces outgoing tunnel frames (token bucket, 1 s burst) so this client is never pushed faster than its network can drain. \\
+\code{APERIO\_BANDWIDTH} &  & \code{bandwidth} & Link capacity of this client's network, e.g. \code{8mbit}, \code{500kbit}, \code{2MB}, or plain bytes/second. The top-level value is a budget for the whole process, divided across the \code{services:} entries and each entry's \code{connections}; per-entry it is that service's ceiling. The server paces outgoing tunnel frames (token bucket, 1 s burst) so this client is never pushed faster than its network can drain. \\
 \rowsep
 \code{APERIO\_MAX\_CONCURRENT} & \code{--max-concurrent} & \code{max\_concurrent} & Max concurrent requests; announced to the server, which queues the excess instead of flooding the backend. Also enforced locally. \\
 \rowsep
-\code{APERIO\_CONNECTIONS} &  & \code{connections} & Parallel tunnel connections per service (1-16); the server load-balances across them like separate clients. \\
+\code{APERIO\_CONNECTIONS} &  & \code{connections} & Parallel tunnel connections per service; the server's \code{max\_connections\_per\_service} (default 16) caps it, and the client refuses to configure more than 256. The server load-balances across them like separate clients. \\
 \rowsep
 \code{APERIO\_OTEL\_BRIDGE\_LISTEN} &  & \code{otel\_bridge.listen} & Address for the client's OTLP/HTTP receiver, \code{127.0.0.1:4318} by default; anything on the edge host exports to it with one environment variable. \\
 \rowsep
@@ -3716,15 +3728,15 @@ settings are required: the token, the server URL, and the target.
 \rowsep
 \code{APERIO\_DEVICE\_KEY\_FILE} &  & \code{device\_key\_file} & Path holding the device key, its contents are used, or a fresh random key is generated and persisted there (owner-only \code{0600}) on first run. Ignored when \code{APERIO\_DEVICE\_KEY} is set. \\
 \rowsep
-\code{APERIO\_TARGET\_HEALTH} &  & \code{target\_health} & Health endpoint of the local target (path like \code{/health}, or a full URL). When set, the client probes it independently and reports the result to the server: a failing backend takes the client \textbf{out of routing without dropping the tunnel}; it rejoins automatically when the probe recovers. The dashboard shows a \code{BACKEND DOWN} badge meanwhile. \textbf{The service starts *unhealthy* (out of routing) until the first probe succeeds}, the client never claims a backend is up before it has checked it, and the first probe runs immediately at startup, so a healthy backend becomes routable within a probe (not a probe interval). Before that first probe completes the dashboard shows a \textbf{CHECKING} badge (rather than *BACKEND DOWN*), so "not probed yet" is distinguishable from "probed and down". Probes never follow redirects.  Against an \code{h2c://}/\code{h2://} target the value names the \emph{gRPC service} to health-check instead, and the probe calls \code{grpc.health.v1.Health/Check}: a plain GET cannot reach a server that speaks HTTP/2 with prior knowledge and routes by method name. \code{/} asks about the server as a whole. An absolute \code{http(s)://} URL still means an ordinary HTTP probe. \\
+\code{APERIO\_TARGET\_HEALTH} &  & \code{health.endpoint} & Health endpoint of the local target (path like \code{/health}, or a full URL). When set, the client probes it independently and reports the result to the server: a failing backend takes the client \textbf{out of routing without dropping the tunnel}; it rejoins automatically when the probe recovers. The dashboard shows a \code{BACKEND DOWN} badge meanwhile. \textbf{The service starts *unhealthy* (out of routing) until the first probe succeeds}, the client never claims a backend is up before it has checked it, and the first probe runs immediately at startup, so a healthy backend becomes routable within a probe (not a probe interval). Before that first probe completes the dashboard shows a \textbf{CHECKING} badge (rather than *BACKEND DOWN*), so "not probed yet" is distinguishable from "probed and down". Probes never follow redirects.  Against an \code{h2c://}/\code{h2://} target the value names the \emph{gRPC service} to health-check instead, and the probe calls \code{grpc.health.v1.Health/Check}: a plain GET cannot reach a server that speaks HTTP/2 with prior knowledge and routes by method name. \code{/} asks about the server as a whole. An absolute \code{http(s)://} URL still means an ordinary HTTP probe. \\
 \rowsep
-\code{APERIO\_WAIT\_FOR\_BACKEND} &  & \code{wait\_for\_backend} & Startup gate: hold the service \textbf{out of routing until the backend first accepts a connection}, avoiding the connection-refused window while a slow dev server boots. Connection-level only (a probe per second); once the backend is up the gate never re-engages. Superseded by \code{target\_health}, which gates startup *and* tracks health continuously. Per \code{services:} entry via \code{wait\_for\_backend:}. \\
+\code{APERIO\_WAIT\_FOR\_BACKEND} &  & \code{health.wait\_for\_backend} & Startup gate: hold the service \textbf{out of routing until the backend first accepts a connection}, avoiding the connection-refused window while a slow dev server boots. Connection-level only (a probe per second); once the backend is up the gate never re-engages. Superseded by \code{target\_health}, which gates startup *and* tracks health continuously. Per \code{services:} entry via \code{wait\_for\_backend:}. \\
 \rowsep
-\code{APERIO\_HEALTH\_INTERVAL} &  & \code{health\_interval} & Seconds between backend health probes. \\
+\code{APERIO\_HEALTH\_INTERVAL} &  & \code{health.interval} & Seconds between backend health probes. \\
 \rowsep
-\code{APERIO\_HEALTH\_TIMEOUT} &  & \code{health\_timeout} & Per-probe timeout (seconds). \\
+\code{APERIO\_HEALTH\_TIMEOUT} &  & \code{health.timeout} & Per-probe timeout (seconds). \\
 \rowsep
-\code{APERIO\_HEALTH\_THRESHOLD} &  & \code{health\_threshold} & Consecutive probe failures before the backend is reported unhealthy. \\
+\code{APERIO\_HEALTH\_THRESHOLD} &  & \code{health.threshold} & Consecutive probe failures before the backend is reported unhealthy. \\
 \rowsep
 \code{APERIO\_TIMEOUT} &  & \code{timeout} & Per-request backend timeout (seconds). \\
 \rowsep
@@ -3738,7 +3750,7 @@ settings are required: the token, the server URL, and the target.
 \rowsep
 \code{APERIO\_BREAKER\_FAILURES}, \code{APERIO\_BREAKER\_OPEN\_FOR} &  & \code{circuit\_breaker.failures}, \code{circuit\_breaker.open\_for} & Stop dialing a backend that keeps failing: consecutive failures that open the breaker (\code{0} = off) and how long it stays open before one request probes the backend again. While open the visitor gets \code{502} without a dial. A response head of any status counts as a success, since a \code{500} is a backend that is up. \\
 \rowsep
-\code{APERIO\_MAX\_RESPONSE\_BODY} &  & \code{max\_response\_body} & Max backend response size in bytes; bodies over 256 KB are streamed through the tunnel in chunks, larger than this limit are truncated. \\
+\code{APERIO\_MAX\_RESPONSE\_BODY} &  & \code{max\_response\_body} & Max backend response size in bytes; bodies over 32 KB are streamed in binary chunks (256 KB against a peer too old for them). A response past this limit is refused with \code{502} before anything is sent, or aborted once streaming, so the visitor never sees a quietly truncated success. \\
 \rowsep
 \code{APERIO\_MAX\_REQUEST\_BODY} &  & \code{max\_request\_body} & Max request body size in bytes visitors may upload to this service. Announced to the server, which rejects bigger uploads with an early \textbf{413} before the body ever enters the tunnel. Can only tighten the server's global \code{APERIO\_MAX\_BODY\_SIZE}, never widen it. Per \code{services:} entry via \code{max\_request\_body:}. \\
 \rowsep
@@ -3748,9 +3760,9 @@ settings are required: the token, the server URL, and the target.
 \rowsep
 \code{APERIO\_SUBSCRIBE} &  & \code{subscribe} & Topic filters this client listens for, so the clients of one organization can signal each other over the tunnel connections they already hold (Chapter~\ref{ch:messaging}). Process-wide rather than per service: a client with a \code{services:} list receives one copy, not one per service. MQTT filter syntax, where \code{+} is one level, \code{\#} is the rest. As yaml a list entry may also be an object, \code{\{topic, run, timeout, max\_concurrent\}}, which runs a command when a message arrives; \code{run:} is deliberately file-only, since what may execute on a machine belongs in a file an operator wrote. The token must carry the topics, or the subscription is refused with its reason. \\
 \rowsep
-\code{APERIO\_MESSAGES\_LISTEN} &  & \code{messages\_listen} & Address of the local HTTP face for messages, e.g. \code{127.0.0.1:1888}. \code{GET /subscribe?topic=<filter>} streams matching messages as server-sent events, \code{POST /publish?topic=<topic>} sends the body. No dependency and no codec, so \code{curl -N} is a working subscriber; a filter attached this way does not have to be in the config file, and is given back when the subscriber leaves. Loopback by default and with no authentication of its own: binding it elsewhere lets anything that can reach it publish as this client, and is warned about. \\
+\code{APERIO\_MESSAGES\_LISTEN} &  & \code{messages\_listen} & Address of the local HTTP face for messages, e.g. \code{127.0.0.1:1888}. \code{GET /subscribe?topic=<filter>} streams matching messages as server-sent events, \code{POST /publish?topic=<topic>} sends the body. No dependency and no codec, so \code{curl -N} is a working subscriber; a filter attached this way does not have to be in the config file, and is given back when the subscriber leaves. Loopback is the sensible value and unset means no listener at all: binding it elsewhere lets anything that can reach it publish as this client, and is warned about. \\
 \rowsep
-\code{APERIO\_MESSAGES\_MQTT\_LISTEN} &  & \code{messages\_mqtt\_listen} & Address of the local MQTT face, e.g. \code{127.0.0.1:1883}, for an application that would rather use the MQTT library it already has. MQTT 3.1.1, and a translator rather than a broker: nothing on the wire to the server speaks it. QoS 1 publishes travel at-least-once and are answered with PUBACK; subscriptions are granted QoS 0; no retained messages, no persistent sessions, no will. Runs alongside \code{messages\_listen} and shares one subscription set. Loopback by default, with the same warning. \\
+\code{APERIO\_MESSAGES\_MQTT\_LISTEN} &  & \code{messages\_mqtt\_listen} & Address of the local MQTT face, e.g. \code{127.0.0.1:1883}, for an application that would rather use the MQTT library it already has. MQTT 3.1.1, and a translator rather than a broker: nothing on the wire to the server speaks it. QoS 1 publishes travel at-least-once and are answered with PUBACK; subscriptions are granted QoS 0; no retained messages, no persistent sessions, no will. Runs alongside \code{messages\_listen} and shares one subscription set. Loopback is the sensible value; unset means no listener, and the face has no authentication of its own, so binding it elsewhere is warned about. \\
 \rowsep
 \code{APERIO\_SECURITY\_HEADERS} &  & \code{security\_headers} & The security response-header preset: HSTS, \code{X-Frame-Options: DENY}, \code{X-Content-Type-Options: nosniff} and \code{Referrer-Policy: strict-origin-when-cross-origin}. Explicit \code{headers:} rules always win over it. Off by default. \\
 \rowsep
@@ -3817,6 +3829,12 @@ complete list, it is authoritative, and it always matches the running build.
 \code{GET /aperio} & Admin dashboard. & dashboard session \\
 \rowsep
 \code{GET /aperio/api/stats}, \code{/api/logs}, \code{/api/audit} & Live stats, request log, audit events. \code{/api/logs} takes \code{status} (an exact code or a class such as \code{5xx}), \code{method}, \code{path} and \code{limit}, over the recent-request ring. \code{/api/audit} takes \code{event}, \code{actor}, \code{q}, \code{from}, \code{to} and \code{limit}; any of them searches the durable log (active file plus rotated generations) instead of the recent ring, newest first. & dashboard session \\
+\rowsep
+\code{GET /aperio/api/stream} & Server-sent events: \code{stats}, \code{traffic} and \code{notification} by default, plus one event per named topic (\code{?topics=tokens,uptime}, or the bare \code{?tokens\&uptime}), which is how the dashboard holds one connection instead of twenty polls. A topic the caller's role may not read is refused at the connection, named. An unnamed topic set is exactly the three default events, so a script from before topics existed keeps working. & dashboard session \\
+\rowsep
+\code{POST /aperio/api/publish}, \code{GET /aperio/api/subscribers} & Publish a message to the organization's subscribers (\code{topic}, \code{payload} or \code{payload\_base64}, \code{qos}) / list the subscribed client processes and their filters. & dashboard session (publish: operator+, subscribers: viewer+) \\
+\rowsep
+\code{POST /aperio/api/tokens/refresh} & Slide a token's expiry forward; authenticates with the token secret itself, no session. & the token's own secret \\
 \rowsep
 \code{GET /aperio/api/export/audit.csv} & The same audit query as CSV, from the durable log, with a download filename. The organization fence is applied around the search, so a filter can only narrow what the caller may already see. & dashboard session \\
 \rowsep
@@ -4019,6 +4037,9 @@ Everything above, plus the administrative actions that have no webhook:
 \code{org\_created}, \code{org\_deleted}, \code{org\_quota\_updated},
 \code{org\_oidc\_updated}, \code{org\_hostnames\_set},
 \code{user\_created}, \code{user\_updated}, \code{user\_deleted},
+\code{user\_grant\_added}, \code{user\_grant\_removed},
+\code{grants\_widened\_on\_upgrade},
+\code{org\_panel\_set},
 \code{client\_overrule}, \code{config\_reloaded},
 \code{scaling\_failed}, \code{scaling\_disarmed}, \code{tunnel\_denied},
 \code{totp\_enabled}.

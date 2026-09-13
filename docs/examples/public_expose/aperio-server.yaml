@@ -2,12 +2,15 @@ server:
   token: apr_public_expose_change_me
 port: 8080
 
-# Raw public TCP ports relayed into declared client tunnels. An entry names
-# the tunnel and the token whose client may claim it, so the port has an
-# owner and revoking that token closes its source. Anyone who can reach the
-# port talks straight to the backend: keep real authentication there.
+# Raw public TCP ports relayed into declared client tunnels. The entry names
+# the tunnel whose declaring client may claim it; with neither `org:` nor
+# `token:` written, the claim is settled inside the master organization, which
+# is the one the client above connects as. Write `org: <name>` (or spell the
+# tunnel `<org>@ssh`) to hand the port to a tenant instead, and the preferred
+# spelling is `org:` rather than `token:`: a token name is not unique.
+# Anyone who can reach the port talks straight to the backend: keep real
+# authentication there.
 expose:
   - protocol: tcp        # tcp only; a public udp port is an amplification surface
     port: 2222
     tunnel: ssh
-    token: expose-bastion

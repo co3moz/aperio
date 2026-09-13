@@ -86,19 +86,21 @@ version of this list:
    eligibility (healthy, not draining, not ejected) → hostname → path →
    load-balancing strategy → per-visitor IP filter. No client → serve-stale, a
    fallback URL redirect, or a `504`.
-10. **Cache**, after routing rather than before it, because the opt-in is the
+10. **Quotas**, the token's rate and daily byte limits and the organization's
+    monthly byte quota, before anything is served or stored on the caller's
+    behalf.
+11. **Cache**, after routing rather than before it, because the opt-in is the
     serving client's (`cache: true`) and the server has to know who would serve
     the request to know whether it may be cached. A fresh hit, or a
     stale-while-revalidate hit, short-circuits the tunnel; concurrent misses
     coalesce behind a single-flight leader.
-11. **Per-token / per-org limits and per-client admission**, token rate/quota,
-    org monthly bytes, and the chosen client's own concurrency limiter.
-12. **Dispatch**, the request is sent down the chosen client's socket and the
+12. **Per-client admission**, the chosen client's own concurrency limiter.
+13. **Dispatch**, the request is sent down the chosen client's socket and the
     server awaits the response with the per-service (or global) response timeout.
-13. **Failover / retry**, a vanished client re-dispatches per `failover_mode`; a
+14. **Failover / retry**, a vanished client re-dispatches per `failover_mode`; a
     buffered 5xx re-dispatches when `retry_on_5xx` is on; both are bounded by the
     jump budget.
-14. **Response**, headers rewritten, cached when eligible, captured for the
+15. **Response**, headers rewritten, cached when eligible, captured for the
     inspector, accounted to stats/quota, and streamed or buffered back.
 
 ## Concurrency model
@@ -126,10 +128,13 @@ administrator has since added.
 
 **Everything else uses the host's store.** Outbound HTTP made through
 `reqwest`, the server's webhook deliveries, OIDC and JWKS fetches, autoscaling
-callbacks and OTLP export, and the client's calls to your own backends, is
+callbacks, OTLP export, and the client's HTTP calls to your own backends, is
 verified against the platform's certificate store via
-`rustls-platform-verifier`. This is what lets an operator running an internal
-CA, a private OIDC provider or a corporate egress proxy make those calls work
+`rustls-platform-verifier`. Two paths are deliberately narrower: the client's
+`h2://` backend connector and the server's `server_side:` WebSocket dial use
+the bundled Mozilla root set instead, so a private-CA `h2://` backend or a
+`wss://` server-side target is not reached by installing a CA on the box. This is what lets an operator running an internal
+CA, a private OIDC provider or a corporate egress proxy make the rest work
 by installing the CA where everything else on the box already reads it, rather
 than by rebuilding Aperio.
 

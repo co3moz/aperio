@@ -31,14 +31,19 @@ docker run -d --name aperio-client \
   -e APERIO_SERVER_TOKEN="change-me-to-a-long-random-string" \
   -e APERIO_SERVER_URL="http://your-server-ip:8080" \
   -e APERIO_TARGET="http://localhost:3000" \
+  -e APERIO_PUBLIC=1 \
   ghcr.io/co3moz/aperio-client:latest
 ```
+
+`APERIO_PUBLIC=1` matters: since 0.10.0 the server is closed by default, so a
+route nothing declares answers as an unclaimed hostname does. Drop it (and use
+`auth:`/`visitor_auth` instead) when the site should be gated.
 
 Or with the CLI (installed via `curl -sSf https://raw.githubusercontent.com/co3moz/aperio/master/install.sh | sh`):
 
 ```bash
 # on the machine next to the service you are exposing
-aperio-client 3000 --server-url https://tunnel.example.com --server-token apr_xxxxxxxx
+aperio-client 3000 --server-url https://tunnel.example.com --server-token apr_xxxxxxxx --public
 ```
 
 ## 3. Verify

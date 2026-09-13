@@ -26,7 +26,9 @@ the slowest-endpoints report, and the [k6 soak test](../tests/soak/k6.js)).
 - **`APERIO_IP_LIMIT_MAX` / `_REFILL`.** Per-visitor token bucket. The burst
   (`max`) absorbs page loads; the refill (`req/s`) sets the sustained rate.
 - **Response bodies over 32 KB stream as binary frames** rather than travelling
-  base64-encoded inside one JSON message. That is a third fewer bytes on the
+  base64-encoded inside one JSON message, against a peer that negotiated binary
+  frames (tunnel protocol v2 and later). Against an older server the threshold
+  is 256 KB and the framing is base64. Streaming is a third fewer bytes on the
   wire for those responses, which is what matters on a real link; on loopback
   it measures as roughly break-even at 32 KB and a few percent above it, since
   there the cost is CPU rather than bandwidth.
@@ -82,7 +84,7 @@ One `curl -i` while a load test runs is enough to tell them apart:
 |---|---|---|
 | `ip` | Per-visitor token bucket | `ip_limit_max` / `ip_limit_refill` (env `APERIO_IP_LIMIT_MAX` / `APERIO_IP_LIMIT_REFILL`) |
 | `server-concurrency` | The server's global in-flight ceiling | `max_concurrent_requests` (env `APERIO_MAX_CONCURRENT_REQUESTS`) |
-| `route` | A `rate_limits:` rule matched the hostname and path | the matching rule in `aperio-server.yaml` |
+| `route` | A `rate_limits:` rule, or a `routes:` policy entry's inline `rate_limit:`, matched the hostname and path | the matching rule in `aperio-server.yaml` |
 | `client-concurrency` | The serving client's own limit, nothing freed before the gateway timeout | `max_concurrent` in that client's `aperio.yaml` |
 | `token-rate` | The access token's requests-per-second ceiling | `max_rps` on the token |
 | `token-quota` | The access token's daily byte quota | `daily_max_bytes` on the token |

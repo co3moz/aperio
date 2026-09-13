@@ -4,9 +4,11 @@ server:
 
 services:
   - name: grpc
+    public: true
     target: h2c://127.0.0.1:50051   # HTTP/2 cleartext, what a local gRPC server speaks
     hostname: grpc.example.com
 
   - name: web
+    public: true
     target: http://localhost:3000   # plain HTTP/1.1 next to it
     hostname: app.example.com

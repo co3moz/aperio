@@ -43,8 +43,8 @@ page.
 | `/usr/bin/aperio-server`, `/usr/bin/aperio-client` | the binaries |
 | `/usr/lib/systemd/system/aperio-server.service` | the server unit |
 | `/usr/lib/systemd/system/aperio-client@.service` | the client unit, one instance per config file |
-| `/etc/aperio/aperio-server.yaml` | the server's config, `0640`, never overwritten by an upgrade |
-| `/etc/aperio/aperio-client.yaml.example` | the template an instance is copied from |
+| `/etc/aperio/aperio-server.yaml` | the server's config, `0640` owned `root:aperio` (the unit runs as `aperio`), never overwritten by an upgrade |
+| `/etc/aperio/aperio-client.yaml.example` | the template an instance is installed from, `0640 root:aperio` |
 | `/var/lib/aperio` | the server's SQLite store |
 | `/var/lib/aperio-client/<instance>` | a client instance's state (its persistent client id) |
 
@@ -68,8 +68,9 @@ config file it reads. A machine usually fronts more than one thing, and the
 alternative to a template is copies of a unit file that drift apart.
 
 ```bash
-sudo cp /etc/aperio/aperio-client.yaml.example /etc/aperio/myapp.yaml
-sudoedit /etc/aperio/myapp.yaml              # server url, token, target, hostname
+sudo install -o root -g aperio -m 0640 \
+  /etc/aperio/aperio-client.yaml.example /etc/aperio/myapp.yaml
+sudoedit /etc/aperio/myapp.yaml              # server url, token, services:
 sudo systemctl enable --now aperio-client@myapp
 
 systemctl status aperio-client@myapp
@@ -94,9 +95,11 @@ process not to do:
   the client, which may be pointed at a backend over a socket
 
 `ProtectSystem=strict` makes the whole filesystem read-only except for what is
-named, which is why moving the data directory takes two edits rather than one:
+named, which is why moving the data directory takes two edits and a directory
+that the `aperio` account can actually write into:
 
 ```bash
+sudo install -d -o aperio -g aperio -m 0750 /srv/aperio
 sudo systemctl edit aperio-server
 ```
 ```ini
@@ -116,8 +119,10 @@ start, so no mode on that file admits it and nothing else.
 
 ## Secrets from somewhere other than the file
 
-Every key in the config is also an `APERIO_*` environment variable, which is
-what to reach for when a value comes from a secret store:
+Every scalar top-level key, and every child of a grouped block, is also an
+`APERIO_*` environment variable, which is what to reach for when a value comes
+from a secret store. Mapping-valued sections (`headers:`, `routes:`,
+`error_pages:`, `expose:` and the like) exist only in the file:
 
 ```bash
 sudo systemctl edit aperio-server
@@ -127,8 +132,12 @@ sudo systemctl edit aperio-server
 Environment=APERIO_SERVER_TOKEN=...
 ```
 
-An override wins over the file, and it keeps the token out of a file that
-backups and configuration management copy around.
+**The file wins over an environment override**, so this is for values the file
+does not write: a key set in `aperio-server.yaml` (the shipped
+`server.token`, for one) outvotes the same setting in the unit. The override
+is still worth using for a value kept out of a file that backups and
+configuration management copy around, so leave that key out of the file rather
+than writing both.
 
 ## Upgrades
 

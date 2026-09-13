@@ -77,18 +77,19 @@ that has since appeared. A response carrying `Vary`, `Set-Cookie` or a
   honoring `If-Range`, without re-traversing the tunnel. Ranges are answered
   here only while a cached entry covers the URL; otherwise they reach the
   backend, or the client's own file server in [static-file
-  mode](static-serving.md), which answers them too but serves the full `200` for
-  an `If-Range` request rather than comparing validators it never issued.
-- **Purge**: `POST /aperio/api/cache/purge` (admin) drops entries by `hostname`
-  and/or `path_prefix` (empty body = the whole cache) for immediate
-  invalidation after a deploy.
+  mode](static-serving.md), which honors `If-Range` against the strong ETag it
+  issued and answers `206` when the validator matches, the full `200` when it
+  does not.
+- **Purge**: `POST /aperio/api/cache/purge` (admin) drops entries by
+  `hostname`, `path_prefix` and/or `surrogate_key` for immediate invalidation
+  after a deploy; an empty object clears the whole cache.
 
 ## Serve-stale resilience
 
 `resilience: true` on a service (needs `cache: true` and the server cache) lets
 cached responses keep answering visitors **while no healthy client is
 connected**, instead of failing with `504`. Fresh-or-expired entries answer up
-to the `cache_max_stale` (env `APERIO_CACHE_MAX_STALE`) window past their lifetime, marked
+to the `cache.max_stale` (env `APERIO_CACHE_MAX_STALE`) window past their lifetime, marked
 `x-aperio-stale: true` once past it and always with an `Age` header. The moment
 a client reconnects, normal proxying takes over. See
 [Client Resilience](client-resilience.md).
@@ -108,11 +109,11 @@ in `aperio-server.yaml`, client keys in `aperio.yaml` (per `services:` entry).
 | yaml key | Where | Effect | Default |
 |---|---|---|---|
 | `cache` (env `APERIO_CACHE`) | server | Enable the shared response cache. | `0` |
-| `cache` (env `APERIO_CACHE`) | client, per service | Opt this service in. | `0` |
-| `cache_max_bytes` (env `APERIO_CACHE_MAX_BYTES`) | server | Total in-memory budget; inserting past it evicts the entries closest to expiry, and a body larger than a quarter of the budget is never cached. | `67108864` (64 MB) |
+| `cache` (env `APERIO_CACHE`) | client, per service or top level | Opt a service in; written at the top level it is the default for every `services:` entry. | `0` |
+| `cache.max_bytes` (env `APERIO_CACHE_MAX_BYTES`) | server | Total in-memory budget; inserting past it evicts the entries closest to expiry, and a body larger than a quarter of the budget is never cached. | `67108864` (64 MB) |
 | `resilience` (env `APERIO_RESILIENCE`) | client, per service | Serve stale while no client is connected. | `0` |
-| `cache_max_stale` (env `APERIO_CACHE_MAX_STALE`) | server | Serve-stale window in seconds; `0` disables it. | `3600` |
-| `cache_negative_ttl` (env `APERIO_CACHE_NEGATIVE_TTL`) | server | Seconds to hold a `404`/`410` so a hot missing URL cannot hammer the backend; `0` disables it. | `0` |
+| `cache.max_stale` (env `APERIO_CACHE_MAX_STALE`) | server | Serve-stale window in seconds; `0` disables it. | `3600` |
+| `cache.negative_ttl` (env `APERIO_CACHE_NEGATIVE_TTL`) | server | Seconds to hold a `404`/`410` so a hot missing URL cannot hammer the backend; `0` disables it. | `0` |
 
 The full option reference lives in [Configuration](configuration.md); the
 end-to-end request path is in

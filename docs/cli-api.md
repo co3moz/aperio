@@ -10,7 +10,7 @@ Each command performs exactly one call, prints the server's JSON answer (pretty-
 
 ## Authentication
 
-The admin API is authenticated with a **programmatic admin key**, a credential that carries a role (`viewer` / `operator` / `admin`) and an organization, presented as `Authorization: Bearer`. Create one in the dashboard (*Settings, Admin Keys*), or over the API itself:
+The admin API is authenticated with a **programmatic admin key**, a credential that carries a role (`viewer` / `operator` / `admin`) and an organization, presented as `Authorization: Bearer`. Create one in the dashboard (*Settings*, then the *Admin Keys* section of the *Users* pane), or over the API itself:
 
 ```bash
 # from anywhere, against the server's admin API
@@ -39,7 +39,7 @@ The server URL comes from the usual `--server-url` / `APERIO_SERVER_URL` / `serv
 
 When no admin key is configured the tunnel token is sent instead. The server accepts it only where the master token is a valid credential (`api tunnel create` / `delete`), so CI jobs that only provision ephemeral tunnels need no admin key at all. Everything else answers with an authentication error.
 
-A key's role gates what it can do, exactly as it does for a dashboard user: reads need `viewer`, mutations need `operator`, and users, settings, organizations, and admin keys themselves need `admin`. Organization scoping applies too, a key bound to an org only ever sees that org's clients, tokens, and traffic.
+A key's role gates what it can do, exactly as it does for a dashboard user: reads need `viewer`, mutations need `operator`, and users, settings, organizations, and admin keys themselves need `admin`. The export, import and session routes are `admin` reads rather than `viewer` ones, and `api explain` is refused below `operator`. Organization scoping applies too, a key bound to an org only ever sees that org's clients, tokens, and traffic.
 
 ## Scope flags: `--hostname` and `--path`
 
@@ -57,7 +57,7 @@ Where the endpoint accepts several values (token permissions), the flag takes a 
 
 Every lifetime flag (`--expire`, `--grace`) takes a human duration: `45s`, `30m`, `2h`, `1d`, `2w`, a bare number of seconds, or `never`. Invalid values are rejected before any request is sent.
 
-`never` means what the endpoint means by "no expiry": a share link with no expiry, a token that never expires.
+`never` means what the endpoint means by "no expiry": a share link with no expiry, a token that never expires. On `--grace` it means `0`, an immediate cutover of the old secret, not a grace period that lasts forever.
 
 ## Commands
 
@@ -79,8 +79,10 @@ aperio-client api token create --name ci --hostname app.example.com --expire 30d
   [--allowed-ip 10.0.0.0/8] [--max-rps 50] [--daily-max-bytes 1000000000] \
   [--allow-public] [--allow-otel] [--allow-bind] [--allow-server-side] [--topic deploy/#] [--canary]
 aperio-client api token update <id> [--name new] [--hostname ...] [--expire never] \
+  [--allowed-ip 10.0.0.0/8] [--max-rps 50] [--daily-max-bytes 1000000000] \
+  [--allow-public|--no-allow-public] [--canary|--no-canary] \
   [--allow-otel|--no-allow-otel] [--allow-bind|--no-allow-bind] [--allow-server-side|--no-allow-server-side] \
-  [--topic deploy/# ... | --clear-topics] [--no-canary]
+  [--topic deploy/# ... | --clear-topics]
 aperio-client api token rotate <id> [--grace 1h]
 aperio-client api token revoke <id>
 aperio-client api token refresh [--secret apr_...]
@@ -241,7 +243,7 @@ aperio-client api edge-traefik                    # Traefik dynamic configuratio
 aperio-client api edge-ask app.example.com        # does this server serve it?
 ```
 
-Both need `APERIO_EDGE_TOKEN` on the server; see [Edge proxy](edge-proxy.md).
+Both need `APERIO_EDGE_TOKEN` on the server, and present it as the ordinary API credential: `--api-key` (or `APERIO_API_KEY` / `server.api_key`), sent as `Authorization: Bearer`. See [Edge proxy](edge-proxy.md).
 
 ### Settings, backup, and purging
 
@@ -259,7 +261,7 @@ aperio-client api openapi                            # the OpenAPI document for 
 
 `settings set` and `import` both replace what they touch, so read the current state first (`settings get`, `export`). Both accept `-` as the file to read stdin.
 
-`export` writes the configuration that rebuilds a deployment (`tokens`, `webhooks`, `users`, `organizations`, `scaling`, `settings_overrides`). `--include` names the sections instead, and adds the history the store also holds: `statistics`, `uptime`, `inbox`, `admin_keys`. A misspelled name is an error rather than a silently missing section. Leave `organizations` out and only the master organization's rows travel, its statistics included, because a row whose organization does not exist on the target server is an orphan. `import` applies whatever sections the file holds, so the export is where the decision is made.
+`export` writes the configuration that rebuilds a deployment (`tokens`, `webhooks`, `users`, `organizations`, `scaling`, `settings_overrides`). `--include` names the sections instead, and adds the history the store also holds: `statistics`, `uptime`, `activity`, `inbox`, `admin_keys`. A misspelled name is an error rather than a silently missing section. Leave `organizations` out and only the master organization's rows travel, its statistics included, because a row whose organization does not exist on the target server is an orphan. `import` applies whatever sections the file holds, so the export is where the decision is made.
 
 ## Shell completion
 
@@ -286,7 +288,7 @@ aperio-client api cache purge --hostname app.example.com --path-prefix /assets/
 aperio-client api maintenance off app.example.com
 
 # Fail the job if the server is unhappy.
-aperio-client api self-health | jq -e '.status == "ok"' >/dev/null
+aperio-client api health | jq -e '.status == "healthy"' >/dev/null
 ```
 
 Because a failed call exits non-zero, `set -e` scripts stop on an API error rather than continuing with an empty result.

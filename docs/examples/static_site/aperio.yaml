@@ -6,10 +6,12 @@ server:
 # (serve: replaces target:; the two are mutually exclusive per entry).
 services:
   - name: site_a
+    public: true
     serve: ./sites/a
     hostname: a.example.com
 
   - name: site_b
+    public: true
     serve: ./sites/b
     hostname: b.example.com
 

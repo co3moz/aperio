@@ -52,8 +52,10 @@ without a file: `APERIO_SCALING_URL`, `APERIO_SCALING_SECRET`,
 `APERIO_SCALING_MIN`, `APERIO_SCALING_MAX`, `APERIO_SCALING_COLD_START`,
 `APERIO_SCALING_TARGET_UTILIZATION`, `APERIO_SCALING_WINDOW` and
 `APERIO_SCALING_COOLDOWN`. They are read field by field rather than
-all-or-nothing, so a file can declare the block and an environment variable
-override one value of it, the way every other setting layers.
+all-or-nothing. Remember the client's layering when both are present: the
+local `./aperio.yaml` wins over the environment variable, so a key written in
+the file is the file's, and the environment spelling is for a client with no
+file (or one that leaves the key out).
 
 The declaration is announced on every heartbeat and **persisted server-side against the hostname**. That is the point: with `min: 0` the server must be able to call your endpoint when nothing is running at all, long after the client that declared it exited.
 
@@ -104,7 +106,7 @@ The request that finds an empty pool is **held**, not failed, and re-dispatched 
 
 The hold releases its global concurrency slot first. Otherwise a hundred visitors waiting 45 seconds for one sleeping service would occupy every request slot on the server and take healthy services down with it.
 
-If the budget expires, the normal chain resumes: a stale cached answer if the service opted into `resilience`, then a `fallbacks:` redirect, then `504`.
+If the budget expires, the request answers the way an unreachable service does: a stale cached answer if the service opted into `resilience`, otherwise the `504`. A `fallbacks:` redirect is decided earlier in the request path and applies to a route with no candidate at all, not after a cold-start budget has already been spent.
 
 Three things deliberately do **not** trigger a cold start:
 
@@ -116,7 +118,7 @@ Three things deliberately do **not** trigger a cold start:
 
 A burst of a hundred requests against a sleeping service makes **one** call. Everyone else waits on the same signal.
 
-After a call the bind cools down for `cooldown`, because a new instance needs time to appear and asking again while it starts just costs money. A failed call backs off exponentially instead, and a visitor arriving during that backoff is not held, since nothing was started; after five consecutive failures the record is **disarmed**: it stops being called at all, and an alert lands in the audit log. Re-announcing the declaration (or editing it) re-arms it, so restarting a fixed client is enough to recover.
+After a call the bind cools down for `cooldown`, because a new instance needs time to appear and asking again while it starts just costs money. A failed call backs off exponentially instead, and a visitor arriving during that backoff is not held, since nothing was started; after five consecutive failures the record is **disarmed**: it stops being called at all, and an alert lands in the audit log. A *changed* declaration re-arms it, so editing the client's block is what recovers a disarmed record. A plain restart is not enough: an identical heartbeat is recognized as unchanged and does not re-arm anything.
 
 Across all binds, at most eight calls are ever in flight at once, so a server restart with many armed records cannot turn into a burst against your provider's API.
 
@@ -130,7 +132,7 @@ aperio-client api scaling disarm <id>
 
 `list` shows every armed record for your organization with its live pool: `instances`, `capacity`, `inflight`, `utilization`, and whether the breaker has tripped. The secret is never returned, only whether one is set. `disarm` removes a record; a client that is still running and still declares the block re-arms it on its next heartbeat, which is the intended way to undo an accidental delete.
 
-Every call is audited (`scaling_requested` / `scaling_failed`) and emitted as a webhook event, so a scale-out is visible next to the traffic that caused it.
+Every call is audited (`scaling_requested` on success, `scaling_failed` on failure), and a webhook event `scaling_requested` carries the `ok` flag with the rest of the payload, so a scale-out is visible next to the traffic that caused it.
 
 ## Security
 
@@ -138,23 +140,23 @@ The declaration comes from a client, which is a lower-trust credential than an o
 
 - **https only**, unless the operator sets `APERIO_SCALING_ALLOW_HTTP=1`.
 - **public addresses only**, unless the operator sets `APERIO_SCALING_ALLOW_PRIVATE=1`; every address the hostname resolves to is checked, not just the first.
-- **Every resolved address is checked**: loopback, private ranges, link-local (including `169.254.169.254`, the cloud metadata address), carrier-grade NAT, and their IPv6 equivalents are refused. A hostname that resolves to one of them is refused too.
+- **Every resolved address is checked**: loopback, private ranges, link-local (including `169.254.169.254`, the cloud metadata address), carrier-grade NAT, and their IPv6 equivalents are refused. A hostname that resolves to one of them is refused too. The check resolves the name once and the HTTP client resolves it again when it connects, so a DNS name the client controls can answer public to the check and private to the connection; pinning the checked address and dialing that is not done today. Treat the endpoint as operator-chosen, not tenant-chosen.
 - **Redirects are never followed**, since a redirect is a way to reach an address the pre-flight check just refused.
-- The secret is write-only: never returned by the API, never logged.
+- The secret is never returned by the API or logged, and the only place it leaves the server is an `export` that includes the scaling section, which is an Admin read.
 - **The operator's outbound policy applies on top of all of that.** `APERIO_OUTBOUND_ALLOWLIST` / `APERIO_OUTBOUND_BLOCK_PRIVATE` cover webhook deliveries and scaling hooks alike; a destination has to pass both the fence above and the policy. See [Threat Model](threat-model.md).
 
-Records are scoped to the organization of the token that armed them, and a record disappears when the last token that armed it is revoked or expires. `APERIO_SCALING_RECORD_TTL` (default 30 days) additionally drops records nothing has re-announced.
+Records are scoped to the organization of the token that armed them. Revoking that token disarms the records only it owned, immediately. An *expired* token is another matter: expiry is enforced when a token is presented, and nothing sweeps expired tokens, so a record an expired token still owns is not dropped on expiry. `APERIO_SCALING_RECORD_TTL` (default 30 days) is what eventually removes a record nothing has re-announced; revoke a token you are done with rather than letting it lapse, if its records should stop.
 
 ## Settings
 
 | Variable | yaml key | Description | Default |
 | --- | --- | --- | --- |
 | `APERIO_SCALING` | `scaling` | Honor client `scaling:` declarations. | `0` |
-| `APERIO_SCALING_ALLOW_HTTP` | `scaling_allow_http` | Permit a plain-http endpoint. | `0` |
-| `APERIO_SCALING_ALLOW_PRIVATE` | `scaling_allow_private` | Permit an endpoint resolving to a private/loopback/link-local address. | `0` |
+| `APERIO_SCALING_ALLOW_HTTP` | `scaling.allow_http` | Permit a plain-http endpoint. | `0` |
+| `APERIO_SCALING_ALLOW_PRIVATE` | `scaling.allow_private` | Permit an endpoint resolving to a private/loopback/link-local address. | `0` |
 | `APERIO_OUTBOUND_ALLOWLIST` | `outbound.allowlist` | Host/CIDR patterns the server may call for scaling hooks and webhooks; everything else refused. Empty = no restriction. | |
 | `APERIO_OUTBOUND_BLOCK_PRIVATE` | `outbound.block_private` | With no allowlist: refuse destinations that resolve to internal addresses. | `0` |
-| `APERIO_SCALING_RECORD_TTL` | `scaling_record_ttl` | Seconds before an unrefreshed record is dropped. | `2592000` (30 d) |
+| `APERIO_SCALING_RECORD_TTL` | `scaling.record_ttl` | Seconds before an unrefreshed record is dropped. | `2592000` (30 d) |
 
 Client side, in `aperio.yaml`: the `scaling:` block above, `idle_timeout` (also `APERIO_IDLE_TIMEOUT`), and `max_concurrent`, which is what makes utilization measurable.
 

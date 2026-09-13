@@ -36,8 +36,10 @@ log a warning when they differ. The protocol is designed to tolerate skew:
 - **Except where being ignored would be worse than being refused**, which is
   the one case that is negotiated instead. A client's `auth:` gate is the
   example: an older server that ignored a method it does not understand would
-  read the client as declaring *no* gate, and the route would come up open. So
-  the server announces on the handshake which methods it accepts from a
+  read the client as declaring *no* gate, and the route would come up open.
+  `multiplex: true` (protocol 8) and `server_side: true` (protocol 9) are the
+  other two, because a server that ignores them would silently serve less than
+  the file says. So it is negotiated: the server announces on the handshake which methods it accepts from a
   client, and a client whose gate needs one that is missing **does not serve
   that service**, logging which side is too old. Only that service stops; the
   client's others keep running. What is assumed of a server that announces
@@ -194,12 +196,14 @@ a migration flag, so there is no deadline attached to it.
 1. **Read the [CHANGELOG](../CHANGELOG.md).** Breaking changes are called out
    under the release's `Changed` section.
 2. **Validate the config against the new binary.** `aperio-server --check-config`
-   flags anything the new version would reject or silently default, run it
-   before restarting.
+   flags anything the new version would reject or silently default. Point it at
+   the file the service reads (`APERIO_SERVER_CONFIG=/etc/aperio/aperio-server.yaml
+   aperio-server --check-config`), and export the token it requires first, or it
+   fails on the missing credential rather than on the config.
 3. **Back up the store.** Take a snapshot (`APERIO_BACKUP_*` (yaml `backup_*`) or a logical
    `/aperio/api/export`) so a rollback has a known-good state. The logical dump
    carries the configuration by default; add `?include=` to name the sections,
-   `tokens,webhooks,users,organizations,scaling,settings_overrides,statistics,uptime,inbox,admin_keys`
+   `tokens,webhooks,users,organizations,scaling,settings_overrides,statistics,uptime,activity,inbox,admin_keys`
    is everything the store holds. The SQLite schema
    is created idempotently; new columns are additive with serde defaults, so an
    older store loads cleanly into a newer server.

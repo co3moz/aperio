@@ -1,12 +1,12 @@
 # Routing & Load Balancing
 
-Several clients can be connected to one Aperio server at the same time. When a public request arrives, the server picks a client in four steps: eligibility, hostname, path, and strategy.
+Several clients can be connected to one Aperio server at the same time. When a public request arrives, the server narrows the pool in stages (eligibility, hostname, path), then applies the strategy, the per-candidate visitor IP filter, outlier-ejection state and any canary split.
 
-> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_LB_STRATEGY` → `lb_strategy`, `APERIO_REQUIRE_HOSTNAME_BIND` → `require_hostname_bind`). YAML is the primary surface, the file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
+> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key, the same name lowercased without the `APERIO_` prefix for the server (`APERIO_LB_STRATEGY` → `lb_strategy`, `APERIO_REQUIRE_HOSTNAME_BIND` → `require_hostname_bind`), and the client's own layering applies to client keys (CLI > `./aperio.yaml` > env > `~/.aperio.yaml`). The server is the one whose file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. Grouped settings are written as blocks (`cache.max_bytes`); the flat spelling still works as a deprecation. See [Configuration](configuration.md) for the full mapping.
 
 ## Eligibility
 
-Clients are skipped when they are unhealthy (no heartbeat within `APERIO_CLIENT_DOWN_THRESHOLD`, default 15 s), when their own backend health probe is failing, when they are draining for shutdown, or when they were disabled from the dashboard. In-flight requests always finish.
+Clients are skipped when they are unhealthy (no heartbeat within `APERIO_CLIENT_DOWN_THRESHOLD`, default 15 s), when their own backend health probe is failing, when they are draining for shutdown, when they were disabled from the dashboard, or when the server refused their `server_side:` declaration. In-flight requests always finish.
 
 ## Hostname binds
 
@@ -58,7 +58,7 @@ Proxied WebSockets are not split. A socket is one long-lived connection rather t
 
 ## Random subdomains
 
-With `APERIO_RANDOM_SUBDOMAIN="*.example.com"` on the server (fronted by a wildcard DNS/proxy route), every connecting client is automatically assigned a hostname like `a1b2c3d4e5.example.com`. Assignments are per-connection and additive, declared and token-granted binds keep working alongside.
+With `APERIO_RANDOM_SUBDOMAIN="*.example.com"` on the server (fronted by a wildcard DNS/proxy route), every connecting client is automatically assigned a hostname like `a1b2c3d4e5.example.com`. Assignments are additive, declared and token-granted binds keep working alongside, and they are per-connection except when the client sends an instance group and the token granted binds: then the label is derived from both, so every parallel connection of one process shares the same random hostname rather than getting one each.
 
 The value is a pattern: the `*` in the leftmost label is replaced with a random label. `example.com` is shorthand for `*.example.com`, and `*-test.example.com` yields `<random>-test.example.com`, same subdomain level, so one wildcard TLS certificate covers the generated hostnames.
 

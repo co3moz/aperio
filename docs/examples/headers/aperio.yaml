@@ -9,11 +9,13 @@ headers:
 
 services:
   - name: web
+    public: true
     target: http://localhost:3000
     hostname: app.example.com
     # no headers: here → the top-level rules above apply
 
   - name: api
+    public: true
     target: http://localhost:4000
     hostname: api.example.com
     # An entry's headers: REPLACES the top-level section (no merge).

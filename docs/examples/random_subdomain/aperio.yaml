@@ -6,3 +6,4 @@ server:
 # random subdomain to every connection automatically.
 services:
   - target: http://localhost:3000
+    public: true

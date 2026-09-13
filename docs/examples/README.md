@@ -2,6 +2,8 @@
 
 Ready-to-adapt configuration pairs for common Aperio scenarios. Every folder contains a client `aperio.yaml` and a server `aperio-server.yaml` that work **together**: the tunnel token in the client file matches `server.token` in the server file, so you can copy a folder, replace the token and hostnames, and run both sides as-is.
 
+Since 0.10.0 the server is **closed by default**, so a route nothing declares answers as an unclaimed hostname does. These examples therefore declare each routed service `public: true`; the two that demonstrate a gate (`oidc`, `share_links`) deliberately do not, and `visitor_auth` shows `public:` and `auth:` side by side. Drop `public: true` and add `auth:` when your own route should be gated.
+
 ## Conventions
 
 - **Every client file describes its backends under `services:`**, even the ones that expose exactly one. That is the shape a config file has; naming a single backend at the top level (`target:`, `serve:`, `hostname:`, …) has not been accepted since 0.9.0, a client that finds one refuses to start and names the keys. Single-service mode lives on in the CLI one-liner and the `APERIO_TARGET` family, where a one-liner is the point.

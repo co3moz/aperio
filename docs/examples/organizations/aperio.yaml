@@ -7,4 +7,5 @@ server:
 
 services:
   - target: http://localhost:3000
+    public: true
     hostname: app.acme.example.com

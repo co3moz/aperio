@@ -3,8 +3,7 @@
 server:
   url: https://tunnel.example.com
   # Give this side its own token, scoped to the topics it may use:
-  #   aperio-client api POST /tokens \
-  #     -d '{"name":"ci","hostnames":["*"],"topics":["deploy/#"]}'
+  #   aperio-client api token create --name ci --hostname '*' --topic 'deploy/#'
   token: apr_messaging_publisher_change_me
 
 # A client that publishes needs no service and no bind. It holds one tunnel

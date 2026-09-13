@@ -38,7 +38,7 @@ curl -X POST -H "Authorization: Bearer $APERIO_TOKEN" https://tunnel.example.com
 # → { "status": "ok", "id": "…", "expires_at": 1780000000 }
 ```
 
-The endpoint authenticates with the token secret itself (no dashboard session needed), so a CI job or a long-running client can refresh on a timer. Each refresh resets the expiry to *now + the TTL the token was created with*. Never-expiring tokens are not refreshable, an expired token cannot resurrect itself, and each refresh writes a `token_refreshed` audit event.
+The endpoint authenticates with the token secret itself (no dashboard session needed), so a CI job or a long-running client can refresh on a timer. Each refresh resets the expiry to *now + the token's current TTL*, the value `token update --expire` last wrote, not necessarily the TTL it was created with. Never-expiring tokens are not refreshable, an expired token cannot resurrect itself, and each refresh writes a `token_refreshed` audit event.
 
 ### Rotation with a grace period
 

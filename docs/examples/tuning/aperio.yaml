@@ -8,12 +8,14 @@ max_concurrent: 8
 
 services:
   - name: api
+    public: true
     target: http://localhost:4000
     hostname: api.example.com
     connections: 4               # parallel tunnel connections for hot traffic
     max_concurrent: 32           # per-connection cap; excess queues at the server
 
   - name: reports
+    public: true
     target: http://localhost:5000
     hostname: reports.example.com
     timeout: 300                 # report generation is slow by nature
@@ -24,6 +26,7 @@ services:
                                  # before they enter the tunnel
 
   - name: media
+    public: true
     target: http://localhost:6000
     hostname: media.example.com
     bandwidth: 8mbit             # server paces responses to this rate

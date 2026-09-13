@@ -6,6 +6,7 @@ server:
 
 services:
   - name: web
+    public: true
     target: http://localhost:3000
     hostname: app.example.com
 

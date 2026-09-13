@@ -19,5 +19,5 @@ You get back a URL like `https://app.example.com/docs?aperio_share=...`. Opening
 ## Notes
 
 - **Stateless.** The signing key is derived from the master token, so links survive restarts and there is no table to lose. They cannot be revoked one by one; they expire. Rotating `server.token` invalidates every outstanding link at once.
-- **Scope tightly.** Anyone holding a link is in until it expires, so prefer a narrow `path` and the shortest `ttl_seconds` that does the job (presets in the dashboard run from 30 minutes up to a month, plus never-expires).
+- **Scope tightly.** Anyone holding a link is in until it expires, so prefer a narrow `path` and the shortest `ttl_seconds` that does the job (presets in the dashboard run from 10 minutes up to 5 years, plus never-expires).
 - Every mint is recorded in the audit log as `share_created` and emitted to webhooks.

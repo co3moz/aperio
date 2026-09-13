@@ -29,8 +29,8 @@ mention it. The two cannot drift.
 | `RequestStart` | server to client | the head of a streamed request; a device may answer with an error status rather than assembling one, but it must not be confused by it |
 | `RequestChunk` | server to client | a body piece of that request |
 | `RequestEnd` | server to client | the end of it |
-| `StreamPause` | both ways | flow control, and the one thing a device cannot ignore if it streams: ignoring a pause is how a 300 KB device meets a backlog it cannot hold |
-| `StreamResume` | both ways | the other half of it |
+| `StreamPause` | server to client | flow control, and the one thing a device cannot ignore if it streams: ignoring a pause is how a 300 KB device meets a backlog it cannot hold |
+| `StreamResume` | server to client | the other half of it |
 
 That is the profile. A device that speaks these serves HTTP through the
 tunnel.
@@ -104,9 +104,12 @@ matters if you are deciding what to leave unimplemented.
 Turning this into a **negotiated capability**, where the device announces the
 profile in its handshake and the server undertakes to stay inside it for that
 connection (no compression offered, a declared chunk ceiling,
-`max_concurrent: 1`, no relay message types) is tracked as `#116` in
-`planned_features.md`, along with the reference C client and the conformance
-answer that has to come with it: a device client that silently mishandles one
+`max_concurrent: 1`, no relay message types) is **not on the backlog**: the
+idea was withdrawn in `planned_features.md` as `#116` because it was
+enforcement with nothing on the other side of it, no device client exists yet
+to announce anything. If one appears, the gate is small additive work and can
+be opened under a new id, together with the reference C client and the
+conformance answer it would need: a device client that silently mishandles one
 message type is an outage nobody can debug from the device end.
 
 ## Why the WebSocket stays

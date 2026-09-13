@@ -102,6 +102,9 @@ the target as written and never on what a name resolves to, nothing a visitor
 sends can move the request to another host, and the hop-by-hop header strip
 the relayed path performs applies here too, so this is not a way around it.
 
-Outbound TLS here verifies against the host's certificate store and leaves
+Over HTTP, outbound TLS here verifies against the host's certificate store and leaves
 through the same egress proxy as the server's other outbound calls, which
-[Architecture](architecture.md#outbound-tls-and-what-verifies-it) explains.
+[Architecture](architecture.md#outbound-tls-and-what-verifies-it) explains. The
+WebSocket half is narrower: the upgrade is dialed with the bundled Mozilla root
+set and does not use the configured egress proxy, so a `wss://` backend behind a
+private CA or reachable only through the proxy does not work for `server_side:`.

@@ -42,7 +42,7 @@ Filters are MQTT's, because that is the syntax people already know: `+` matches 
 
 A client may hold at most **64 filters**; a subscription past that is refused by name rather than silently ignored. The limit is there because a filter costs a string and a linear match on every publish, so a loop in someone's code should not turn into unbounded server memory.
 
-**A subscription belongs to the client process, not to its connections.** A client with a `services:` list holds one tunnel connection per service and still receives each message once. There is nothing to deduplicate.
+**A subscription belongs to the client process, not to its connections.** A client with a `services:` list may hold several tunnel connections, one per service or one shared by all of them under `multiplex: true`, and still receives each message once. There is nothing to deduplicate.
 
 ## Reacting: running a command
 
@@ -132,7 +132,9 @@ What your library gets, stated rather than discovered:
 | Feature | Answer |
 | --- | --- |
 | QoS 0 | as asked |
-| QoS 1 and 2 | granted as 0. The tunnel is ordered and reliable, but nothing is stored for an absent subscriber, so promising more would be a lie. Libraries accept the downgrade; that is what the granted-QoS field is for. |
+| QoS 1 and 2 (subscribe) | granted as 0. The tunnel is ordered and reliable, but nothing is stored for an absent subscriber, so promising more would be a lie. Libraries accept the downgrade; that is what the granted-QoS field is for. |
+| QoS 1 (publish) | Honored: the message is published at least once and a `PUBACK` follows once it has been handed to the tunnel, sent even when the publish was refused, since MQTT 3.1.1 has no way to reject one. |
+| QoS 2 (publish) | No QoS 2 flow. The message is published at at-least-once and no `PUBREC`/`PUBREL` exchange happens. |
 | Retained messages | never stored, never delivered |
 | Clean session | always. A session lives exactly as long as the connection. |
 | Last will | accepted in CONNECT and never published |
@@ -149,7 +151,7 @@ Everything the server already reports through webhooks is also published on the 
 | Clients | `$aperio/client/connected`, `$aperio/client/disconnected`, `$aperio/client/draining` |
 | Tokens | `$aperio/token/created`, `$aperio/token/revoked`, `$aperio/token/rotated`, `$aperio/token/expiring`, `$aperio/token/new/ip`, `$aperio/token/pin/mismatch`, `$aperio/canary/tripped` |
 | Tunnels and shares | `$aperio/tunnel/created`, `$aperio/tunnel/deleted`, `$aperio/share/created` |
-| Operations | `$aperio/maintenance/on`, `$aperio/maintenance/off`, `$aperio/settings/updated`, `$aperio/import/applied`, `$aperio/user/created`, `$aperio/user/grant/added`, `$aperio/user/grant/removed` |
+| Operations | `$aperio/maintenance/on`, `$aperio/maintenance/off`, `$aperio/settings/updated`, `$aperio/import/applied`, `$aperio/user/created` |
 | Capacity and alerting | `$aperio/alert/triggered`, `$aperio/alert/resolved`, `$aperio/scaling/requested`, `$aperio/org/usage`, `$aperio/disk/usage/warning` |
 | Housekeeping | `$aperio/db/backup`, `$aperio/disk/pruned` |
 

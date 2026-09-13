@@ -9,4 +9,10 @@ The server signals desired capacity to an endpoint you control; it never starts 
 
 The server side is one switch plus the trust decisions: honoring client declarations is opt-in (`scaling.enabled`), and the endpoint must be HTTPS on a public address unless `allow_http` / `allow_private` say otherwise.
 
+The client reads its endpoint secret from the environment, so export it before starting:
+
+```bash
+export SCALE_SECRET="$(openssl rand -hex 32)"     # the endpoint accepts this Bearer
+```
+
 A maintenance flag wins over a cold start: a hostname flagged for maintenance serves its 503 page without waking the service behind it.

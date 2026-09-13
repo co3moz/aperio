@@ -15,7 +15,7 @@ The client always dials **out**, so nothing on your network accepts inbound conn
 ## Why Aperio
 
 - **It is yours.** Both sides are binaries you run: no account, no third-party relay, no traffic through someone else's infrastructure, nothing to price per tunnel or per seat.
-- **Two binaries and a token.** No database, no message broker, no sidecar. The server keeps its state in a file next to it; the dashboard is compiled into the binary.
+- **Two binaries and a token.** No external database, no message broker, no sidecar. The server keeps its state in a bundled SQLite file next to it; the dashboard is compiled into the binary.
 - **One connection out.** The tunnel is a WebSocket the client opens, so the machine serving your app can sit behind NAT, CGNAT or a firewall that allows nothing inbound.
 - **Small enough to leave running.** Measured on an Apple M-series laptop: the server binary is 14 MB (dashboard included) and idles at ~14 MB RSS; the client is 6 MB and idles at ~6 MB. Neither grows with request count.
 - **It is a product, not a pipe.** A live dashboard, a request inspector with replay, scoped tokens, organizations, caching, failover, autoscaling hooks and messaging between clients ship in the same binaries.
@@ -30,11 +30,14 @@ docker run -d -p 8080:8080 -v ./data:/app/data \
   -e APERIO_SERVER_TOKEN="a-long-random-string" \
   ghcr.io/co3moz/aperio-server:latest
 
-# Client (next to your service)
+# Client (next to your service). APERIO_PUBLIC declares the route open:
+# since 0.10.0 the server is closed by default, so a service nothing declares
+# answers as an unclaimed hostname does.
 docker run -d --network host \
   -e APERIO_SERVER_TOKEN="a-long-random-string" \
   -e APERIO_SERVER_URL="http://your-server-ip:8080" \
   -e APERIO_TARGET="http://localhost:3000" \
+  -e APERIO_PUBLIC=1 \
   ghcr.io/co3moz/aperio-client:latest
 ```
 
@@ -42,7 +45,7 @@ Or one line with the CLI:
 
 ```bash
 curl -sSf https://raw.githubusercontent.com/co3moz/aperio/master/install.sh | sh
-aperio-client 3000 --server-url https://tunnel.example.com --server-token apr_xxxx
+aperio-client 3000 --server-url https://tunnel.example.com --server-token apr_xxxx --public
 ```
 
 With Homebrew, or Scoop on Windows:
@@ -55,7 +58,9 @@ On an ordinary Linux box, a package with a hardened service unit:
 
 ```bash
 sudo dpkg -i aperio-client_0.11.0_amd64.deb   # or rpm -i, both attached to every release
-sudo cp /etc/aperio/aperio-client.yaml.example /etc/aperio/myapp.yaml
+sudo install -o root -g aperio -m 0640 \
+  /etc/aperio/aperio-client.yaml.example /etc/aperio/myapp.yaml
+sudoedit /etc/aperio/myapp.yaml
 sudo systemctl enable --now aperio-client@myapp
 ```
 

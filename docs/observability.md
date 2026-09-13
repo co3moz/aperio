@@ -128,7 +128,7 @@ Each rule sets `above` or `below`, never both, and the bound itself is not a bre
 
 ## Access log
 
-Every proxied request is emitted as a structured `aperio_access` tracing event on stdout, JSON with `request_id`, `method`, `uri`, `status`, `duration_ms`, `host`, `client_id`, `token`, and `error` as top-level fields. Set `APERIO_ACCESS_LOG=/path/to/access.jsonl` to additionally append the same data as raw JSON lines, unaffected by `LOG_LEVEL`, ready to be tailed into Loki or ClickHouse. Query strings are stripped from logs.
+Every proxied request is emitted as a structured `aperio_access` tracing event on stdout, JSON with `request_id`, `method`, `uri`, `status`, `duration_ms`, `host`, `client_id` and `token` as top-level fields; a refused or failed request carries `error` instead of the identity fields, and the JSON lines written to `APERIO_ACCESS_LOG` fill the absent ones with `null` so every line has the same shape. Set `APERIO_ACCESS_LOG=/path/to/access.jsonl` to additionally append the same data as raw JSON lines, unaffected by `LOG_LEVEL`, ready to be tailed into Loki or ClickHouse. Query strings are stripped from logs.
 
 
 TCP and UDP relays produce a line of their own, one **per connection** rather than per packet, with `event: relay_closed`: `transport` (`tcp`/`udp`), `kind` (`expose` for a public port, `tunnel` for a peer client dialling one), `peer`, `client_id`, `tunnel`, `token`, `port`, `duration_ms`, and bytes each way. A per-packet line would produce one entry per datagram of a video stream, which is not a log anybody reads. It goes to the same two places as a request line and takes the same `access_log_sample_rate`, so a query for "everything that touched this token" answers across transports and an operator who turned the volume down gets it turned down here too. This is the record the topology view's dependency edges do not keep: the graph says who depends on a tunnel, this says when and how much. A public `expose:` port authorizes nobody, so its lines carry no `token`, which is the honest answer rather than an invented one.
@@ -209,8 +209,8 @@ Available events, grouped by what they are about:
 - **Clients**: `client_connected`, `client_disconnected`, `client_draining`.
 - **Tokens**: `token_created`, `token_revoked`, `token_rotated`, `token_expiring`, `token_new_ip`, `token_pin_mismatch`, `canary_tripped`.
 - **Tunnels and shares**: `tunnel_created`, `tunnel_deleted`, `share_created`.
-- **Operations**: `maintenance_on`, `maintenance_off`, `settings_updated`, `import_applied`, `user_created`, `user_grant_added`, `user_grant_removed`.
-- **Testing**: `webhook_test`, the synthetic event the *Test* button sends (below).
+- **Operations**: `maintenance_on`, `maintenance_off`, `settings_updated`, `import_applied`, `user_created`.
+- **Testing**: `webhook_test`, the synthetic event the *Test* button sends (below); it exists only as a delivery and is never written to the audit log.
 
 The same events are published to subscribed clients on the `$aperio/` topics, see [Messages Between Clients](messaging.md#server-events).
 - **Capacity and alerting**: `alert_triggered`, `alert_resolved`, `scaling_requested`, `org_usage`, `disk_usage_warning`.
@@ -252,7 +252,7 @@ ok = hmac.compare_digest(f"sha256={expected}", signature_header) and abs(time.ti
 
 Lifetime counters (total requests, success/failure, bytes in each direction, summed duration) and daily/weekly/monthly/yearly buckets survive restarts in `APERIO_DATA_DIR/aperio.db` (SQLite), flushed every 30 s and on shutdown, pruned to 60 days / 26 weeks / 24 months / 10 years.
 
-Traffic is additionally attributed **per token** and **per request hostname**; the dashboard's *Traffic Breakdown* shows the top consumers of each. Up to 200 distinct labels are tracked per dimension, with overflow folded into an `(other)` bucket so unbounded hostname cardinality cannot grow the stats file.
+Traffic is additionally attributed **per token** and **per request hostname**; the dashboard's *Traffic Breakdown* shows the top consumers of each. Up to 200 distinct labels are tracked per dimension, with overflow folded into a `__other` bucket so unbounded hostname cardinality cannot grow the stats file.
 
 ## Retention policies
 

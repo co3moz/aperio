@@ -61,7 +61,10 @@ kubectl create secret generic aperio-token --from-literal=token="$(openssl rand 
 helm install aperio ./tools/charts/aperio-server --set existingSecret=aperio-token
 ```
 
-It arrives as `APERIO_SERVER_TOKEN`, which wins over the file. Everything else
+It arrives as `APERIO_SERVER_TOKEN`. The chart deliberately leaves
+`server.token` out of the `config:` file because the file wins over the
+environment: a token written there would outvote the Secret, so the value to
+change is the Secret, never the file. Everything else
 that comes from a secret manager goes through `extraEnv`, since every setting
 is reachable as an `APERIO_*` variable:
 
@@ -91,8 +94,9 @@ before the new one starts, which is what a single-writer store needs.
 liveness probe every few seconds. `/aperio/readyz` is the interesting one: it
 answers 503 from the moment a shutdown signal arrives while the process is
 still serving, so the load balancer stops routing to the pod while the drain
-finishes what is already in flight. Pair it with a `terminationGracePeriod`
-that gives the drain room; the chart defaults to 60 seconds.
+finishes what is already in flight. Pair it with a
+`terminationGracePeriodSeconds` that gives the drain room; the chart defaults
+to 60 seconds.
 
 ## The client is a sidecar
 

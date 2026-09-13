@@ -17,7 +17,7 @@ curl -X POST https://tunnel.example.com/aperio/api/tunnels \
 ```
 
 - Omit `hostname` to get a **random subdomain** (requires `APERIO_RANDOM_SUBDOMAIN` (yaml `random_subdomain`) on the server).
-- `ttl_seconds` defaults to 1 hour and is capped at 7 days, the TTL is the safety net if cleanup never runs.
+- `ttl_seconds` defaults to 1 hour and is capped at 7 days. The TTL bounds how long the token can be *presented*: an already-connected client is not disconnected when it lapses, so `DELETE` is the cleanup that actually ends a preview, and the TTL is the backstop for a cleanup that never ran.
 - `allowed_ips` restricts which source IPs may connect with the minted token.
 - The token's hostname is **auto-bound** on connect: run the client with just the server URL, the token, and the target.
 - `DELETE /aperio/api/tunnels/:id` revokes the token (same auth), call it from your CI cleanup step.
@@ -45,7 +45,7 @@ See the [action's README](../aperio-tunnel-action/README.md) for all inputs and 
 
 ## Keeping previews out of search engines
 
-Preview URLs are public by default, and crawlers do find them. With `APERIO_PREVIEW_NOINDEX=1` (yaml `preview_noindex`) (or the *Noindex preview hosts* toggle in the dashboard settings) every service reached through its **random subdomain** answers with `X-Robots-Tag: noindex, nofollow` and a disallow-all `/robots.txt` served by the server itself. Explicitly named hostnames (like the `pr-123.example.com` above) are considered deliberate and are not marked, protect those with the visitor password or OIDC if they should stay private.
+Preview URLs are public by default, and crawlers do find them. With `APERIO_PREVIEW_NOINDEX=1` (yaml `preview_noindex`) (or the *Noindex preview hosts* toggle in the dashboard settings) every service reached through a hostname matching the random-subdomain pattern answers with `X-Robots-Tag: noindex, nofollow` and a disallow-all `/robots.txt` served by the server itself. The test is the pattern, not how the name was chosen: with `random_subdomain: "*.example.com"`, `pr-123.example.com` matches and *is* marked, even though it was written by hand. A name the pattern does not cover is left alone; protect any preview that should stay private with the visitor password or OIDC.
 
 ## From the command line
 

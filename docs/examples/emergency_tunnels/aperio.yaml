@@ -6,6 +6,7 @@ server:
 # Optional: a client may declare only tunnels, with no public service at all.
 services:
   - target: http://localhost:3000
+    public: true
 
 # Private local services another client may reach via --bind-tunnels; never
 # exposed to the public web. The `name` is the handle binders address, so it

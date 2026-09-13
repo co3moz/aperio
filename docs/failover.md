@@ -2,7 +2,9 @@
 
 By default, a request that has already been dispatched to a client answers **502** if that client's connection drops before it responds. `APERIO_FAILOVER` (yaml `failover`) changes this. Failover only ever triggers while **no response bytes have reached the visitor yet**, so a re-dispatch is completely transparent.
 
-> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent `aperio-server.yaml` key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_FAILOVER` → `failover`, `APERIO_FAILOVER_WINDOW` → `failover_window`). YAML is the primary surface, the file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
+A request that has *not* been dispatched yet is a different story: one for a route whose client just dropped, or one that lands in the milliseconds between a client connecting and its first heartbeat declaring the route, is held for a bounded wait before any refusal. The wait ends the moment a candidate appears or the declaration lands, and never outlives the server's `gateway.timeout`.
+
+> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent `aperio-server.yaml` key. A grouped setting is written as a block (`failover.max_jumps`), and the old flat spelling (`failover_max_jumps`) still works but is a deprecation. The server's file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
 
 ## Modes
 
@@ -17,8 +19,8 @@ Two settings bound the behavior:
 
 | Variable | Meaning | Default |
 | --- | --- | --- |
-| `failover_max_jumps` (env `APERIO_FAILOVER_MAX_JUMPS`) | Max re-dispatch attempts per request. | `2` |
-| `failover_window` (env `APERIO_FAILOVER_WINDOW`) | Total seconds the waiting modes may spend, across all jumps, starting at the first failure. | `15` |
+| `failover.max_jumps` (env `APERIO_FAILOVER_MAX_JUMPS`) | Max re-dispatch attempts per request. | `2` |
+| `failover.window` (env `APERIO_FAILOVER_WINDOW`) | Total seconds the waiting modes may spend, across all jumps, starting at the first failure. | `15` |
 
 ## Idempotency
 
@@ -26,7 +28,7 @@ Only idempotent methods (GET, HEAD, OPTIONS, PUT, DELETE, TRACE) fail over by de
 
 Two more caveats:
 
-- Streamed uploads (request bodies over 256 KB on tunnel protocol v2) cannot fail over, the body is consumed as it is forwarded.
+- Streamed uploads cannot fail over, the body is consumed as it is forwarded. With a protocol-v2 client this covers buffered uploads past 256 KB; a chunked upload of any size and a `server_side:` service stream too.
 - Every jump is logged with the old and new client IDs, so re-dispatches are always traceable.
 
 ## Choosing a mode
@@ -35,7 +37,7 @@ For a single client that occasionally restarts (deploys, laptop sleep), `wait` b
 
 ## Retrying error responses (not just dropped connections)
 
-Failover above reacts to a client **disconnecting** mid-request. A separate,
+Failover above reacts to a client **disconnecting** mid-request. A client that stays connected but never answers is not a failover case: the request waits out the response timeout and gets a `504`, with no re-dispatch, because nothing says the client is gone rather than slow. A separate,
 opt-in policy reacts to a client **answering with a server error**: when
 `APERIO_RETRY_ON_5XX=1`, a fully-buffered response whose status is a retryable
 server error is transparently re-dispatched to another client instead of being
@@ -44,7 +46,9 @@ this is safe for retryable methods.
 
 This is deliberately independent of `APERIO_FAILOVER` (which governs
 connection-loss behavior): it triggers on an actual error response, always
-re-dispatches to a freshly picked client, and honors the same guards,
+re-dispatches to a freshly picked client when the pool has another member (with
+a single-candidate pool that is the same client again, so the retry relies on
+the backend having recovered), and honors the same guards,
 `APERIO_FAILOVER_MAX_JUMPS` and method idempotency
 (`APERIO_FAILOVER_ALL_METHODS`).
 

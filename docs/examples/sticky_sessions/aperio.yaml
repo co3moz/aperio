@@ -4,6 +4,7 @@ server:
 
 services:
   - target: http://localhost:3000
+    public: true
     hostname: app.example.com
 
 # Fixed instance id: visitor affinity keys on it, so a client restart keeps

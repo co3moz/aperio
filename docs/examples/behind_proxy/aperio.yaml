@@ -4,3 +4,4 @@ server:
 
 services:
   - target: http://localhost:3000
+    public: true

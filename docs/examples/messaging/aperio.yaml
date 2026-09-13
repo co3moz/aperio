@@ -5,6 +5,7 @@ server:
 
 services:
   - target: http://localhost:3000
+    public: true
     hostname: app.example.com
 
 # What this client listens for. Filters are MQTT's: `+` is one level, `#` is
@@ -22,7 +23,7 @@ subscribe:
   # client of the organization makes this run. Keep the topic narrow, and
   # mint the tokens that may publish to it with a matching `topics` scope.
   - topic: deploy/web
-    run: ./deploy.sh
+    run: sh ./deploy.sh     # `sh` so no executable bit is needed on the script
     timeout: 120          # seconds before the run is killed (default 60)
     max_concurrent: 1     # runs at once; the rest are dropped, not queued
 

@@ -84,7 +84,7 @@ Two options refine what a miss looks like. Both are **process-wide** rather than
 
 Without either, a miss is a plain-text `404`.
 
-The SPA fallback deliberately triggers only when the request's `Accept` header explicitly prefers `text/html`. A generic `*/*`, which is what scripts, stylesheets, fonts and `fetch()` send, is excluded, so a missing hashed asset still `404`s instead of receiving `index.html` with a `200` and failing later as a syntax error in the console. That distinction is the difference between a debuggable deployment and a confusing one.
+The SPA fallback triggers on a request whose `Accept` header names `text/html` anywhere in it, which is what a browser navigation sends. The common generic `*/*`, which scripts, stylesheets, fonts and `fetch()` send, does not name it, so a missing hashed asset still `404`s instead of receiving `index.html` with a `200` and failing later as a syntax error in the console. That distinction is the difference between a debuggable deployment and a confusing one. Note the check is a plain substring, so a client sending `*/*, text/html` is treated as a navigation.
 
 ## Path safety
 

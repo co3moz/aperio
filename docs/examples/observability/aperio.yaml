@@ -4,6 +4,7 @@ server:
 
 services:
   - target: http://localhost:3000
+    public: true
     # A health probe makes client-down alerting meaningful: the server learns
     # about a dead backend, not just a dead tunnel. The probe path belongs to
     # the backend it probes, so it lives on the entry.

@@ -11,7 +11,7 @@ One machine finishes a build and says so; every machine of the organization that
 Publishing needs no client at all if you have an admin credential:
 
 ```bash
-aperio-client api POST /publish -d '{"topic":"deploy/web","payload":"v1.9.2"}'
+aperio-client api publish deploy/web --payload v1.9.2
 ```
 
 The answer says how far it went: `{"topic":"deploy/web","clients":2,...}`. A publish that reaches nobody is not an error, and the count is how you tell that from a publish that worked.
@@ -44,8 +44,7 @@ A message published by another client makes a command run on the reacting machin
 Keep the topic narrow, and give the publishing side a token scoped to it rather than a token that may reach everything:
 
 ```bash
-aperio-client api POST /tokens \
-  -d '{"name":"ci","hostnames":["*"],"topics":["deploy/#"]}'
+aperio-client api token create --name ci --hostname '*' --topic 'deploy/#'
 ```
 
 A token with no `topics` cannot publish or subscribe at all, which is what every token minted before you asked for this carries.

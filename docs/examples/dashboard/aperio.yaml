@@ -5,4 +5,5 @@ server:
 services:
   # A plain service, so the dashboard has live traffic to show.
   - target: http://localhost:3000
+    public: true
     hostname: app.example.com
