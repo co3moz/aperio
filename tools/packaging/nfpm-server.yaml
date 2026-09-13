@@ -41,16 +41,21 @@ contents:
     dst: /usr/lib/tmpfiles.d/aperio-server.conf
 
   # Never overwritten on upgrade: a new default arrives as .rpmnew or
-  # .dpkg-dist beside it. This file holds the master token.
+  # .dpkg-dist beside it. This file holds the master token, and the unit runs
+  # as `aperio`, so group ownership is what lets that account read it.
   - src: dist/aperio-server.yaml
     dst: /etc/aperio/aperio-server.yaml
     type: config|noreplace
     file_info:
+      owner: root
+      group: aperio
       mode: 0640
 
   - dst: /etc/aperio
     type: dir
     file_info:
+      owner: root
+      group: aperio
       mode: 0750
 
 scripts:

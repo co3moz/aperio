@@ -1,25 +1,28 @@
-# A client instance, copied rather than edited in place:
+# A client instance, copied rather than edited in place. The `install` keeps
+# the file out of the world's reach, which matters because it holds a token,
+# and gives it to the `aperio` group the unit runs as:
 #
-#   cp /etc/aperio/aperio-client.yaml.example /etc/aperio/myapp.yaml
-#   $EDITOR /etc/aperio/myapp.yaml
+#   sudo install -o root -g aperio -m 0640 \
+#     /etc/aperio/aperio-client.yaml.example /etc/aperio/myapp.yaml
+#   sudoedit /etc/aperio/myapp.yaml
 #   systemctl enable --now aperio-client@myapp
 #
 # The instance name after the @ is the file name: aperio-client@myapp reads
 # /etc/aperio/myapp.yaml. One machine usually fronts more than one thing, and
 # each gets its own file and its own service.
-#
-# These files hold tunnel tokens, so /etc/aperio is 0750 root:aperio and the
-# client reads them as the `aperio` user.
 
 server:
   url: https://tunnel.example.com
   token: apr_change_me
 
-# What to expose, and under which name. `target` is a backend this machine can
-# reach; `serve` is a directory of static files instead. See
+# What to expose, and under which name. A file always describes its backends
+# under `services:`, even when there is exactly one; a top-level `target:` or
+# `hostname:` has not been accepted since 0.9.0. `target` is a backend this
+# machine can reach; `serve` is a directory of static files instead. See
 # docs/configuration.md for the full set, including several services from one
 # process.
-target: http://127.0.0.1:3000
-hostname: myapp.example.com
+services:
+  - target: http://127.0.0.1:3000
+    hostname: myapp.example.com
 
 version: __APERIO_VERSION__

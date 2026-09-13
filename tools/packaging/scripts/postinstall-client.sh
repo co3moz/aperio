@@ -20,8 +20,9 @@ if [ -z "$restarted" ]; then
 
 Aperio client installed. To bring up an instance:
 
-  cp /etc/aperio/aperio-client.yaml.example /etc/aperio/myapp.yaml
-  $EDITOR /etc/aperio/myapp.yaml
+  sudo install -o root -g aperio -m 0640 \
+    /etc/aperio/aperio-client.yaml.example /etc/aperio/myapp.yaml
+  sudoedit /etc/aperio/myapp.yaml
   systemctl enable --now aperio-client@myapp
 
 MSG

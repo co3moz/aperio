@@ -36,12 +36,19 @@ contents:
 
   # An example rather than a config: an instance is a copy of this under its
   # own name, so there is no single file for the package to own or clobber.
+  # Readable by the `aperio` group so the documented `install` copy works.
   - src: dist/aperio-client.yaml.example
     dst: /etc/aperio/aperio-client.yaml.example
+    file_info:
+      owner: root
+      group: aperio
+      mode: 0640
 
   - dst: /etc/aperio
     type: dir
     file_info:
+      owner: root
+      group: aperio
       mode: 0750
 
 scripts:

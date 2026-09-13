@@ -15,7 +15,9 @@ config:
   port: 8080
   # The master token belongs in a Secret rather than here. Leave this out and
   # set `masterToken` (or `existingSecret`) below; it is injected as
-  # APERIO_SERVER_TOKEN, which wins over the file.
+  # APERIO_SERVER_TOKEN. Leave the key out of the file entirely: the file wins
+  # over the environment, so a `server.token` written here would outvote the
+  # Secret.
   #
   # server:
   #   token: ...

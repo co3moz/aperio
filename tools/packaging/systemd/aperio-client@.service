@@ -6,7 +6,7 @@ Wants=network-online.target
 
 [Service]
 Type=exec
-ExecStart=/usr/bin/aperio-client run --config /etc/aperio/%i.yaml
+ExecStart=/usr/bin/aperio-client --config /etc/aperio/%i.yaml
 Restart=always
 RestartSec=2s
 
