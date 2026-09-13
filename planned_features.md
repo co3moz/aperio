@@ -27,28 +27,6 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
-- [ ] **#168 A request in the gap between a client's connect and its first
-  heartbeat is refused, not held.** Found by the startup budget spec
-  (`tests/e2e/specs/timing/budget.test.ts`): the server logs "Tunnel client
-  connected" at the upgrade, and the client's binds, `public` and `auth:`
-  arrive with its first Ping a few milliseconds later. A request landing in
-  that gap finds a connected client with no bind (so `route_exists` says the
-  fallback pool is up and the reconnect wait is skipped) and a route nothing
-  has declared (so the closed posture answers its stealth `504`), and gets
-  the refusal at once. The window is milliseconds, so a visitor rarely sees
-  it, but it is the one moment a reconnecting site answers "not here" while
-  the client is right there. Treat a connection younger than its first Ping
-  as *arriving* rather than *absent*: `worth_waiting_for_route` should say
-  yes while any connection of the route's organization has connected and not
-  yet declared. The other half is done: the wait now ends on the declaration,
-  since the first heartbeat re-notifies `client_connected` (before that, a
-  request held for a *returning* client slept through the whole gateway
-  timeout, the flag it waited on being already set). What is left is the
-  first-connect case, where nothing has dropped and so nothing waits. The
-  budget spec measures time-to-first-200 and so passes either way; a phase
-  asking once, right after the connect log, is the test to write when this
-  lands.
-
 ## Withdrawn
 
 Ideas taken off the backlog. Their ids stay retired: nothing is renumbered and
@@ -462,6 +440,24 @@ so.
   2025-09, with no rc since March. Neither is close.
 
 ## Completed
+
+- [x] **#168 A request in the gap between a client's connect and its first
+  heartbeat is refused, not held.** shipped: a connection that has opened but
+  not yet sent its first heartbeat (`last_ping_at` is `None` and neither a
+  declared nor a token-granted bind exists) is *arriving*, not absent.
+  `ClientHandle::awaiting_declaration` names it, `routing::route_declaration_
+  pending` asks it, and the proxy holds a request the visitor gate refused for
+  "nothing declares this" until the first Ping lands (or the gateway timeout),
+  then lets the gate answer again with the declared bind. `worth_waiting_for_
+  route` gained `declaration_pending` as a third reason to wait, and the wait
+  ends the moment the declaration lands rather than sleeping to the timeout.
+  Where it differed: the hold is keyed on the gate's `Undeclared`, not on
+  `route_exists`, because an unbound connection is already the fallback pool
+  and so `route_exists` is true throughout the gap; the planned
+  `worth_waiting_for_route` change alone would not have fired. A Rust test
+  drives the gap deterministically (connect, hold, declare mid-wait, serve),
+  and the budget spec gained the once-right-after-the-connect-log phase the
+  entry asked for.
 
 - [x] **#166 Four things the panel stops one step short of.** A hostname is
   plain text everywhere it appears (Clients, Tokens, Topology); make it a link

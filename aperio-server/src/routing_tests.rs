@@ -25,7 +25,7 @@ pub(super) fn base_handle() -> ClientHandle {
     client_ip: "127.0.0.1".to_string(),
     declared_client_id: None,
     drain_secs: None,
-    last_ping_at: None,
+    last_ping_at: Some(std::time::Instant::now()),
     perms: ClientPerms::master(),
     draining: false,
     client_version: None,

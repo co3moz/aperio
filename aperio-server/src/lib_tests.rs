@@ -23,7 +23,8 @@ pub(crate) fn test_sanitize_uri_strips_query() {
   assert_eq!(sanitize_uri("/api?a=1?b=2"), "/api");
 }
 
-/// Generous health threshold so mock clients (no pings) stay eligible.
+/// Generous health threshold so mock clients stay eligible; a connection with
+/// no bind is declared, so it is not treated as still arriving.
 pub(crate) const TEST_THRESHOLD: Duration = Duration::from_secs(3600);
 
 pub(crate) fn mock_client(
@@ -41,7 +42,7 @@ pub(crate) fn mock_client(
     connected_at: Instant::now(),
     client_ip: "127.0.0.1".to_string(),
     declared_client_id: None,
-    last_ping_at: None,
+    last_ping_at: Some(Instant::now()),
     perms: ClientPerms::master(),
     draining: false,
     client_version: None,

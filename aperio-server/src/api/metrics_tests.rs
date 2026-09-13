@@ -229,7 +229,7 @@ fn mock_client() -> ClientHandle {
     connected_at: Instant::now(),
     client_ip: "127.0.0.1".to_string(),
     declared_client_id: None,
-    last_ping_at: None,
+    last_ping_at: Some(Instant::now()),
     perms: ClientPerms::master(),
     draining: false,
     client_version: None,

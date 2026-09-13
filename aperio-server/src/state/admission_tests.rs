@@ -930,6 +930,7 @@ async fn a_connection_silent_for_four_thresholds_is_reaped_and_a_late_one_is_not
     );
     // Never pinged, connected long ago: silent since it connected.
     let mut stale = crate::test_support::mock_client(None, None, None, None);
+    stale.last_ping_at = None;
     stale.connected_at = long_ago;
     clients.insert("stale".to_string(), stale);
   }

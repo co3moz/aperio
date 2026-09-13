@@ -413,6 +413,29 @@ pub(crate) async fn route_exists(
   !apply_lb_strategy(pool, &clients, state.config().lb_strategy).is_empty()
 }
 
+/// True while a connected client exists whose first heartbeat has not yet
+/// declared its route.
+///
+/// The server logs a client as connected at the socket upgrade, and the binds,
+/// `public:` and `auth:` that turn that connection into a route arrive with
+/// its first Ping a few milliseconds later. A request landing in that window
+/// finds a route nothing has declared, and the closed posture refuses it,
+/// although the client is right there and about to answer. This is what lets
+/// the proxy treat such a connection as *arriving* rather than absent and
+/// hold the request for the declaration (planned_features #168).
+///
+/// A route that already has a candidate does not need this, and the caller
+/// asks it only once the visitor gate has said nothing declares the route.
+/// The wait a caller gives it is bounded by its own gateway timeout.
+pub(crate) async fn route_declaration_pending(state: &AppState) -> bool {
+  state
+    .clients
+    .read()
+    .await
+    .values()
+    .any(|c| c.awaiting_declaration())
+}
+
 /// The pool members on one side of a canary split.
 ///
 /// Membership is by the client's announced service name, which is what an

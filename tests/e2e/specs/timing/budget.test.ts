@@ -139,13 +139,24 @@ export class StartupBudgetSpec extends Test({
     await until(() => this.server._output.slice(seen).includes('Tunnel client connected'))
   }
 
+  /** A request that lands right after the connect log is held for the
+   *  declaration, not refused. The server logs the client as connected at the
+   *  upgrade and the binds follow with the first heartbeat a few milliseconds
+   *  later; before #168 an ask in that window got the closed posture's
+   *  stealth 504. Asked once, on purpose, so the gap is the thing under test
+   *  and not merely passed over. */
+  async aRequestInTheConnectToDeclareGapIsHeldNotRefused() {
+    timeout(BUDGET_MS)
+    const res = await this.server._fetch('/hello', { host: HOST })
+    assert.equal(res.status, 200)
+    assert.equal(res.body, `backend ${this.backend._port} GET /hello`)
+  }
+
   /** A request through the tunnel that is up, end to end. */
   async aRequestThroughTheTunnelIsAnsweredWithinTheBudget() {
-    // Up means declared, not merely connected: the previous phase ends at
-    // the connect log, and the binds follow with the first heartbeat. On a
-    // fast machine a request between the two lands in the gap that #168
-    // describes and is refused, which is a finding about that gap and not
-    // about how long a request takes.
+    // Up means declared, not merely connected: the previous phases leave the
+    // client declared either way, and this one still waits off the clock so
+    // that only the request itself is timed.
     await this.client._waitRoutable(HOST, '/hello')
     timeout(BUDGET_MS)
     const res = await this.server._fetch('/hello', { host: HOST })

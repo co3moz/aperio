@@ -356,7 +356,10 @@ pub(crate) fn mock_client(
     connected_at: Instant::now(),
     client_ip: "127.0.0.1".to_string(),
     declared_client_id: None,
-    last_ping_at: None,
+    // An established client has sent its first heartbeat: a mock with no
+    // binds represents one that declared "serve any host", not one still in
+    // the connect-to-first-Ping window (`awaiting_declaration`).
+    last_ping_at: Some(Instant::now()),
     perms: ClientPerms::master(),
     draining: false,
     client_version: None,

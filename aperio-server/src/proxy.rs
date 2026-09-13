@@ -117,9 +117,14 @@ async fn record_outlier_failure(state: &AppState, client_id: &str, service: Opti
 /// gateway timeout before saying so.
 ///
 /// Waiting pays only when something might arrive: a client dropped recently
-/// enough that it is plausibly reconnecting, or scale-to-zero is configured
-/// and a cold start can wake one. Otherwise the route is simply not served,
-/// and the caller should be told that now rather than in thirty seconds.
+/// enough that it is plausibly reconnecting, scale-to-zero is configured and
+/// a cold start can wake one, or a connection has opened but not yet sent the
+/// first heartbeat that declares its route (`declaration_pending`, #168). A
+/// client that has connected and not yet declared is *arriving*, and the
+/// milliseconds before its binds land are exactly what a request in that
+/// window waits through instead of being refused. Otherwise the route is
+/// simply not served, and the caller should be told that now rather than in
+/// thirty seconds.
 ///
 /// The disconnect clock is server-wide because that is the only one there is;
 /// it is used only to decide *whether* to wait, never how long, and the wait
@@ -129,8 +134,9 @@ fn worth_waiting_for_route(
   now: Instant,
   recent: std::time::Duration,
   scaling_enabled: bool,
+  declaration_pending: bool,
 ) -> bool {
-  if scaling_enabled {
+  if scaling_enabled || declaration_pending {
     return true;
   }
   last_disconnect.is_some_and(|t| now.saturating_duration_since(t) <= recent)

@@ -712,6 +712,28 @@ impl ClientHandle {
   pub(crate) fn service_at_mut(&mut self, index: usize) -> &mut ServiceState {
     &mut self.services[index]
   }
+
+  /// True while this connection has connected but not yet declared anything a
+  /// request could be routed to.
+  ///
+  /// The socket opens at the upgrade, and the client's binds, `public:` and
+  /// `auth:` arrive with its first heartbeat a few milliseconds later. In
+  /// between the connection is not a route unless the token itself granted a
+  /// bind (`assigned_hostnames` / `assigned_path`, applied at the upgrade), so
+  /// it has no hostname or path any request could match. Routing must treat it
+  /// as *arriving* rather than present, or a request landing in that window
+  /// finds a connection with nothing to match and is refused
+  /// (planned_features #168).
+  ///
+  /// A token-granted bind counts as declared from the upgrade, matching the
+  /// "token-granted binds apply immediately, before the first Ping" rule.
+  pub(crate) fn awaiting_declaration(&self) -> bool {
+    self.last_ping_at.is_none()
+      && self
+        .services
+        .iter()
+        .all(|s| !s.has_hostname_bind() && s.effective_path_bind().is_none())
+  }
 }
 
 /// Permissions resolved at connection time from the presented token.

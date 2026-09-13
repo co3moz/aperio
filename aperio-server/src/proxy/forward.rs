@@ -92,13 +92,22 @@ pub(crate) async fn proxy_http_request(
   // winning `denied:` redirect, or a stealth answer identical to an
   // unclaimed route, so blocked traffic still never enters the tunnel.
 
-  // 3. Wait for connection if client is disconnected.
+  // 3. Wait for the route to become answerable.
   // Take a consistent snapshot of connection state under a single lock to avoid TOCTOU.
   //
-  // Asked of *this route*, not of the server, and only then asked whether
-  // waiting could help. See `worth_waiting_for_route` for why those are two
-  // questions: one flag answering both is what let a dead route skip the wait
-  // because a neighbour was up, and what made a long-dead one wait anyway.
+  // Two reasons a request is held rather than answered now: the route has no
+  // candidate but one may arrive (a recent disconnect, or scale-to-zero), and
+  // a connection has opened but not yet sent the first heartbeat that
+  // declares it (`declaration_pending`, planned_features #168). The second is
+  // the one the closed posture gets wrong: the socket opens at the upgrade and
+  // the binds, `public:` and `auth:` arrive with the first Ping a few
+  // milliseconds later, so a request landing in between finds a route nothing
+  // declares and is refused although the client is right there.
+  //
+  // Asked of *this route*, not of the server. See `worth_waiting_for_route`
+  // for why "does this route have a candidate" and "could it come back" are
+  // two questions: one flag answering both is what let a dead route skip the
+  // wait because a neighbour was up, and what made a long-dead one wait anyway.
   let (_, last_disconnect) = {
     let conn = state.connection_state.lock().await;
     (conn.connected, conn.last_disconnect)
@@ -113,28 +122,48 @@ pub(crate) async fn proxy_http_request(
     )
   };
   let scaling_enabled = state.config().scaling_enabled;
-  if !route_up().await
+  let declaration_pending = || crate::routing::route_declaration_pending(&state);
+  // A declaration is worth waiting for only when the gate above refused the
+  // route for "nothing declares this": a route already answerable needs
+  // nothing from the arriving connection.
+  let wait_for_declaration = undeclared.is_some() && declaration_pending().await;
+  if (!route_up().await
     && worth_waiting_for_route(
       last_disconnect,
       Instant::now(),
       state.config().gateway_timeout,
       scaling_enabled,
-    )
+      declaration_pending().await,
+    ))
+    || wait_for_declaration
   {
-    // Wait for a client to reconnect, bounded by the configured gateway timeout.
+    // Wait for a client to reconnect, or for the arriving connection's first
+    // heartbeat, bounded by the configured gateway timeout.
     let mut rx = state.client_connected.subscribe();
     let timeout_fut = tokio::time::sleep(state.config().gateway_timeout);
     tokio::pin!(timeout_fut);
 
     let mut reconnected = false;
     loop {
+      // Answerable means a candidate exists and no declaration is still in
+      // flight. The fallback pool makes `route_up` true for a bound
+      // connection that has not declared, and that is not the recovery this
+      // wait is for.
+      if route_up().await && !declaration_pending().await {
+        reconnected = true;
+        break;
+      }
+      // The declaration this request was held for has landed, or the client
+      // declared somewhere else: stop rather than sleep to the timeout.
+      if wait_for_declaration && !declaration_pending().await {
+        break;
+      }
       tokio::select! {
           _ = &mut timeout_fut => {
               break;
           }
           res = rx.changed() => {
-              if res.is_ok() && *rx.borrow() && route_up().await {
-                  reconnected = true;
+              if res.is_err() {
                   break;
               }
           }

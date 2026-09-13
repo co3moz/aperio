@@ -385,6 +385,49 @@ async fn route_exists_is_false_without_a_serving_client() {
   assert!(!route_exists(&state, "/", Some("app.example.com"), None).await);
 }
 
+// --- route_declaration_pending (#168) ---------------------------------------
+
+/// A connection that has opened but not yet sent the heartbeat that declares
+/// it is not a route, but it is arriving: the proxy holds a request the gate
+/// refuses for "nothing declares this" until the declaration lands.
+#[tokio::test]
+async fn a_connection_awaiting_its_first_ping_is_a_pending_declaration() {
+  let state = crate::test_support::test_state();
+  assert!(
+    !route_declaration_pending(&state).await,
+    "no clients, nothing is arriving"
+  );
+
+  let mut c = crate::test_support::mock_client(None, None, None, None);
+  c.last_ping_at = None;
+  state.clients.write().await.insert("a".to_string(), c);
+  assert!(route_declaration_pending(&state).await);
+
+  state
+    .clients
+    .write()
+    .await
+    .get_mut("a")
+    .unwrap()
+    .last_ping_at = Some(Instant::now());
+  assert!(
+    !route_declaration_pending(&state).await,
+    "the first Ping ends the wait"
+  );
+}
+
+/// A token-granted bind applies at the upgrade, so it is a declaration before
+/// the first Ping and the connection is not treated as still arriving.
+#[tokio::test]
+async fn a_token_granted_bind_is_declared_from_the_upgrade() {
+  let state = crate::test_support::test_state();
+  let mut c = crate::test_support::mock_client(None, None, None, None);
+  c.last_ping_at = None;
+  c.sole_mut().assigned_hostnames = vec!["granted.example.com".to_string()];
+  state.clients.write().await.insert("a".to_string(), c);
+  assert!(!route_declaration_pending(&state).await);
+}
+
 #[tokio::test]
 async fn a_selection_carries_both_names_a_client_can_be_shown_under() {
   // The capture, and everything else that shows a client to a person, reads

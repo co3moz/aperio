@@ -779,6 +779,52 @@ pub(crate) async fn handler_offline_reconnect_wait_times_out() {
   assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
 }
 
+#[tokio::test]
+pub(crate) async fn handler_holds_a_request_until_the_client_declares_its_route() {
+  // The first-connect half of #168. The socket is open and the server counts
+  // the client as connected, but its binds and `public:` ride the first Ping,
+  // which has not arrived. The gate sees a route nothing declares and would
+  // refuse it under the closed posture; the request waits for the declaration
+  // and is then served instead.
+  let mut cfg = test_config();
+  cfg.default_access = crate::settings::DefaultAccess::Deny;
+  cfg.gateway_timeout = std::time::Duration::from_secs(5);
+  let state = connected(cfg);
+  mark_connected(&state).await;
+
+  // A connection that has opened but not declared: no binds, no Ping.
+  let mut c = mock_client(None, None, None, None);
+  c.last_ping_at = None;
+  let (tx, rx) = mpsc::channel::<Message>(64);
+  c.tx = tx;
+  state.clients.write().await.insert("c1".to_string(), c);
+
+  // The heartbeat lands after the handler has begun waiting; declaring the
+  // route open is what lets the second gate pass and the request be served.
+  let s2 = state.clone();
+  tokio::spawn(async move {
+    tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+    {
+      let mut clients = s2.clients.write().await;
+      if let Some(c) = clients.get_mut("c1") {
+        c.last_ping_at = Some(Instant::now());
+        let s = c.sole_mut();
+        s.public = true;
+        s.declared_hostname = Some("gap.example.com".to_string());
+      }
+    }
+    let _ = s2.client_connected.send_replace(true);
+  });
+  spawn_responder(state.clone(), rx, vec![200]);
+
+  let mut req = get("/hello");
+  req
+    .headers_mut()
+    .insert("host", HeaderValue::from_static("gap.example.com"));
+  let resp = run(state, req).await;
+  assert_eq!(resp.status(), StatusCode::OK);
+}
+
 // --- SWR, denial, preview, limiter, coalescing ------------------------------
 
 #[tokio::test]
@@ -1344,6 +1390,7 @@ pub(crate) fn a_recently_dropped_client_is_worth_waiting_for() {
     Some(now - std::time::Duration::from_secs(2)),
     now,
     recent,
+    false,
     false
   ));
 }
@@ -1359,6 +1406,7 @@ pub(crate) fn a_route_dead_since_long_before_the_wait_is_not() {
     Some(now - std::time::Duration::from_secs(3600)),
     now,
     recent,
+    false,
     false
   ));
 }
@@ -1366,13 +1414,31 @@ pub(crate) fn a_route_dead_since_long_before_the_wait_is_not() {
 #[test]
 pub(crate) fn a_server_that_has_never_seen_a_disconnect_does_not_wait() {
   // Nothing has ever dropped, so nothing is on its way back. Without
-  // scale-to-zero there is no other way for a candidate to appear.
+  // scale-to-zero and with no connection still declaring, there is no other
+  // way for a candidate to appear.
   let now = Instant::now();
   assert!(!worth_waiting_for_route(
     None,
     now,
     std::time::Duration::from_secs(30),
+    false,
     false
+  ));
+}
+
+#[test]
+pub(crate) fn a_connection_still_declaring_is_worth_waiting_for() {
+  // The first-connect half of #168: the socket opened but its binds, `public:`
+  // and `auth:` have not arrived, so the route has no candidate and nothing
+  // has disconnected either. The connection is arriving, and the request is
+  // held rather than refused.
+  let now = Instant::now();
+  assert!(worth_waiting_for_route(
+    None,
+    now,
+    std::time::Duration::from_secs(30),
+    false,
+    true
   ));
 }
 
@@ -1385,12 +1451,14 @@ pub(crate) fn scale_to_zero_is_always_worth_waiting_for() {
     None,
     now,
     std::time::Duration::from_secs(30),
-    true
+    true,
+    false
   ));
   assert!(worth_waiting_for_route(
     Some(now - std::time::Duration::from_secs(3600)),
     now,
     std::time::Duration::from_secs(30),
-    true
+    true,
+    false
   ));
 }
