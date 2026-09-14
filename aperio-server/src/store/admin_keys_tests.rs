@@ -174,3 +174,17 @@ fn a_star_key_still_writes_org_id_as_the_master_key_it_would_have_been() {
   assert_eq!(rec.org_id.as_deref(), Some("org-1"));
   let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn import_reports_a_failed_database_write() {
+  let dir =
+    crate::test_support::test_temp_root().join(format!("import-failure-{}", uuid::Uuid::new_v4()));
+  let mut store = AdminKeyStore::load(dir.to_str().unwrap());
+  store.conn.execute_batch("PRAGMA query_only=ON").unwrap();
+  assert_eq!(
+    store.import(Vec::new()),
+    Err(crate::store::NotWritten::NotPersisted)
+  );
+  drop(store);
+  let _ = std::fs::remove_dir_all(dir);
+}

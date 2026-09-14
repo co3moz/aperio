@@ -471,8 +471,8 @@ async fn test_apply_serve_mode_per_service() {
   assert_eq!(build_specs(&settings, "base-id", false).unwrap().len(), 3);
 
   // A reload with the same directories reuses the running servers.
-  let ports = |m: &std::collections::HashMap<String, (u16, tokio::task::JoinHandle<()>)>| {
-    let mut v: Vec<(String, u16)> = m.iter().map(|(k, (p, _))| (k.clone(), *p)).collect();
+  let ports = |m: &ServeListeners| {
+    let mut v: Vec<(String, u16)> = m.iter().map(|(k, (p, _))| (k.0.clone(), *p)).collect();
     v.sort();
     v
   };
@@ -539,13 +539,13 @@ async fn test_apply_serve_mode_defers_listener_teardown() {
     2,
     "listeners must survive until the new config is adopted"
   );
-  assert!(needed.contains(&dir_a));
-  assert!(!needed.contains(&dir_b));
+  assert!(needed.contains(&(dir_a.clone(), serve::ServeOptions::default())));
+  assert!(!needed.contains(&(dir_b.clone(), serve::ServeOptions::default())));
 
   // Only once the caller adopts the new config is b's listener retired.
   retire_unused_serve_listeners(&needed, &mut started);
   assert_eq!(started.len(), 1);
-  assert!(started.contains_key(&dir_a));
+  assert!(started.contains_key(&(dir_a.clone(), serve::ServeOptions::default())));
 
   let _ = std::fs::remove_dir_all(&root);
 }
@@ -1155,44 +1155,60 @@ async fn await_dependencies_wakes_when_the_dependency_comes_up() {
 
 // --- make before break on reload (planned_features.md #156) ------------------
 
-#[test]
-fn a_replacement_is_up_when_its_service_has_one_more_live_connection() {
-  use std::collections::HashMap;
-  let names = vec!["api".to_string(), "web".to_string()];
-  let before: HashMap<String, usize> = [("api".to_string(), 1), ("web".to_string(), 2)]
-    .into_iter()
-    .collect();
-  // Nothing new yet: both missing.
+#[tokio::test]
+async fn reload_waits_for_unnamed_replacements_and_ignores_the_old_generation() {
+  let settings = base_settings();
+  let old = build_specs(&settings, "client", false).unwrap();
+  let old_connection = old[0].pool_load.connection_up();
+  let fresh = build_specs(&settings, "client", false).unwrap();
+  assert!(fresh[0].name.is_none());
+  let budget = Duration::from_millis(100);
   assert_eq!(
-    replacements_missing(&names, &before, &before),
-    vec!["api".to_string(), "web".to_string()]
+    wait_for_replacements(&fresh, budget).await,
+    vec![fresh[0].label()]
   );
-  // One came up.
-  let live: HashMap<String, usize> = [("api".to_string(), 2), ("web".to_string(), 2)]
-    .into_iter()
-    .collect();
-  assert_eq!(
-    replacements_missing(&names, &before, &live),
-    vec!["web".to_string()]
+  let pool = fresh[0].pool_load.clone();
+  let connection = tokio::spawn(async move {
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    pool.connection_up()
+  });
+  assert!(
+    wait_for_replacements(&fresh, Duration::from_secs(2))
+      .await
+      .is_empty()
   );
-  // Both, and a service that was not there before counts from zero.
-  let names = vec!["api".to_string(), "web".to_string(), "new".to_string()];
-  let live: HashMap<String, usize> = [
-    ("api".to_string(), 2),
-    ("web".to_string(), 3),
-    ("new".to_string(), 1),
-  ]
-  .into_iter()
-  .collect();
-  assert!(replacements_missing(&names, &before, &live).is_empty());
-  // An old connection closing early does not count as the replacement.
-  let live: HashMap<String, usize> = [("api".to_string(), 1), ("web".to_string(), 1)]
-    .into_iter()
-    .collect();
-  assert_eq!(
-    replacements_missing(&names[..2], &before, &live),
-    vec!["api".to_string(), "web".to_string()]
-  );
+  let connection = connection.await.unwrap();
+  drop(connection);
+  assert_eq!(wait_for_replacements(&fresh, budget).await.len(), 1);
+  drop(old_connection);
+}
+
+#[tokio::test]
+async fn reload_requires_all_replacements_to_be_live_at_the_same_time() {
+  let settings = base_settings();
+  let first = build_specs(&settings, "first", false).unwrap().remove(0);
+  let second = build_specs(&settings, "second", false).unwrap().remove(0);
+  let first_pool = first.pool_load.clone();
+  let second_pool = second.pool_load.clone();
+  let specs = vec![first, second];
+
+  let first_connection = first_pool.connection_up();
+  let mut waiting = Box::pin(wait_for_replacements(&specs, Duration::from_secs(2)));
+  tokio::select! {
+    _ = &mut waiting => panic!("the second service is still offline"),
+    _ = tokio::time::sleep(Duration::from_millis(20)) => {}
+  }
+
+  drop(first_connection);
+  let second_connection = second_pool.connection_up();
+  tokio::select! {
+    _ = &mut waiting => panic!("the services were never live together"),
+    _ = tokio::time::sleep(Duration::from_millis(20)) => {}
+  }
+
+  let first_connection = first_pool.connection_up();
+  assert!(waiting.await.is_empty());
+  drop((first_connection, second_connection));
 }
 
 #[test]
@@ -1201,4 +1217,51 @@ fn the_reload_handover_budget_is_bounded() {
   // configuration running forever; ten seconds is the drain's own order.
   assert!(RELOAD_HANDOVER_BUDGET >= Duration::from_secs(5));
   assert!(RELOAD_HANDOVER_BUDGET <= Duration::from_secs(30));
+}
+
+#[tokio::test]
+async fn static_options_reload_stages_a_new_listener_without_changing_the_old_one() {
+  let root = std::env::temp_dir().join(format!("aperio-serve-options-{}", uuid::Uuid::new_v4()));
+  std::fs::create_dir_all(&root).unwrap();
+  std::fs::write(root.join("index.html"), "spa index").unwrap();
+  let error_page = root.join("error.html");
+  std::fs::write(&error_page, "custom missing").unwrap();
+  let dir = root.to_string_lossy().into_owned();
+  let mut listeners = ServeListeners::new();
+  let old = serve_port(&dir, &serve::ServeOptions::default(), &mut listeners)
+    .await
+    .unwrap();
+  let http = crate::test_http_client();
+  let fetch = |port| {
+    http
+      .get(format!("http://127.0.0.1:{port}/missing"))
+      .header("accept", "text/html")
+      .send()
+  };
+  assert_eq!(fetch(old).await.unwrap().status(), 404);
+  let options = serve::options(true, Some(error_page.to_str().unwrap()));
+  let new = serve_port(&dir, &options, &mut listeners).await.unwrap();
+  assert_ne!(old, new);
+  assert_eq!(fetch(old).await.unwrap().status(), 404);
+  let response = fetch(new).await.unwrap();
+  assert_eq!(response.status(), 200);
+  assert_eq!(response.text().await.unwrap(), "spa index");
+  let response = http
+    .get(format!("http://127.0.0.1:{new}/missing"))
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(response.status(), 404);
+  assert_eq!(response.text().await.unwrap(), "custom missing");
+  assert_eq!(
+    serve_port(&dir, &options, &mut listeners).await.unwrap(),
+    new
+  );
+  let needed = [(dir, options)].into_iter().collect();
+  retire_unused_serve_listeners(&needed, &mut listeners);
+  assert_eq!(listeners.len(), 1);
+  for (_, (_, handle)) in listeners {
+    handle.abort();
+  }
+  let _ = std::fs::remove_dir_all(root);
 }

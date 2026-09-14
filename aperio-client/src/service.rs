@@ -389,6 +389,10 @@ pub(crate) async fn run_service(
               }
             }
             let connected_at = Instant::now();
+            let _connected: Vec<_> = services
+              .iter()
+              .map(|service| service.spec.pool_load.connection_up())
+              .collect();
             // Announce every service this connection carries to anything
             // waiting on one via `depends_on`. Keyed by service name, so every
             // connection of a parallel pool announces the same name and the

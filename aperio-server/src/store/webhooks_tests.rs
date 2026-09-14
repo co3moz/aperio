@@ -479,3 +479,17 @@ async fn a_redirect_does_not_carry_a_delivery_past_the_outbound_policy() {
     "the redirect target received a request"
   );
 }
+
+#[test]
+fn import_reports_a_failed_database_write() {
+  let dir =
+    crate::test_support::test_temp_root().join(format!("import-failure-{}", uuid::Uuid::new_v4()));
+  let mut store = WebhookStore::load(dir.to_str().unwrap());
+  store.conn.execute_batch("PRAGMA query_only=ON").unwrap();
+  assert_eq!(
+    store.import(Vec::new()),
+    Err(crate::store::NotWritten::NotPersisted)
+  );
+  drop(store);
+  let _ = std::fs::remove_dir_all(dir);
+}

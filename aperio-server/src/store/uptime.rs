@@ -165,16 +165,25 @@ impl UptimeStore {
   }
 
   /// Replaces the recorded history with an imported one, and writes it out.
-  /// Bookkeeping: the dump-restore path, whose caller reports on the whole
-  /// import rather than on one row. See `store::replace_all`.
-  pub fn import(&mut self, entities: HashMap<String, EntityUptime>) -> usize {
-    self.entities = entities;
+  /// A failed write restores the previous history and is reported to the caller.
+  pub fn import(
+    &mut self,
+    entities: HashMap<String, EntityUptime>,
+  ) -> Result<usize, crate::store::NotWritten> {
+    let previous_dirty = self.dirty;
+    let previous = std::mem::replace(&mut self.entities, entities);
     // `last_tick` stays where it is: it is a clock reading of *this* process,
     // not part of what was imported, and clearing it would attribute the gap
     // since the last tick to the imported entities.
     self.dirty = true;
     self.save_if_dirty();
-    self.entities.len()
+    if self.dirty {
+      self.entities = previous;
+      self.dirty = previous_dirty;
+      Err(crate::store::NotWritten::NotPersisted)
+    } else {
+      Ok(self.entities.len())
+    }
   }
 
   pub fn snapshot(&self) -> HashMap<String, EntityUptime> {

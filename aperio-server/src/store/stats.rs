@@ -564,13 +564,19 @@ impl StatsStore {
   /// Replaces every counter with an imported dump. Whole-store, like every
   /// other import: merging two histories would invent traffic that never
   /// happened on either server.
-  /// Bookkeeping: the dump-restore path, whose caller reports on the whole
-  /// import rather than on one row. See `store::replace_all`.
-  pub fn import(&mut self, dump: PersistedStats) {
+  /// A failed write restores the previous counters and is reported to the caller.
+  pub fn import(&mut self, dump: PersistedStats) -> Result<(), crate::store::NotWritten> {
+    let previous = (self.stats.clone(), self.by_org.clone(), self.dirty);
     self.stats = dump.global;
     self.by_org = dump.by_org;
     self.dirty = true;
     self.save_if_dirty();
+    if self.dirty {
+      (self.stats, self.by_org, self.dirty) = previous;
+      Err(crate::store::NotWritten::NotPersisted)
+    } else {
+      Ok(())
+    }
   }
 
   /// The global aggregate across all organizations (used by Prometheus and

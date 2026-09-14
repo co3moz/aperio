@@ -37,6 +37,9 @@ export function useStream<T>(
   fetchRef.current = fetch
   const failures = useRef(0)
   const generation = useRef(0)
+  // REST replies and pushes share one order. A newer request or push makes
+  // an older in-flight reply (including its error) obsolete.
+  const revision = useRef(0)
 
   useEffect(() => {
     generation.current += 1
@@ -47,19 +50,21 @@ export function useStream<T>(
 
   const runOnce = useCallback(async () => {
     const asked = generation.current
+    const requested = ++revision.current
+    const current = () => asked === generation.current && requested === revision.current
     try {
       const value = await fetchRef.current()
-      if (asked !== generation.current) return
+      if (!current()) return
       setData(value)
       setUpdatedAt(Date.now())
       setError(false)
       failures.current = 0
     } catch {
-      if (asked !== generation.current) return
+      if (!current()) return
       setError(true)
       failures.current = Math.min(failures.current + 1, MAX_BACKOFF_EXP + 1)
     } finally {
-      if (asked === generation.current) setLoading(false)
+      if (current()) setLoading(false)
     }
   }, [])
 
@@ -73,6 +78,7 @@ export function useStream<T>(
     const asked = generation.current
     return streamHub.subscribe(topic, (value) => {
       if (asked !== generation.current) return
+      revision.current += 1
       setData(value as T)
       setUpdatedAt(Date.now())
       setError(false)
@@ -123,6 +129,7 @@ export function useStream<T>(
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       cancelled = true
+      revision.current += 1
       stopPolling()
       unwatch?.()
       document.removeEventListener('visibilitychange', onVisible)

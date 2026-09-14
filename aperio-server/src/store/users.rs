@@ -264,16 +264,19 @@ impl UserStore {
 
   /// Replaces every user record with the given list (dump import) and
   /// persists. Returns how many records are now stored.
-  /// Bookkeeping: the dump-restore path, whose caller reports on the whole
-  /// import rather than on one row. See `store::replace_all`.
-  pub fn import(&mut self, mut users: Vec<User>) -> usize {
+  /// A failed write restores the previous records and is reported to the caller.
+  pub fn import(&mut self, mut users: Vec<User>) -> Result<usize, crate::store::NotWritten> {
     convert_legacy_rows(&mut users);
     for u in users.iter_mut() {
       u.sync_home_role();
     }
-    self.users = users;
-    self.persist();
-    self.users.len()
+    let previous = std::mem::replace(&mut self.users, users);
+    if self.persist() {
+      Ok(self.users.len())
+    } else {
+      self.users = previous;
+      Err(crate::store::NotWritten::NotPersisted)
+    }
   }
 
   fn persist(&mut self) -> bool {

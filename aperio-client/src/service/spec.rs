@@ -11,8 +11,9 @@ use super::*;
 /// every couple of seconds and a burst that fits entirely between two ticks is
 /// exactly the burst worth growing for. `take_peak` reads and resets, so each
 /// tick sees the window it is deciding about and nothing older.
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub(crate) struct PoolLoad {
+  ready: tokio::sync::watch::Sender<usize>,
   inflight: AtomicUsize,
   peak: AtomicUsize,
   /// Connections the elastic supervisor currently has open, `0` for a fixed
@@ -20,7 +21,37 @@ pub(crate) struct PoolLoad {
   open: AtomicU32,
 }
 
+impl Default for PoolLoad {
+  fn default() -> Self {
+    Self {
+      ready: tokio::sync::watch::channel(0).0,
+      inflight: AtomicUsize::new(0),
+      peak: AtomicUsize::new(0),
+      open: AtomicU32::new(0),
+    }
+  }
+}
+
+/// Counts only connections belonging to one resolved service generation.
+/// Dropping a socket or aborting its task takes its readiness back.
+pub(crate) struct PoolConnection(tokio::sync::watch::Sender<usize>);
+
+impl Drop for PoolConnection {
+  fn drop(&mut self) {
+    self.0.send_modify(|count| *count -= 1);
+  }
+}
+
 impl PoolLoad {
+  pub(crate) fn connection_up(&self) -> PoolConnection {
+    self.ready.send_modify(|count| *count += 1);
+    PoolConnection(self.ready.clone())
+  }
+
+  pub(crate) fn readiness(&self) -> tokio::sync::watch::Receiver<usize> {
+    self.ready.subscribe()
+  }
+
   /// Records the pool's size, for the announcement each connection makes.
   pub(crate) fn set_open(&self, n: u32) {
     self.open.store(n, Ordering::Relaxed);

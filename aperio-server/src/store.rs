@@ -70,7 +70,8 @@ pub(crate) fn open_db(data_dir: &str) -> Connection {
           "Could not recreate {:?}: {}, using a volatile in-memory store",
           path, e
         );
-        Connection::open_in_memory().expect("in-memory SQLite must open")
+        let conn = Connection::open_in_memory().expect("in-memory SQLite must open");
+        initialize_db(conn).expect("in-memory SQLite schema must initialize")
       })
     }
   }
@@ -78,7 +79,11 @@ pub(crate) fn open_db(data_dir: &str) -> Connection {
 
 /// Opens one connection and runs the schema/pragma setup.
 fn try_open_db(path: &Path) -> rusqlite::Result<Connection> {
-  let conn = Connection::open(path)?;
+  initialize_db(Connection::open(path)?)
+}
+
+/// Disk and volatile stores must expose the same tables.
+fn initialize_db(conn: Connection) -> rusqlite::Result<Connection> {
   conn.busy_timeout(std::time::Duration::from_secs(5))?;
   conn.pragma_update(None, "journal_mode", "WAL")?;
   conn.pragma_update(None, "synchronous", "NORMAL")?;
@@ -123,7 +128,7 @@ pub(crate) fn atomic_write(path: &std::path::Path, contents: &[u8]) -> std::io::
 ///   answers 500 rather than a success for a change that stops existing at the
 ///   next restart. Each store has a `commit` helper for exactly this.
 /// - **Bookkeeping the server does to itself** (a retention sweep, a disk-cap
-///   truncation, an inbox insert, a dump import, a re-announced autoscaling
+///   truncation, an inbox insert, a re-announced autoscaling
 ///   record) keeps its in-memory result and relies on the log line above.
 ///   Nobody is waiting for an answer, the next sweep will do it again, and
 ///   rolling back would mean holding data the operator asked to be rid of, or

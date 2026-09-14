@@ -159,7 +159,9 @@ fn test_import_replaces_and_persists() {
     hostnames: Vec::new(),
     oidc: None,
   };
-  let count = store.import(vec![mk("one"), mk("two"), mk("three")]);
+  let count = store
+    .import(vec![mk("one"), mk("two"), mk("three")])
+    .unwrap();
   assert_eq!(count, 3);
   assert_eq!(store.list().len(), 3);
   // The pre-import org is gone (import replaces wholesale).
@@ -656,4 +658,18 @@ fn a_fenced_login_page_belongs_to_the_one_organization_fencing_the_hostname() {
     store.fenced_login_org("www.acme.test").is_none(),
     "two fences over one name make it nobody's page"
   );
+}
+
+#[test]
+fn import_reports_a_failed_database_write() {
+  let dir =
+    crate::test_support::test_temp_root().join(format!("import-failure-{}", uuid::Uuid::new_v4()));
+  let mut store = OrgStore::load(dir.to_str().unwrap());
+  store.conn.execute_batch("PRAGMA query_only=ON").unwrap();
+  assert_eq!(
+    store.import(Vec::new()),
+    Err(crate::store::NotWritten::NotPersisted)
+  );
+  drop(store);
+  let _ = std::fs::remove_dir_all(dir);
 }

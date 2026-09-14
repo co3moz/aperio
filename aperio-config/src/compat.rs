@@ -197,6 +197,15 @@ pub struct ConfigChange {
 /// recorded here in the same commit that makes it (see CLAUDE.md).
 pub const CONFIG_CHANGES: &[ConfigChange] = &[
   ConfigChange {
+    version: "0.12.0",
+    surface: ConfigSurface::Client,
+    severity: ChangeSeverity::Migration,
+    applies: Applies::WhenSet,
+    fields: &["serve_spa", "serve_404"],
+    summary: "static-file reloads now apply changed serve_spa and serve_404 options even when the served directory stays the same",
+    action: "no edit is required; changing either option now takes effect on reload without restarting the client, while requests on the old connections drain with their original options",
+  },
+  ConfigChange {
     // Written mid-cycle before the release number is known; corrected at
     // the release (CLAUDE.md rule 19).
     version: "0.12.0",

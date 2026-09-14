@@ -115,7 +115,7 @@ fn insert_and_import_hold_the_cap() {
     })
     .collect();
   incoming.reverse(); // arrives shuffled; import re-sorts
-  assert_eq!(store.import(incoming), INBOX_MAX_ENTRIES);
+  assert_eq!(store.import(incoming).unwrap(), INBOX_MAX_ENTRIES);
   assert!(store.list_all().iter().all(|e| e.id != "i0"));
 }
 
@@ -168,4 +168,18 @@ fn a_clear_that_cannot_be_saved_is_a_failure_not_a_count_of_zero() {
   );
   assert_eq!(store.list_all().len(), 2, "and the entries are still there");
   let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn import_reports_a_failed_database_write() {
+  let dir =
+    crate::test_support::test_temp_root().join(format!("import-failure-{}", uuid::Uuid::new_v4()));
+  let mut store = InboxStore::load(dir.to_str().unwrap());
+  store.conn.execute_batch("PRAGMA query_only=ON").unwrap();
+  assert_eq!(
+    store.import(Vec::new()),
+    Err(crate::store::NotWritten::NotPersisted)
+  );
+  drop(store);
+  let _ = std::fs::remove_dir_all(dir);
 }

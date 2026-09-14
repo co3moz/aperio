@@ -544,7 +544,7 @@ fn import_converts_rows_from_an_older_dump() {
     totp_last_step: None,
     passkeys: Vec::new(),
   };
-  assert_eq!(store.import(vec![legacy]), 1);
+  assert_eq!(store.import(vec![legacy]).unwrap(), 1);
   assert_eq!(labels(&store.list()[0]), vec!["*:admin"]);
   let _ = std::fs::remove_dir_all(&dir);
 }
@@ -583,4 +583,18 @@ fn an_sso_record_has_no_password_and_may_start_with_nothing() {
   assert!(back.sso());
   assert!(back.grants.is_empty());
   let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn import_reports_a_failed_database_write() {
+  let dir =
+    crate::test_support::test_temp_root().join(format!("import-failure-{}", uuid::Uuid::new_v4()));
+  let mut store = UserStore::load(dir.to_str().unwrap());
+  store.conn.execute_batch("PRAGMA query_only=ON").unwrap();
+  assert_eq!(
+    store.import(Vec::new()),
+    Err(crate::store::NotWritten::NotPersisted)
+  );
+  drop(store);
+  let _ = std::fs::remove_dir_all(dir);
 }

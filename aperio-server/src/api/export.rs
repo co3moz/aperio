@@ -451,7 +451,7 @@ pub(crate) struct ImportDump {
 #[utoipa::path(post, path = "/aperio/api/import", tag = "dashboard",
   description = "Applies a dump created by /aperio/api/export; every section present in the document replaces its store, a missing one leaves it untouched (admin only).",
   request_body = ImportDump,
-  responses((status = 200, description = "Import applied", body = serde_json::Value), (status = 400, description = "Invalid dump")))]
+  responses((status = 200, description = "Import applied", body = serde_json::Value), (status = 400, description = "Invalid dump"), (status = 500, description = "A section could not be persisted", body = serde_json::Value)))]
 pub(crate) async fn import_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -511,29 +511,58 @@ pub(crate) async fn import_handler(
   }
 
   let mut counts = serde_json::Map::new();
+  // Imports persist one section at a time. Report the failed section and any
+  // sections already applied instead of claiming the whole dump succeeded.
+  macro_rules! imported {
+    ($section:literal, $result:expr) => {
+      match $result {
+        Ok(value) => value,
+        Err(_) => {
+          return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+              "error": format!("Failed to persist imported {}", $section),
+              "failed_section": $section,
+              "imported": counts,
+            })),
+          ).into_response();
+        }
+      }
+    };
+  }
+
   if let Some(tokens) = dump.tokens {
-    let n = state.token_store.lock().await.import(tokens);
+    let n = imported!("tokens", state.token_store.lock().await.import(tokens));
     counts.insert("tokens".into(), n.into());
   }
   if let Some(webhooks) = dump.webhooks {
-    let n = state.webhook_store.lock().await.import(webhooks);
+    let n = imported!(
+      "webhooks",
+      state.webhook_store.lock().await.import(webhooks)
+    );
     counts.insert("webhooks".into(), n.into());
   }
   if let Some(users) = dump.users {
-    let n = state.users.lock().await.import(users);
+    let n = imported!("users", state.users.lock().await.import(users));
     counts.insert("users".into(), n.into());
   }
   if let Some(scaling) = dump.scaling {
-    let n = state.scaling_store.lock().await.import(scaling);
+    let n = imported!("scaling", state.scaling_store.lock().await.import(scaling));
     counts.insert("scaling".into(), n.into());
   }
   if let Some(organizations) = dump.organizations {
-    let n = state.org_store.lock().await.import(organizations);
+    let n = imported!(
+      "organizations",
+      state.org_store.lock().await.import(organizations)
+    );
     counts.insert("organizations".into(), n.into());
   }
   if let Some(statistics) = dump.statistics {
     let orgs = statistics.by_org.len();
-    state.persistent_stats.lock().await.import(statistics);
+    imported!(
+      "statistics",
+      state.persistent_stats.lock().await.import(statistics)
+    );
     counts.insert("statistics_orgs".into(), orgs.into());
   }
   if let Some(activity) = dump.activity {
@@ -542,15 +571,18 @@ pub(crate) async fn import_handler(
     counts.insert("activity".into(), n.into());
   }
   if let Some(uptime) = dump.uptime {
-    let n = state.uptime.lock().await.import(uptime);
+    let n = imported!("uptime", state.uptime.lock().await.import(uptime));
     counts.insert("uptime".into(), n.into());
   }
   if let Some(inbox) = dump.inbox {
-    let n = state.inbox_store.lock().await.import(inbox);
+    let n = imported!("inbox", state.inbox_store.lock().await.import(inbox));
     counts.insert("inbox".into(), n.into());
   }
   if let Some(admin_keys) = dump.admin_keys {
-    let n = state.admin_key_store.lock().await.import(admin_keys);
+    let n = imported!(
+      "admin_keys",
+      state.admin_key_store.lock().await.import(admin_keys)
+    );
     counts.insert("admin_keys".into(), n.into());
   }
 

@@ -248,3 +248,23 @@ fn test_bandwidth_period_labels() {
 
   let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn import_failure_keeps_previous_statistics_and_dirty_state() {
+  let dir = crate::test_support::test_temp_root()
+    .join(format!("stats-import-failure-{}", uuid::Uuid::new_v4()));
+  let mut store = StatsStore::load(dir.to_str().unwrap());
+  let previous = serde_json::to_value(store.export()).unwrap();
+  let mut replacement = store.export();
+  replacement.global.total_requests = 99;
+  store.dirty = true;
+  store.conn.execute_batch("PRAGMA query_only=ON").unwrap();
+  assert_eq!(
+    store.import(replacement),
+    Err(crate::store::NotWritten::NotPersisted)
+  );
+  assert_eq!(serde_json::to_value(store.export()).unwrap(), previous);
+  assert!(store.dirty);
+  drop(store);
+  let _ = std::fs::remove_dir_all(dir);
+}

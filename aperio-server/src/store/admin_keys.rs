@@ -144,13 +144,16 @@ impl AdminKeyStore {
 
   /// Replaces the stored admin keys with an imported set. The records carry
   /// only hashes, like every other credential in a dump.
-  /// Bookkeeping: the dump-restore path, whose caller reports on the whole
-  /// import rather than on one row. See `store::replace_all`.
-  pub fn import(&mut self, mut keys: Vec<AdminKey>) -> usize {
+  /// A failed write restores the previous records and is reported to the caller.
+  pub fn import(&mut self, mut keys: Vec<AdminKey>) -> Result<usize, crate::store::NotWritten> {
     Self::convert_legacy_rows(&mut keys);
-    self.keys = keys;
-    self.persist();
-    self.keys.len()
+    let previous = std::mem::replace(&mut self.keys, keys);
+    if self.persist() {
+      Ok(self.keys.len())
+    } else {
+      self.keys = previous;
+      Err(crate::store::NotWritten::NotPersisted)
+    }
   }
 
   /// Creates a new admin key, persists it, and returns the record plus the

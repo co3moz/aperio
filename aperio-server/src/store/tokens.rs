@@ -225,12 +225,15 @@ impl TokenStore {
   /// Writes the current token list back to the store (one transaction).
   /// Replaces every token record with the given list (dump import) and
   /// persists. Returns how many records are now stored.
-  /// Bookkeeping: the dump-restore path, whose caller reports on the whole
-  /// import rather than on one row. See `store::replace_all`.
-  pub fn import(&mut self, tokens: Vec<ApiToken>) -> usize {
-    self.tokens = tokens;
-    self.persist();
-    self.tokens.len()
+  /// A failed write restores the previous records and is reported to the caller.
+  pub fn import(&mut self, tokens: Vec<ApiToken>) -> Result<usize, crate::store::NotWritten> {
+    let previous = std::mem::replace(&mut self.tokens, tokens);
+    if self.persist() {
+      Ok(self.tokens.len())
+    } else {
+      self.tokens = previous;
+      Err(crate::store::NotWritten::NotPersisted)
+    }
   }
 
   /// Rewrites the tokens table. Returns whether the write succeeded.

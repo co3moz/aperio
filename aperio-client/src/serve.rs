@@ -38,7 +38,7 @@ fn file_stream(file: tokio::fs::File, len: u64) -> ServeBody {
 }
 
 /// Options for static serving: SPA history fallback and a custom 404 page.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ServeOptions {
   /// When true, a navigation request (Accept: text/html) that resolves to no
   /// file is answered with the root `index.html` (status 200) so a client-side

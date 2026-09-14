@@ -365,12 +365,15 @@ impl OrgStore {
   }
 
   /// Replaces every org record (dump import) and persists.
-  /// Bookkeeping: the dump-restore path, whose caller reports on the whole
-  /// import rather than on one row. See `store::replace_all`.
-  pub fn import(&mut self, orgs: Vec<Organization>) -> usize {
-    self.orgs = orgs;
-    self.persist();
-    self.orgs.len()
+  /// A failed write restores the previous records and is reported to the caller.
+  pub fn import(&mut self, orgs: Vec<Organization>) -> Result<usize, crate::store::NotWritten> {
+    let previous = std::mem::replace(&mut self.orgs, orgs);
+    if self.persist() {
+      Ok(self.orgs.len())
+    } else {
+      self.orgs = previous;
+      Err(crate::store::NotWritten::NotPersisted)
+    }
   }
 
   /// Creates a child organization. Names are unique (case-insensitive);

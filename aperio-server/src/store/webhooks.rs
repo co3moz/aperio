@@ -89,12 +89,15 @@ impl WebhookStore {
 
   /// Replaces every webhook record with the given list (dump import) and
   /// persists. Returns how many records are now stored.
-  /// Bookkeeping: the dump-restore path, whose caller reports on the whole
-  /// import rather than on one row. See `store::replace_all`.
-  pub fn import(&mut self, webhooks: Vec<Webhook>) -> usize {
-    self.webhooks = webhooks;
-    self.persist();
-    self.webhooks.len()
+  /// A failed write restores the previous records and is reported to the caller.
+  pub fn import(&mut self, webhooks: Vec<Webhook>) -> Result<usize, crate::store::NotWritten> {
+    let previous = std::mem::replace(&mut self.webhooks, webhooks);
+    if self.persist() {
+      Ok(self.webhooks.len())
+    } else {
+      self.webhooks = previous;
+      Err(crate::store::NotWritten::NotPersisted)
+    }
   }
 
   /// Rewrites the webhooks table. Returns whether the write succeeded.

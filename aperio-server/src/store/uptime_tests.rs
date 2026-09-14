@@ -164,7 +164,7 @@ fn import_replaces_history_and_persists_it() {
       days: HashMap::new(),
     },
   );
-  assert_eq!(store.import(imported), 1);
+  assert_eq!(store.import(imported).unwrap(), 1);
   assert!(!store.snapshot().contains_key("host:old"));
 
   let reloaded = UptimeStore::load(&dir.to_string_lossy());
@@ -172,4 +172,22 @@ fn import_replaces_history_and_persists_it() {
     reloaded.snapshot()["host:new"].org_id.as_deref(),
     Some("acme")
   );
+}
+
+#[test]
+fn import_failure_keeps_previous_uptime_and_dirty_state() {
+  let dir = crate::test_support::test_temp_root()
+    .join(format!("uptime-import-failure-{}", uuid::Uuid::new_v4()));
+  let mut store = UptimeStore::load(dir.to_str().unwrap());
+  store.tick(1_700_000_000, live(&[("web", Availability::Up)]));
+  let previous = serde_json::to_value(store.snapshot()).unwrap();
+  store.conn.execute_batch("PRAGMA query_only=ON").unwrap();
+  assert_eq!(
+    store.import(HashMap::new()),
+    Err(crate::store::NotWritten::NotPersisted)
+  );
+  assert_eq!(serde_json::to_value(store.snapshot()).unwrap(), previous);
+  assert!(store.dirty);
+  drop(store);
+  let _ = std::fs::remove_dir_all(dir);
 }

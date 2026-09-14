@@ -273,12 +273,15 @@ impl ScalingStore {
   }
 
   /// Replaces every record (dump import) and persists.
-  /// Bookkeeping: the dump-restore path, whose caller reports on the whole
-  /// import rather than on one row. See `store::replace_all`.
-  pub fn import(&mut self, records: Vec<ScalingRecord>) -> usize {
-    self.records = records;
-    self.persist();
-    self.records.len()
+  /// A failed write restores the previous records and is reported to the caller.
+  pub fn import(&mut self, records: Vec<ScalingRecord>) -> Result<usize, crate::store::NotWritten> {
+    let previous = std::mem::replace(&mut self.records, records);
+    if self.persist() {
+      Ok(self.records.len())
+    } else {
+      self.records = previous;
+      Err(crate::store::NotWritten::NotPersisted)
+    }
   }
 }
 

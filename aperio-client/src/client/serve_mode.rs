@@ -6,19 +6,23 @@ use tracing::{error, info, warn};
 use crate::config::ClientSettings;
 use crate::*;
 
+pub(crate) type ServeKey = (String, serve::ServeOptions);
+pub(crate) type ServeListeners =
+  std::collections::HashMap<ServeKey, (u16, tokio::task::JoinHandle<()>)>;
+
 /// Static file mode: rewrites every `serve:` directory, the top-level one
 /// (single-service mode) or per `services:` entry, into a loopback static
 /// server target. One server runs per distinct directory, shared across
 /// services and config reloads. Errors on conflicting backend settings.
 pub(crate) async fn apply_serve_mode(
   settings: &mut ClientSettings,
-  started: &mut std::collections::HashMap<String, (u16, tokio::task::JoinHandle<()>)>,
-) -> Result<std::collections::HashSet<String>, String> {
+  started: &mut ServeListeners,
+) -> Result<std::collections::HashSet<ServeKey>, String> {
   // Directories the (possibly reloaded) config serves. Returned rather than
   // acted on here: listeners the new config drops may only be retired once
   // that config has been fully validated and adopted, since until then the
   // services still running are the old ones, pointing at these very ports.
-  let mut needed: std::collections::HashSet<String> = std::collections::HashSet::new();
+  let mut needed: std::collections::HashSet<ServeKey> = std::collections::HashSet::new();
   // Resolved once per (re)load and shared by every served directory: the two
   // options are process-wide, not per service.
   let serve_opts = serve::options(settings.serve_spa, settings.serve_404.as_deref());
@@ -34,7 +38,7 @@ pub(crate) async fn apply_serve_mode(
       );
     }
     let port = serve_port(&dir, &serve_opts, started).await?;
-    needed.insert(dir.clone());
+    needed.insert((dir.clone(), serve_opts.clone()));
     settings.target = Some(format!("http://127.0.0.1:{}", port));
   }
   for (i, entry) in settings.services.iter_mut().enumerate() {
@@ -57,7 +61,7 @@ pub(crate) async fn apply_serve_mode(
       ));
     }
     let port = serve_port(&dir, &serve_opts, started).await?;
-    needed.insert(dir.clone());
+    needed.insert((dir.clone(), serve_opts.clone()));
     entry.target = Some(format!("http://127.0.0.1:{}", port));
   }
   Ok(needed)
@@ -71,8 +75,8 @@ pub(crate) async fn apply_serve_mode(
 /// the client kept the previous configuration in name only and answered every
 /// visitor request with a 502.
 pub(crate) fn retire_unused_serve_listeners(
-  needed: &std::collections::HashSet<String>,
-  started: &mut std::collections::HashMap<String, (u16, tokio::task::JoinHandle<()>)>,
+  needed: &std::collections::HashSet<ServeKey>,
+  started: &mut ServeListeners,
 ) {
   started.retain(|dir, (_, handle)| {
     if needed.contains(dir) {
@@ -81,7 +85,7 @@ pub(crate) fn retire_unused_serve_listeners(
       handle.abort();
       info!(
         "Static file mode: stopped serving {} (no longer in config)",
-        dir
+        dir.0
       );
       false
     }
@@ -139,17 +143,18 @@ pub(crate) fn report_config_upgrade(
 }
 
 /// Returns the loopback port serving `dir`, starting the static server on
-/// first use. Directories are keyed by their configured spelling; a reload
-/// with the same value reuses the running server.
+/// first use. Options are part of the key so a reload can stage a new
+/// listener while old connections finish using their original options.
 pub(crate) async fn serve_port(
   dir: &str,
   opts: &serve::ServeOptions,
-  started: &mut std::collections::HashMap<String, (u16, tokio::task::JoinHandle<()>)>,
+  started: &mut ServeListeners,
 ) -> Result<u16, String> {
-  if let Some((port, _)) = started.get(dir) {
+  let key = (dir.to_string(), opts.clone());
+  if let Some((port, _)) = started.get(&key) {
     return Ok(*port);
   }
   let (port, handle) = serve::start(dir, opts.clone()).await?;
-  started.insert(dir.to_string(), (port, handle));
+  started.insert(key, (port, handle));
   Ok(port)
 }

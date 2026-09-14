@@ -131,9 +131,32 @@ fn test_data_dir_is_a_file_falls_back_to_memory() {
   std::fs::write(&file_path, b"regular file, not a directory").unwrap();
 
   let conn = open_db(&file_path.to_string_lossy());
-  // The fallback connection is a live SQLite handle (schema-less, in-memory).
-  let one: i64 = conn.query_row("SELECT 1", [], |r| r.get(0)).unwrap();
-  assert_eq!(one, 1);
+  // The fallback must support real store operations, not just SELECT 1.
+  for table in [
+    "tokens",
+    "users",
+    "organizations",
+    "admin_keys",
+    "scaling",
+    "inbox",
+    "sessions",
+    "webhooks",
+    "webhook_deliveries",
+  ] {
+    conn
+      .execute(
+        &format!("INSERT INTO {table} (id, data) VALUES ('test', '{{}}')"),
+        [],
+      )
+      .unwrap();
+    let count: i64 = conn
+      .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+      .unwrap();
+    assert_eq!(count, 1, "{table}");
+  }
+  conn
+    .execute("INSERT INTO stats (key, data) VALUES ('uptime', '{}')", [])
+    .unwrap();
 
   let _ = std::fs::remove_dir_all(&dir);
 }

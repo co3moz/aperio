@@ -96,17 +96,20 @@ impl InboxStore {
 
   /// Replaces the inbox with an imported set, keeping it chronological and
   /// within the cap. Returns how many entries were kept.
-  /// Bookkeeping: the dump-restore path, whose caller reports on the whole
-  /// import rather than on one row. See `store::replace_all`.
-  pub fn import(&mut self, entries: Vec<InboxEntry>) -> usize {
+  /// A failed write restores the previous records and is reported to the caller.
+  pub fn import(&mut self, entries: Vec<InboxEntry>) -> Result<usize, crate::store::NotWritten> {
     let mut entries = entries;
     entries.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
     if entries.len() > INBOX_MAX_ENTRIES {
       entries.drain(..entries.len() - INBOX_MAX_ENTRIES);
     }
-    self.entries = entries.into();
-    self.persist();
-    self.entries.len()
+    let previous = std::mem::replace(&mut self.entries, entries.into());
+    if self.persist() {
+      Ok(self.entries.len())
+    } else {
+      self.entries = previous;
+      Err(crate::store::NotWritten::NotPersisted)
+    }
   }
 
   /// Newest-first entries of one organization.

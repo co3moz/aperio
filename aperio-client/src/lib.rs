@@ -59,43 +59,31 @@ use config::{
 /// not make it.
 const RELOAD_HANDOVER_BUDGET: Duration = Duration::from_secs(10);
 
-/// The services in `names` whose live-connection count in `live` is not yet
-/// above what `before` recorded: the replacements still to come up. A service
-/// with no name is not in `names` and is not waited for, since it announces
-/// nothing to wait on.
-fn replacements_missing(
-  names: &[String],
-  before: &std::collections::HashMap<String, usize>,
-  live: &std::collections::HashMap<String, usize>,
-) -> Vec<String> {
-  names
+/// Waits for the replacement generation, including unnamed services. Old
+/// sockets have different pool state and cannot satisfy this wait.
+async fn wait_for_replacements(specs: &[service::ServiceSpec], budget: Duration) -> Vec<String> {
+  let mut readiness: Vec<_> = specs
     .iter()
-    .filter(|n| live.get(*n).copied().unwrap_or(0) <= before.get(*n).copied().unwrap_or(0))
-    .cloned()
-    .collect()
-}
-
-/// Waits until every service in `names` has one more live connection than
-/// `before` recorded, or `budget` passes; returns what was still missing.
-async fn wait_for_replacements(
-  shared: &Shared,
-  names: &[String],
-  before: &std::collections::HashMap<String, usize>,
-  budget: Duration,
-) -> Vec<String> {
-  let mut rx = shared.ready_services.subscribe();
+    .map(|spec| spec.pool_load.readiness())
+    .collect();
   let deadline = tokio::time::Instant::now() + budget;
   loop {
-    let missing = replacements_missing(names, before, &rx.borrow());
+    let missing: Vec<_> = specs
+      .iter()
+      .zip(&readiness)
+      .filter(|(_, live)| *live.borrow() == 0)
+      .map(|(spec, _)| spec.label())
+      .collect();
     if missing.is_empty() {
       return missing;
     }
+
+    let changes: Vec<_> = readiness
+      .iter_mut()
+      .map(|live| Box::pin(live.changed()))
+      .collect();
     tokio::select! {
-      changed = rx.changed() => {
-        if changed.is_err() {
-          return missing;
-        }
-      }
+      _ = futures_util::future::select_all(changes) => {}
       _ = tokio::time::sleep_until(deadline) => return missing,
     }
   }
@@ -329,10 +317,10 @@ pub async fn run() {
   }
 
   // Static file mode: start one loopback server per served directory and
-  // point the target(s) at them. Listeners survive config reloads, a
-  // directory seen before reuses its server, a new one gets a fresh server.
-  let mut serve_started: std::collections::HashMap<String, (u16, tokio::task::JoinHandle<()>)> =
-    std::collections::HashMap::new();
+  // point the target(s) at them. Listeners survive config reloads; an
+  // unchanged directory and option set reuses its server, a changed one gets
+  // a fresh server while the previous connections drain.
+  let mut serve_started: ServeListeners = std::collections::HashMap::new();
   // Nothing is running yet at startup, so there is nothing to retire.
   if let Err(e) = apply_serve_mode(&mut settings, &mut serve_started).await {
     error!("{}", e);
@@ -588,14 +576,11 @@ pub async fn run() {
             // put a window with no connection at all between the two, by
             // construction, on the feature written so a reload would be
             // invisible to visitors. The replacements come up first; the old
-            // connections are drained and closed once each service has one
-            // more live connection than before, or the handover budget is
-            // spent, with the ones still missing named in the log.
-            let names: Vec<String> = new_specs.iter().filter_map(|s| s.name.clone()).collect();
-            let before = shared.ready_services.borrow().clone();
+            // connections are drained and closed once each replacement
+            // service has a live connection, or the handover budget is spent,
+            // with the ones still missing named in the log.
             let fresh = spawn_services(&new_specs, &shared);
-            let missing =
-              wait_for_replacements(&shared, &names, &before, RELOAD_HANDOVER_BUDGET).await;
+            let missing = wait_for_replacements(&new_specs, RELOAD_HANDOVER_BUDGET).await;
             if !missing.is_empty() {
               warn!(
                 "Config reload from {}: the replacement connection(s) for {} did not come up within {}s; closing the old ones anyway",

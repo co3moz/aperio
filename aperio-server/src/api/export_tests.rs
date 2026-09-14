@@ -596,3 +596,40 @@ async fn the_activity_rings_travel_with_a_dump() {
     0
   );
 }
+
+#[tokio::test]
+async fn import_write_failure_is_not_reported_as_applied_and_preserves_tokens() {
+  let state = Arc::new(test_state());
+  let dir = test_temp_root().join(format!("api-import-failure-{}", uuid::Uuid::new_v4()));
+  let mut store = crate::store::tokens::TokenStore::load(dir.to_str().unwrap());
+  let (_, secret) = store
+    .create(TokenSpec {
+      name: "original".into(),
+      ..Default::default()
+    })
+    .unwrap();
+  *state.token_store.lock().await = store;
+  let db = rusqlite::Connection::open(dir.join("aperio.db")).unwrap();
+  db.execute_batch("CREATE TRIGGER refuse_import BEFORE DELETE ON tokens BEGIN SELECT RAISE(FAIL, 'write failure'); END;").unwrap();
+  let headers = admin_headers(&state).await;
+  let response = import_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    import_dump(FORMAT_VERSION, Some(vec![]), None, None, None, None),
+  )
+  .await;
+  assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+  let body = json_body(response).await;
+  assert_eq!(body["failed_section"], "tokens");
+  assert_eq!(body["imported"], serde_json::json!({}));
+  assert!(state.token_store.lock().await.verify(&secret).is_some());
+  assert!(
+    crate::store::tokens::TokenStore::load(dir.to_str().unwrap())
+      .verify(&secret)
+      .is_some()
+  );
+  drop(db);
+  drop(state);
+  let _ = std::fs::remove_dir_all(dir);
+}
