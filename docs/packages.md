@@ -7,10 +7,10 @@ Download the matching package from the [GitHub releases](https://github.com/co3m
 
 ```bash
 # Debian, Ubuntu
-sudo dpkg -i aperio-server_0.11.0_amd64.deb
+sudo dpkg -i aperio-server_0.12.0_amd64.deb
 
 # Fedora, RHEL, openSUSE
-sudo rpm -i aperio-server-0.11.0-1.x86_64.rpm
+sudo rpm -i aperio-server-0.12.0-1.x86_64.rpm
 ```
 
 Both packages can be installed on the same machine; they share no files.
@@ -160,8 +160,8 @@ signed checksum manifest cannot disagree: they are the same number, read once.
 To see what a release would produce, point it at that release's assets:
 
 ```bash
-gh release download v0.11.0 --pattern '*.sha256' --dir /tmp/assets
-tools/packaging/render-manifests.sh 0.11.0 /tmp/assets /tmp/manifests
+gh release download v0.12.0 --pattern '*.sha256' --dir /tmp/assets
+tools/packaging/render-manifests.sh 0.12.0 /tmp/assets /tmp/manifests
 brew style /tmp/manifests/aperio-client.rb
 ```
 

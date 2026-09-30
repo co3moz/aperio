@@ -6,4 +6,4 @@ port: 8080
 lb_strategy: primary-standby
 client_down_threshold: 15
 
-version: 0.11.0
+version: 0.12.0

@@ -58,7 +58,9 @@ const page = `<!doctype html>
 </style>
 <div id="lockup">${mark}<div id="word">Aperio</div></div>`
 
-const browser = await chromium.launch()
+const browser = await chromium.launch({
+  channel: process.env.APERIO_CAPTURE_BROWSER || undefined,
+})
 const context = await browser.newContext({ deviceScaleFactor: SCALE })
 const tab = await context.newPage()
 await tab.setContent(page)

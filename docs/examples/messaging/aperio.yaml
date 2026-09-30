@@ -38,4 +38,4 @@ subscribe:
 messages_listen: 127.0.0.1:1888        # SSE to subscribe, POST to publish
 messages_mqtt_listen: 127.0.0.1:1883   # MQTT 3.1.1, for an existing client library
 
-version: 0.11.0
+version: 0.12.0

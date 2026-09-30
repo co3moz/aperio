@@ -13,4 +13,4 @@ bind-tunnels:
   # 1883 is not privileged, so the application's config needs no change at all.
   mqtt: 1883
 
-version: 0.11.0
+version: 0.12.0

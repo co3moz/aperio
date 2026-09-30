@@ -31,6 +31,8 @@ const HERE = fileURLToPath(new URL('.', import.meta.url))
 const REPO = resolve(HERE, '../..')
 const IMAGES = join(REPO, 'docs/images')
 const KEEP = process.argv.includes('--keep')
+const BIN_EXT = process.platform === 'win32' ? '.exe' : ''
+const binary = (name) => join(REPO, `target/debug/${name}${BIN_EXT}`)
 
 // Ports well away from the defaults, so a capture cannot collide with the
 // instance someone is already running on this machine.
@@ -138,7 +140,7 @@ createServer((req, res) => {
   start('backend', process.execPath, [backend])
 
   // --- the server, on its own data directory ---
-  start('server', join(REPO, 'target/debug/aperio-server'), [], {
+  start('server', binary('aperio-server'), [], {
     cwd: dir,
     env: {
       ...process.env,
@@ -189,7 +191,7 @@ tunnels:
     target: 127.0.0.1:5432
 `,
   )
-  start('client', join(REPO, 'target/debug/aperio-client'), [], { cwd: clientDir })
+  start('client', binary('aperio-client'), [], { cwd: clientDir })
   // The dashboard API answers to a session, not to the master token: without
   // one it redirects to the login page, which is a perfectly successful
   // response and would have this wait pass for the wrong reason.
@@ -218,7 +220,11 @@ tunnels:
   }
 
   // --- capture ---
-  const browser = await chromium.launch()
+  // Use an installed Chrome/Edge channel when Playwright's bundled Chromium is
+  // unavailable (for example on a Windows release workstation).
+  const browser = await chromium.launch({
+    channel: process.env.APERIO_CAPTURE_BROWSER || undefined,
+  })
   const context = await browser.newContext({
     viewport: VIEWPORT,
     deviceScaleFactor: SCALE,
@@ -251,11 +257,24 @@ tunnels:
     await page.getByText('ORGANIZATION').first().waitFor({ timeout: 30_000 })
     if (shot.ready) await page.locator(shot.ready).first().waitFor({ timeout: 30_000 })
     if (shot.prepare) await shot.prepare(page)
+    await page.evaluate(() => {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    })
+    await page.mouse.move(5, 5)
     // The request-rate chart animates in; let it settle so two captures of the
     // same screen do not differ by a sweep of the line.
     await sleep(1200)
     const file = join(IMAGES, `${shot.name}.png`)
-    await page.screenshot({ path: file })
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await page.screenshot({ path: file })
+        break
+      } catch (error) {
+        // Windows can hold an existing PNG briefly while its preview closes.
+        if (attempt === 4 || !/open .*\.png|EBUSY|EPERM/.test(String(error))) throw error
+        await sleep(300)
+      }
+    }
     console.log(`wrote docs/images/${shot.name}.png`)
   }
 
@@ -297,7 +316,6 @@ async function seed(session) {
     hostname: 'legacy.example.com',
     enabled: true,
     reason: 'database migration',
-    ttl_seconds: 3600,
   })
   await post('/aperio/api/share', {
     hostname: 'api.example.com',
@@ -336,7 +354,12 @@ function visit(path, { method = 'GET', body } = {}) {
         method,
         headers: {
           host: 'api.example.com',
-          ...(body ? { 'content-type': 'application/json' } : {}),
+          ...(body
+            ? {
+                'content-type': 'application/json',
+                'content-length': Buffer.byteLength(body),
+              }
+            : {}),
         },
       },
       (res) => {
@@ -408,10 +431,21 @@ const SHOTS = [
     name: 'dashboard-inspector',
     tab: 'traffic',
     ready: 'table tbody tr',
-    // The inspector is a dialog over the traffic table: open the newest row.
+    // Capture a fresh request with a body so the inspector shows its payload.
     prepare: async (page) => {
-      await page.locator('table tbody tr').first().click()
-      await page.locator('[role="dialog"]').first().waitFor({ timeout: 15_000 })
+      await visit('/v1/checkout', {
+        method: 'POST',
+        body: JSON.stringify({ cart: ['itm_8241', 'itm_8242'], currency: 'EUR' }),
+      })
+      // The first traffic seed may finish before its event stream subscribes.
+      // Reload so the table reads the recorded request from the logs API.
+      await page.reload()
+      const postRow = page.locator('table tbody tr').filter({ hasText: 'POST' }).first()
+      await postRow.waitFor({ timeout: 15_000 })
+      await postRow.click()
+      const inspector = page.locator('[role="dialog"]').first()
+      await inspector.waitFor({ timeout: 15_000 })
+      await inspector.getByText('currency', { exact: false }).first().waitFor({ timeout: 15_000 })
     },
   },
   { name: 'dashboard-breakdown', tab: 'breakdown', ready: 'text=api.example.com' },
@@ -428,10 +462,15 @@ const SHOTS = [
     prepare: async (page) => {
       const box = page.getByPlaceholder(/example\.com/).first()
       await box.waitFor({ timeout: 15_000 })
-      await box.fill('api.example.com/v1/items')
+      // The seeded maintenance flag decides near the top of the chain, so
+      // the marked decision and the explanation fit in one documentation image.
+      await box.fill('legacy.example.com/v1/items')
       await box.press('Enter')
-      await page.getByText('Routing').first().waitFor({ timeout: 15_000 })
-      await box.scrollIntoViewIfNeeded()
+      await page.locator('ol li').first().waitFor({ timeout: 15_000 })
+      await page.getByText('Explain a request', { exact: true }).first().evaluate((heading) => {
+        heading.scrollIntoView({ block: 'start', behavior: 'instant' })
+        window.scrollBy({ top: -110, behavior: 'instant' })
+      })
     },
   },
   {

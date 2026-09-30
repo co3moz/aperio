@@ -8,4 +8,4 @@ headers:
     add:
       Strict-Transport-Security: max-age=63072000
 
-version: 0.11.0
+version: 0.12.0

@@ -9,4 +9,4 @@ port: 8080
 # control of the visitor gate here.
 # ignore_client_auth: true
 
-version: 0.11.0
+version: 0.12.0

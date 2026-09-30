@@ -33,4 +33,4 @@ services:
     capture: false               # keep this firehose out of the request
                                  # inspector; traffic and statistics still count
 
-version: 0.11.0
+version: 0.12.0

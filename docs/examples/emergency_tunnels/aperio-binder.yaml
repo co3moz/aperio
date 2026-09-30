@@ -13,4 +13,4 @@ bind-tunnels:
   ssh: 2022
   dns: 5300                     # 53 is privileged, so name a port you can bind
 
-version: 0.11.0
+version: 0.12.0

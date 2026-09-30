@@ -63,7 +63,7 @@ For Scoop on Windows, see [Native Packages](docs/packages.md).
 On Linux, after downloading the matching package from a release:
 
 ```bash
-sudo dpkg -i aperio-client_0.11.0_amd64.deb   # or rpm -i, both attached to every release
+sudo dpkg -i aperio-client_0.12.0_amd64.deb   # or rpm -i, both attached to every release
 sudo install -o root -g aperio -m 0640 \
   /etc/aperio/aperio-client.yaml.example /etc/aperio/myapp.yaml
 sudoedit /etc/aperio/myapp.yaml

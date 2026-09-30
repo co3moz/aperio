@@ -8,4 +8,4 @@ bind-tunnels:
     port: 15432
     psk: replace-with-a-long-random-string   # must match the declaring side
 
-version: 0.11.0
+version: 0.12.0

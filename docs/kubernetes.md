@@ -7,7 +7,7 @@ Create the `aperio-token` Secret shown [below](#the-master-token) before install
 ```bash
 helm install aperio ./tools/charts/aperio-server \
   --set existingSecret=aperio-token \
-  --set image.tag=0.11.0 \
+  --set image.tag=0.12.0 \
   --set ingress.enabled=true \
   --set ingress.hosts[0].host=tunnel.example.com
 ```
@@ -105,7 +105,7 @@ containers:
       - containerPort: 3000
 
   - name: aperio-client
-    image: ghcr.io/co3moz/aperio-client:0.11.0
+    image: ghcr.io/co3moz/aperio-client:0.12.0
     env:
       - name: APERIO_SERVER_URL
         value: https://tunnel.example.com

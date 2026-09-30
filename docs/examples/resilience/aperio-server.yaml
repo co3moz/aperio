@@ -5,4 +5,4 @@ port: 8080
 cache: true
 cache_max_stale: 3600     # how long past its lifetime a cached response may serve
 
-version: 0.11.0
+version: 0.12.0

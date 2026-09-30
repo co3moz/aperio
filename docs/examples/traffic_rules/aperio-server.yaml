@@ -46,4 +46,4 @@ error_pages:
     503_page: ./pages/app-503.html
     504_page: ./pages/app-504.html
 
-version: 0.11.0
+version: 0.12.0

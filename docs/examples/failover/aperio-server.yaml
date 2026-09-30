@@ -15,4 +15,4 @@ failover:
   # reach a backend twice. Set true only if your backends are idempotent.
   all_methods: false
 
-version: 0.11.0
+version: 0.12.0

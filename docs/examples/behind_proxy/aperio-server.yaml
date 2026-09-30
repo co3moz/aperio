@@ -20,4 +20,4 @@ trusted_proxies:
 # if your public URL is https but trust_proxy is off.
 secure_cookies: true
 
-version: 0.11.0
+version: 0.12.0

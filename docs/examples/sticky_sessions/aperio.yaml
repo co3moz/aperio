@@ -11,4 +11,4 @@ services:
 # its pinned visitors. Give every backend machine its own UUID.
 client_id: 3f2504e0-4f89-41d3-9a0c-0305e82c3301
 
-version: 0.11.0
+version: 0.12.0

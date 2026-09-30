@@ -7,4 +7,4 @@ server:
   auth: viewer:a-visitor-password
 port: 8080
 
-version: 0.11.0
+version: 0.12.0

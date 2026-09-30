@@ -9,7 +9,7 @@ Both configuration files take a `version:` key naming the Aperio release they we
 
 ```yaml
 # aperio.yaml (or aperio-server.yaml)
-version: 0.11.0
+version: 0.12.0
 ```
 
 On startup the binary compares that against its own build and looks up every recorded change to the *configuration format* that landed in between. The behaviour is deliberately quiet:

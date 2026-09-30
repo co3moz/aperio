@@ -11,4 +11,4 @@ random_subdomain: "*-preview.example.com"
 # disallow-all robots.txt on the random hostnames.
 preview_noindex: true
 
-version: 0.11.0
+version: 0.12.0

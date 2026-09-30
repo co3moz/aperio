@@ -16,4 +16,4 @@ scaling:
   # decommissioned service does not keep a cold-start trap behind.
   record_ttl: 2592000
 
-version: 0.11.0
+version: 0.12.0

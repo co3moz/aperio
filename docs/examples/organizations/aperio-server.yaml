@@ -7,4 +7,4 @@ port: 8080
 # is nothing tenant-specific to configure in this file; see the README for the
 # create / select / mint-token flow.
 
-version: 0.11.0
+version: 0.12.0

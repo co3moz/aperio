@@ -11,4 +11,4 @@ port: 8080
 # here when running in Docker.
 data_dir: ./data
 
-version: 0.11.0
+version: 0.12.0

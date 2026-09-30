@@ -29,4 +29,4 @@ services:
     target: http://localhost:5000
     path: /docs                   # no probe: routed as long as the tunnel is up
 
-version: 0.11.0
+version: 0.12.0

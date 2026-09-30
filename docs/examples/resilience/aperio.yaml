@@ -16,4 +16,4 @@ services:
     hostname: api.example.com
     # no cache/resilience: stale API responses would be worse than a 504
 
-version: 0.11.0
+version: 0.12.0
