@@ -178,7 +178,10 @@ pub(crate) async fn handle_ws_proxy(
       &state,
       uri_path,
       request_host.as_deref(),
-      None,
+      visitor
+        .as_ref()
+        .and_then(|identity| identity.forward_client_id.as_deref())
+        .map(crate::routing::SelectionRequirement::Client),
       ws_affinity.as_deref(),
       Some(caller_ip),
       // A proxied WebSocket is one long-lived connection rather than a stream
@@ -187,9 +190,6 @@ pub(crate) async fn handle_ws_proxy(
       // one that only chose where the socket landed would be a second, silent
       // rule beside the one written for HTTP.
       None,
-      visitor
-        .as_ref()
-        .and_then(|identity| identity.forward_client_id.as_deref()),
     )
     .await
     {

@@ -121,7 +121,6 @@ pub(crate) async fn ask_over_tunnel(
     affinity.as_deref(),
     Some(visitor_ip),
     canary,
-    None,
   )
   .await;
   let client = match picked {

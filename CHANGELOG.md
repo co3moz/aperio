@@ -8,6 +8,8 @@ project follows semantic versioning per release tag.
 
 ### Security
 
+- **Updated the TLS dependency.** The lockfile now selects `rustls` 0.23.45, which fixes RUSTSEC-2026-0285, and the compatible `rustls-webpki` 0.103.15.
+
 - **A live dashboard stream kept its opening permissions after a grant changed.** Its session was checked on each two-second tick, but its subscribed topics and organization were not. An admin reduced to Viewer could keep receiving an admin-only topic, and an organization switch could leave the old organization's traffic on the same connection. The stream now closes at the next tick when the caller's current role, master-admin status or organization no longer matches the connection; the browser reconnects under the current grants.
 
 - **A client-local `forward` verdict could authorize a different tunnel client.** The check advanced the route's load-balancing cursor, then dispatch selected again, so a two-client pool could ask one client's endpoint and serve from the other. Its admission cache also omitted the selected client. A `via: client` admission now pins dispatch to the client that answered, keys the admission cache by that client, and refuses cross-client retry or response-cache reuse for that request.

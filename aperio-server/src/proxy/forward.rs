@@ -420,13 +420,13 @@ pub(crate) async fn proxy_http_request(
     &state,
     &uri_path_owned,
     request_host.as_deref(),
-    None,
+    visitor
+      .as_ref()
+      .and_then(|identity| identity.forward_client_id.as_deref())
+      .map(crate::routing::SelectionRequirement::Client),
     affinity.as_deref(),
     Some(caller_ip),
     canary,
-    visitor
-      .as_ref()
-      .and_then(|identity| identity.forward_client_id.as_deref()),
   )
   .await
   {

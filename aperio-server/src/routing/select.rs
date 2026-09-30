@@ -280,25 +280,30 @@ pub(crate) fn find_affinity_match(
     .cloned()
 }
 
+/// An exact connection for a client-local auth verdict, or a process identity
+/// to await during failover. A selection can require only one of these.
+#[derive(Clone, Copy)]
+pub(crate) enum SelectionRequirement<'a> {
+  Client(&'a str),
+  Instance(&'a str),
+}
+
 /// Picks a client for a request with the full routing pipeline (eligibility →
-/// hostname → path → strategy → round-robin). When `require_instance` is
-/// given, only clients that reported that instance ID qualify (failover
-/// `wait` mode waiting for a specific client process to return). With the
-/// sticky strategy, a matching `affinity` cookie value pins the choice to
+/// hostname → path → strategy → round-robin). An instance requirement waits
+/// for the same client process to return; a client requirement dispatches on
+/// the exact connection that answered a client-local authorization check.
+/// With the sticky strategy, a matching `affinity` cookie pins the choice to
 /// the client that served this visitor before.
 pub(crate) async fn pick_proxy_client(
   state: &AppState,
   uri_path: &str,
   request_host: Option<&str>,
-  require_instance: Option<&str>,
+  requirement: Option<SelectionRequirement<'_>>,
   affinity: Option<&str>,
   visitor_ip: Option<IpAddr>,
   // Which side of a route's canary split this request belongs on, already
   // decided from the route policy, the request's headers and the visitor.
   canary: Option<(&str, crate::static_routes::Side)>,
-  // A client-local authorization check has already selected this exact
-  // connection. Never reselect a different one for the protected request.
-  require_client: Option<&str>,
 ) -> PickOutcome {
   let clients = state.clients.read().await;
   let Some((pool, group_key)) = select_client_pool(
@@ -317,7 +322,7 @@ pub(crate) async fn pick_proxy_client(
     IpFilterOutcome::Denied(redirect) => return PickOutcome::Denied(redirect),
   };
   let mut pool = apply_lb_strategy(pool, &clients, state.config().lb_strategy);
-  if let Some(id) = require_client {
+  if let Some(SelectionRequirement::Client(id)) = requirement {
     pool.retain(|r| r.client == id);
   }
   // Canary split (planned_features #51): narrow the pool to one side, but
@@ -330,7 +335,7 @@ pub(crate) async fn pick_proxy_client(
       pool = narrowed;
     }
   }
-  if let Some(instance) = require_instance {
+  if let Some(SelectionRequirement::Instance(instance)) = requirement {
     // An instance is a client *process*, so this is asked of the connection.
     pool.retain(|r| {
       r.connection(&clients)
@@ -344,7 +349,7 @@ pub(crate) async fn pick_proxy_client(
   // Sticky affinity: honor the visitor's cookie when that client is still in
   // the pool; otherwise fall back to rotation (and the response sets a fresh
   // cookie for the newly chosen client).
-  let chosen = if require_client.is_some() {
+  let chosen = if matches!(requirement, Some(SelectionRequirement::Client(_))) {
     // The auth check already spent this route's rotation step. A pinned
     // dispatch must not reset its cursor by rotating a one-member pool.
     pool[0].clone()

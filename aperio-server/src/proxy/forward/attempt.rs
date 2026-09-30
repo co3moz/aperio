@@ -542,7 +542,6 @@ impl Attempt<'_> {
               None,
               Some(caller_ip),
               canary,
-              None,
             )
             .await
             {
@@ -915,7 +914,6 @@ impl Attempt<'_> {
                   None,
                   Some(caller_ip),
                   canary,
-                  None,
                 )
                 .await
                 {

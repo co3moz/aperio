@@ -196,13 +196,12 @@ pub(crate) async fn wait_for_candidate(
       state,
       uri_path,
       request_host,
-      require_instance,
+      require_instance.map(SelectionRequirement::Instance),
       None,
       visitor_ip,
       // Waiting for *any* client to come back: narrowing to one side of a
       // split here would keep waiting for a version that may not be coming,
       // while the other one is already serving.
-      None,
       None,
     )
     .await
