@@ -2,9 +2,9 @@
 
 Aperio is usually not the outermost thing on the box. Traefik, Caddy, or nginx terminates TLS and Aperio sits behind it. That works fine for a fixed set of hostnames, but Aperio's hostnames are **born at runtime**: a client connects, claims `app.example.com`, and now the edge needs a route and a certificate for a name it has never heard of. Container labels cannot express that (they are fixed when the container is created), and hand-written config defeats the point of a tunnel server.
 
-There are three ways to solve it. Start at the top: the first one costs nothing and covers most deployments.
+Choose a wildcard route or one of the dynamic routing options below.
 
-> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent `aperio-server.yaml` key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_EDGE_TOKEN` → `edge_token`). YAML is the primary surface, the file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
+> **Configuration:** Server settings go in `aperio-server.yaml` (for example, `edge.token` maps to `APERIO_EDGE_TOKEN`). File values override environment variables. See [Configuration](configuration.md#grouped-keys) for the full mapping.
 
 ## 1. One wildcard domain: nothing to integrate
 
@@ -32,21 +32,22 @@ Both remaining options are served by two endpoints on the Aperio server, and bot
 
 ```yaml
 # aperio-server.yaml
-edge_token: a-long-random-secret        # env: APERIO_EDGE_TOKEN, required, enables the endpoints
-edge_service_url: http://aperio:8080    # env: APERIO_EDGE_SERVICE_URL, only for the Traefik document
+edge:
+  token: a-long-random-secret        # env: APERIO_EDGE_TOKEN, enables the endpoints
+  service_url: http://aperio:8080    # env: APERIO_EDGE_SERVICE_URL, Traefik only
 ```
 
 | Env variable | yaml key | Meaning |
 | --- | --- | --- |
-| `APERIO_EDGE_TOKEN` | `edge_token` | Credential the edge presents. Unset = the endpoints answer `404 edge integration is not enabled`. |
-| `APERIO_EDGE_SERVICE_URL` | `edge_service_url` | The URL the edge should forward matched traffic to, i.e. this server as the edge sees it. |
-| `APERIO_EDGE_ENTRYPOINTS` | `edge_entrypoints` | Comma-separated Traefik entry points for the generated routers (e.g. `websecure`). |
-| `APERIO_EDGE_CERT_RESOLVER` | `edge_cert_resolver` | Traefik certificate resolver named on the generated routers. |
-| `APERIO_EDGE_INCLUDE_OFFLINE` | `edge_include_offline` | Also publish hostnames a token permits but no client is serving. Off by default, see the warning below. |
+| `APERIO_EDGE_TOKEN` | `edge.token` | Credential the edge presents. Unset = the endpoints answer `404 edge integration is not enabled`. |
+| `APERIO_EDGE_SERVICE_URL` | `edge.service_url` | The URL the edge should forward matched traffic to, i.e. this server as the edge sees it. |
+| `APERIO_EDGE_ENTRYPOINTS` | `edge.entrypoints` | Comma-separated Traefik entry points for the generated routers (e.g. `websecure`). |
+| `APERIO_EDGE_CERT_RESOLVER` | `edge.cert_resolver` | Traefik certificate resolver named on the generated routers. |
+| `APERIO_EDGE_INCLUDE_OFFLINE` | `edge.include_offline` | Also publish hostnames a token permits but no client is serving. Off by default, see the warning below. |
 
 The token is accepted as `Authorization: Bearer <token>` or as a `?token=` query parameter, because Caddy's `ask` cannot send headers.
 
-## 2. Caddy: on-demand TLS with no configuration at all
+## 2. Caddy: on-demand TLS
 
 Caddy can ask before it issues a certificate. Point it at Aperio and every new tunnel hostname gets a certificate the moment it appears:
 

@@ -2,7 +2,7 @@
 
 Several clients can be connected to one Aperio server at the same time. When a public request arrives, the server narrows the pool in stages (eligibility, hostname, path), then applies the strategy, the per-candidate visitor IP filter, outlier-ejection state and any canary split.
 
-> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key, the same name lowercased without the `APERIO_` prefix for the server (`APERIO_LB_STRATEGY` → `lb_strategy`, `APERIO_REQUIRE_HOSTNAME_BIND` → `require_hostname_bind`), and the client's own layering applies to client keys (CLI > `./aperio.yaml` > env > `~/.aperio.yaml`). The server is the one whose file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. Grouped settings are written as blocks (`cache.max_bytes`); the flat spelling still works as a deprecation. See [Configuration](configuration.md) for the full mapping.
+> **Configuration:** Server settings such as `lb_strategy` and `require_hostname_bind` go in `aperio-server.yaml`; file values override environment variables. Client settings go in `aperio.yaml`, with CLI arguments taking precedence. Use grouped YAML keys where offered. See [Configuration](configuration.md#grouped-keys) for names and precedence.
 
 ## Eligibility
 

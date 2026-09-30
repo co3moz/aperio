@@ -1,6 +1,6 @@
 # Performance Tuning
 
-> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_MAX_CONCURRENT_REQUESTS` → `max_concurrent_requests`, `APERIO_CACHE_MAX_BYTES` → `cache_max_bytes`). YAML is the primary surface, the file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
+> **Configuration:** Server settings go in `aperio-server.yaml` (`max_concurrent_requests` maps to `APERIO_MAX_CONCURRENT_REQUESTS`; `cache.max_bytes` maps to `APERIO_CACHE_MAX_BYTES`). Client settings go in `aperio.yaml`. Server file values override environment variables. See [Configuration](configuration.md#grouped-keys) for the full mapping.
 
 The knobs that shape Aperio's throughput and latency, and the trade-offs behind
 each. Defaults are chosen for a small-to-medium deployment; tune from there

@@ -3,7 +3,7 @@
 > **Concept:** [Configuration](../../configuration.md).
 
 
-One client process can expose several backends at once: replace the single `target:` with a `services:` list. The client opens one tunnel connection per entry, and each entry carries its own binds, health probe, and tuning knobs, unset knobs fall back to the top-level values.
+One client process can expose several backends through a `services:` list. Client config files use this list even for one backend. Each entry has its own binds, health probe, and tuning; unset values use supported top-level defaults. See [Multiple services](../../configuration.md#multiple-services).
 
 Here a single machine publishes three things:
 

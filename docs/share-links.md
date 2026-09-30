@@ -1,6 +1,6 @@
 # Share Links
 
-When a proxied site sits behind a visitor password or OIDC, share links let you hand out **temporary access without creating accounts**, send a URL, and the recipient is in until it expires.
+Share links give temporary access to a site protected by a visitor password or OIDC. Recipients do not need accounts.
 
 ## How it works
 

@@ -4,7 +4,7 @@ The complete reference for configuring both sides of Aperio, and the naming stan
 
 ## The standard: one name, three surfaces
 
-Every client setting is reachable through three surfaces, and the names map **mechanically** between them:
+Settings use consistent names across the surfaces they support:
 
 | Surface | Form | Example |
 | --- | --- | --- |
@@ -12,7 +12,7 @@ Every client setting is reachable through three surfaces, and the names map **me
 | yaml key | `snake_case` (nested for the server section) | `server.token` |
 | Environment variable | `APERIO_SNAKE_CASE` | `APERIO_SERVER_TOKEN` |
 
-The rule: take the CLI flag, drop the dashes, uppercase it, prefix `APERIO_`, that is the environment variable. Lowercase it with underscores, that is the yaml key. New settings must follow this scheme on all three surfaces (a setting may deliberately skip a surface, e.g. tuning knobs without a CLI flag, but never rename across surfaces).
+Replace hyphens in a CLI flag with underscores and add `APERIO_` to get its environment variable: `--server-token` becomes `APERIO_SERVER_TOKEN`. YAML uses lowercase keys; related settings may be grouped (`server.token`). Some settings have no CLI flag. The tables below show each supported surface.
 
 ### Grouped keys
 
@@ -104,7 +104,9 @@ The positional target is optional, a bare port number expands to `http://localho
 
 ### Settings
 
-Only three settings are required, `APERIO_SERVER_TOKEN`, `APERIO_SERVER_URL`, and `APERIO_TARGET` (the target can be the positional argument). Together with the everyday flags in [CLI](#cli) above, they cover most usage. Everything else in the table is optional per-service tuning (health probing, caching, concurrency, body limits); reach for it only when you need it. `aperio-client check` reports which layer supplied each resolved value.
+A single HTTP backend needs a server URL, a tunnel token, and a target (or `--serve` for static files). A client that only binds tunnels or handles messages needs no HTTP target. `aperio-client check` shows where each resolved setting came from.
+
+**Config-file note:** The table shows short service field names such as `target`, `serve`, and `hostname`. In `aperio.yaml`, put those fields inside a `services:` entry, even for one backend. Top-level service binds in a config file are refused. CLI arguments and `APERIO_TARGET` still support single-service mode; see [Multiple services](#multiple-services).
 
 | Env variable | CLI | yaml key | Description | Default |
 | --- | --- | --- | --- | --- |
@@ -148,7 +150,7 @@ Only three settings are required, `APERIO_SERVER_TOKEN`, `APERIO_SERVER_URL`, an
 | `APERIO_CONNECTIONS_MAX` |  | `connections.max` | Ceiling of an elastic pool. The server's `max_connections_per_service` still wins over it. | `min` |
 | `APERIO_CAPTURE` | `--no-capture` | `capture` | Record this service's transactions for the dashboard's request inspector. On by default; `capture: false` (or `--no-capture`) trades the ability to inspect and replay this service's requests for the per-request cost of recording them. Live traffic, statistics and the access log are unaffected. | `1` (on) |
 | `APERIO_CACHE` |  | `cache` | Opt this service into the server-side GET response cache (needs `APERIO_CACHE=1` on the **server**; strictly `Cache-Control`-driven). Per `services:` entry via `cache:`. | `0` |
-| `APERIO_RESILIENCE` | `--resilience` | `resilience` | Keep serving this service's cached responses while no healthy client is connected, instead of a 504: fresh-or-expired entries answer visitors (marked `x-aperio-stale: true` once past their lifetime, always with an `Age` header) up to the server's `APERIO_CACHE_MAX_STALE` window. Needs `cache: true` and the server cache. The moment a client reconnects, normal proxying takes over. Per `services:` entry via `resilience:`. | `0` |
+| `APERIO_RESILIENCE` | `--resilience` | `resilience` | Serve fresh or stale cached responses while no healthy client is connected, up to the server's `APERIO_CACHE_MAX_STALE` window. Needs client `cache: true` and server caching. Once a client reconnects, cache hits still apply and misses can reach the backend. Per `services:` entry via `resilience:`. | `0` |
 | `APERIO_WEBHOOK_INBOX` |  | `webhook_inbox` | Persist every inbound **POST** to this service into the server's webhook inbox (dashboard *Webhook Inbox* page): browse the payloads and re-fire any event to the connected client. Restart-surviving, newest 500 entries kept. Per `services:` entry via `webhook_inbox:`. | `0` |
 | `APERIO_SUBSCRIBE` |  | `subscribe` | Comma-separated topic filters this client subscribes to (the yaml form also accepts an object per entry, adding a required `topic:` and `env:` alongside `run:`/`timeout:`/`max_concurrent:` to run a command when a message arrives; `run:` is file-only), for messages from the other clients of its organization. MQTT filter syntax: `+` is one level, `#` is the rest. `$aperio/...` carries the server's own events (`$aperio/client/connected`, `$aperio/token/created`, …) and is never matched by a bare `#`, nor granted by one: the token's `topics` has to name it. Process-wide, not per service: a client running several services receives one copy, not one per service. |  |
 | `APERIO_MESSAGES_LISTEN` |  | `messages_listen` | Local address the message face listens on, so an application on this machine can subscribe and publish without speaking the tunnel protocol: `GET /subscribe?topic=<filter>` streams server-sent events, `POST /publish?topic=<topic>` sends the body. Loopback is the sensible value; anything else is warned about, since whoever can reach it can publish as this client. Unset = no local listener. | |
@@ -209,11 +211,13 @@ services:
     trim_bind: true
     pass_hostname: false
     max_concurrent: 8
-    target_health: /health   # probe the backend; report unhealthy without dropping the tunnel
+    health:
+      endpoint: /health   # probe the backend; report unhealthy without dropping the tunnel
 
 # top-level keys are the defaults every entry falls back to
 priority: 0                  # 0 = primary, higher = standby tier
-health_interval: 10
+health:
+  interval: 10
 ```
 
 **A config file describes services under `services:`, even when there is one.** Naming a single backend at the top level (`target:`, `serve:`, `hostname:`, `path:`, `tcp_target:`, and the probe path `target_health:` / `health.endpoint`) was deprecated from 0.6.0 and removed in 0.9.0: those keys only ever did anything in a file *without* a `services:` list, so a reader had to know which of two shapes they were looking at before they could read anything else. The rest of the `health:` block stays where it is: `interval`, `timeout`, `threshold` and `wait_for_backend` are genuine defaults every entry inherits, while a probe path belongs to the backend it probes. **A file has not accepted them since 0.9.0**: a client that finds one refuses to start and names the keys, rather than running while the file says something it is not doing. Migrating is mechanical, indent them under one `services:` entry. Single-service mode is unchanged where it belongs, on the command line and in the environment.
@@ -229,11 +233,12 @@ aperio-client http://localhost:3000 \
 
 ```bash
 # the same thing, for a container or a unit file
-APERIO_SERVER_URL=https://tunnel.example.com
-APERIO_SERVER_TOKEN=apr_xxxxxxxxxxxxxxxx
-APERIO_TARGET=http://localhost:3000
-APERIO_HOSTNAME=app.example.com
-APERIO_PATH=/api
+export APERIO_SERVER_URL=https://tunnel.example.com
+export APERIO_SERVER_TOKEN=apr_xxxxxxxxxxxxxxxx
+export APERIO_TARGET=http://localhost:3000
+export APERIO_HOSTNAME=app.example.com
+export APERIO_PATH=/api
+aperio-client
 ```
 
 The legacy flat form (`server: https://...` plus top-level `token:`) is still accepted. The local file is hot-reloaded: edits are applied within ~5 s via a graceful reconnect.
@@ -686,7 +691,8 @@ trusted_proxies:
   - 10.0.0.0/8
   - 173.245.48.0/20
 lb_strategy: primary-standby
-cache: true
+cache:
+  enabled: true
 ```
 
 The file takes precedence over environment variables and over dashboard overrides for every key it writes: a stored override for such a key is dropped at startup (audited as `settings_override_dropped`) and the dashboard refuses to set it while the file names it. Its live-editable keys and structured sections are re-applied on edit, see [Hot-reload](#hot-reload); the rest needs a restart.
@@ -878,6 +884,8 @@ error_pages:
     504_page: ./pages/app-504.html
     503_page: ./pages/app-503.html
 ```
+
+> **Note:** Create both HTML files at the paths shown before running `aperio-server --check-config`. Relative paths resolve from the server's working directory.
 
 ### Names
 

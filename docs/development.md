@@ -2,7 +2,7 @@
 
 ## Building from source
 
-Requires the Rust toolchain (2024 edition, **1.88+**, declared as `rust-version` in each crate, so an older toolchain says so instead of failing inside a dependency; the crates use `let` chains, which 1.88 stabilized). Building `aperio-server` additionally requires Node.js (with npm): the admin dashboard is a Vite + React app in [`aperio-dashboard/`](../aperio-dashboard/) that is built automatically by `build.rs` and embedded into the server binary.
+Building requires Rust **1.88+**. The server build also needs Node.js and npm to build and embed the dashboard from [`aperio-dashboard/`](../aperio-dashboard/). On a fresh checkout, `build.rs` runs `npm ci` if `node_modules` is missing; if an existing install is incomplete, run `npm ci` in that directory before building.
 
 ```bash
 cargo build --release -p aperio-server -p aperio-client
@@ -21,7 +21,7 @@ Dashboard tests: `npm run test` runs the [vitest](https://vitest.dev) unit suite
 
 **Brand lockup.** `npm run export:brand` renders the mark and the APERIO wordmark, in the dashboard's own Michroma webfont, to `docs/images/aperio-lockup.png`, which is what the book's title page includes. Re-run it if the mark or the wordmark font changes.
 
-**Screenshots.** The images in `README.md`, the [docs pages](dashboard.md) and the [guide](book/aperio.tex) are re-captured with `npm run capture:docs` (in `aperio-dashboard/`, after `cargo build --workspace`). It brings up a throwaway instance on its own temp directory, drives demo traffic through it so the screens have something real to show, captures each page at 1440x900 @2x, and stops everything. Run it whenever the UI changes shape, the first set went stale within two releases because refreshing them was a manual afternoon. Adding a figure means adding an entry to `SHOTS`: a `tab`, and a `ready` selector that only the *populated* screen has. That last part is the whole discipline, a screen captured before its data arrives is an empty state, and an empty state looks exactly like a successful capture until somebody opens the PDF.
+**Screenshots.** After `cargo build --workspace`, run `npm run capture:docs` in `aperio-dashboard/` to refresh the screenshots in `README.md`, the [docs pages](dashboard.md), and the [guide](book/aperio.tex). The script starts a temporary server, generates demo traffic, captures populated pages at 1440×900 @2×, and stops the processes. When adding a figure, add its `tab` and a `ready` selector to `SHOTS` so the capture waits for content.
 
 ## Tests & end-to-end suite
 

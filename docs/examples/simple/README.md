@@ -2,8 +2,7 @@
 
 > **Concept:** [Getting Started](../../getting-started.md).
 
-
-The minimal working pair: a server with just a master token, and a client that forwards all traffic to a single local backend.
+The smallest server and client configuration: one master token and one local backend.
 
 Run the server, then start the client next to its `aperio.yaml`:
 
@@ -12,4 +11,6 @@ aperio-server            # reads ./aperio-server.yaml
 aperio-client            # reads ./aperio.yaml
 ```
 
-Requests reaching `https://tunnel.example.com` are proxied to `http://localhost:3000`.
+> **Before running:** Start a backend on port 3000, replace the token in both files, and point `server.url` to your reachable Aperio server. `tunnel.example.com` is only a placeholder. See [Getting Started](../../getting-started.md).
+
+Requests reaching the configured server are forwarded to `http://localhost:3000`.

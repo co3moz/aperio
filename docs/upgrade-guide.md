@@ -9,7 +9,7 @@ Both configuration files take a `version:` key naming the Aperio release they we
 
 ```yaml
 # aperio.yaml (or aperio-server.yaml)
-version: 0.5.0
+version: 0.11.0
 ```
 
 On startup the binary compares that against its own build and looks up every recorded change to the *configuration format* that landed in between. The behaviour is deliberately quiet:
@@ -19,7 +19,7 @@ On startup the binary compares that against its own build and looks up every rec
 - **A change with security consequences**, the binary **refuses to start**. A default that opens something previously closed, or an enforcement that silently stopped applying, is exactly the case where continuing quietly is worse than an outage you can see.
 - **No `version:` at all**, the check is off, and one informational line says so. Existing deployments keep working unchanged; adding the key is what buys the warning.
 
-This is the safety net for `docker pull` on a Friday: an upgrade either behaves exactly as your file says, or tells you precisely which keys to look at, or stops. A rollback is covered too, a file declaring a version *newer* than the binary is called out, since it may use settings that binary has never heard of.
+This check flags configuration changes during upgrades. It also warns when a file declares a version newer than the binary, as can happen after a rollback.
 
 The history deliberately starts at the release that introduced the mechanism: entries for older versions could only be guesses. From that point on, every change able to alter how an existing file behaves is recorded as part of the change itself.
 
@@ -175,9 +175,15 @@ A proxied route is now refused unless something declares it reachable. Before
 the commonest one there is. Every client serving such a route must now say so:
 
 ```yaml
-public: true          # or, the same statement in the policy grammar:
-auth: { method: none }
+# aperio.yaml (inside services:)
+services:
+  - name: site
+    target: http://127.0.0.1:3000
+    hostname: site.example.com
+    public: true
 ```
+
+`auth: { method: none }` is the equivalent per-service policy. For a CLI-only client, use `--public` (or `APERIO_PUBLIC=1`). See [Configuration](configuration.md#multiple-services).
 
 Until it does, those routes answer the way an unclaimed hostname does, so the
 symptom is a `504` rather than an error naming the posture. The server warns

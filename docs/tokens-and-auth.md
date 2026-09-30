@@ -2,7 +2,7 @@
 
 Aperio has several independent auth layers. They answer different questions, *who may open a tunnel*, *who may visit the proxied site*, and *who may administer the server*, and you enable only the ones you need.
 
-> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_SERVER_AUTH` → `server_auth`, `APERIO_MAX_TUNNELS` → `max_tunnels`). YAML is the primary surface, the file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
+> **Configuration:** Server settings go in `aperio-server.yaml` (`server.auth` maps to `APERIO_SERVER_AUTH`; `max_tunnels` maps to `APERIO_MAX_TUNNELS`). Client settings go in `aperio.yaml`. Server file values override environment variables. See [Configuration](configuration.md#grouped-keys) for the full mapping.
 
 ## The master token
 

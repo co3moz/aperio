@@ -10,3 +10,5 @@ Server-side rules applied to a request before it enters the tunnel, all of them 
 - **`error_pages:`**, per-hostname 503/504 pages over the global ones. A maintenance flag's reason and expiry are substituted into `{reason}` and `{until}` where the page writes them.
 
 For redirects and fixed responses served without a client at all, see the [routes](../routes/) example; for the per-visitor IP limit and admin-surface fencing, [production hardening](../../production-hardening.md).
+
+> **Before running:** Start the server from this folder or change the `error_pages:` file paths to absolute paths so the included 503/504 pages can be read. See [per-route rate limits](../../configuration.md#per-route-rate-limits-rate_limits) and [WAF rules](../../configuration.md#waf-lite-waf) for details.

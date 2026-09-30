@@ -1,6 +1,6 @@
 # <img src="docs/assets/aperio-mark.svg" alt="" height="30"> Aperio
 
-Put a local service on the public internet through one outbound connection. No inbound ports, no port-forwarding, no firewall holes. Self-hosted, written in Rust.
+Expose a local service through one outbound connection. The client needs no inbound port. Aperio is self-hosted and written in Rust.
 
 ```
         Public request                        Outbound WebSocket tunnel
@@ -10,14 +10,14 @@ Put a local service on the public internet through one outbound connection. No i
                         Admin dashboard /aperio                     [ Local backend ]
 ```
 
-The client always dials **out**, so nothing on your network accepts inbound connections.
+The client always connects **out** to the server.
 
 ## Why Aperio
 
 - **It is yours.** Both sides are binaries you run: no account, no third-party relay, no traffic through someone else's infrastructure, nothing to price per tunnel or per seat.
 - **Two binaries and a token.** No external database, no message broker, no sidecar. The server keeps its state in a bundled SQLite file next to it; the dashboard is compiled into the binary.
 - **One connection out.** The tunnel is a WebSocket the client opens, so the machine serving your app can sit behind NAT, CGNAT or a firewall that allows nothing inbound.
-- **Small enough to leave running.** Measured on an Apple M-series laptop: the server binary is 14 MB (dashboard included) and idles at ~14 MB RSS; the client is 6 MB and idles at ~6 MB. Neither grows with request count.
+- **Small enough to leave running.** In one Apple M-series measurement, the server binary was 14 MB and used about 14 MB of memory at idle. The client binary was 6 MB and used about 6 MB at idle. See [Performance Tuning](docs/performance-tuning.md) for workload-dependent limits.
 - **It is a product, not a pipe.** A live dashboard, a request inspector with replay, scoped tokens, organizations, caching, failover, autoscaling hooks and messaging between clients ship in the same binaries.
 
 [![The Aperio admin dashboard](docs/images/dashboard-overview.png)](docs/dashboard.md)
@@ -26,13 +26,12 @@ The client always dials **out**, so nothing on your network accepts inbound conn
 
 ```bash
 # Server (public box)
-docker run -d -p 8080:8080 -v ./data:/app/data \
+docker run -d -p 8080:8080 -v "$(pwd)/data:/app/data" \
   -e APERIO_SERVER_TOKEN="a-long-random-string" \
   ghcr.io/co3moz/aperio-server:latest
 
-# Client (next to your service). APERIO_PUBLIC declares the route open:
-# since 0.10.0 the server is closed by default, so a service nothing declares
-# answers as an unclaimed hostname does.
+# Client (next to your service). This Linux example uses host networking.
+# APERIO_PUBLIC opens the route to visitors; routes are closed by default.
 docker run -d --network host \
   -e APERIO_SERVER_TOKEN="a-long-random-string" \
   -e APERIO_SERVER_URL="http://your-server-ip:8080" \
@@ -41,20 +40,27 @@ docker run -d --network host \
   ghcr.io/co3moz/aperio-client:latest
 ```
 
-Or one line with the CLI:
+Run the backend on port 3000 and replace `your-server-ip` and the token. For
+Docker Desktop or separate hosts, adjust the backend address and networking as
+described in [Getting Started](docs/getting-started.md).
+
+After configuring DNS and TLS for `tunnel.example.com`, you can run the client directly. Use the same master token as the server, or mint a scoped token first:
 
 ```bash
 curl -sSf https://raw.githubusercontent.com/co3moz/aperio/master/install.sh | sh
-aperio-client 3000 --server-url https://tunnel.example.com --server-token apr_xxxx --public
+aperio-client 3000 --server-url https://tunnel.example.com \
+  --server-token a-long-random-string --public
 ```
 
-With Homebrew, or Scoop on Windows:
+With Homebrew:
 
 ```bash
 brew install --formula https://github.com/co3moz/aperio/releases/latest/download/aperio-client.rb
 ```
 
-On an ordinary Linux box, a package with a hardened service unit:
+For Scoop on Windows, see [Native Packages](docs/packages.md).
+
+On Linux, after downloading the matching package from a release:
 
 ```bash
 sudo dpkg -i aperio-client_0.11.0_amd64.deb   # or rpm -i, both attached to every release
@@ -92,7 +98,7 @@ Dashboard at `/aperio` (user `aperio`, password = your token). Full walkthrough:
 | **Observability**   | Prometheus metrics, OpenTelemetry traces, structured access log, tamper-evident audit trail, webhooks with retries and an inbox                        |
 | **Hardening**       | end-to-end encrypted tunnels the server only relays, admin IP fencing, login lockout, token pinning, canary tokens, SSRF fencing on outbound callbacks |
 
-Throughput is not the interesting number for most deployments, the tunnel adds one hop, and the backend is usually what you are waiting for, but for scale: ~7,800 requests/second through the tunnel on loopback, with a trivial backend and one keep-alive connection, on the same laptop as above. Concurrency is where the number actually lives: the same setup serves ~22,000-25,000/second at a hundred connections, with the per-visitor rate limit raised out of the way (at its default it is the limiter you are measuring, not the tunnel). Both figures are floors rather than records, taken on a laptop with other work on it.
+In a loopback benchmark on that laptop, Aperio served about 7,800 requests/second through one persistent connection to a trivial backend. At 100 concurrent connections it served about 22,000–25,000 requests/second, with the visitor rate limit raised. These are measurements of that setup; backend work and network latency affect real deployments.
 
 ## Use it for
 
@@ -147,11 +153,11 @@ Click a feature for the details.
 
 - [Metrics, traces & logs](docs/observability.md), Prometheus, OpenTelemetry, webhooks, access and audit logs.
 
-Full index: **[docs/](docs/README.md)**. Prefer one long read? [**The Complete Guide**](docs/book/aperio.tex) is a single-file LaTeX book covering all of it in one narrative, with generated reference tables for every setting, endpoint and protocol message. Every release carries it built: [aperio-guide.pdf](https://github.com/co3moz/aperio/releases/latest/download/aperio-guide.pdf).
+Full index: [docs/](docs/README.md). The [Complete Guide](docs/book/aperio.tex) brings the topics and reference tables together. Releases include a [built PDF](https://github.com/co3moz/aperio/releases/latest/download/aperio-guide.pdf).
 
 ## Security
 
-- Front it with TLS, set `trust_proxy`, use `https://` / `wss://` URLs.
+- Put TLS in front of the server and use `https://` or `wss://` URLs. Configure proxy trust only for proxies you actually use; see [Production Hardening](docs/production-hardening.md#transport--network).
 - Prefer scoped dynamic tokens. Treat the master token like a root password.
 - The client only talks to its configured targets and caps message sizes.
 

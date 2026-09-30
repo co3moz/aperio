@@ -8,12 +8,20 @@ Nothing tenant-specific lives in the config files: organizations are created at 
 
 ## Set it up
 
-Sign in as the super-admin (master token) to get a session cookie, then:
+Set `APERIO_SERVER_TOKEN` to the master token in `aperio-server.yaml`. Sign in as the built-in admin to save a session cookie:
+
+```bash
+curl -fsS -X POST -u "aperio:$APERIO_SERVER_TOKEN" \
+  -c cookies.txt https://tunnel.example.com/aperio/auth
+```
+
+Use that cookie for the following calls. Replace `<acme-id>` with the ID returned by step 1:
 
 ```bash
 # 1. Create the child organization.
 curl -b cookies.txt -X POST -H 'Content-Type: application/json' \
-  --data '{"name":"Acme"}' https://tunnel.example.com/aperio/api/orgs
+  --data '{"name":"acme","custom_name":"Acme"}' \
+  https://tunnel.example.com/aperio/api/orgs
 
 # 2. Select it, so what you create next belongs to Acme.
 curl -b cookies.txt -X POST -H 'Content-Type: application/json' \
@@ -21,9 +29,11 @@ curl -b cookies.txt -X POST -H 'Content-Type: application/json' \
 
 # 3. Mint a scoped token in Acme and hand it to the client (this file's server.token).
 curl -b cookies.txt -X POST -H 'Content-Type: application/json' \
-  --data '{"name":"acme-app","hostnames":["app.acme.example.com"]}' \
+  --data '{"name":"acme-app","hostnames":["app.acme.example.com"],"allow_public":true}' \
   https://tunnel.example.com/aperio/api/tokens
 ```
+
+Copy the returned token secret into `aperio.yaml` as `server.token`. `allow_public` is required because that client's service declares `public: true`; see [Closed by default](../../configuration.md#closed-by-default).
 
 The client connects with that token, and everywhere (live view, traffic log, stats, uptime, topology) it shows under Acme. A named admin you create in Acme signs in to a self-contained view of Acme alone, never master.
 

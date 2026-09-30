@@ -3,20 +3,14 @@
 A written minimum of the tunnel protocol, for a device that cannot run
 `aperio-client`.
 
-An ESP32 has a few hundred kilobytes of usable RAM and a flash budget in the
-low megabytes; the client binary is about 6 MB. The reason is not the tunnel.
-It is TLS with a root store, a full HTTP client, yaml plus a JSON Schema, the
-admin CLI, the messaging faces, the OTel bridge, the health prober and the
-autoscaling hooks: roughly sixteen thousand lines and forty direct
-dependencies, almost none of which a sensor needs. Porting is the wrong verb.
-What was missing was a statement of **which messages a device must speak,
-which it may ignore, and which it will not be sent.** This is that statement.
+An ESP32 cannot usually run the full client: its TLS stack, HTTP client,
+configuration parser, admin CLI, and optional features exceed a small device's
+memory and flash budget. This page lists the protocol messages a minimal
+device client must handle, may ignore, and will not receive.
 
-It is not maintained by hand. The classification lives in
-`aperio-server/src/protocol_profile.rs` as an exhaustive `match` over every
-message the protocol has, so a new message type stops the build until someone
-says what a device should do about it, and a test fails if this page does not
-mention it. The two cannot drift.
+The classification lives in `aperio-server/src/protocol_profile.rs`. Its exhaustive
+match requires every new message type to be classified, and a check keeps this
+page aligned with that list.
 
 ## What a device must handle
 

@@ -7,9 +7,9 @@ port: 8080
 # dashboard user (Users page) or give them their own organization, there is no
 # second server-wide password.
 
-# Fence the admin surface (the dashboard + /aperio/api/*) to your operator
-# network. The login page and visitor-auth endpoints stay reachable so proxied
-# sites keep working; only the authenticated admin surface is network-restricted.
+# Fence the authenticated dashboard and most admin API routes to your operator
+# network. Login and selected self-authenticating API endpoints stay reachable;
+# see docs/configuration.md for the exact exceptions.
 admin_allowed_ips:
   - 10.0.0.0/8
   - 203.0.113.7

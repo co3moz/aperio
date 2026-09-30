@@ -1,6 +1,6 @@
 # MQTT Between Clients
 
-> **Concept:** [Emergency & Ephemeral Tunnels](../../emergency-tunnels.md).
+> **Concept:** [Tunnels](../../emergency-tunnels.md).
 
 
 An MQTT broker reachable by every machine in an organization, and by nothing else. The broker stays on one host, bound to loopback; the tunnel is what carries it, so it is never on the public internet and needs no certificate, no firewall rule and no public address of its own.
@@ -10,6 +10,8 @@ An MQTT broker reachable by every machine in an organization, and by nothing els
 - The broker is the one that decides topics, retained messages and QoS. Aperio moves the bytes and decides *who may reach it*: only a token of the same organization, carrying `allow_bind`.
 
 Any broker works, since nothing here is MQTT-specific. `mosquitto -p 1883` on the declaring host is enough to try it.
+
+> **Before running:** Start the broker on the declaring host. Replace the binder token with the declaring client's token or a token in the same organization with `allow_bind`. See [Binding tunnels](../../emergency-tunnels.md#binding-tunnels).
 
 ## What this costs
 

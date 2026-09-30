@@ -7,16 +7,16 @@ lower latency for visitors and far less load on the backend.
 
 Caching is **off by default** and strictly opt-in on both sides.
 
-## The two-key model
+## When a response is cached
 
 A response is only cached when three independent conditions all agree:
 
-1. **The server operator enabled the cache**, `cache: true` in
+1. **The server operator enabled the cache**, `cache.enabled: true` in
    `aperio-server.yaml` (env `APERIO_CACHE=1`; the dashboard's live settings
    persist it as a `cache_enabled` override). This provisions the shared
    in-memory cache and its memory budget.
 2. **The service owner opted the service in**, `cache: true` in the client
-   config (per `services:` entry, or top-level, or `APERIO_CACHE=1` on the
+   config (per `services:` entry, or as a top-level default for the entries, or `APERIO_CACHE=1` on the
    client). Only the service owner knows whether *their* responses are safe to
    cache, so this consent lives with the client and is announced over the
    tunnel.
@@ -50,7 +50,7 @@ Nothing is cached implicitly, if your backend never sends `Cache-Control`,
 nothing is stored, no matter the flags.
 
 **Negative caching** is the one exception, and it is off by default.
-`cache_negative_ttl` (env `APERIO_CACHE_NEGATIVE_TTL`) holds `404` and `410`
+`cache.negative_ttl` (env `APERIO_CACHE_NEGATIVE_TTL`) holds `404` and `410`
 answers for a few seconds without asking the backend's permission, because a
 hot missing URL, a scanner, a broken link on a busy page, otherwise reaches
 the backend on every request to be told nothing is there each time. Keep it
@@ -90,8 +90,7 @@ that has since appeared. A response carrying `Vary`, `Set-Cookie` or a
 cached responses keep answering visitors **while no healthy client is
 connected**, instead of failing with `504`. Fresh-or-expired entries answer up
 to the `cache.max_stale` (env `APERIO_CACHE_MAX_STALE`) window past their lifetime, marked
-`x-aperio-stale: true` once past it and always with an `Age` header. The moment
-a client reconnects, normal proxying takes over. See
+`x-aperio-stale: true` once past it and always with an `Age` header. When a client reconnects, cache hits continue until expiry and misses can reach the backend again. See
 [Client Resilience](client-resilience.md).
 
 This holds under the closed posture too. With `default_access: deny` a route
@@ -108,7 +107,7 @@ in `aperio-server.yaml`, client keys in `aperio.yaml` (per `services:` entry).
 
 | yaml key | Where | Effect | Default |
 |---|---|---|---|
-| `cache` (env `APERIO_CACHE`) | server | Enable the shared response cache. | `0` |
+| `cache.enabled` (env `APERIO_CACHE`) | server | Enable the shared response cache. | `0` |
 | `cache` (env `APERIO_CACHE`) | client, per service or top level | Opt a service in; written at the top level it is the default for every `services:` entry. | `0` |
 | `cache.max_bytes` (env `APERIO_CACHE_MAX_BYTES`) | server | Total in-memory budget; inserting past it evicts the entries closest to expiry, and a body larger than a quarter of the budget is never cached. | `67108864` (64 MB) |
 | `resilience` (env `APERIO_RESILIENCE`) | client, per service | Serve stale while no client is connected. | `0` |

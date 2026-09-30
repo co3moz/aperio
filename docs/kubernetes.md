@@ -1,12 +1,13 @@
 # Kubernetes
 
-A Helm chart for the server, and a sidecar for the client. The chart is in
-[`tools/charts/aperio-server`](../tools/charts/aperio-server/); the sidecar is
-a few lines of pod spec, shown below.
+A Helm chart deploys the server; the client can run beside your app in its pod. The chart is in [`tools/charts/aperio-server`](../tools/charts/aperio-server/).
+
+Create the `aperio-token` Secret shown [below](#the-master-token) before installing. Replace the hostname, configure DNS and TLS on the Ingress, and set `trusted_proxies` to your actual proxy ranges. The chart currently defaults to a 0.9.0 server image, so set the image tag to the release you intend to run.
 
 ```bash
 helm install aperio ./tools/charts/aperio-server \
   --set existingSecret=aperio-token \
+  --set image.tag=0.11.0 \
   --set ingress.enabled=true \
   --set ingress.hosts[0].host=tunnel.example.com
 ```
@@ -30,17 +31,7 @@ config:
     dir: /var/lib/aperio/backups
 ```
 
-So the reference is [configuration.md](configuration.md) and the JSON Schema
-published with each release, not a second vocabulary invented by the chart,
-and **a setting added to Aperio works here the day it ships** without the
-chart being touched.
-
-This is the trap the chart is built to avoid, and it is the usual one: a chart
-that mirrors a subset of the application's settings as values of its own,
-which then drift, cover less with every release, and leave an operator
-learning two names for one thing. The chart's own values are only the things
-Kubernetes needs and Aperio has no opinion about: the image, the volume, the
-Service, the Ingress, the probes.
+Use [Configuration](configuration.md) or the release JSON Schema for keys under `config:`. The chart's other values cover Kubernetes resources: the image, volume, Service, Ingress, and probes.
 
 You can check a values file against the real thing before installing it:
 
@@ -106,30 +97,35 @@ that workload's pod, where `localhost` is the backend and no Service, no
 NetworkPolicy and no cluster DNS entry has to exist for the two to talk.
 
 ```yaml
-      containers:
-        - name: app
-          image: your/app:1.0
-          ports:
-            - containerPort: 3000
+# Fragment of a Pod template spec (spec.template.spec in a Deployment).
+containers:
+  - name: app
+    image: your/app:1.0
+    ports:
+      - containerPort: 3000
 
-        - name: aperio-client
-          image: ghcr.io/co3moz/aperio-client:0.11.0
-          env:
-            - name: APERIO_SERVER_URL
-              value: https://tunnel.example.com
-            - name: APERIO_TARGET
-              value: http://127.0.0.1:3000
-            - name: APERIO_HOSTNAME
-              value: app.example.com
-            - name: APERIO_SERVER_TOKEN
-              valueFrom:
-                secretKeyRef: { name: aperio-client-token, key: token }
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            runAsNonRoot: true
-            capabilities: { drop: ["ALL"] }
+  - name: aperio-client
+    image: ghcr.io/co3moz/aperio-client:0.11.0
+    env:
+      - name: APERIO_SERVER_URL
+        value: https://tunnel.example.com
+      - name: APERIO_TARGET
+        value: http://127.0.0.1:3000
+      - name: APERIO_HOSTNAME
+        value: app.example.com
+      - name: APERIO_PUBLIC
+        value: "1"
+      - name: APERIO_SERVER_TOKEN
+        valueFrom:
+          secretKeyRef: { name: aperio-client-token, key: token }
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      capabilities: { drop: ["ALL"] }
 ```
+
+> **Note:** Create `aperio-client-token` with a token allowed to publish `app.example.com` and public services. Replace the hostnames and app image, and point DNS at the Ingress. `APERIO_PUBLIC=1` is needed for a public route on servers using the default closed access policy. See [Tokens & Authentication](tokens-and-auth.md) and [Configuration](configuration.md#closed-by-default).
 
 Two things follow from this shape and are worth saying out loud:
 

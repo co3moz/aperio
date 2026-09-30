@@ -13,3 +13,5 @@ The pair below publishes **two directories on two hostnames**, the work of two c
 The client runs one loopback file server per distinct directory and tunnels each under its own binds. All the usual per-entry knobs (auth, cache, headers, …) apply unchanged, and one entry is just as valid as two. Mixing is fine too: a `serve:` entry can sit next to ordinary `target:` entries, so a static landing page and a proxied API can share one client.
 
 `serve:` and `target:` are mutually exclusive within an entry, the served directory *is* the backend.
+
+> **Before running:** Start `aperio-client` from this folder so `./sites/a` and `./sites/b` resolve to the included files. Replace the example hostnames and set up DNS and TLS for them. See [Static File Serving](../../static-serving.md).

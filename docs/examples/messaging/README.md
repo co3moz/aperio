@@ -3,10 +3,12 @@
 > **Concept:** [Messages Between Clients](../../messaging.md).
 
 
-One machine finishes a build and says so; every machine of the organization that cares hears about it and acts. No broker to run, no port to open, no inbound anything: the message travels on the tunnel connection each client already holds.
+Clients in one organization can send messages over their existing tunnels. This example runs a local command when a deploy message arrives.
 
 - `aperio.yaml` is the **reacting** side. It subscribes to `deploy/#`, runs `./deploy.sh` for `deploy/web`, and opens both local faces so an application on the same machine can join in.
 - `aperio-publisher.yaml` is the **publishing** side. It exposes no service at all, a client whose whole job is to send is a complete configuration, and publishes through its own local face.
+
+> **Before running:** Replace the publisher's placeholder token with a token scoped to `deploy/#`. Run the reacting client from this folder so `sh ./deploy.sh` finds the script. The client opens local HTTP and MQTT listeners at the addresses in `aperio.yaml`; see [the local HTTP face](../../messaging.md#receiving-the-local-face).
 
 Publishing needs no client at all if you have an admin credential:
 

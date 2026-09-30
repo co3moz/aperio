@@ -4,7 +4,7 @@ By default, a request that has already been dispatched to a client answers **502
 
 A request that has *not* been dispatched yet is a different story: one for a route whose client just dropped, or one that lands in the milliseconds between a client connecting and its first heartbeat declaring the route, is held for a bounded wait before any refusal. The wait ends the moment a candidate appears or the declaration lands, and never outlives the server's `gateway.timeout`.
 
-> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent `aperio-server.yaml` key. A grouped setting is written as a block (`failover.max_jumps`), and the old flat spelling (`failover_max_jumps`) still works but is a deprecation. The server's file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
+> **Configuration:** Server settings go in `aperio-server.yaml`; use grouped keys such as `failover.max_jumps` where available. File values override environment variables. Client settings go in `aperio.yaml`. See [Configuration](configuration.md#grouped-keys) for the full mapping.
 
 ## Modes
 

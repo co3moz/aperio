@@ -2,7 +2,7 @@
 
 The client is built to run unattended: it survives server restarts, sick backends, config changes, and deployments without dropping visitor traffic on the floor.
 
-> **Config surfaces.** Client settings below are named by their `APERIO_*` environment variable; each also has an equivalent `aperio.yaml` key, settable per `services:` entry or at the top level. The client layers four sources: **CLI arguments > `./aperio.yaml` > environment variables > `~/.aperio.yaml`**. The server is the one whose file is loaded into the environment at startup and wins over it. See [Configuration](configuration.md) for the full mapping.
+> **Configuration:** Client settings go in `aperio.yaml` or use `APERIO_*` environment variables. Where supported, each `services:` entry can override the top-level value. Precedence is CLI > `./aperio.yaml` > environment > `~/.aperio.yaml`. See [Configuration](configuration.md#client) for the full mapping.
 
 ## Reconnect with backoff and jitter
 

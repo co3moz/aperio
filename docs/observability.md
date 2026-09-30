@@ -2,7 +2,7 @@
 
 Aperio exposes what it is doing through five channels: metrics for dashboards and alerting, distributed traces for end-to-end request timing, an access log for per-request analysis, an audit trail for security events, and webhooks for pushing events into your own systems.
 
-> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent yaml key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_OTEL` → `otel`, `APERIO_ACCESS_LOG` → `access_log`). YAML is the primary surface, the file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
+> **Configuration:** Server settings go in `aperio-server.yaml` (`otel.enabled` maps to `APERIO_OTEL`; `access_log` maps to `APERIO_ACCESS_LOG`). Client settings go in `aperio.yaml`. Server file values override environment variables. See [Configuration](configuration.md#grouped-keys) for the full mapping.
 
 ## Prometheus metrics
 
@@ -92,10 +92,11 @@ Two threshold rules turn the webhook pipeline into a simple pager, point a Slack
 
 ```yaml
 # aperio-server.yaml
-alert_error_rate: 5        # env: APERIO_ALERT_ERROR_RATE, alert when ≥5% of proxied requests fail (5xx)…
-alert_window: 300          # env: APERIO_ALERT_WINDOW, …measured over a 300 s sliding window (default)
-alert_min_requests: 20     # env: APERIO_ALERT_MIN_REQUESTS, quiet windows below 20 requests never alert
-alert_client_down: 120     # env: APERIO_ALERT_CLIENT_DOWN, alert when a service stays down for 2 minutes
+alert:
+  error_rate: 5            # env: APERIO_ALERT_ERROR_RATE, alert when ≥5% of requests fail (5xx)
+  window: 300              # env: APERIO_ALERT_WINDOW, measured over 300 s (default)
+  min_requests: 20         # env: APERIO_ALERT_MIN_REQUESTS, skip quieter windows
+  client_down: 120         # env: APERIO_ALERT_CLIENT_DOWN, alert after 2 minutes down
 ```
 
 Both rules are off unless their threshold is set. One `alert_triggered` event (kinds `error_rate` / `client_down`) fires per episode and one `alert_resolved` when the condition clears, the error rate resolves at 80% of the threshold, so a value hovering at the limit cannot flap. Alerts are also audit-logged. For richer alerting (latency percentiles, arbitrary PromQL), scrape the Prometheus endpoint with Alertmanager instead.

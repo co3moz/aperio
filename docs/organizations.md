@@ -10,10 +10,13 @@ There is always exactly one implicit **master** organization. Everything created
 
 Child organizations are created from master by the super-admin. Once a child organization is selected, everything you create, tokens, users, and (through those tokens) tunnel clients, belongs to it. Its members see only its resources; a token minted under a child organization only appears there, and the clients that authenticate with it are attributed to it everywhere (traffic log, live view, stats, uptime, topology).
 
-Child organizations are managed through the dashboard's **Organizations** page or the API:
+Child organizations are managed through the dashboard's **Organizations** page or the API. For the commands below, set `APERIO_SERVER_TOKEN` to your server's master token and save a session cookie first (see [Admin API authentication](cli-api.md#authentication)):
 
 ```bash
 # From anywhere, against the server's admin API.
+curl -fsS -X POST -u "aperio:$APERIO_SERVER_TOKEN" \
+  -c cookies.txt https://tunnel.example.com/aperio/auth
+
 # List organizations (master + children, with per-org user/token counts)
 curl -b cookies.txt https://tunnel.example.com/aperio/api/orgs
 

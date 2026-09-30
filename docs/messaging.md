@@ -14,10 +14,11 @@ From anywhere with an admin session or key:
 aperio-client api publish deploy/web --payload v1.9.2
 ```
 
-Or over HTTP directly:
+Or use HTTP with a programmatic admin key that has the operator role. See [Admin API authentication](cli-api.md#authentication) to create one:
 
 ```bash
-curl -u aperio:$APERIO_SERVER_TOKEN -X POST https://tunnel.example.com/aperio/api/publish \
+curl -X POST https://tunnel.example.com/aperio/api/publish \
+  -H "Authorization: Bearer $APERIO_API_KEY" \
   -H 'content-type: application/json' \
   -d '{"topic":"deploy/web","payload":"v1.9.2"}'
 ```

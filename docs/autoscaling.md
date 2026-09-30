@@ -9,7 +9,7 @@ Two things fall out of that one signal:
 
 Scaling **in** works the same way as scaling out, one call with a *lower* desired capacity. The server still never kills anything, which keeps the entire class of "why did my instance disappear" incidents away from it. What it does not do is ask for the last instance to go: 1 to 0 stays the client's own decision through `idle_timeout`, because the client knows about requests in flight that the server cannot see.
 
-> **Config surfaces.** Settings below are named by their `APERIO_*` environment variable; each also has an equivalent `aperio-server.yaml` key, the same name lowercased, without the `APERIO_` prefix (e.g. `APERIO_SCALING` → `scaling`). YAML is the primary surface, the file is loaded into the environment at startup and wins over it: put server keys in `aperio-server.yaml`, client keys in `aperio.yaml`. See [Configuration](configuration.md) for the full mapping.
+> **Configuration:** Server settings go in `aperio-server.yaml` (for example, `scaling.enabled` maps to `APERIO_SCALING`); client settings go in `aperio.yaml`. Server file values override environment variables. See [Configuration](configuration.md#grouped-keys) for the full mapping.
 
 ## Enabling it
 
@@ -19,7 +19,8 @@ Autoscaling is off unless the operator turns it on. A client's declaration is ig
 
 ```yaml
 # aperio-server.yaml
-scaling: true          # env: APERIO_SCALING=1
+scaling:
+  enabled: true       # env: APERIO_SCALING=1
 ```
 
 Then declare it on the client, in `aperio.yaml`:

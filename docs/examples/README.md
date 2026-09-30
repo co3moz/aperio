@@ -1,16 +1,18 @@
 # Configuration Examples
 
-Ready-to-adapt configuration pairs for common Aperio scenarios. Every folder contains a client `aperio.yaml` and a server `aperio-server.yaml` that work **together**: the tunnel token in the client file matches `server.token` in the server file, so you can copy a folder, replace the token and hostnames, and run both sides as-is.
+Each folder contains a client `aperio.yaml` and a server `aperio-server.yaml` for one scenario. Replace example tokens, hostnames, and backend addresses before running them. Binder, publisher, and organization examples need separate tokens with the permissions described in their READMEs.
 
-Since 0.10.0 the server is **closed by default**, so a route nothing declares answers as an unclaimed hostname does. These examples therefore declare each routed service `public: true`; the two that demonstrate a gate (`oidc`, `share_links`) deliberately do not, and `visitor_auth` shows `public:` and `auth:` side by side. Drop `public: true` and add `auth:` when your own route should be gated.
+Since 0.10.0 the server is **closed by default**. Most examples set `public: true` so visitors can reach the service. The `oidc` and `share_links` examples keep the visitor gate enabled; `visitor_auth` shows both protected and public services. Remove `public: true` and configure `auth:` when a service should require a login. See [Tokens & Authentication](../tokens-and-auth.md) for the access rules.
+
+> **Note:** These are configuration templates. OIDC needs an identity provider, autoscaling needs a scaling endpoint, and MQTT needs a broker. Check each scenario's README and linked guide for its prerequisites. `aperio-server --check-config` validates server settings; `aperio-client check` also tests connectivity and therefore needs the real server and backend.
 
 ## Conventions
 
-- **Every client file describes its backends under `services:`**, even the ones that expose exactly one. That is the shape a config file has; naming a single backend at the top level (`target:`, `serve:`, `hostname:`, …) has not been accepted since 0.9.0, a client that finds one refuses to start and names the keys. Single-service mode lives on in the CLI one-liner and the `APERIO_TARGET` family, where a one-liner is the point.
-- `https://tunnel.example.com`, the public URL of your Aperio server.
-- `apr_<scenario>_change_me`, a placeholder token; replace it with a long random string of your own.
-- One folder per scenario. Where a feature reads differently with one service than with several, the folder shows both.
-- Every file declares `version:` (the release it was written for), so the binary can warn when a later upgrade changes how a file like this is read instead of staying quiet.
+- Client config files put exposed backends under `services:`, including single-service examples. Top-level `target:` and related service keys are no longer accepted in config files. CLI one-liners and `APERIO_TARGET` still support one target. See [Configuration](../configuration.md#multiple-services).
+- `https://tunnel.example.com` is a placeholder server URL. Replace it with your server's public URL.
+- `apr_<scenario>_change_me` is a placeholder token. For a basic example, replace it with the same long random master token in both files. Organization, binder, and publisher examples use separately issued tokens; follow their READMEs. Do not commit real tokens; use environment-variable expansion such as `${APERIO_SERVER_TOKEN}` for secrets.
+- Each folder covers one scenario. Some include multiple services to show how the settings differ.
+- `version:` records the Aperio release the file targets. Keep it current so the client can report configuration changes during upgrades. See the [Upgrade Guide](../upgrade-guide.md).
 
 | Folder | Scenario |
 | --- | --- |

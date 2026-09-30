@@ -63,6 +63,8 @@ Every lifetime flag (`--expire`, `--grace`) takes a human duration: `45s`, `30m`
 
 Run `aperio-client api --help`, or `aperio-client api <group> --help`, for the full list with every flag.
 
+> **Reading the command listings:** Text in `<angle brackets>` must be replaced. Items in `[square brackets]` are optional alternatives; remove the brackets and choose the flags you need. These listings show syntax, while the complete commands in the examples above and below can be pasted after replacing their URLs and credentials.
+
 ### Share links
 
 ```bash

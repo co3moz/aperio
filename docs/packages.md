@@ -1,9 +1,9 @@
 # Installing: packages, formulae and service units
 
-Every release attaches a `.deb` and an `.rpm` for both binaries, on `amd64` and
-`arm64`. They exist so that installing on an ordinary Linux box is a package
-manager and a `systemctl enable`, rather than `install.sh` followed by writing
-your own unit file, which is where hardening quietly does not happen.
+Releases include `.deb` and `.rpm` packages for both binaries on `amd64` and
+`arm64`. The packages install hardened systemd units.
+
+Download the matching package from the [GitHub releases](https://github.com/co3moz/aperio/releases) before running one of these commands:
 
 ```bash
 # Debian, Ubuntu
@@ -119,9 +119,8 @@ start, so no mode on that file admits it and nothing else.
 
 ## Secrets from somewhere other than the file
 
-Every scalar top-level key, and every child of a grouped block, is also an
-`APERIO_*` environment variable, which is what to reach for when a value comes
-from a secret store. Mapping-valued sections (`headers:`, `routes:`,
+Scalar settings also have `APERIO_*` environment variables. Use them for
+values from a secret store. Mapping-valued sections (`headers:`, `routes:`,
 `error_pages:`, `expose:` and the like) exist only in the file:
 
 ```bash

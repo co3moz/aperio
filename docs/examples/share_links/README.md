@@ -6,7 +6,7 @@ Hand out **temporary, scoped access to a gated site without creating an account*
 
 ## Mint one
 
-From the dashboard's *Share Links* section, or over the API with an operator/admin session:
+Use the dashboard's *Share Links* section, or sign in and save an operator/admin session cookie before calling the API. The [CLI authentication guide](../../cli-api.md#authentication) shows the login command; save its cookie as `cookies.txt` for this example:
 
 ```bash
 curl -b cookies.txt -X POST -H 'Content-Type: application/json' \
