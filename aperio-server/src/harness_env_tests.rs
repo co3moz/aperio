@@ -20,13 +20,13 @@ use std::path::{Path, PathBuf};
 
 /// Names a harness legitimately sets that no binary reads.
 ///
-/// Two kinds only, and both are about the harness rather than the product:
-/// where a binary is, and what a setting used to be called. The older
-/// spellings are set on purpose by the compatibility suite, which drives
-/// releases old enough to know only those.
+/// These configure the harness itself: binary locations, the browser used to
+/// capture documentation images, and older spellings used by compatibility
+/// runs against releases that knew only those names.
 const HARNESS_OWN: &[&str] = &[
   "APERIO_SERVER_BIN",
   "APERIO_CLIENT_BIN",
+  "APERIO_CAPTURE_BROWSER",
   "APERIO_CLIENT_TARGET",
   "APERIO_HOSTNAME_BIND",
 ];
