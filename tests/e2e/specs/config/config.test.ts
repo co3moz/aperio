@@ -313,7 +313,17 @@ export class ServerCliSpec extends Test({ timeout: 90_000 }) {
       // 0.11.0 adds a `migration` that also `Applies::Always`: the closed
       // posture stopped refusing this server's own signed-in users, which
       // reaches every file in range whether or not it writes `default_access`.
-      ['breaking@0.10.0', 'breaking@0.8.0', 'migration@0.11.0', 'migration@0.6.0', 'migration@0.9.0'],
+      // 0.12.0 adds two more `Always` notices: the new global OIDC grants
+      // default is breaking, and the higher max_tunnels default is a migration.
+      [
+        'breaking@0.10.0',
+        'breaking@0.12.0',
+        'breaking@0.8.0',
+        'migration@0.11.0',
+        'migration@0.12.0',
+        'migration@0.6.0',
+        'migration@0.9.0',
+      ],
       `the notices a 0.5.0 file gets from this build changed:\n${res.out}`,
     )
 
