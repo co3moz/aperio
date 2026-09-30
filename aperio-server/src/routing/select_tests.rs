@@ -343,7 +343,18 @@ async fn two_client_pool() -> std::sync::Arc<AppState> {
 }
 
 async fn pick_one(state: &AppState) -> String {
-  match pick_proxy_client(state, "/", Some("app.example.com"), None, None, None, None).await {
+  match pick_proxy_client(
+    state,
+    "/",
+    Some("app.example.com"),
+    None,
+    None,
+    None,
+    None,
+    None,
+  )
+  .await
+  {
     PickOutcome::Selected(c) => c.id,
     other => panic!(
       "expected a selection, got {:?}",
@@ -360,6 +371,34 @@ async fn round_robin_alternates_across_the_pool() {
   assert_ne!(
     first, second,
     "consecutive requests must go to different pool members"
+  );
+}
+
+#[tokio::test]
+async fn a_client_local_auth_check_pins_the_dispatch_selection() {
+  let state = two_client_pool().await;
+  let authorized = pick_one(&state).await;
+  // Round robin has moved on, but this request's authorization was made on
+  // `authorized`, so its dispatch must use that connection.
+  let selected = pick_proxy_client(
+    &state,
+    "/",
+    Some("app.example.com"),
+    None,
+    None,
+    None,
+    None,
+    Some(&authorized),
+  )
+  .await;
+  match selected {
+    PickOutcome::Selected(client) => assert_eq!(client.id, authorized),
+    _ => panic!("the authorized client is still serving this route"),
+  }
+  assert_ne!(
+    pick_one(&state).await,
+    authorized,
+    "pinning does not rotate"
   );
 }
 
@@ -464,7 +503,18 @@ async fn a_selection_carries_both_names_a_client_can_be_shown_under() {
   c.sole_mut().service_custom_name = Some("web (blue)".to_string());
   state.clients.write().await.insert("a".to_string(), c);
 
-  match pick_proxy_client(&state, "/", Some("app.example.com"), None, None, None, None).await {
+  match pick_proxy_client(
+    &state,
+    "/",
+    Some("app.example.com"),
+    None,
+    None,
+    None,
+    None,
+    None,
+  )
+  .await
+  {
     PickOutcome::Selected(c) => {
       assert_eq!(c.service_name.as_deref(), Some("web"));
       assert_eq!(c.service_custom_name.as_deref(), Some("web (blue)"));

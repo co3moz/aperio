@@ -22,7 +22,7 @@ function targetDir(): string {
 }
 
 /** A binary path, with the Windows `.exe` the bash harness also has to handle. */
-function binary(name: string, override?: string): string {
+export function binary(name: string, override?: string): string {
   const base = override ?? join(targetDir(), 'debug', name)
   return existsSync(base) ? base : existsSync(`${base}.exe`) ? `${base}.exe` : base
 }

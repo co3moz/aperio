@@ -69,6 +69,7 @@ async function startAndAwaitExit(
   const proc = spawn(SERVER_BIN, [], {
     env: {
       ...process.env,
+      RUST_LOG: 'info',
       APERIO_DATA_DIR: dir,
       // The bare name, as the standard has it for host/port/log_level.
       PORT: String(await freePort()),

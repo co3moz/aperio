@@ -529,6 +529,9 @@ impl Attempt<'_> {
             && !stream_request
             && retry_covers(cfg.retry_on_5xx, &cfg.retry_statuses, tunnel_res.status)
             && method_retryable(&method_str, cfg.failover_all_methods)
+            && !visitor
+              .as_ref()
+              .is_some_and(|v| v.forward_client_id.is_some())
             && jumps_used < cfg.failover_max_jumps
           {
             let next = match pick_proxy_client(
@@ -539,6 +542,7 @@ impl Attempt<'_> {
               None,
               Some(caller_ip),
               canary,
+              None,
             )
             .await
             {
@@ -889,6 +893,9 @@ impl Attempt<'_> {
           // Passive outlier ejection: a vanished client is a failure.
           record_outlier_failure(&state, &selected.id, selected.service_name.as_deref()).await;
           let can_failover = !stream_request
+            && !visitor
+              .as_ref()
+              .is_some_and(|v| v.forward_client_id.is_some())
             && state.config().failover_mode != FailoverMode::Fail
             && method_retryable(&method_str, state.config().failover_all_methods)
             && jumps_used < state.config().failover_max_jumps;
@@ -908,6 +915,7 @@ impl Attempt<'_> {
                   None,
                   Some(caller_ip),
                   canary,
+                  None,
                 )
                 .await
                 {

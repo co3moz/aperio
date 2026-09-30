@@ -78,6 +78,7 @@ pub(crate) async fn ask_over_tunnel(
   host: Option<&str>,
   visitor_ip: IpAddr,
   path: &str,
+  asked_client: &mut Option<String>,
 ) -> Verdict {
   let names: Vec<&str> = if cfg.request_headers.is_empty() {
     crate::forward_auth::DEFAULT_REQUEST_HEADERS.to_vec()
@@ -85,8 +86,63 @@ pub(crate) async fn ask_over_tunnel(
     cfg.request_headers.iter().map(String::as_str).collect()
   };
   let visitor = visitor_ip.to_string();
-  let cache_key = (!cfg.cache.is_zero())
-    .then(|| crate::forward_auth::key(cfg, &names, headers, host, method, uri, Some(&visitor)));
+  // Choose once, with the same sticky and canary inputs the dispatch uses.
+  // The gate's admission is valid for this connection only.
+  let affinity = if state.config().lb_strategy == crate::settings::LbStrategy::Sticky {
+    crate::share::cookie_value(headers, "aperio_affinity")
+  } else {
+    None
+  };
+  let canary_side = (method != axum::http::Method::CONNECT)
+    .then(|| {
+      state
+        .config()
+        .static_routes
+        .policy_for(host, path)
+        .and_then(|rule| rule.canary.as_ref())
+        .map(|rule| {
+          let sent = rule
+            .header
+            .as_deref()
+            .and_then(|name| headers.get(name))
+            .and_then(|v| v.to_str().ok());
+          (rule.service.clone(), rule.side_for(sent, Some(visitor_ip)))
+        })
+    })
+    .flatten();
+  let canary = canary_side
+    .as_ref()
+    .map(|(service, side)| (service.as_str(), *side));
+  let picked = crate::routing::pick_proxy_client(
+    state,
+    path,
+    host,
+    None,
+    affinity.as_deref(),
+    Some(visitor_ip),
+    canary,
+    None,
+  )
+  .await;
+  let client = match picked {
+    PickOutcome::Selected(client) => client,
+    _ => {
+      tracing::warn!(
+        "No connection serves {} on {} to ask about a visitor; refusing the request",
+        path,
+        host.unwrap_or("-")
+      );
+      return Verdict::Deny(crate::forward_auth::refusal());
+    }
+  };
+  *asked_client = Some(client.id.clone());
+  let cache_key = (!cfg.cache.is_zero()).then(|| {
+    format!(
+      "{}\0{}",
+      client.id,
+      crate::forward_auth::key(cfg, &names, headers, host, method, uri, Some(&visitor))
+    )
+  });
   if let Some(ref k) = cache_key
     && let Some(carried) = crate::forward_auth::cached(state, cfg, k).await
   {
@@ -107,21 +163,6 @@ pub(crate) async fn ask_over_tunnel(
         .unwrap(),
     );
   }
-
-  // The connection the request itself would go to, by the proxy's own pick.
-  let picked =
-    crate::routing::pick_proxy_client(state, path, host, None, None, Some(visitor_ip), None).await;
-  let client = match picked {
-    PickOutcome::Selected(client) => client,
-    _ => {
-      tracing::warn!(
-        "No connection serves {} on {} to ask about a visitor; refusing the request",
-        path,
-        host.unwrap_or("-")
-      );
-      return Verdict::Deny(crate::forward_auth::refusal());
-    }
-  };
 
   let id = uuid::Uuid::new_v4().to_string();
   let (tx, rx) = oneshot::channel();

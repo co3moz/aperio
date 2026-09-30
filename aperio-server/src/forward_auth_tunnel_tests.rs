@@ -46,6 +46,25 @@ async fn next_ask(rx: &mut tokio::sync::mpsc::Receiver<Message>) -> (String, ser
   (value["id"].as_str().unwrap().to_string(), value)
 }
 
+async fn next_ask_from_either(
+  first: &mut tokio::sync::mpsc::Receiver<Message>,
+  second: &mut tokio::sync::mpsc::Receiver<Message>,
+) -> (&'static str, String) {
+  let (client, frame) = tokio::time::timeout(Duration::from_secs(2), async {
+    tokio::select! {
+      frame = first.recv() => ("a", frame),
+      frame = second.recv() => ("b", frame),
+    }
+  })
+  .await
+  .expect("a client-local check must cross a tunnel");
+  let Message::Text(text) = frame.expect("the connection is open") else {
+    panic!("an ask travels as text");
+  };
+  let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+  (client, value["id"].as_str().unwrap().to_string())
+}
+
 fn headers_with(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
   let mut h = HeaderMap::new();
   for (k, v) in pairs {
@@ -56,6 +75,7 @@ fn headers_with(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
 
 async fn ask(state: &AppState, cfg: &ForwardConfig, headers: &HeaderMap) -> Verdict {
   let uri: axum::http::Uri = "/private/page?x=1".parse().unwrap();
+  let mut asked_client = None;
   ask_over_tunnel(
     state,
     cfg,
@@ -65,6 +85,7 @@ async fn ask(state: &AppState, cfg: &ForwardConfig, headers: &HeaderMap) -> Verd
     Some("app.test"),
     VISITOR,
     "/private/page",
+    &mut asked_client,
   )
   .await
 }
@@ -325,4 +346,53 @@ async fn an_admission_is_remembered_for_the_cache_span() {
       .is_err(),
     "the cache answered"
   );
+}
+
+#[tokio::test]
+async fn cached_admission_is_scoped_to_the_client_that_granted_it() {
+  let state = Arc::new(test_state());
+  let (tx_a, mut rx_a) = tokio::sync::mpsc::channel::<Message>(8);
+  let (tx_b, mut rx_b) = tokio::sync::mpsc::channel::<Message>(8);
+  for (id, tx) in [("a", tx_a), ("b", tx_b)] {
+    let mut client = mock_client(Some("app.test"), None, None, None);
+    client.tx = tx;
+    state.clients.write().await.insert(id.to_string(), client);
+  }
+  let headers = headers_with(&[("cookie", "sid=same")]);
+  let first = {
+    let state = state.clone();
+    let headers = headers.clone();
+    tokio::spawn(async move { ask(&state, &cfg(30), &headers).await })
+  };
+  let (first_client, first_id) = next_ask_from_either(&mut rx_a, &mut rx_b).await;
+  resolve(
+    &state,
+    &first_id,
+    AskAnswer {
+      status: 200,
+      headers: Vec::new(),
+      error: None,
+    },
+  )
+  .await;
+  assert!(matches!(first.await.unwrap(), Verdict::Allow(_)));
+
+  let second = {
+    let state = state.clone();
+    let headers = headers.clone();
+    tokio::spawn(async move { ask(&state, &cfg(30), &headers).await })
+  };
+  let (second_client, second_id) = next_ask_from_either(&mut rx_a, &mut rx_b).await;
+  assert_ne!(first_client, second_client, "round robin chooses the peer");
+  resolve(
+    &state,
+    &second_id,
+    AskAnswer {
+      status: 200,
+      headers: Vec::new(),
+      error: None,
+    },
+  )
+  .await;
+  assert!(matches!(second.await.unwrap(), Verdict::Allow(_)));
 }

@@ -163,6 +163,9 @@ export function AperioServerBase(options: Parameters<typeof Test>[0] & ServerOpt
       this._proc = spawn(SERVER_BIN, {
         env: {
           ...process.env,
+          // Several specs assert info-level startup and routing messages.
+          // An operator's RUST_LOG=warn must not hide those observations.
+          RUST_LOG: 'info',
           PORT: String(this._port),
           APERIO_SERVER_TOKEN: this._token,
           APERIO_DATA_DIR: this._dataDir,

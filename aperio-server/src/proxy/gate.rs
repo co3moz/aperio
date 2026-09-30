@@ -58,6 +58,10 @@ pub(crate) struct VisitorIdentity {
   /// it. An `Authorization` that did *not* open the gate is the visitor's own
   /// and travels untouched.
   pub(crate) consumed_authorization: bool,
+  /// A `forward` check made on the client's network authorizes this one
+  /// connection. Dispatch must use it, including after the load-balancer's
+  /// cursor has moved, and must not fail over to a different client.
+  pub(crate) forward_client_id: Option<String>,
 }
 
 /// Outcome of the visitor-auth gate for a proxied request.
@@ -299,6 +303,7 @@ async fn session_identity(state: &AppState, headers: &HeaderMap) -> Option<Visit
     who: crate::auth::session_username_any_scope(state, headers).await,
     extra_headers: Vec::new(),
     consumed_authorization: false,
+    forward_client_id: None,
   })
 }
 
@@ -349,6 +354,7 @@ async fn apply_request_methods(
       who: None,
       extra_headers: Vec::new(),
       consumed_authorization: !presented.from_query,
+      forward_client_id: None,
     })));
   }
   for cfg in policy.jwt_methods() {
@@ -364,6 +370,7 @@ async fn apply_request_methods(
         // visitor's own, and stripping the cookie header would take the
         // application's session with it.
         consumed_authorization: cfg.cookie.is_none(),
+        forward_client_id: None,
       })));
     }
   }
@@ -494,8 +501,17 @@ pub(crate) async fn check_visitor_gate(
     // so a share link still gets its chance.
     let mut delegated_refusal = None;
     for cfg in declared.forward_methods() {
+      let mut asked_client = None;
       match crate::forward_auth_tunnel::ask_over_tunnel(
-        state, cfg, method, headers, uri, host, caller_ip, path,
+        state,
+        cfg,
+        method,
+        headers,
+        uri,
+        host,
+        caller_ip,
+        path,
+        &mut asked_client,
       )
       .await
       {
@@ -508,6 +524,7 @@ pub(crate) async fn check_visitor_gate(
               .map(|(_, v)| v.clone()),
             extra_headers: carried,
             consumed_authorization: false,
+            forward_client_id: asked_client,
           }));
         }
         crate::forward_auth::Verdict::Deny(resp) => delegated_refusal = Some(resp),
@@ -520,6 +537,7 @@ pub(crate) async fn check_visitor_gate(
         who: None,
         extra_headers: Vec::new(),
         consumed_authorization: false,
+        forward_client_id: None,
       })),
       None => VisitorGate::Deny(match delegated_refusal {
         Some(resp) => resp,
@@ -543,6 +561,7 @@ pub(crate) async fn check_visitor_gate(
         who: None,
         extra_headers: Vec::new(),
         consumed_authorization: false,
+        forward_client_id: None,
       })),
       None => VisitorGate::Deny(login_redirect("/aperio/auth", &uri.to_string())),
     };
@@ -616,9 +635,18 @@ pub(crate) async fn check_visitor_gate(
   for cfg in policy.forward_methods() {
     // Dialed from here, or asked of the client that would serve the request
     // (`via: client`, #157).
+    let mut asked_client = None;
     let verdict = if cfg.via_client {
       crate::forward_auth_tunnel::ask_over_tunnel(
-        state, cfg, method, headers, uri, host, caller_ip, path,
+        state,
+        cfg,
+        method,
+        headers,
+        uri,
+        host,
+        caller_ip,
+        path,
+        &mut asked_client,
       )
       .await
     } else {
@@ -634,6 +662,7 @@ pub(crate) async fn check_visitor_gate(
             .map(|(_, v)| v.clone()),
           extra_headers: carried,
           consumed_authorization: false,
+          forward_client_id: asked_client,
         }));
       }
       crate::forward_auth::Verdict::Deny(resp) => delegated_refusal = Some(resp),
@@ -646,6 +675,7 @@ pub(crate) async fn check_visitor_gate(
       who: None,
       extra_headers: Vec::new(),
       consumed_authorization: false,
+      forward_client_id: None,
     })),
     None => {
       let login_path = if state.oidc.is_some() {

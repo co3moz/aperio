@@ -296,6 +296,9 @@ pub(crate) async fn pick_proxy_client(
   // Which side of a route's canary split this request belongs on, already
   // decided from the route policy, the request's headers and the visitor.
   canary: Option<(&str, crate::static_routes::Side)>,
+  // A client-local authorization check has already selected this exact
+  // connection. Never reselect a different one for the protected request.
+  require_client: Option<&str>,
 ) -> PickOutcome {
   let clients = state.clients.read().await;
   let Some((pool, group_key)) = select_client_pool(
@@ -314,6 +317,9 @@ pub(crate) async fn pick_proxy_client(
     IpFilterOutcome::Denied(redirect) => return PickOutcome::Denied(redirect),
   };
   let mut pool = apply_lb_strategy(pool, &clients, state.config().lb_strategy);
+  if let Some(id) = require_client {
+    pool.retain(|r| r.client == id);
+  }
   // Canary split (planned_features #51): narrow the pool to one side, but
   // never to nothing. A canary that is down, or a stable side that has been
   // fully replaced, must not take the route with it: the experiment gives way
@@ -338,7 +344,11 @@ pub(crate) async fn pick_proxy_client(
   // Sticky affinity: honor the visitor's cookie when that client is still in
   // the pool; otherwise fall back to rotation (and the response sets a fresh
   // cookie for the newly chosen client).
-  let chosen = if state.config().lb_strategy == LbStrategy::Sticky
+  let chosen = if require_client.is_some() {
+    // The auth check already spent this route's rotation step. A pinned
+    // dispatch must not reset its cursor by rotating a one-member pool.
+    pool[0].clone()
+  } else if state.config().lb_strategy == LbStrategy::Sticky
     && let Some(previous) = affinity.and_then(|a| find_affinity_match(&pool, &clients, a))
   {
     previous

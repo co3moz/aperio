@@ -210,7 +210,6 @@ pub(crate) async fn export_handler(
     &state.config().trusted_proxies,
   )
   .to_string();
-
   let mut dump = serde_json::Map::new();
   dump.insert("format_version".into(), FORMAT_VERSION.into());
   dump.insert(
@@ -497,6 +496,9 @@ pub(crate) async fn import_handler(
     &state.config().trusted_proxies,
   )
   .to_string();
+  // The dump may replace the caller's user row or admin key. Keep the audit
+  // identity from the credential that was authorized to start the import.
+  let actor = state.session_actor(&headers).await;
 
   // Settings first: they can fail validation, and a rejected import should
   // change nothing at all.
@@ -543,7 +545,17 @@ pub(crate) async fn import_handler(
     counts.insert("webhooks".into(), n.into());
   }
   if let Some(users) = dump.users {
+    // A replaced row must not inherit a previous row's live session. If the
+    // import removes a named user, its old session would otherwise look like
+    // a legacy OIDC identity and regain the role recorded at login. Revoke
+    // named sessions after a successful import, including OIDC sessions that
+    // could otherwise acquire an imported row with the same name.
     let n = imported!("users", state.users.lock().await.import(users));
+    state
+      .sessions
+      .lock()
+      .await
+      .retain(|info| info.username.is_none());
     counts.insert("users".into(), n.into());
   }
   if let Some(scaling) = dump.scaling {
@@ -593,12 +605,7 @@ pub(crate) async fn import_handler(
     .join(" ");
   info!("Dump imported ({})", summary);
   state
-    .audit(
-      "import_applied",
-      &state.session_actor(&headers).await,
-      &actor_ip,
-      &summary,
-    )
+    .audit("import_applied", &actor, &actor_ip, &summary)
     .await;
   state
     .emit_event("import_applied", serde_json::Value::Object(counts.clone()))

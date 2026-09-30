@@ -263,6 +263,8 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
         cwd: this._cwd(),
         env: {
           ...process.env,
+          // Keep log-based assertions independent of the invoking shell.
+          RUST_LOG: 'info',
           APERIO_CONNECTIONS: '1',
           ...(isPublic ? { APERIO_PUBLIC: '1' } : {}),
           APERIO_SERVER_URL: this._serverUrl(),

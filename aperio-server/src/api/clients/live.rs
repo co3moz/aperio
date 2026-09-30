@@ -183,6 +183,21 @@ pub(crate) async fn live_stream_handler(
     pending: VecDeque<Topic>,
   }
 
+  async fn still_authorized(live: &Live) -> bool {
+    let Some(caller) = crate::auth::resolve_caller(&live.state, &live.headers).await else {
+      return false;
+    };
+    let current_org = caller.effective_org();
+    let Some(role) = caller.role_in(current_org.as_deref()) else {
+      return false;
+    };
+    current_org == live.org
+      && !live
+        .topics
+        .iter()
+        .any(|t| role < t.required_role() || (t.master_only() && !caller.is_master_admin()))
+  }
+
   /// The coalescing window: a burst of changes (an import touching every
   /// store) sends each topic once, a quarter second after the first.
   async fn window(at: Option<Instant>) {
@@ -218,6 +233,9 @@ pub(crate) async fn live_stream_handler(
       // waited for; one frame per turn, so a queue of several drains over
       // consecutive turns.
       if let Some(topic) = live.pending.pop_front() {
+        if !still_authorized(&live).await {
+          return None;
+        }
         let Some(doc) = topic.payload(&live.state, &live.headers).await else {
           continue;
         };
@@ -230,14 +248,14 @@ pub(crate) async fn live_stream_handler(
       tokio::select! {
         // The first tick fires immediately, seeding the initial snapshot.
         _ = live.interval.tick() => {
-          // The session middleware runs once, when the stream is opened,
-          // and this connection then lives for hours. Signing out, "sign
-          // out everywhere", an expiring session or a disabled user would
-          // all leave it emitting traffic and statistics to a caller who no
-          // longer has a session. Re-checking on each tick bounds that to
-          // one tick, and costs one read of the session store every two
-          // seconds per open stream.
-          crate::auth::dashboard_role(&live.state, &live.headers).await?;
+          // The middleware runs only when the stream opens. A grant can be
+          // reduced or its organization selection changed while it stays
+          // open, so re-check the original scope and every subscribed topic
+          // before sending another tick's data. Closing makes EventSource
+          // reconnect under the caller's current permissions.
+          if !still_authorized(&live).await {
+            return None;
+          }
           let tick = live.tick;
           live.tick += 1;
           for t in &live.topics {

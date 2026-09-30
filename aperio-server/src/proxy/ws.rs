@@ -187,6 +187,9 @@ pub(crate) async fn handle_ws_proxy(
       // one that only chose where the socket landed would be a second, silent
       // rule beside the one written for HTTP.
       None,
+      visitor
+        .as_ref()
+        .and_then(|identity| identity.forward_client_id.as_deref()),
     )
     .await
     {

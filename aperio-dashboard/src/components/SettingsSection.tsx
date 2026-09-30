@@ -324,6 +324,31 @@ export function SettingsSection() {
     }
   }
 
+  // Who changed an overridden setting, and when: the audit log knows, the
+  // settings document does not. Hooks run even while the settings document
+  // is loading so their order stays the same on every render.
+  const [lastChange, setLastChange] = useState<Record<string, { actor: string; timestamp: string }>>({})
+  useEffect(() => {
+    if (!data) return
+    let live = true
+    api
+      .audit({ event: 'settings_updated', limit: 100 })
+      .then((rows) => {
+        if (!live) return
+        const seen: Record<string, { actor: string; timestamp: string }> = {}
+        for (const row of rows) {
+          for (const key of row.details.split(',').map((k) => k.trim())) {
+            if (key && !seen[key]) seen[key] = { actor: row.actor, timestamp: row.timestamp }
+          }
+        }
+        setLastChange(seen)
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [data])
+
   if (!data) return null
 
   const valueOf = (key: string) => overrides[key] ?? data.defaults[key]
@@ -408,32 +433,6 @@ export function SettingsSection() {
   /** True when this setting carries a stored override rather than the value
    *  the server started with. */
   const isOverridden = (key: string) => overrides[key] !== undefined && overrides[key] !== null
-
-  // Who changed an overridden setting, and when: the audit log knows, the
-  // settings document does not. `settings_updated` carries the keys it
-  // touched in its details, newest first, so the first row naming a key is
-  // its last change. Re-read whenever the document does, which is after
-  // every save.
-  const [lastChange, setLastChange] = useState<Record<string, { actor: string; timestamp: string }>>({})
-  useEffect(() => {
-    let live = true
-    api
-      .audit({ event: 'settings_updated', limit: 100 })
-      .then((rows) => {
-        if (!live) return
-        const seen: Record<string, { actor: string; timestamp: string }> = {}
-        for (const row of rows) {
-          for (const key of row.details.split(',').map((k) => k.trim())) {
-            if (key && !seen[key]) seen[key] = { actor: row.actor, timestamp: row.timestamp }
-          }
-        }
-        setLastChange(seen)
-      })
-      .catch(() => {})
-    return () => {
-      live = false
-    }
-  }, [data])
 
   /** True when aperio-server.yaml sets this key. The file wins, so the field
    *  is shown rather than offered: typing here would be refused on save. */

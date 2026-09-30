@@ -207,6 +207,38 @@ async fn import_no_sections_is_ok_with_empty_counts() {
 }
 
 #[tokio::test]
+async fn importing_users_revokes_sessions_bound_to_old_user_rows() {
+  let state = Arc::new(test_state());
+  let user = state
+    .users
+    .lock()
+    .await
+    .create("old-admin", "long-password", Role::Admin, None)
+    .unwrap();
+  let token = seed_session(&state, Role::Admin, Some(&user.username), None).await;
+  assert!(
+    crate::auth::resolve_caller(&state, &cookie_headers(&token))
+      .await
+      .is_some()
+  );
+
+  let response = import_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    admin_headers(&state).await,
+    import_dump(FORMAT_VERSION, None, None, Some(Vec::new()), None, None),
+  )
+  .await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert!(state.sessions.lock().await.get(&token).is_none());
+  assert!(
+    crate::auth::resolve_caller(&state, &cookie_headers(&token))
+      .await
+      .is_none()
+  );
+}
+
+#[tokio::test]
 async fn import_all_sections_applies_and_reports_counts() {
   let state = Arc::new(test_state());
   let headers = admin_headers(&state).await;

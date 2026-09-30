@@ -84,7 +84,9 @@ export class ServerSideSpec extends Test({
    * a millisecond, in roughly one run in four.
    */
   async hookDeclared() {
-    await this.server._waitForLog('from this server')
+    await this.server._waitForLog('from this server').catch((error: Error) => {
+      throw new Error(`${error.message}\n--- direct client log ---\n${this.client._log()}`)
+    })
   }
 
   async aRequestIsAnsweredByTheBackendTheServerReached() {
@@ -295,7 +297,9 @@ export class FlatServerSideSpec extends Test({
   async theEnvironmentSpellingMovesTheLastHopToo() {
     const target = this.flat._backendUrl()
     assert.ok(target, 'the flat client must name a backend to reach')
-    await this.server._waitForLog(`serves ${target} from this server`)
+    await this.server._waitForLog(`serves ${target} from this server`).catch((error: Error) => {
+      throw new Error(`${error.message}\n--- flat client log ---\n${this.flat._log()}`)
+    })
     const res = await this.server._fetch('/hello?env=1', { host: 'ss-env.e2e.local' })
     assert.equal(res.status, 200)
     assert.match(res.body, /GET \/hello\?env=1/, res.body)

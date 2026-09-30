@@ -1,16 +1,13 @@
 import { Test } from 'nole'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { freePort, waitFor } from './env.js'
+import { binary, freePort, waitFor } from './env.js'
 
 const run = promisify(execFile)
 
 function mockH2Bin(): string {
-  const root = join(import.meta.dirname, '..', '..', '..')
-  const base = process.env.MOCK_H2_BIN ?? join(root, 'target', 'debug', 'mock-h2')
-  return existsSync(`${base}.exe`) ? `${base}.exe` : base
+  return binary('mock-h2', process.env.MOCK_H2_BIN)
 }
 
 /**

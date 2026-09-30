@@ -203,6 +203,7 @@ pub(crate) async fn wait_for_candidate(
       // split here would keep waiting for a version that may not be coming,
       // while the other one is already serving.
       None,
+      None,
     )
     .await
     {

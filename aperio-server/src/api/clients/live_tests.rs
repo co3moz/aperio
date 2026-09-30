@@ -194,6 +194,106 @@ async fn live_stream_ends_when_the_session_it_opened_with_is_revoked() {
   );
 }
 
+#[tokio::test]
+async fn live_stream_ends_when_a_topic_outlives_the_callers_role() {
+  use axum::response::IntoResponse;
+  use futures_util::StreamExt;
+  use std::time::Duration;
+  use tokio::time::timeout;
+
+  let state = Arc::new(test_state());
+  let user = state
+    .users
+    .lock()
+    .await
+    .create("stream-admin", "long-password", Role::Admin, None)
+    .unwrap();
+  let token = seed_session(&state, Role::Admin, Some(&user.username), None).await;
+  let resp = live_stream_handler(
+    State(state.clone()),
+    cookie_headers(&token),
+    topics("users"),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  let mut body = resp.into_response().into_body().into_data_stream();
+  assert!(frame_named(&mut body, "users", 3).await.is_some());
+
+  state
+    .users
+    .lock()
+    .await
+    .set_grants(
+      &user.id,
+      vec![crate::store::grants::Grant::new(
+        crate::store::grants::GrantOrg::Master,
+        Role::Viewer,
+      )],
+    )
+    .unwrap();
+  state
+    .audit("user_grant_removed", "aperio", "127.0.0.1", "stream-admin")
+    .await;
+  assert!(
+    timeout(Duration::from_secs(4), body.next())
+      .await
+      .expect("the next tick closes the stream")
+      .is_none(),
+    "an admin-only topic must stop after the grant is reduced"
+  );
+}
+
+#[tokio::test]
+async fn live_stream_ends_when_the_callers_organization_changes() {
+  use axum::response::IntoResponse;
+  use futures_util::StreamExt;
+  use std::time::Duration;
+  use tokio::time::timeout;
+
+  let state = Arc::new(test_state());
+  let user = state
+    .users
+    .lock()
+    .await
+    .create_with_grants(
+      "stream-viewer",
+      "long-password",
+      None,
+      vec![
+        crate::store::grants::Grant::new(crate::store::grants::GrantOrg::Master, Role::Viewer),
+        crate::store::grants::Grant::new(
+          crate::store::grants::GrantOrg::Child("acme".into()),
+          Role::Viewer,
+        ),
+      ],
+    )
+    .unwrap();
+  let token = seed_session(&state, Role::Viewer, Some(&user.username), None).await;
+  let resp = live_stream_handler(
+    State(state.clone()),
+    cookie_headers(&token),
+    axum::extract::Query(Default::default()),
+  )
+  .await;
+  let mut body = resp.into_response().into_body().into_data_stream();
+  assert!(frame_named(&mut body, "stats", 1).await.is_some());
+
+  assert!(
+    state
+      .sessions
+      .lock()
+      .await
+      .set_selected_org(&token, Some("acme".into()))
+  );
+  assert!(
+    timeout(Duration::from_secs(4), body.next())
+      .await
+      .expect("the next tick closes the stream")
+      .is_none(),
+    "the stream must not keep sending its old organization's events"
+  );
+}
+
 /// A log entry with the fields the filters look at.
 fn log_of(
   id: &str,

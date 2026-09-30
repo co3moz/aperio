@@ -424,6 +424,9 @@ pub(crate) async fn proxy_http_request(
     affinity.as_deref(),
     Some(caller_ip),
     canary,
+    visitor
+      .as_ref()
+      .and_then(|identity| identity.forward_client_id.as_deref()),
   )
   .await
   {
@@ -460,6 +463,9 @@ pub(crate) async fn proxy_http_request(
       // A resilient cached answer (possibly stale) beats the 504, but never
       // for a denied visitor: serving cache would leak the route's existence.
       if !denied
+        && !visitor
+          .as_ref()
+          .is_some_and(|v| v.forward_client_id.is_some())
         && let Some(resp) =
           stale_cache_response(&state, &method_str, &uri_str, &headers, start_time).await
       {
@@ -565,6 +571,9 @@ pub(crate) async fn proxy_http_request(
   // Cache-Control explicitly allowed shared caching were stored.
   let cache_eligible = state.config().cache_enabled
     && selected.cache
+    && !visitor
+      .as_ref()
+      .is_some_and(|v| v.forward_client_id.is_some())
     && crate::cache::request_cacheable(&method_str, &headers);
   let cache_key = crate::cache::cache_key(request_host.as_deref(), &uri_str);
   // Single-flight coalescing: the first cacheable miss for a key becomes the
