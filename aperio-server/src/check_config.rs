@@ -348,7 +348,15 @@ pub(crate) fn run() -> i32 {
       Err(e) => r.fail(&format!("`routes:` section does not compile: {e}")),
     }
   }
-  if let Some(expose) = check_section::<Vec<aperio_config::ExposeEntry>>(&mut r, "expose") {
+  if let Some(mut expose) = check_section::<Vec<aperio_config::ExposeEntry>>(&mut r, "expose") {
+    match env("HOST").unwrap_or_else(|| "0.0.0.0".into()).parse() {
+      Ok(address) => {
+        for rule in &mut expose {
+          rule.address = Some(rule.address.unwrap_or(address));
+        }
+      }
+      Err(_) => r.fail("expose listener host must be an IP address"),
+    }
     for error in aperio_config::expose::validate_entries(
       &expose,
       &[

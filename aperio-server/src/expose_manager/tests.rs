@@ -132,6 +132,71 @@ async fn clean(state: &Arc<AppState>) {
   .expect("stream registry cleanup");
 }
 
+#[test]
+fn duplicate_file_identities_are_rejected_before_startup_or_reload_binds() {
+  let _lock = crate::test_support::config_lock();
+  struct Cleanup;
+  impl Drop for Cleanup {
+    fn drop(&mut self) {
+      let _ = std::fs::remove_file("aperio-server.yaml");
+      crate::config_file::forget();
+    }
+  }
+  let _cleanup = Cleanup;
+  tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .unwrap()
+    .block_on(async {
+      let state = Arc::new(test_state());
+      let rule = fresh(ExposeProtocol::Tcp).await;
+      let port = rule.spec.listener.port;
+      let valid = format!("expose:\n  - port: {port}\n    tunnel: echo\n");
+      let duplicate = format!(
+        "{valid}  - port: {port}\n    address: 127.0.0.1\n    tunnel: other\n    enabled: false\n"
+      );
+      std::fs::write("aperio-server.yaml", &duplicate).unwrap();
+      crate::config_file::reload().unwrap();
+      let mut manager = state.exposes.lock().await;
+      manager.initialize(&state, "127.0.0.1").await;
+      assert!(
+        manager
+          .file_error
+          .as_ref()
+          .unwrap()
+          .contains("declared twice")
+      );
+      assert!(manager.entries.is_empty());
+      let socket = tokio::net::TcpListener::bind(("127.0.0.1", port))
+        .await
+        .unwrap();
+      drop(socket);
+
+      std::fs::write("aperio-server.yaml", valid).unwrap();
+      crate::config_file::reload().unwrap();
+      manager.reload(&state, "127.0.0.1").await.unwrap();
+      let id = format!("file:tcp:127.0.0.1:{port}");
+      let runtime = manager.entries[&id].runtime.clone();
+      std::fs::write("aperio-server.yaml", duplicate).unwrap();
+      crate::config_file::reload().unwrap();
+      assert!(
+        manager
+          .reload(&state, "127.0.0.1")
+          .await
+          .unwrap_err()
+          .contains("declared twice")
+      );
+      assert!(Arc::ptr_eq(&manager.entries[&id].runtime, &runtime));
+      assert!(manager.entries[&id].rule.resource.spec.enabled);
+      manager.shutdown().await;
+      assert!(
+        tokio::net::TcpListener::bind(("127.0.0.1", port))
+          .await
+          .is_ok()
+      );
+    });
+}
+
 #[tokio::test]
 async fn udp_preserves_peer_identity_empty_datagrams_and_shutdown_releases_port() {
   let state = Arc::new(test_state());

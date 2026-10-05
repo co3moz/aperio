@@ -197,6 +197,16 @@ pub struct ConfigChange {
 /// recorded here in the same commit that makes it (see CLAUDE.md).
 pub const CONFIG_CHANGES: &[ConfigChange] = &[
   ConfigChange {
+    // Mid-cycle version, confirmed by the release configuration audit.
+    version: "0.13.0",
+    surface: ConfigSurface::Server,
+    severity: ChangeSeverity::Breaking,
+    applies: Applies::WhenSet,
+    fields: &["expose", "expose.address", "expose.enabled"],
+    summary: "duplicate expose listener identities are rejected after resolving omitted addresses to the server host, including disabled entries",
+    action: "keep only one expose entry for each resolved address, protocol and port; an omitted address and an explicit address equal to host name the same listener, even when one entry is disabled",
+  },
+  ConfigChange {
     version: "0.12.0",
     surface: ConfigSurface::Client,
     severity: ChangeSeverity::Migration,

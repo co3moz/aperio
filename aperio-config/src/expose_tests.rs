@@ -7,6 +7,51 @@ fn entry(yaml: &str) -> ExposeEntry {
   serde_yaml::from_str(yaml).unwrap()
 }
 
+#[test]
+fn resolved_file_identities_reject_default_address_aliases_even_when_disabled() {
+  let supported = [ExposeProtocol::Tcp, ExposeProtocol::Udp];
+  for protocol in ["tcp", "udp"] {
+    for address in ["127.0.0.1", "0.0.0.0", "::1", "::"] {
+      let first = entry(&format!(
+        "port: 23456\ntunnel: echo\nprotocol: {protocol}\n"
+      ));
+      let mut second = first.clone();
+      second.address = Some(address.parse().unwrap());
+      second.enabled = false;
+      let errors = validate_entries_at_address(
+        &[first.clone(), second.clone()],
+        &supported,
+        address.parse().unwrap(),
+      );
+      assert!(errors.iter().any(|e| e.field == "expose[1].port"));
+      // Address families and transports still have separate socket identities.
+      second.protocol = if protocol == "tcp" { "udp" } else { "tcp" }.into();
+      assert!(
+        validate_entries_at_address(
+          &[first.clone(), second.clone()],
+          &supported,
+          address.parse().unwrap()
+        )
+        .is_empty()
+      );
+      second.protocol = protocol.into();
+      second.address = Some(
+        if address.contains(':') {
+          "127.0.0.1"
+        } else {
+          "::1"
+        }
+        .parse()
+        .unwrap(),
+      );
+      assert!(
+        validate_entries_at_address(&[first, second], &supported, address.parse().unwrap())
+          .is_empty()
+      );
+    }
+  }
+}
+
 fn tcp_spec() -> ExposeSpec {
   ExposeSpec {
     advertised_host: None,

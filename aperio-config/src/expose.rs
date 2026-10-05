@@ -210,6 +210,19 @@ impl ExposeEntry {
 }
 
 /// Validate a legacy file section, with indexed field paths for diagnostics.
+pub fn validate_entries_at_address(
+  rules: &[ExposeEntry],
+  supported: &[ExposeProtocol],
+  default_address: IpAddr,
+) -> Vec<ExposeError> {
+  let mut resolved = rules.to_vec();
+  for rule in &mut resolved {
+    rule.address = Some(rule.address.unwrap_or(default_address));
+  }
+  validate_entries(&resolved, supported)
+}
+
+/// Validate declarations before a server bind address is available.
 pub fn validate_entries(rules: &[ExposeEntry], supported: &[ExposeProtocol]) -> Vec<ExposeError> {
   let mut errors = Vec::new();
   let mut ports = std::collections::HashSet::new();

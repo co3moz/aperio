@@ -27,12 +27,6 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
-- [ ] **#197 Reject duplicate YAML expose identities after resolving bind addresses.**
-  An omitted address and an explicit server bind address currently pass
-  validation but become the same runtime id. Reject the collision before
-  opening any sockets, including disabled entries, so replacing the manager
-  entry cannot detach a still-serving listener. Cover startup and reload.
-
 - [ ] **#198 Retain expose quota reservations until draining sessions finish.**
   Draining marks desired state disabled while existing TCP/UDP sessions still
   consume capacity and bandwidth. Include those runtime reservations in both
@@ -470,6 +464,12 @@ so.
   `#169`; the last check's `0.6.0-rc.8` was four weeks behind this.
 
 ## Completed
+
+- [x] **#197 Reject duplicate YAML expose identities after resolving bind addresses.**
+  Shipped: resolved-address validation rejects duplicate identities, including
+  disabled entries, before startup or reload can bind sockets. Config checks
+  use the same resolved addresses. Regressions cover TCP/UDP, IPv4/IPv6,
+  startup without orphan sockets and reload preserving the previous listener.
 
 - [x] **#196 Isolate expose session history when a resource identity is reused.**
   Shipped: session lists filter by the resource's organization and id before

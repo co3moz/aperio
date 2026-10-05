@@ -8,6 +8,8 @@ project follows semantic versioning per release tag.
 
 ### Security
 
+- **Duplicate YAML expose addresses cannot leave an unmanaged public listener.** Startup, reload and config checks resolve omitted bind addresses before checking duplicate identities, including disabled entries. An explicit address equal to the server host can no longer overwrite the manager's record while its original socket keeps serving.
+
 - **Expose session history stays within its owning organization.** Recreating a deleted expose UUID in another organization no longer reveals the former owner's peer addresses and backend targets. Session lists check both the resource identity and the session's organization before counting or paging records.
 
 ### Added

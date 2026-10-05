@@ -556,7 +556,14 @@ impl ExposeManager {
       }
       None => Vec::new(),
     };
-    let errors = validate_entries(&entries, &[ExposeProtocol::Tcp, ExposeProtocol::Udp]);
+    let default_host: IpAddr = host
+      .parse()
+      .map_err(|_| "expose listener host must be an IP address")?;
+    let errors = validate_entries_at_address(
+      &entries,
+      &[ExposeProtocol::Tcp, ExposeProtocol::Udp],
+      default_host,
+    );
     if !errors.is_empty() {
       return Err(
         errors
@@ -566,9 +573,6 @@ impl ExposeManager {
           .join(", "),
       );
     }
-    let default_host: IpAddr = host
-      .parse()
-      .map_err(|_| "expose listener host must be an IP address")?;
     let mut rules = Vec::new();
     for entry in entries {
       let protocol = if entry.protocol == "udp" {
