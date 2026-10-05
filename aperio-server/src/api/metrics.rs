@@ -313,6 +313,7 @@ pub(crate) async fn metrics_handler(
   out.push_str("# TYPE aperio_uptime_seconds gauge\n");
   out.push_str(&format!("aperio_uptime_seconds {}\n", uptime));
   state.duration_histogram.render(&mut out);
+  state.exposes.lock().await.render_metrics(&mut out);
 
   // Refusals by limit. During a load test this is the question being asked,
   // "which ceiling am I hitting", and a header cannot answer it at ten

@@ -4,6 +4,137 @@
 
 use super::*;
 
+fn exposed(org: GrantOrg, role: Role, actions: &[ExposeAction]) -> Grant {
+  let mut grant = Grant::new(org, role);
+  grant.expose.extend(actions.iter().copied());
+  grant
+}
+
+#[test]
+fn expose_is_explicit_for_tenants_and_master_keeps_server_authority() {
+  for role in [Role::Viewer, Role::Operator, Role::Admin] {
+    assert!(!may_expose(
+      &[child("acme", role)],
+      Some("acme"),
+      ExposeAction::Create
+    ));
+  }
+  for action in ExposeAction::ALL {
+    assert!(may_expose(&all_admin(), Some("acme"), action));
+  }
+  let grant = exposed(
+    GrantOrg::Child("acme".into()),
+    Role::Viewer,
+    &[ExposeAction::Create],
+  );
+  assert!(may_expose(
+    std::slice::from_ref(&grant),
+    Some("acme"),
+    ExposeAction::Read
+  ));
+  assert!(may_expose(
+    std::slice::from_ref(&grant),
+    Some("acme"),
+    ExposeAction::Create
+  ));
+  assert!(!may_expose(
+    std::slice::from_ref(&grant),
+    Some("acme"),
+    ExposeAction::Delete
+  ));
+  assert!(!may_expose(&[grant], Some("beta"), ExposeAction::Create));
+}
+
+#[test]
+fn explicit_empty_expose_capabilities_override_the_wildcard() {
+  let grants = [
+    exposed(GrantOrg::All, Role::Operator, &[ExposeAction::Create]),
+    child("acme", Role::Admin),
+  ];
+  assert!(!may_expose(&grants, Some("acme"), ExposeAction::Read));
+  assert!(may_expose(&grants, Some("beta"), ExposeAction::Create));
+}
+
+#[test]
+fn expose_delegation_cannot_widen_or_create_itself() {
+  let org = GrantOrg::Child("acme".into());
+  let wanted = exposed(org.clone(), Role::Viewer, &[ExposeAction::Create]);
+  let mut granter = exposed(org.clone(), Role::Admin, &[ExposeAction::Create]);
+  assert!(!may_grant(std::slice::from_ref(&granter), &wanted));
+  granter.expose.insert(ExposeAction::Delegate);
+  assert!(may_grant(std::slice::from_ref(&granter), &wanted));
+  assert!(!may_grant(
+    std::slice::from_ref(&granter),
+    &exposed(org.clone(), Role::Admin, &[ExposeAction::Delete])
+  ));
+  assert!(!may_grant(
+    &[child("acme", Role::Admin)],
+    &exposed(org, Role::Admin, &[ExposeAction::Delegate])
+  ));
+  assert!(!may_grant(
+    &[granter],
+    &exposed(GrantOrg::All, Role::Viewer, &[ExposeAction::Create])
+  ));
+}
+
+#[test]
+fn expose_capabilities_round_trip_and_old_rows_default_to_none() {
+  let old: Grant = serde_json::from_str(r#"{"org":"acme","role":"admin"}"#).unwrap();
+  assert!(old.expose.is_empty());
+  let grant = exposed(
+    GrantOrg::Child("acme".into()),
+    Role::Operator,
+    &[
+      ExposeAction::Read,
+      ExposeAction::Create,
+      ExposeAction::Delegate,
+    ],
+  );
+  assert_eq!(Grant::parse(&grant.label()).unwrap(), grant);
+  assert_eq!(
+    parse_list(&format!("{},beta:viewer", grant.label()))
+      .unwrap()
+      .len(),
+    2
+  );
+  assert_eq!(
+    serde_json::from_value::<Grant>(serde_json::to_value(&grant).unwrap()).unwrap(),
+    grant
+  );
+  assert!(Grant::parse("acme:admin+expose.everything").is_err());
+  assert!(
+    serde_json::from_str::<Grant>(r#"{"org":"acme","role":"admin","expose":["everything"]}"#)
+      .is_err()
+  );
+}
+
+#[test]
+fn oidc_capability_changes_are_recomputed_not_accumulated() {
+  let mut first = exposed(
+    GrantOrg::Child("acme".into()),
+    Role::Operator,
+    &[ExposeAction::Create],
+  );
+  first.source = Some("ops".into());
+  let mut second = exposed(
+    GrantOrg::Child("acme".into()),
+    Role::Admin,
+    &[ExposeAction::Delete],
+  );
+  second.source = Some("admins".into());
+  let (both, _, _) = apply_group_map(&[], vec![first.clone(), second.clone()]);
+  assert!(may_expose(&both, Some("acme"), ExposeAction::Delete));
+  assert!(may_expose(&both, Some("acme"), ExposeAction::Create));
+  let (same, added, removed) = apply_group_map(&both, vec![first.clone(), second]);
+  assert_eq!(same, both);
+  assert!(added.is_empty() && removed.is_empty());
+  let (next, added, removed) = apply_group_map(&both, vec![first.clone()]);
+  assert_eq!(next, vec![first]);
+  assert!(!may_expose(&next, Some("acme"), ExposeAction::Delete));
+  assert_eq!(added.len(), 1);
+  assert_eq!(removed.len(), 1);
+}
+
 fn child(id: &str, role: Role) -> Grant {
   Grant::new(GrantOrg::Child(id.to_string()), role)
 }

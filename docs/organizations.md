@@ -74,6 +74,43 @@ aperio-client api user update <id> --grant <acme-id>:admin
 
 **Upgrading.** A user record from before grants existed is read as one grant in its home organization, except an Admin of master, which is read as `*: admin`: that is exactly what the record could do before, and narrowing it on an upgrade would lock out whoever runs the server. The same goes for an Admin key of master. Each one is written down in the audit log at the first start (`grants_widened_on_upgrade`), and the Users page shows a notice while any user still carries `*`, so the operator narrows them by hand and knows when they are done.
 
+### Public expose capabilities
+
+User grants now accept an optional `expose` list. The actions are `read`,
+`create`, `update`, `enable`, `disable`, `delete`, `disconnect` and `delegate`.
+Any action implies read access; it does not imply another mutation. For example:
+
+```json
+{"org":"<acme-id>","role":"viewer","expose":["create","update","disable"]}
+```
+
+These capabilities authorize the [public TCP/UDP expose API and dashboard](public-exposes.md).
+Server administrators first allocate listener addresses, port ranges and resource
+ceilings to the organization. A grant may further narrow that allocation with
+`expose_bounds`. Capabilities alone do not allocate or open a port. Both the
+server allocation and the user's bounds are enforced on every mutation.
+
+An existing tenant Admin gets no expose capabilities automatically. A specific
+organization's grant replaces its wildcard grant, including an empty action
+list. Master Admin retains server-global control. To delegate actions within a
+tenant, an administrator needs `delegate` and every action being assigned.
+An administrator who cannot delegate a user's expose rights also cannot reset
+that user's password/TOTP, disable or delete their account: those operations
+would otherwise provide an indirect way to take over the rights.
+
+`POST /aperio/api/admin-keys` accepts the same optional `expose` list, bounded
+by the key's organization scope. Its existing master-admin creation gate is
+unchanged. Session organization entries return `expose_actions` so future UI
+controls can reflect current authorization; the server must still check each
+operation. Revoked grants apply to the next request, not the next login.
+
+OIDC grant mappings can append actions to a role, for example
+`publishers=acme:viewer+expose.create+expose.disable`. Multiple matching groups
+combine actions inside an organization; removing a group removes its actions
+on the next login. The role-only mapping spelling remains valid. Full API grant
+replacement must include the actions to keep; a role-only user update preserves
+the existing actions.
+
 ## What is isolated
 
 Per **effective organization**, the one selected on the session out of those the caller's grants reach (a user granted one organization is simply in it), the following are scoped so one organization never sees another's:

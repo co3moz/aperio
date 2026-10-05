@@ -241,6 +241,8 @@ export interface AdminKeyView {
   created_at: number
   expires_at: number | null
   expired: boolean
+  expose_bounds?: ExposePolicy | null
+  expose?: ExposeAction[]
 }
 
 export interface AdminKeyCreatePayload {
@@ -248,6 +250,8 @@ export interface AdminKeyCreatePayload {
   role: string
   org_id?: string
   ttl_seconds?: number
+  expose_bounds?: ExposePolicy | null
+  expose?: ExposeAction[]
 }
 
 export interface TokenCreatePayload {
@@ -534,13 +538,28 @@ export interface ReachableOrg {
   name: string
   custom_name: string | null
   role: Role
+  /** Effective listener capabilities; these do not bypass server port policy. */
+  expose_bounds?: ExposePolicy | null
+  expose_actions?: ExposeAction[]
 }
+
+export type ExposeAction =
+  | 'read'
+  | 'create'
+  | 'update'
+  | 'enable'
+  | 'disable'
+  | 'delete'
+  | 'disconnect'
+  | 'delegate'
 
 /** One `(organization, role)` pair on a dashboard user. `org` is `master`,
  *  `*` for every organization, or a child id. */
 export interface UserGrant {
   org: string
   role: Role
+  expose_bounds?: ExposePolicy | null
+  expose?: ExposeAction[]
   /** The identity provider's group this grant was mapped from, when it was
    *  not written by hand; the map takes it back when the group is gone. */
   source?: string | null
@@ -548,6 +567,7 @@ export interface UserGrant {
 
 /** An organization as listed for the master super-admin. */
 export interface Organization {
+  oidc?: { issuer: string; client_id: string; allowed_emails: string[]; default_role: Role | null; group_grants: string[]; secret_configured: boolean } | null
   /** `master` for the implicit master org, otherwise a child org UUID. */
   id: string
   /** The handle: a-z, 0-9 and `_`, fixed at creation. What `payments@postgres`
@@ -691,10 +711,17 @@ export interface LiveSession {
 
 export class ApiError extends Error {
   readonly status: number
+  readonly code?: string
+  readonly fields: { field: string; message: string }[]
 
   constructor(status: number, message: string) {
-    super(message || `HTTP ${status}`)
+    let parsed: { code?: string; message?: string; errors?: { field: string; message: string }[] } = {}
+    try { parsed = JSON.parse(message) ?? {} } catch { /* Legacy endpoints return plain text. */ }
+    const fields = Array.isArray(parsed.errors) ? parsed.errors : []
+    super(parsed.message || (fields.length ? fields.map((e) => `${e.field}: ${e.message}`).join('\n') : message) || `HTTP ${status}`)
     this.status = status
+    this.code = parsed.code
+    this.fields = fields
   }
 }
 
@@ -744,6 +771,12 @@ export interface TopoStaticRoute {
 /** An experimental public TCP expose port. The shared key is never sent; only
  * whether a connected client currently serves it. */
 export interface TopoExpose {
+  id: string
+  org_id: string
+  tunnel: string
+  address: string
+  state: string
+  error: string | null
   port: number
   protocol: string
   served: boolean
@@ -804,6 +837,62 @@ export interface DeclaredTunnel {
   encrypt: boolean
   idle_timeout: number | null
   token_name: string | null
+}
+
+export type ExposeProtocol = 'tcp' | 'udp'
+export interface ExposeListener { address: string; port: number; protocol: ExposeProtocol }
+export type ExposeLimits = {
+  protocol: 'tcp'; max_connections: number; open_timeout_secs: number; drain_timeout_secs: number
+  ingress_bytes_per_second: number; egress_bytes_per_second: number
+} | {
+  protocol: 'udp'; max_sessions: number; max_sessions_per_ip: number; idle_timeout_secs: number
+  max_datagram_bytes: number; queue_packets: number; queue_bytes: number; new_sessions_per_second: number
+  ingress_bytes_per_second: number; egress_bytes_per_second: number
+}
+export interface ExposeSpec {
+  org_id: string; tunnel: string; listener: ExposeListener; enabled: boolean
+  limits: ExposeLimits; allowed_ips: string[]; advertised_host?: string | null
+}
+export interface ExposeResource { id: string; revision: number; source: 'file' | 'api'; spec: ExposeSpec }
+export interface ExposeView extends ExposeResource {
+  state: 'disabled' | 'binding' | 'listening' | 'draining' | 'suspended' | 'failed'
+  target_state: 'waiting' | 'ready' | 'unavailable' | 'incompatible'
+  served_by: string | null; error: string | null; sessions: number
+  up_bytes: number; down_bytes: number; up_packets: number; down_packets: number; drops: Record<string, number>
+}
+export interface ExposePolicy {
+  org_id: string; revision: number
+  allocations: (Omit<ExposeListener, 'port'> & { first_port: number; last_port: number })[]
+  reserved: ExposeListener[]
+  max_rules: number; max_tcp_connections: number; max_udp_sessions: number
+  ingress_bytes_per_second: number; egress_bytes_per_second: number
+}
+export interface ExposeItem { bounds: ExposePolicy | null; resource: ExposeView; actions: ExposeAction[]; policy: ExposePolicy | null }
+export interface ExposePage {
+  items: ExposeItem[]; total: number; volatile: boolean; history_error: string | null; store_error: string | null; file_error: string | null
+}
+export interface ExposeSession {
+  id: string; expose_id: string; org_id: string; revision: number; protocol: ExposeProtocol
+  peer: string; client_id: string; target: string; started_at: number
+  up_bytes: number; down_bytes: number; up_packets: number; down_packets: number
+  idle_seconds: number; ended_at: number | null; reason: string | null
+}
+export const exposeApi = {
+  list: (query: { offset?: number; org?: string; protocol?: string; search?: string; sort?: string; descending?: boolean; client?: string } = {}) => {
+    const params = new URLSearchParams()
+    for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== '') params.set(key, String(value))
+    return request<ExposePage>(`/exposes?${params}`)
+  },
+  detail: (id: string) => request<ExposeView>(`/exposes/${encodeURIComponent(id)}`),
+  create: (id: string, spec: ExposeSpec) => request<ExposeResource>('/exposes', json('POST', { id, spec })),
+  update: (id: string, revision: number, spec: ExposeSpec) => request<ExposeResource>(`/exposes/${encodeURIComponent(id)}`, json('PUT', { revision, spec })),
+  remove: (id: string, revision: number) => mutate(`/exposes/${encodeURIComponent(id)}`, json('DELETE', { revision })),
+  action: (id: string, revision: number, action: string, options: { session_id?: string; drain_seconds?: number } = {}) =>
+    request<ExposeResource>(`/exposes/${encodeURIComponent(id)}/actions`, json('POST', { revision, action, ...options })),
+  sessions: (id: string, history = false, offset = 0) => request<{ total: number; items: ExposeSession[] }>(`/exposes/${encodeURIComponent(id)}/sessions?history=${history}&offset=${offset}`),
+  events: (id: string, offset = 0) => request<{ total: number; items: AuditEvent[] }>(`/exposes/${encodeURIComponent(id)}/events?offset=${offset}`),
+  policies: () => request<ExposePolicy[]>('/exposes/policies'),
+  setPolicy: (policy: ExposePolicy) => request<ExposePolicy>(`/exposes/policies/${encodeURIComponent(policy.org_id)}`, json('PUT', policy)),
 }
 
 export const api = {

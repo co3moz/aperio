@@ -8,6 +8,7 @@ use tracing::{error, warn};
 
 pub(crate) mod admin_keys;
 pub(crate) mod audit;
+pub(crate) mod exposes;
 pub(crate) mod grants;
 pub(crate) mod inbox;
 pub(crate) mod orgs;
@@ -97,7 +98,10 @@ fn initialize_db(conn: Connection) -> rusqlite::Result<Connection> {
      CREATE TABLE IF NOT EXISTS organizations (id TEXT PRIMARY KEY, data TEXT NOT NULL);
      CREATE TABLE IF NOT EXISTS inbox (id TEXT PRIMARY KEY, data TEXT NOT NULL);
      CREATE TABLE IF NOT EXISTS admin_keys (id TEXT PRIMARY KEY, data TEXT NOT NULL);
-     CREATE TABLE IF NOT EXISTS scaling (id TEXT PRIMARY KEY, data TEXT NOT NULL);",
+     CREATE TABLE IF NOT EXISTS scaling (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+     CREATE TABLE IF NOT EXISTS expose_config (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+     CREATE TABLE IF NOT EXISTS expose_sessions (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, ended_at INTEGER NOT NULL, data TEXT NOT NULL);
+     CREATE INDEX IF NOT EXISTS expose_sessions_org_time ON expose_sessions(org_id, ended_at);",
   )?;
   Ok(conn)
 }

@@ -77,6 +77,7 @@ one HTTP target declares none of them and therefore receives none.
 | `TcpOpen` | server to client | a declared TCP tunnel |
 | `TcpData` | both ways | a declared TCP tunnel |
 | `TcpClose` | both ways | a declared TCP tunnel |
+| `TcpEof` | server to client | a declared TCP tunnel and protocol v10 |
 | `UdpOpen` | server to client | a declared UDP tunnel |
 | `UdpDatagram` | both ways | a declared UDP tunnel |
 | `UdpClose` | both ways | a declared UDP tunnel |

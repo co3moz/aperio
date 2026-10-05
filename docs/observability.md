@@ -294,3 +294,16 @@ Selectors (at least one required): `hostname` (a request hostname), `token` (a t
 Copy-and-adapt config pairs for this topic:
 
 - [`observability`](examples/observability/): metrics, traces, alerts
+
+
+### Public listener audit events
+
+| Event | Meaning |
+| --- | --- |
+| `expose_changed` | An authorized actor created, edited, operated or removed a listener; safe before/after state and revision are recorded. |
+| `expose_failed` | An authenticated mutation was rejected; method, status and permitted resource identity are recorded without request bodies. |
+| `expose_runtime` | A listener changed observed state, including bind failure, suspension, draining and recovery. |
+| `expose_policy_changed` | A server administrator changed an organization's public port allocation or ceilings. |
+
+These events are scoped to the owning organization. Listener session metadata
+and bounded-cardinality metrics are described in [public exposes](public-exposes.md).

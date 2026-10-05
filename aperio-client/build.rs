@@ -9,7 +9,7 @@ fn main() {
   // Only regenerate when this script or the schema model changes, never on
   // our own writes into schemas/, so there is no rebuild loop.
   println!("cargo:rerun-if-changed=build.rs");
-  println!("cargo:rerun-if-changed=../aperio-config/src/lib.rs");
+  println!("cargo:rerun-if-changed=../aperio-config/src");
 
   let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default());
   let workspace_root = manifest_dir.parent().unwrap_or(&manifest_dir);
@@ -22,9 +22,17 @@ fn main() {
     return;
   }
 
-  // Two schemas: the client aperio.yaml and the server aperio-server.yaml.
+  // Configuration and dynamic public-listener schemas from the same models.
   for (name, schema) in [
     ("aperio-client.schema.json", aperio_config::schema_json()),
+    (
+      "aperio-expose.schema.json",
+      aperio_config::expose_schema_json(),
+    ),
+    (
+      "aperio-expose-policy.schema.json",
+      aperio_config::expose_policy_schema_json(),
+    ),
     (
       "aperio-server.schema.json",
       aperio_config::server_schema_json(),

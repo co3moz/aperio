@@ -43,6 +43,8 @@ pub(crate) enum Identity {
     name: String,
     role: Role,
     scope: GrantOrg,
+    expose: std::collections::BTreeSet<grants::ExposeAction>,
+    expose_bounds: Option<aperio_config::expose_policy::ExposePolicy>,
   },
 }
 
@@ -69,7 +71,18 @@ impl Caller {
         Some(org) => vec![Grant::new(GrantOrg::Child(org.clone()), *role)],
         None => grants::legacy_grants(*role, None).0,
       },
-      Identity::Key { role, scope, .. } => vec![Grant::new(scope.clone(), *role)],
+      Identity::Key {
+        role,
+        scope,
+        expose,
+        expose_bounds,
+        ..
+      } => {
+        let mut grant = Grant::new(scope.clone(), *role);
+        grant.expose = expose.clone();
+        grant.expose_bounds = expose_bounds.clone();
+        vec![grant]
+      }
     }
   }
 
@@ -83,6 +96,25 @@ impl Caller {
   /// through `*` Admin.
   pub(crate) fn is_master_admin(&self) -> bool {
     self.role_in(None) == Some(Role::Admin)
+  }
+
+  /// Effective public-listener actions, recomputed from current grants.
+  pub(crate) fn expose_actions(&self, org: Option<&str>) -> Vec<grants::ExposeAction> {
+    let grants = self.grants();
+    grants::ExposeAction::ALL
+      .into_iter()
+      .filter(|a| grants::may_expose(&grants, org, *a))
+      .collect()
+  }
+
+  pub(crate) fn expose_bounds(
+    &self,
+    org: &str,
+  ) -> Option<aperio_config::expose_policy::ExposePolicy> {
+    grants::expose_bounds(
+      &self.grants(),
+      if org == "master" { None } else { Some(org) },
+    )
   }
 
   /// Holds `*` Admin: the only caller that may hand `*` to somebody else.
@@ -201,7 +233,16 @@ pub(crate) async fn resolve_caller(state: &AppState, headers: &HeaderMap) -> Opt
             username: user.username.clone(),
             grants: user
               .role_in(Some(&org))
-              .map(|role| vec![Grant::new(GrantOrg::Child(org.clone()), role)])
+              .map(|role| {
+                let mut grant = Grant::new(GrantOrg::Child(org.clone()), role);
+                grant.expose_bounds = grants::expose_bounds(&user.grants, Some(&org));
+                // The bound organization limits scope, not capabilities.
+                grant.expose = grants::ExposeAction::ALL
+                  .into_iter()
+                  .filter(|a| grants::may_expose(&user.grants, Some(&org), *a))
+                  .collect();
+                vec![grant]
+              })
               .unwrap_or_default(),
           }),
           None
@@ -253,6 +294,8 @@ pub(crate) async fn resolve_caller(state: &AppState, headers: &HeaderMap) -> Opt
       name: key.name.clone(),
       role: key.role,
       scope: key.scope(),
+      expose: key.expose.clone(),
+      expose_bounds: key.expose_bounds.clone(),
     },
     selected: None,
   })

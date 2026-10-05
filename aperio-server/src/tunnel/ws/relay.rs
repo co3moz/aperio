@@ -96,7 +96,20 @@ impl ConnCtx {
     let consumer_tx = {
       let streams = state.udp_streams.lock().await;
       match streams.get(stream_id) {
-        Some(h) if h.client_id == *client_id => Some(h.tx.clone()),
+        Some(h) if h.client_id == *client_id => {
+          if let Some((limit, runtime)) = &h.public
+            && bytes.len() > *limit
+          {
+            if let Some(runtime) = runtime.upgrade() {
+              runtime.dropped("oversize");
+            }
+            return;
+          }
+          Some((
+            h.tx.clone(),
+            h.public.as_ref().map(|(_, runtime)| runtime.clone()),
+          ))
+        }
         Some(_) => {
           warn!(
             "UdpDatagram for stream {} rejected: not owned by client {}",
@@ -107,12 +120,18 @@ impl ConnCtx {
         None => None,
       }
     };
-    if let Some(consumer_tx) = consumer_tx {
+    if let Some((consumer_tx, public)) = consumer_tx {
       // Best-effort: a congested consumer drops datagrams.
-      if let Err(mpsc::error::TrySendError::Closed(_)) =
-        consumer_tx.try_send(TcpConsumerMsg::Data(bytes))
-      {
-        state.udp_streams.lock().await.remove(stream_id);
+      match consumer_tx.try_send(TcpConsumerMsg::Data(bytes)) {
+        Err(mpsc::error::TrySendError::Closed(_)) => {
+          state.udp_streams.lock().await.remove(stream_id);
+        }
+        Err(mpsc::error::TrySendError::Full(_)) => {
+          if let Some(runtime) = public.and_then(|r| r.upgrade()) {
+            runtime.dropped("egress_queue");
+          }
+        }
+        Ok(()) => {}
       }
     }
   }

@@ -46,12 +46,7 @@ pub(crate) fn name_of(decl: &TunnelDecl) -> String {
 /// Qualifying it says which organization is meant, and reads the way the
 /// dashboard shows it: `master@dns`, `payments@postgres`. An organization
 /// name cannot contain `@`, which is what keeps the split unambiguous.
-pub(crate) fn split_qualified(raw: &str) -> (Option<&str>, &str) {
-  match raw.trim().split_once('@') {
-    Some((org, name)) => (Some(org.trim()), name.trim()),
-    None => (None, raw.trim()),
-  }
-}
+pub(crate) use aperio_config::expose::split_qualified;
 
 /// The `org_id` clients of the organization named `name` carry.
 ///

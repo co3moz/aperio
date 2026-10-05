@@ -12,6 +12,8 @@ fn create_req(
   ttl: Option<u64>,
 ) -> Json<AdminKeyCreateRequest> {
   Json(AdminKeyCreateRequest {
+    expose_bounds: None,
+    expose: Default::default(),
     name: name.to_string(),
     role: role.to_string(),
     org_id: org_id.map(|s| s.to_string()),

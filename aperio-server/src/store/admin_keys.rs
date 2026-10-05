@@ -26,6 +26,11 @@ pub struct AdminKey {
   pub key_prefix: String,
   /// Role this key authenticates as (its privilege ceiling).
   pub role: Role,
+  #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+  #[schema(value_type = Vec<String>)]
+  pub expose: std::collections::BTreeSet<super::grants::ExposeAction>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub expose_bounds: Option<aperio_config::expose_policy::ExposePolicy>,
   /// The child organization this key acts within; `None` = master, or every
   /// organization when `scope` says so. Kept as the older binaries wrote it;
   /// `scope()` is what to read.
@@ -160,12 +165,37 @@ impl AdminKeyStore {
   /// plaintext secret (available only at creation time). `scope` is where it
   /// acts; `org_id` is written alongside for the binaries that read only
   /// that, and a `*` key reads there as the master key it would have been.
+  #[cfg(test)]
   pub fn create(
     &mut self,
     name: String,
     role: Role,
     scope: GrantOrg,
     ttl_seconds: Option<u64>,
+  ) -> Option<(AdminKey, String)> {
+    self.create_with_expose(name, role, scope, ttl_seconds, Default::default())
+  }
+
+  #[cfg(test)]
+  pub fn create_with_expose(
+    &mut self,
+    name: String,
+    role: Role,
+    scope: GrantOrg,
+    ttl_seconds: Option<u64>,
+    expose: std::collections::BTreeSet<super::grants::ExposeAction>,
+  ) -> Option<(AdminKey, String)> {
+    self.create_with_bounds(name, role, scope, ttl_seconds, expose, None)
+  }
+
+  pub fn create_with_bounds(
+    &mut self,
+    name: String,
+    role: Role,
+    scope: GrantOrg,
+    ttl_seconds: Option<u64>,
+    expose: std::collections::BTreeSet<super::grants::ExposeAction>,
+    expose_bounds: Option<aperio_config::expose_policy::ExposePolicy>,
   ) -> Option<(AdminKey, String)> {
     let secret = format!(
       "apk_{}{}",
@@ -182,6 +212,8 @@ impl AdminKeyStore {
       key_hash: hash_token(&secret),
       key_prefix: secret.chars().take(12).collect(),
       role,
+      expose,
+      expose_bounds,
       org_id,
       scope: Some(scope),
       created_at: now_secs(),

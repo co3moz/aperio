@@ -7,10 +7,12 @@
 //! schema by hand.
 
 fn main() {
-  let server = std::env::args().any(|a| a == "--server");
-  if server {
-    println!("{}", aperio_config::server_schema_json());
-  } else {
-    println!("{}", aperio_config::schema_json());
-  }
+  let kind = std::env::args().nth(1);
+  let schema = match kind.as_deref() {
+    Some("--server") => aperio_config::server_schema_json(),
+    Some("--expose") => aperio_config::expose_schema_json(),
+    Some("--expose-policy") => aperio_config::expose_policy_schema_json(),
+    _ => aperio_config::schema_json(),
+  };
+  println!("{schema}");
 }

@@ -282,3 +282,41 @@ fn every_annotated_endpoint_is_in_the_configuration_docs() {
     missing.join("\n  ")
   );
 }
+
+#[test]
+fn expose_requests_publish_structured_protocol_and_policy_schemas() {
+  let document = serde_json::to_value(ApiDoc::openapi()).unwrap();
+  let schemas = &document["components"]["schemas"];
+  for name in [
+    "Create",
+    "Update",
+    "Operation",
+    "Restore",
+    "ExposeSpec",
+    "ExposeLimits",
+    "ExposePolicy",
+  ] {
+    assert!(schemas.get(name).is_some(), "missing {name}");
+  }
+  assert!(
+    schemas["ExposeSpec"]["properties"]
+      .get("advertised_host")
+      .is_some()
+  );
+  assert!(
+    schemas["ExposeLimits"]["oneOf"]
+      .as_array()
+      .is_some_and(|variants| variants.len() == 2)
+  );
+  for (path, method, schema) in [
+    ("/aperio/api/exposes", "post", "Create"),
+    ("/aperio/api/exposes/{id}", "put", "Update"),
+    ("/aperio/api/exposes/{id}/actions", "post", "Operation"),
+    ("/aperio/api/exposes/import", "post", "Restore"),
+  ] {
+    assert_eq!(
+      document["paths"][path][method]["requestBody"]["content"]["application/json"]["schema"]["$ref"],
+      format!("#/components/schemas/{schema}")
+    );
+  }
+}

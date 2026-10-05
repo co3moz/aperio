@@ -348,62 +348,19 @@ pub(crate) fn run() -> i32 {
       Err(e) => r.fail(&format!("`routes:` section does not compile: {e}")),
     }
   }
-  if let Some(expose) = check_section::<Vec<crate::expose::ExposeRule>>(&mut r, "expose") {
-    let mut ports = std::collections::HashSet::new();
-    for (i, rule) in expose.iter().enumerate() {
-      if rule.protocol != "tcp" {
-        r.fail(&format!(
-          "`expose:` entry #{}: protocol '{}' is not supported (TCP only)",
-          i + 1,
-          rule.protocol
-        ));
-      }
-      if rule.port == 0 {
-        r.fail(&format!(
-          "`expose:` entry #{}: port 0 lets the OS pick, so nothing can reach it",
-          i + 1
-        ));
-      }
-      match (&rule.tunnel, &rule.key) {
-        (Some(name), _) => {
-          let (prefix, bare) = crate::tunnel::registry::split_qualified(name);
-          if let Err(e) = aperio_config::validate_tunnel_name(bare) {
-            r.fail(&format!("`expose:` entry #{}: {e}", i + 1));
-          }
-          if let (Some(prefix), Some(org)) = (prefix, rule.org.as_deref())
-            && !prefix.eq_ignore_ascii_case(org.trim())
-          {
-            r.fail(&format!(
-              "`expose:` entry #{}: `tunnel: {prefix}@{bare}` and `org: {org}` name different organizations",
-              i + 1
-            ));
-          }
-          if rule.org.is_none() && prefix.is_none() && rule.token.is_some() {
-            r.warn(&format!(
-              "`expose:` entry #{}: `token:` is superseded by `org:`, a token name is not unique, so this rule can match a client of another organization; write `org: <name>` or `tunnel: <org>@{bare}`",
-              i + 1
-            ));
-          }
-        }
-        (None, None) => r.fail(&format!(
-          "`expose:` entry #{}: needs a `tunnel:` naming what the port relays into",
-          i + 1
-        )),
-        (None, Some(key)) => {
-          if key.trim().len() < 8 {
-            r.fail(&format!(
-              "`expose:` entry #{}: the key must be at least 8 characters",
-              i + 1
-            ));
-          }
-        }
-      }
-      if !ports.insert(rule.port) {
-        r.fail(&format!(
-          "`expose:` entry #{}: port {} is declared twice",
-          i + 1,
-          rule.port
-        ));
+  if let Some(expose) = check_section::<Vec<aperio_config::ExposeEntry>>(&mut r, "expose") {
+    for error in aperio_config::expose::validate_entries(
+      &expose,
+      &[
+        aperio_config::expose::ExposeProtocol::Tcp,
+        aperio_config::expose::ExposeProtocol::Udp,
+      ],
+    ) {
+      r.fail(&error.to_string());
+    }
+    for rule in &expose {
+      if rule.tunnel.is_some() && rule.token.is_some() {
+        r.warn("`expose:` `token:` is superseded by `org:` or a qualified tunnel name");
       }
     }
   }

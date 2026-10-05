@@ -18,6 +18,9 @@ pub(crate) enum ApiCommand {
   /// Ephemeral tunnels (short-lived token + hostname)
   #[command(subcommand)]
   Tunnel(TunnelCmd),
+  /// Public TCP/UDP listeners (requires explicit expose capabilities)
+  #[command(subcommand)]
+  Expose(ExposeCmd),
   /// Maintenance mode per hostname
   #[command(subcommand)]
   Maintenance(MaintenanceCmd),
@@ -492,7 +495,7 @@ pub(crate) struct UserCreateArgs {
   /// Role: viewer, operator, or admin, in the organization you are acting in
   #[arg(long, value_name = "ROLE", required_unless_present = "grants")]
   pub(crate) role: Option<String>,
-  /// A grant, `<org>:<role>`, repeatable; `<org>` is a child id, `master`, or `*`.
+  /// A grant, `<org>:<role>[+expose.<action>...]`, repeatable; `<org>` is a child id, `master`, or `*`.
   /// A user reaching several organizations is created from master
   #[arg(long = "grant", value_name = "ORG:ROLE")]
   pub(crate) grants: Vec<String>,
@@ -505,7 +508,7 @@ pub(crate) struct UserUpdateArgs {
   /// New role: viewer, operator, or admin, in the organization you are acting in
   #[arg(long, value_name = "ROLE")]
   pub(crate) role: Option<String>,
-  /// Replace the grant list: `<org>:<role>`, repeatable
+  /// Replace grants: `<org>:<role>[+expose.<action>...]`, repeatable
   #[arg(long = "grant", value_name = "ORG:ROLE")]
   pub(crate) grants: Vec<String>,
   /// Enable the account
@@ -649,6 +652,9 @@ pub(crate) struct AdminKeyCreateArgs {
   /// Lifetime: 30m, 2h, 1d, or never (default)
   #[arg(long, value_name = "DURATION")]
   pub(crate) expire: Option<String>,
+  /// Explicit public-listener actions, repeatable or comma-separated
+  #[arg(long = "expose", value_delimiter = ',', value_parser = ["read", "create", "update", "enable", "disable", "delete", "disconnect", "delegate"])]
+  pub(crate) expose: Vec<String>,
 }
 
 #[derive(Subcommand)]
@@ -744,4 +750,104 @@ pub(crate) struct PurgeArgs {
   /// Visitor IP whose inspector captures should be erased
   #[arg(long, value_name = "IP")]
   pub(crate) ip: Option<String>,
+}
+
+/// The server owns listener sockets; these calls never bind a local port.
+#[derive(Subcommand)]
+pub(crate) enum ExposeCmd {
+  /// List authorized listeners, including offline configured targets
+  List {
+    #[arg(long)]
+    org: Option<String>,
+    #[arg(long, value_parser = ["tcp", "udp"])]
+    protocol: Option<String>,
+    #[arg(long)]
+    search: Option<String>,
+    #[arg(long, default_value_t = 0)]
+    offset: usize,
+    #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(u16).range(1..=500))]
+    limit: u16,
+  },
+  /// Show desired configuration and actual state
+  Show { id: String },
+  /// Create from an ExposeSpec JSON file; --id makes repeated calls idempotent
+  Create {
+    #[arg(long)]
+    file: String,
+    #[arg(long)]
+    id: Option<String>,
+  },
+  /// Replace a resource using its last observed revision and an ExposeSpec JSON file
+  Update {
+    id: String,
+    #[arg(long)]
+    revision: u64,
+    #[arg(long)]
+    file: String,
+  },
+  /// Start accepting public traffic
+  Enable(ExposeRevisionArgs),
+  /// Close the listener and all its sessions immediately
+  Disable(ExposeRevisionArgs),
+  /// Retry a failed listener
+  Retry(ExposeRevisionArgs),
+  /// Delete the listener and terminate all its sessions
+  Delete(ExposeRevisionArgs),
+  /// Stop new admission and finish existing sessions within a deadline
+  Drain {
+    id: String,
+    #[arg(long)]
+    revision: u64,
+    #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u32).range(1..=3600))]
+    seconds: u32,
+  },
+  /// List active sessions, optionally including bounded recent history
+  Sessions {
+    id: String,
+    #[arg(long)]
+    history: bool,
+    #[arg(long, default_value_t = 0)]
+    offset: usize,
+    #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(u16).range(1..=500))]
+    limit: u16,
+  },
+  /// Disconnect one session without disabling its listener
+  Disconnect {
+    id: String,
+    #[arg(long)]
+    revision: u64,
+    #[arg(long)]
+    session: String,
+  },
+  /// Export only authorized API-owned rules and policies as JSON
+  Export,
+  /// Preview a backup on the destination; --apply commits the preview revision
+  Import {
+    #[arg(long)]
+    file: String,
+    #[arg(long)]
+    apply: bool,
+    #[arg(long, required_if_eq("apply", "true"))]
+    revision: Option<u64>,
+    /// Map a source organization id to a destination id (repeatable OLD=NEW)
+    #[arg(long = "org-map")]
+    org_map: Vec<String>,
+    /// Use the destination's policies instead of importing source allocations
+    #[arg(long)]
+    omit_policies: bool,
+  },
+  /// List visible organization port allocations and quotas
+  Policies,
+  /// Set an organization policy from JSON (server administrator only)
+  SetPolicy {
+    #[arg(long)]
+    file: String,
+  },
+}
+
+#[derive(Args)]
+pub(crate) struct ExposeRevisionArgs {
+  pub(crate) id: String,
+  #[arg(long)]
+  pub(crate) revision: u64,
 }

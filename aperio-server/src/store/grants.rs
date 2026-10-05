@@ -22,6 +22,9 @@
 //!   and narrowing it on an upgrade would lock out whoever runs the server.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+
+pub use aperio_config::expose::ExposeAction;
 
 use super::users::Role;
 
@@ -99,6 +102,12 @@ impl<'de> Deserialize<'de> for GrantOrg {
 pub struct Grant {
   pub org: GrantOrg,
   pub role: Role,
+  /// Explicit public-listener capabilities in this organization. Old tenant
+  /// roles have none; holding Admin there does not grant server sockets.
+  #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+  pub expose: BTreeSet<ExposeAction>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub expose_bounds: Option<aperio_config::expose_policy::ExposePolicy>,
   /// Where this grant came from when it was not written by hand: the group
   /// claim value an OIDC login mapped it from (`planned_features.md` #154).
   /// A mapped grant is the directory's to take back at the next login; a
@@ -112,6 +121,8 @@ impl Grant {
     Grant {
       org,
       role,
+      expose: BTreeSet::new(),
+      expose_bounds: None,
       source: None,
     }
   }
@@ -121,13 +132,30 @@ impl Grant {
     Grant {
       org,
       role,
+      expose: BTreeSet::new(),
+      expose_bounds: None,
       source: Some(group.to_string()),
     }
   }
 
   /// `acme:operator`, the spelling audit records and the CLI use.
   pub fn label(&self) -> String {
-    format!("{}:{}", self.org.as_str(), self.role.as_str())
+    let mut label = format!("{}:{}", self.org.as_str(), self.role.as_str());
+    for action in &self.expose {
+      label.push_str("+expose.");
+      label.push_str(action.as_str());
+    }
+    label
+  }
+
+  /// Role/capability spelling used by a tenant's OIDC mapping. The tenant
+  /// comes from the authenticated management path, never from the IdP text.
+  pub fn parse_in_org(org: &str, raw: &str) -> Result<Grant, String> {
+    let grant = Self::parse(&format!("{org}:{}", raw.trim()))?;
+    if grant.org != GrantOrg::parse(org) {
+      return Err("OIDC mapping cannot name another organization".into());
+    }
+    Ok(grant)
   }
 
   /// The inverse of [`Grant::label`]: `<org>:<role>`, where `<org>` is a
@@ -138,7 +166,8 @@ impl Grant {
     let Some((org, role)) = raw.trim().rsplit_once(':') else {
       return Err(format!("a grant is written <org>:<role>, got {raw:?}"));
     };
-    let Some(role) = Role::parse(role) else {
+    let mut parts = role.split('+');
+    let Some(role) = Role::parse(parts.next().unwrap_or_default()) else {
       return Err(format!(
         "unknown role {role:?} in {raw:?}: viewer, operator, or admin"
       ));
@@ -146,7 +175,17 @@ impl Grant {
     if org.trim().is_empty() {
       return Err(format!("a grant is written <org>:<role>, got {raw:?}"));
     }
-    Ok(Grant::new(GrantOrg::parse(org), role))
+    let mut grant = Grant::new(GrantOrg::parse(org), role);
+    for part in parts {
+      let action = part
+        .strip_prefix("expose.")
+        .and_then(|name| ExposeAction::ALL.into_iter().find(|a| a.as_str() == name));
+      let Some(action) = action else {
+        return Err(format!("unknown grant capability {part:?}"));
+      };
+      grant.expose.insert(action);
+    }
+    Ok(grant)
   }
 }
 
@@ -198,45 +237,32 @@ pub fn apply_group_map(
   current: &[Grant],
   mapped: Vec<Grant>,
 ) -> (Vec<Grant>, Vec<Grant>, Vec<Grant>) {
-  let mut next: Vec<Grant> = Vec::new();
-  let mut added = Vec::new();
-  let mut removed = Vec::new();
-  // Hand-written grants stay unless the map names their organization.
-  for g in current.iter().filter(|g| g.source.is_none()) {
-    if mapped.iter().any(|m| m.org == g.org) {
-      removed.push(g.clone());
-    } else {
-      next.push(g.clone());
-    }
-  }
-  // Mapped grants from before stay only while the map still produces them.
-  for g in current.iter().filter(|g| g.source.is_some()) {
-    if !mapped
-      .iter()
-      .any(|m| m.org == g.org && m.role == g.role && m.source == g.source)
-    {
-      removed.push(g.clone());
-    }
-  }
+  // Rebuild from this login's groups, then diff the effective grants. In
+  // particular, two groups contributing different expose actions must not
+  // accumulate revoked actions or generate changes on every identical login.
+  let mut next: Vec<Grant> = current
+    .iter()
+    .filter(|g| g.source.is_none() && !mapped.iter().any(|m| m.org == g.org))
+    .cloned()
+    .collect();
   for m in mapped {
-    let unchanged = current
-      .iter()
-      .any(|g| g.org == m.org && g.role == m.role && g.source == m.source);
-    if !unchanged {
-      added.push(m.clone());
-    }
-    // Two groups naming one organization: the higher role wins, so a person
-    // in both the viewers and the admins of Acme is an Admin there.
     match next.iter_mut().find(|g| g.org == m.org) {
-      Some(have) if have.source.is_some() => {
+      Some(have) => {
+        let combined = have.expose.union(&m.expose).copied().collect();
+        let bounds = match (&have.expose_bounds, &m.expose_bounds) {
+          (Some(a), Some(b)) => Some(a.intersection(b)),
+          (a, b) => a.clone().or_else(|| b.clone()),
+        };
         if m.role > have.role {
           *have = m;
         }
+        have.expose = combined;
+        have.expose_bounds = bounds;
       }
-      Some(have) => *have = m,
       None => next.push(m),
     }
   }
+  let (added, removed) = diff(current, &next);
   (next, added, removed)
 }
 
@@ -275,11 +301,64 @@ pub fn holds_all_admin(grants: &[Grant]) -> bool {
 /// `*` is given only by `*` Admin. Anything else takes Admin in that
 /// organization, which the granter may hold directly or through `*`.
 pub fn may_grant(granter: &[Grant], grant: &Grant) -> bool {
-  match &grant.org {
+  let role_allowed = match &grant.org {
     GrantOrg::All => holds_all_admin(granter),
     GrantOrg::Master => role_in(granter, None) == Some(Role::Admin),
     GrantOrg::Child(id) => role_in(granter, Some(id)) == Some(Role::Admin),
+  };
+  if !role_allowed || grant.expose.is_empty() {
+    return role_allowed;
   }
+  // Master admins already administer global server resources. A tenant
+  // admin needs explicit delegation and every capability they hand out.
+  if role_in(granter, None) == Some(Role::Admin) {
+    return true;
+  }
+  let org = match &grant.org {
+    GrantOrg::Child(id) => Some(id.as_str()),
+    GrantOrg::Master => None,
+    GrantOrg::All => return false,
+  };
+  let bounded = match (expose_bounds(granter, org), &grant.expose_bounds) {
+    (None, _) => true,
+    (Some(parent), Some(child)) => parent.contains(child),
+    (Some(_), None) => false,
+  };
+  bounded
+    && may_expose(granter, org, ExposeAction::Delegate)
+    && grant
+      .expose
+      .iter()
+      .all(|action| may_expose(granter, org, *action))
+}
+
+pub fn expose_bounds(
+  grants: &[Grant],
+  org: Option<&str>,
+) -> Option<aperio_config::expose_policy::ExposePolicy> {
+  if role_in(grants, None) == Some(Role::Admin) {
+    return None;
+  }
+  grants
+    .iter()
+    .find(|g| g.org != GrantOrg::All && g.org.covers(org))
+    .or_else(|| grants.iter().find(|g| g.org == GrantOrg::All))
+    .and_then(|g| g.expose_bounds.clone())
+}
+
+/// The exact organization's capability set replaces the wildcard's, even
+/// when empty. Master Admin retains its existing server-global authority.
+pub fn may_expose(grants: &[Grant], org: Option<&str>, action: ExposeAction) -> bool {
+  if role_in(grants, None) == Some(Role::Admin) {
+    return true;
+  }
+  let grant = grants
+    .iter()
+    .find(|g| g.org != GrantOrg::All && g.org.covers(org))
+    .or_else(|| grants.iter().find(|g| g.org == GrantOrg::All));
+  grant.is_some_and(|g| {
+    g.expose.contains(&action) || (action == ExposeAction::Read && !g.expose.is_empty())
+  })
 }
 
 /// The grants a record written before this field existed stands for: one
@@ -301,6 +380,13 @@ pub fn legacy_grants(role: Role, org_id: Option<&str>) -> (Vec<Grant>, bool) {
 pub fn normalize(grants: Vec<Grant>) -> Result<Vec<Grant>, String> {
   let mut out: Vec<Grant> = Vec::new();
   for g in grants {
+    if let Some(bounds) = &g.expose_bounds
+      && (matches!(g.org, GrantOrg::All)
+        || bounds.org_id != g.org.as_str()
+        || !bounds.validate().is_empty())
+    {
+      return Err("expose bounds must be valid and name the grant's concrete organization".into());
+    }
     out.retain(|have| have.org != g.org);
     out.push(g);
   }

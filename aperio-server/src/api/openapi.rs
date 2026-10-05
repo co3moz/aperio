@@ -21,6 +21,18 @@ use utoipa::OpenApi;
     license(name = "MIT")
   ),
   paths(
+    crate::api::exposes::list,
+    crate::api::exposes::events,
+    crate::api::exposes::export,
+    crate::api::exposes::import,
+    crate::api::exposes::detail,
+    crate::api::exposes::create,
+    crate::api::exposes::update,
+    crate::api::exposes::delete,
+    crate::api::exposes::operate,
+    crate::api::exposes::sessions,
+    crate::api::exposes::policies,
+    crate::api::exposes::set_policy,
     crate::api::health_handler,
     crate::api::healthz_handler,
     crate::api::readyz_handler,
@@ -122,6 +134,7 @@ use utoipa::OpenApi;
     (name = "auth", description = "Login, logout, and session lifetime"),
     (name = "dashboard", description = "Statistics, traffic, clients, inspector, settings, maintenance, share links"),
     (name = "tokens", description = "Dynamic API token lifecycle"),
+    (name = "exposes", description = "Delegated public TCP/UDP listener management"),
     (name = "tunnels", description = "Programmatic ephemeral tunnel provisioning"),
     (name = "webhooks", description = "Webhook definitions and the audit trail"),
     (name = "users", description = "Dashboard users and roles (admin only)")

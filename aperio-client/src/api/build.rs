@@ -18,6 +18,7 @@ pub(crate) fn build_call(
 ) -> Result<Call, String> {
   let scope = Scope::from_opts(opts);
   Ok(match command {
+    ApiCommand::Expose(command) => build_expose_call(command)?,
     ApiCommand::Share(a) => {
       let mut body = Map::new();
       body.insert("hostname".into(), Value::String(scope.require_hostname()?));
@@ -303,6 +304,9 @@ pub(crate) fn build_call(
       let mut body = Map::new();
       body.insert("name".into(), Value::String(a.name.clone()));
       body.insert("role".into(), Value::String(a.role.clone()));
+      if !a.expose.is_empty() {
+        body.insert("expose".into(), json!(a.expose));
+      }
       put_opt(&mut body, "org_id", a.org_id.clone());
       put_opt(&mut body, "ttl_seconds", ttl_field(&a.expire, true)?);
       Call::post("/aperio/api/admin-keys", Value::Object(body))
@@ -404,7 +408,172 @@ fn parse_grants(raw: &[String]) -> Result<Vec<Value>, String> {
       if org.trim().is_empty() || role.trim().is_empty() {
         return Err(format!("--grant takes <org>:<role>, got {entry:?}"));
       }
-      Ok(json!({ "org": org.trim(), "role": role.trim() }))
+      let mut parts = role.trim().split('+');
+      let role = parts.next().unwrap_or_default();
+      if !matches!(role, "viewer" | "operator" | "admin") {
+        return Err(format!("unknown grant role {role:?}"));
+      }
+      let mut actions = Vec::new();
+      for part in parts {
+        let action = part
+          .strip_prefix("expose.")
+          .ok_or_else(|| format!("unknown grant capability {part:?}"))?;
+        if !aperio_config::expose::ExposeAction::ALL
+          .iter()
+          .any(|a| a.as_str() == action)
+        {
+          return Err(format!("unknown expose capability {action:?}"));
+        }
+        if !actions.contains(&action) {
+          actions.push(action);
+        }
+      }
+      let mut grant = json!({ "org": org.trim(), "role": role });
+      if !actions.is_empty() {
+        grant["expose"] = json!(actions);
+      }
+      Ok(grant)
     })
     .collect()
+}
+
+fn expose_path(id: &str) -> String {
+  let mut url = url::Url::parse("http://localhost/aperio/api/exposes").expect("fixed URL");
+  url.path_segments_mut().expect("hierarchical URL").push(id);
+  url.path().to_string()
+}
+
+fn expose_spec(file: &str) -> Result<Value, String> {
+  let spec: aperio_config::expose::ExposeSpec = serde_json::from_value(read_json_file(file)?)
+    .map_err(|e| format!("invalid expose specification: {e}"))?;
+  let errors = spec.validate();
+  if !errors.is_empty() {
+    return Err(
+      errors
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("; "),
+    );
+  }
+  serde_json::to_value(spec).map_err(|e| e.to_string())
+}
+
+fn build_expose_call(command: &ExposeCmd) -> Result<Call, String> {
+  Ok(match command {
+    ExposeCmd::List {
+      org,
+      protocol,
+      search,
+      offset,
+      limit,
+    } => Call::get("/aperio/api/exposes")
+      .query("org", org.as_deref())
+      .query("protocol", protocol.as_deref())
+      .query("search", search.as_deref())
+      .query("offset", Some(offset))
+      .query("limit", Some(limit)),
+    ExposeCmd::Show { id } => Call::get(expose_path(id)),
+    ExposeCmd::Create { file, id } => Call::post(
+      "/aperio/api/exposes",
+      json!({"id": id, "spec": expose_spec(file)?}),
+    ),
+    ExposeCmd::Update { id, revision, file } => Call::put(
+      expose_path(id),
+      json!({"revision": revision, "spec": expose_spec(file)?}),
+    ),
+    ExposeCmd::Enable(a) | ExposeCmd::Disable(a) | ExposeCmd::Retry(a) => {
+      let action = match command {
+        ExposeCmd::Enable(_) => "enable",
+        ExposeCmd::Disable(_) => "disable",
+        _ => "retry",
+      };
+      Call::post(
+        format!("{}/actions", expose_path(&a.id)),
+        json!({"revision": a.revision, "action": action}),
+      )
+    }
+    ExposeCmd::Delete(a) => {
+      Call::delete(expose_path(&a.id)).with_body(json!({"revision": a.revision}))
+    }
+    ExposeCmd::Drain {
+      id,
+      revision,
+      seconds,
+    } => Call::post(
+      format!("{}/actions", expose_path(id)),
+      json!({"revision": revision, "action": "drain", "drain_seconds": seconds}),
+    ),
+    ExposeCmd::Sessions {
+      id,
+      history,
+      offset,
+      limit,
+    } => Call::get(format!("{}/sessions", expose_path(id)))
+      .query("history", Some(history))
+      .query("offset", Some(offset))
+      .query("limit", Some(limit)),
+    ExposeCmd::Disconnect {
+      id,
+      revision,
+      session,
+    } => Call::post(
+      format!("{}/actions", expose_path(id)),
+      json!({"revision": revision, "action": "disconnect", "session_id": session}),
+    ),
+    ExposeCmd::Export => Call::get("/aperio/api/exposes/export"),
+    ExposeCmd::Import {
+      file,
+      apply,
+      revision,
+      org_map,
+      omit_policies,
+    } => {
+      let mut backup = read_json_file(file)?;
+      if *omit_policies {
+        backup["policies"] = json!([]);
+      }
+      let mut mapping = Map::new();
+      for pair in org_map {
+        let (old, new) = pair
+          .split_once('=')
+          .filter(|(old, new)| !old.is_empty() && !new.is_empty())
+          .ok_or_else(|| format!("--org-map requires OLD=NEW, got {pair:?}"))?;
+        if mapping.insert(old.into(), json!(new)).is_some() {
+          return Err(format!("duplicate --org-map source {old:?}"));
+        }
+      }
+      Call::post(
+        "/aperio/api/exposes/import",
+        json!({"backup": backup, "preview": !apply, "revision": revision, "org_map": mapping}),
+      )
+    }
+    ExposeCmd::Policies => Call::get("/aperio/api/exposes/policies"),
+    ExposeCmd::SetPolicy { file } => {
+      let policy: aperio_config::expose_policy::ExposePolicy =
+        serde_json::from_value(read_json_file(file)?)
+          .map_err(|e| format!("invalid expose policy: {e}"))?;
+      let errors = policy.validate();
+      if !errors.is_empty() {
+        return Err(
+          errors
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("; "),
+        );
+      }
+      let mut url =
+        url::Url::parse("http://localhost/aperio/api/exposes/policies/").expect("fixed URL");
+      url
+        .path_segments_mut()
+        .expect("hierarchical URL")
+        .pop_if_empty()
+        .push(&policy.org_id);
+      Call::put(
+        url.path(),
+        serde_json::to_value(policy).map_err(|e| e.to_string())?,
+      )
+    }
+  })
 }

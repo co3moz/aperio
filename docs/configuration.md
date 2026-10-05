@@ -812,9 +812,9 @@ headers:
     remove: [Server, X-Powered-By]
 ```
 
-#### Public TCP expose (`expose:`, experimental)
+#### Public TCP/UDP expose (`expose:`)
 
-A structured `expose:` list opens raw public TCP ports that relay into declared client tunnels. An entry names the tunnel and the organization whose client may claim it (`tunnel:` + `org:`, or the one-line `tunnel: <org>@<name>`); omitting the organization means the master one. `token:` is the earlier spelling and still works, but a token name is not unique across organizations, so a rule naming one can match a client of another. The older shared-secret form (`key:`, matched against `expose: <key>` on the declaration) still works too. See [Tunnels](emergency-tunnels.md#public-expose) for the full story and security notes.
+A structured `expose:` list opens raw public TCP or UDP ports that relay into declared client tunnels. An entry names the tunnel and the organization whose client may claim it (`tunnel:` + `org:`, or the one-line `tunnel: <org>@<name>`); omitting the organization means the master one. `token:` is the earlier spelling and still works, but a token name is not unique across organizations, so a rule naming one can match a client of another. The older shared-secret form (`key:`, matched against `expose: <key>` on the declaration) still works too. See [Tunnels](emergency-tunnels.md#public-expose) for the full story and security notes.
 
 ```yaml
 # aperio-server.yaml
@@ -1202,6 +1202,25 @@ Three things hold for the whole `/aperio/api/` surface. The credential is a dash
 | `GET /aperio/api/tunnels` | Lists the tunnels declared by this organization's connected clients. | the master token as `Authorization: Bearer`, or a dashboard session / admin key (viewer+) |
 | `POST /aperio/api/tunnels` | Programmatically provisions an ephemeral tunnel (scoped short-lived token + hostname). | the master token as `Authorization: Bearer`, or a dashboard session / admin key (operator+) |
 | `DELETE /aperio/api/tunnels/{id}` | Deletes an ephemeral tunnel: revokes its token and drops its live connection. | the master token as `Authorization: Bearer`, or a dashboard session / admin key (operator+) |
+
+#### Managed public TCP/UDP listeners
+
+See [public expose configuration, delegation and deployment](public-exposes.md).
+
+| Endpoint | What it does | Credential |
+| --- | --- | --- |
+| `GET /aperio/api/exposes` | List scoped listeners. | dashboard session or admin key with the applicable expose capability |
+| `POST /aperio/api/exposes` | Create a listener. | dashboard session or admin key with the applicable expose capability |
+| `GET /aperio/api/exposes/export` | Export scoped configuration. | dashboard session or admin key with the applicable expose capability |
+| `POST /aperio/api/exposes/import` | Preview or commit configuration import. | dashboard session or admin key with the applicable expose capability |
+| `GET /aperio/api/exposes/policies` | List visible port allocations. | dashboard session or admin key with the applicable expose capability |
+| `PUT /aperio/api/exposes/policies/{org}` | Set an organization allocation (master admin). | dashboard session or admin key with the applicable expose capability |
+| `GET /aperio/api/exposes/{id}` | Inspect a listener. | dashboard session or admin key with the applicable expose capability |
+| `PUT /aperio/api/exposes/{id}` | Update with revision check. | dashboard session or admin key with the applicable expose capability |
+| `DELETE /aperio/api/exposes/{id}` | Remove listener and sessions. | dashboard session or admin key with the applicable expose capability |
+| `POST /aperio/api/exposes/{id}/actions` | Enable, disable, retry, drain or disconnect. | dashboard session or admin key with the applicable expose capability |
+| `GET /aperio/api/exposes/{id}/events` | Read scoped listener audit history. | dashboard session or admin key with the applicable expose capability |
+| `GET /aperio/api/exposes/{id}/sessions` | Read active or retained session metadata. | dashboard session or admin key with the applicable expose capability |
 
 #### Maintenance, share links and the cache
 

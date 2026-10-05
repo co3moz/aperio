@@ -408,6 +408,8 @@ pub(crate) struct AppState {
   pub(crate) settings_overrides: Mutex<SettingsOverrides>,
   /// Path of the persisted overrides file (`<data_dir>/settings.json`).
   pub(crate) settings_path: std::path::PathBuf,
+  /// Durable public listener resources and their live sockets.
+  pub(crate) exposes: Mutex<crate::expose_manager::ExposeManager>,
   /// True when the admin dashboard is served (APERIO_DASHBOARD != 0); the
   /// first-run helper redirect to /aperio only makes sense when it is.
   pub(crate) dashboard_enabled: bool,
@@ -610,8 +612,13 @@ impl AppState {
     effective.alert_rules = crate::alert_rules::from_config_file();
     effective.denied_ips = crate::deny_list::from_config();
     let old = self.config();
-    let diff = crate::settings::config_reload_diff(&old, &effective);
+    let mut diff = crate::settings::config_reload_diff(&old, &effective);
     crate::api::settings::swap_config(self, effective).await;
+    let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into());
+    if let Err(error) = self.exposes.lock().await.reload(self, &host).await {
+      tracing::error!("Public expose reload rejected; previous listeners retained: {error}");
+      diff.push(format!("expose reload rejected: {error}"));
+    }
     diff
   }
 

@@ -12,6 +12,25 @@ use axum::routing::get;
 use std::sync::Mutex;
 use tokio::net::TcpListener;
 
+#[test]
+fn group_mapping_preserves_explicit_expose_rights() {
+  use crate::store::grants::ExposeAction;
+  let policy = OidcGrantPolicy {
+    group_grants: grants::parse_group_map("publishers=acme:viewer+expose.create+expose.disable")
+      .unwrap(),
+    ..Default::default()
+  };
+  let mapped = policy.mapped(&["publishers".into()]);
+  assert_eq!(mapped[0].source.as_deref(), Some("publishers"));
+  assert_eq!(
+    mapped[0].expose,
+    [ExposeAction::Create, ExposeAction::Disable]
+      .into_iter()
+      .collect()
+  );
+  assert!(policy.mapped(&["unrelated".into()]).is_empty());
+}
+
 /// The default outbound policy: no restriction, which is what a deployment
 /// that has not configured one has. The mock IdP below is on loopback, so a
 /// restricting policy is a case of its own rather than the background for

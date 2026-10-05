@@ -290,6 +290,7 @@ async fn disconnect_drains_all_owned_state() {
   state.udp_streams.lock().await.insert(
     "d1".into(),
     crate::state::UdpStreamHandle {
+      public: None,
       tx: udp_tx,
       client_id: cid.clone(),
     },

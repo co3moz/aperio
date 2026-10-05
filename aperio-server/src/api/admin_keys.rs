@@ -42,6 +42,9 @@ pub(crate) struct AdminKeyView {
   pub(crate) created_at: u64,
   pub(crate) expires_at: Option<u64>,
   pub(crate) expired: bool,
+  pub(crate) expose: std::collections::BTreeSet<crate::store::grants::ExposeAction>,
+  #[serde(default)]
+  pub(crate) expose_bounds: Option<aperio_config::expose_policy::ExposePolicy>,
 }
 
 /// Lists programmatic admin keys (metadata only).
@@ -68,6 +71,8 @@ pub(crate) async fn admin_keys_list_handler(
       created_at: k.created_at,
       expires_at: k.expires_at,
       expired: k.is_expired(),
+      expose: k.expose.clone(),
+      expose_bounds: k.expose_bounds.clone(),
     })
     .collect();
   Json(views).into_response()
@@ -86,6 +91,11 @@ pub(crate) struct AdminKeyCreateRequest {
   pub(crate) org_id: Option<String>,
   /// Optional lifetime in seconds; omitted = never expires.
   pub(crate) ttl_seconds: Option<u64>,
+  #[serde(default)]
+  #[schema(value_type = Vec<String>)]
+  pub(crate) expose: std::collections::BTreeSet<crate::store::grants::ExposeAction>,
+  #[serde(default)]
+  pub(crate) expose_bounds: Option<aperio_config::expose_policy::ExposePolicy>,
 }
 
 /// Creates an admin key. The plaintext secret is returned exactly once.
@@ -155,11 +165,23 @@ pub(crate) async fn admin_keys_create_handler(
     GrantOrg::Master => {}
   }
 
-  let created = state
-    .admin_key_store
-    .lock()
-    .await
-    .create(name, role, scope, payload.ttl_seconds);
+  if payload.expose_bounds.as_ref().is_some_and(|b| {
+    matches!(scope, GrantOrg::All) || b.org_id != scope.as_str() || !b.validate().is_empty()
+  }) {
+    return (
+      StatusCode::BAD_REQUEST,
+      "Expose bounds must name the key's concrete organization",
+    )
+      .into_response();
+  }
+  let created = state.admin_key_store.lock().await.create_with_bounds(
+    name,
+    role,
+    scope,
+    payload.ttl_seconds,
+    payload.expose,
+    payload.expose_bounds,
+  );
   let Some((record, secret)) = created else {
     return crate::api::tokens::not_persisted();
   };
@@ -176,11 +198,12 @@ pub(crate) async fn admin_keys_create_handler(
       &headers,
       &actor_ip,
       &format!(
-        "name={} id={} role={} org={}",
+        "name={} id={} role={} org={} expose={:?}",
         record.name,
         record.id,
         record.role.as_str(),
-        record.scope().as_str()
+        record.scope().as_str(),
+        record.expose
       ),
     )
     .await;
@@ -192,6 +215,7 @@ pub(crate) async fn admin_keys_create_handler(
       "role": record.role.as_str(),
       "org_id": scope_view(&record.scope()),
       "expires_at": record.expires_at,
+      "expose": record.expose,
       "key": secret,
     })),
   )

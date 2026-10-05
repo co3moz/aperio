@@ -74,6 +74,10 @@ export const AUDIT_EVENT_GROUPS: AuditEventGroup[] = [
       'tcp_stream_opened',
       'udp_stream_opened',
       'expose_stream_opened',
+      'expose_changed',
+      'expose_failed',
+      'expose_runtime',
+      'expose_policy_changed',
     ],
   },
   {

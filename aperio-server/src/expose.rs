@@ -28,7 +28,6 @@
 //! encrypted tunnels are excluded, since a raw public socket cannot run the
 //! client-side handshake.
 
-use serde::Deserialize;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
@@ -37,70 +36,7 @@ use tracing::{debug, error, info, warn};
 use crate::protocol::TunnelMessage;
 use crate::state::{AppState, TcpConsumerMsg, TcpStreamHandle};
 
-/// One public expose port from aperio-server.yaml.
-#[derive(Deserialize, Clone, Debug)]
-pub(crate) struct ExposeRule {
-  /// Transport of the exposed port; only `tcp` is supported.
-  #[serde(default = "default_tcp")]
-  pub(crate) protocol: String,
-  /// Public port the server listens on.
-  pub(crate) port: u16,
-  /// Name of the tunnel this port relays into.
-  #[serde(default)]
-  pub(crate) tunnel: Option<String>,
-  /// Name of the organization whose client may claim the port. `None` (with
-  /// no `token:` and no `<org>@` prefix either) is the master organization.
-  #[serde(default)]
-  pub(crate) org: Option<String>,
-  /// Name of the token whose client may claim the port. Superseded by `org:`,
-  /// which cannot be ambiguous; kept working for the files that use it.
-  #[serde(default)]
-  pub(crate) token: Option<String>,
-  /// Deprecated shared secret a client's tunnel declaration must repeat
-  /// (`tunnels: [{target: ..., expose: <key>}]`).
-  #[serde(default)]
-  pub(crate) key: Option<String>,
-}
-
-impl ExposeRule {
-  /// How this rule is written in logs and audit entries.
-  pub(crate) fn label(&self) -> String {
-    match (&self.tunnel, &self.key) {
-      (Some(_), _) => format!("tunnel {}", self.qualified_name()),
-      (None, Some(_)) => "a key-matched tunnel".to_string(),
-      (None, None) => "nothing".to_string(),
-    }
-  }
-
-  /// The tunnel as `<org>@<name>`, however the rule spells it: the prefix on
-  /// `tunnel:`, a separate `org:`, or neither (the master organization).
-  pub(crate) fn qualified_name(&self) -> String {
-    let raw = self.tunnel.as_deref().unwrap_or_default();
-    let (_, name) = crate::tunnel::registry::split_qualified(raw);
-    match (self.explicit_org(), self.token.as_deref()) {
-      (Some(org), _) => format!("{org}@{name}"),
-      // Nothing to qualify it with: a token-matched rule can be claimed from
-      // any organization, which is the reason `org:` exists.
-      (None, Some(token)) => format!("{name} (token {token})"),
-      (None, None) => format!("master@{name}"),
-    }
-  }
-
-  /// The organization this rule names, if it names one at all: the `<org>@`
-  /// prefix or the `org:` key. `None` means the rule predates `org:` and is
-  /// matched the old way, by token name.
-  fn explicit_org(&self) -> Option<&str> {
-    let raw = self.tunnel.as_deref().unwrap_or_default();
-    match crate::tunnel::registry::split_qualified(raw) {
-      (Some(org), _) => Some(org),
-      (None, _) => self.org.as_deref().map(str::trim).filter(|o| !o.is_empty()),
-    }
-  }
-}
-
-fn default_tcp() -> String {
-  "tcp".to_string()
-}
+pub(crate) use aperio_config::ExposeEntry as ExposeRule;
 
 /// Reads and validates the `expose:` section of `aperio-server.yaml`.
 /// Like the other structured sections, a malformed one is a startup error.
@@ -115,91 +51,20 @@ pub(crate) fn from_config_file() -> Vec<ExposeRule> {
       std::process::exit(1);
     }
   };
-  let mut ports = std::collections::HashSet::new();
-  for (i, rule) in rules.iter().enumerate() {
-    if rule.protocol != "tcp" {
-      error!(
-        "expose entry #{}: protocol `{}` is not supported (public expose is TCP only)",
-        i + 1,
-        rule.protocol
-      );
-      std::process::exit(1);
+  let errors =
+    aperio_config::expose::validate_entries(&rules, &[aperio_config::expose::ExposeProtocol::Tcp]);
+  if !errors.is_empty() {
+    for err in errors {
+      error!("invalid public expose: {err}");
     }
-    match (&rule.tunnel, &rule.key) {
-      (Some(name), _) => {
-        let (prefix, bare) = crate::tunnel::registry::split_qualified(name);
-        if let Err(e) = aperio_config::validate_tunnel_name(bare) {
-          error!("expose entry #{}: {e}", i + 1);
-          std::process::exit(1);
-        }
-        // Two organizations named in one rule is a contradiction, not a
-        // precedence question: the operator meant one of them and the file
-        // does not say which.
-        if let (Some(prefix), Some(org)) = (prefix, rule.org.as_deref())
-          && !prefix.eq_ignore_ascii_case(org.trim())
-        {
-          error!(
-            "expose entry #{}: `tunnel: {prefix}@{bare}` and `org: {org}` name different organizations",
-            i + 1
-          );
-          std::process::exit(1);
-        }
-        if rule.token.is_some() {
-          warn!(
-            "expose entry #{}: `token:` is superseded by `org:` (a token name is not unique, so a rule naming one can match a client of another organization); write `org: <name>` or `tunnel: <org>@{bare}` instead",
-            i + 1
-          );
-        }
-      }
-      // A port with neither is a listener nothing can ever answer, which is
-      // worse than an error: it accepts connections and hangs.
-      (None, None) => {
-        error!(
-          "expose entry #{}: needs a `tunnel:` (with `token:` unless the declaring client uses the master token)",
-          i + 1
-        );
-        std::process::exit(1);
-      }
-      (None, Some(key)) => {
-        if key.trim().len() < 8 {
-          error!(
-            "expose entry #{}: the key must be at least 8 characters (it is the only thing gating the port)",
-            i + 1
-          );
-          std::process::exit(1);
-        }
-      }
-    }
-    // Port 0 asks the OS for whatever is free, which for a rule whose whole
-    // job is to be reachable at a known number is never what was meant.
-    if rule.port == 0 {
-      error!(
-        "expose entry #{}: port 0 lets the OS pick, so nothing can reach it; name the port",
-        i + 1
-      );
-      std::process::exit(1);
-    }
-    if !ports.insert(rule.port) {
-      error!(
-        "expose entry #{}: port {} is declared twice",
-        i + 1,
-        rule.port
-      );
-      std::process::exit(1);
+    std::process::exit(1);
+  }
+  for rule in &rules {
+    if rule.tunnel.is_some() && rule.token.is_some() {
+      warn!("public expose: `token:` is superseded by `org:` or a qualified tunnel name");
     }
   }
   rules
-}
-
-/// Parses the `expose:` rules for read-only display (the topology map),
-/// returning an empty list on any error instead of exiting, unlike
-/// `from_config_file`, which runs at startup where a malformed section must
-/// fail fast. Reads the already-parsed, in-memory config document.
-pub(crate) fn configured_rules() -> Vec<ExposeRule> {
-  let Some(section) = crate::config_file::structured("expose") else {
-    return Vec::new();
-  };
-  serde_yaml::from_value(section).unwrap_or_default()
 }
 
 /// Spawns one listener task per expose rule. Called once at startup.

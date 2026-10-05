@@ -86,6 +86,9 @@ pub(crate) async fn orgs_list_handler(
       "tokens": c.1,
       "hostnames": org.hostnames,
       "panel_hostname": org.panel_hostname,
+      "oidc": org.oidc.as_ref().map(|o| serde_json::json!({"issuer":o.issuer,"client_id":o.client_id,
+        "allowed_emails":o.allowed_emails,"default_role":o.default_role,"group_grants":o.group_grants,
+        "secret_configured":!o.client_secret.is_empty()})),
     }));
   }
   Json(out).into_response()
@@ -798,6 +801,20 @@ pub(crate) async fn orgs_oidc_handler(
     )
       .into_response();
   }
+  let previous = state
+    .org_store
+    .lock()
+    .await
+    .find(&id)
+    .and_then(|o| o.oidc.clone());
+  let client_secret = if payload.client_secret.is_empty() {
+    previous
+      .filter(|o| o.issuer == payload.issuer.trim() && o.client_id == payload.client_id.trim())
+      .map(|o| o.client_secret)
+      .unwrap_or_default()
+  } else {
+    payload.client_secret.clone()
+  };
   let oidc = if payload.issuer.trim().is_empty() {
     None
   } else {
@@ -807,7 +824,7 @@ pub(crate) async fn orgs_oidc_handler(
       .map(|e| e.trim().to_ascii_lowercase())
       .filter(|e| !e.is_empty())
       .collect();
-    if payload.client_id.trim().is_empty() || payload.client_secret.trim().is_empty() {
+    if payload.client_id.trim().is_empty() || client_secret.trim().is_empty() {
       return (
         StatusCode::BAD_REQUEST,
         "client_id and client_secret are required",
@@ -842,12 +859,14 @@ pub(crate) async fn orgs_oidc_handler(
         continue;
       }
       let ok = entry.split_once('=').is_some_and(|(g, r)| {
-        !g.trim().is_empty() && crate::store::users::Role::parse(r).is_some()
+        !g.trim().is_empty() && crate::store::grants::Grant::parse_in_org(&id, r).is_ok()
       });
       if !ok {
         return (
           StatusCode::BAD_REQUEST,
-          format!("group_grants entries are written <group>=<role>, got {entry:?}"),
+          format!(
+            "group_grants entries are written <group>=<role>[+expose.<action>...], got {entry:?}"
+          ),
         )
           .into_response();
       }
@@ -856,7 +875,7 @@ pub(crate) async fn orgs_oidc_handler(
     Some(crate::store::orgs::OrgOidc {
       issuer: payload.issuer.trim().to_string(),
       client_id: payload.client_id.trim().to_string(),
-      client_secret: payload.client_secret,
+      client_secret,
       allowed_emails,
       default_role,
       group_grants,

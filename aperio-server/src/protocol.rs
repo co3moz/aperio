@@ -24,7 +24,7 @@ use tracing::warn;
 /// the target at all, so the ask is negotiated on the handshake rather than
 /// sent hopefully. A Ping may also carry `name`, which needs no negotiation
 /// because a server that ignores it shows the id, as it always did.
-pub const PROTOCOL_VERSION: u32 = 9;
+pub const PROTOCOL_VERSION: u32 = 10;
 
 // --- Protocol v2 binary frames: [tag][id_len][id bytes][payload] ---
 // Data-heavy chunk messages skip the base64+JSON encoding entirely. The tag
@@ -871,6 +871,9 @@ pub enum TunnelMessage {
   OtlpExport { signal: String, data: String },
   /// Signals that a TCP stream has been closed (either side).
   TcpClose { stream_id: String },
+  /// Protocol v10, server to client: drain queued input and write EOF while
+  /// continuing to relay backend responses. TcpClose still aborts immediately.
+  TcpEof { stream_id: String },
   /// Server → client: open a UDP relay for this stream toward one of the
   /// client's declared `protocol: udp` tunnels. The client only ever sends
   /// to addresses it itself declared, regardless of what the server asks.

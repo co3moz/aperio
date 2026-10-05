@@ -36,7 +36,7 @@ serde_json = "1.0"
 # The optional aperio-server.yaml config file (same crate the client uses).
 serde_yaml = "0.9"
 # Shared config schema: `--print-schema` emits the aperio-server.yaml JSON schema.
-aperio-config = { path = "../aperio-config" }
+aperio-config = { path = "../aperio-config", features = ["openapi"] }
 base64 = "0.22"
 # The AES-256-GCM used for encrypted backups (`backup_crypto.rs`). Already in
 # this binary through rustls, so naming it here adds an algorithm rather than a

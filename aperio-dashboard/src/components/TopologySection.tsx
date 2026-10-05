@@ -113,6 +113,7 @@ function NodeBox({
   tint,
   mono,
   dim,
+  onOpen,
 }: {
   x: number
   y: number
@@ -121,9 +122,11 @@ function NodeBox({
   tint?: string
   mono?: boolean
   dim?: boolean
+  onOpen?: () => void
 }) {
   return (
-    <g opacity={dim ? 0.55 : 1}>
+    <g opacity={dim ? 0.55 : 1} role={onOpen ? 'button' : undefined} tabIndex={onOpen ? 0 : undefined} aria-label={onOpen ? `${label} ${sub ?? ''}` : undefined} onClick={onOpen} onKeyDown={onOpen ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen() } } : undefined} className={onOpen ? 'cursor-pointer focus:outline focus:outline-2 focus:outline-primary' : undefined}>
+      <title>{label}{sub ? ` — ${sub}` : ''}</title>
       <rect
         x={x}
         y={y}
@@ -151,7 +154,7 @@ function NodeBox({
   )
 }
 
-export function TopologySection() {
+export function TopologySection({ onExpose }: { onExpose: (id: string) => void }) {
   const { t } = useI18n()
   const { data } = useStream('topology', api.topology, 5_000)
   const clients = useMemo(() => data?.clients ?? [], [data])
@@ -211,8 +214,8 @@ export function TopologySection() {
     exposes.forEach((e) => {
       const gk = e.served_by ? groupKeyByClientId.get(e.served_by) : undefined
       nodes.push({
-        key: `expose:${e.port}`,
-        label: `:${e.port}`,
+        key: `expose:${e.id}`,
+        label: `${e.protocol} ${e.address}:${e.port}`,
         kind: 'expose',
         clientKeys: gk ? [gk] : [],
         sub: e.served ? `expose · ${e.protocol}` : `expose · ${t('no client')}`,
@@ -357,6 +360,7 @@ export function TopologySection() {
             {routeNodes.map((r) => (
               <NodeBox
                 key={r.key}
+                onOpen={r.kind === 'expose' ? () => onExpose(r.key.slice('expose:'.length)) : undefined}
                 x={COL_X[0]}
                 y={routeY.get(r.key) ?? 0}
                 label={r.label}

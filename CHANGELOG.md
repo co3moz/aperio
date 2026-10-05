@@ -4,6 +4,12 @@ All notable changes to Aperio are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project follows semantic versioning per release tag.
 
+## [Unreleased]
+
+### Added
+
+- **Delegated TCP and UDP public exposes.** Users with explicit organization-scoped grants can create, edit and operate server listeners from the dashboard or API without restarting the server. Port allocations and traffic limits bound each grant; rules persist across restarts and appear in scoped topology, session, audit and metrics views. TCP and UDP listeners can share a port number. The tunnel protocol now negotiates TCP half-close support in v10 and retains a full-close fallback for older clients.
+
 ## [0.12.0] - 2026-09-30
 
 ### Security

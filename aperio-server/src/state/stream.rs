@@ -558,6 +558,8 @@ pub(crate) struct TcpStreamHandle {
 /// consumer drops datagrams instead of buffering or pausing the producer,
 /// so the handle keeps a plain bounded sender.
 pub(crate) struct UdpStreamHandle {
+  /// Public sockets enforce the configured maximum before queueing bytes.
+  pub(crate) public: Option<(usize, std::sync::Weak<crate::expose_manager::Runtime>)>,
   pub(crate) tx: mpsc::Sender<TcpConsumerMsg>,
   pub(crate) client_id: String,
 }

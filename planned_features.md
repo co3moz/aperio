@@ -5840,3 +5840,336 @@ recorded in Withdrawn under #84 so they are not proposed again.
   `X-Aperio-Token-Name`, opt-in because they are new trust surface: they must
   be stripped from the inbound request unconditionally so a visitor can never
   forge them. shipped: `identity_headers` (off by default) adds `x-aperio-client-id`, `x-aperio-org` and `x-aperio-token` per dispatch attempt, so a failover names the client that actually served. The inbound strip is unconditional rather than tied to the setting: a header only stripped while a feature is on is a header forgeable by turning it off.
+
+- [x] **#170 (Phase 1) Define the public expose resource and its shared validation.**
+  Establish one typed model used by the server, YAML schema, config checker,
+  API and dashboard types. Include stable id, revision, protocol (`tcp` or
+  `udp`), listener address/port, owning organization id, tunnel identity,
+  enabled state, source (`file` or `api`), and protocol-specific limits.
+  Resolve display names to stable organization identities for persisted API
+  resources; renaming an organization must not redirect a port. Separate the
+  requested configuration from observed listener and target state. Reject
+  port zero, malformed names, contradictory organizations, unsupported
+  protocol combinations and encrypted public targets. Define IPv4/IPv6 and
+  wildcard address overlap; TCP and UDP may use the same numeric port.
+  Acceptance: startup, config-check and API validation agree on a shared
+  fixture matrix, with field-specific errors and a documented resource shape.
+  shipped: Added shared typed TCP/UDP resources, field-level validation, schemas and consistent YAML/config/API validation. The API resolves stable organization ids.
+
+- [x] **#171 (Phase 1) Delegate expose capabilities through the existing grant model.**
+  Extend #153/#154 with explicit organization-scoped capabilities for reading,
+  creating, editing, enabling/disabling, deleting and disconnecting expose
+  sessions. Define which capabilities imply prerequisite read access and how
+  explicit organization entries override wildcard grants. The built-in
+  master account retains full control; named users can receive only the
+  needed capabilities without becoming global admins. Specify compatibility
+  for existing master admins; existing tenant admins/operators/viewers must
+  not silently gain public-port privileges. Enforce grants on every request,
+  including after revocation, account disablement and organization switching.
+  Acceptance: an authorized non-master user manages their organization's
+  expose, while the same role without the capability cannot; neither can
+  read or mutate another organization's resources by guessing ids.
+  shipped: Added explicit per-organization expose actions with prerequisite reads, legacy-safe defaults, revocation checks and tenant isolation.
+
+- [x] **#172 (Phase 1) Bound delegation with server port and resource policies.**
+  Give server administrators a policy for delegable listener addresses,
+  protocol/port ranges, reserved ports, rule counts, concurrent TCP streams,
+  UDP sessions and traffic ceilings per organization. A range is an allocation
+  permission, not a request to open every port in it. Tenant administrators
+  may delegate only capabilities and bounds they hold, and only where an
+  explicit delegation right permits it; they cannot widen the server policy.
+  Define precedence and what tightening a policy does to existing listeners
+  (disallowed listeners stop accepting and are visibly suspended).
+  Acceptance: concurrent creates cannot exceed quota or claim one another's
+  ports, and a user cannot escape limits through alternate IP spellings,
+  wildcard binds, an update, import or self-granted permissions.
+  shipped: Added address/protocol/port allocations, reserved listeners, aggregate quotas and bounded grant delegation. Policy withdrawal suspends affected listeners.
+
+- [x] **#173 (Phase 1) Apply expose grants consistently to sessions, API keys and OIDC.**
+  Reuse the current session/admin-key caller resolution, CSRF protections and
+  organization fencing; tunnel tokens must not become management credentials.
+  Support scoped admin API keys and explicit OIDC mappings for the new
+  capabilities, with no broader authority than the issuing identity can
+  delegate. Return effective actions and constraints for the UI, without
+  treating those hints as authorization. Define actor grant revocation
+  separately from resource lifetime: a rule belongs to its organization,
+  not to the session that created it. Org disable/delete and server-policy
+  withdrawal must suspend/close its resources; disabling a user immediately
+  removes control rights but does not silently delete organization resources.
+  Acceptance: session, API-key and OIDC callers receive equivalent decisions,
+  including revoked rights and a session currently viewing another org.
+  shipped: Applied the same effective grants to sessions, scoped API keys and OIDC mappings, with current rights returned for UI display.
+
+- [x] **#174 (Phase 2) Introduce an expose listener manager.**
+  Replace startup-only fire-and-forget listener spawning with a manager that
+  owns bound sockets, cancellation, task handles, rule revisions and observed
+  state. Startup, API edits and file reload use the same reconciliation path.
+  Bind before reporting success; report unavailable addresses, permissions
+  and occupied ports as actionable failures. Track unexpected task exits and
+  bounded recovery, and distinguish intentional shutdown from failure.
+  Acceptance: adding/removing a listener leaves unrelated ports serving;
+  failed startup binds and task failures are visible through the API, and
+  shutdown releases sockets and child tasks without an Arc/task leak.
+  shipped: Moved listener ownership into a manager that stages binds, reports failures, tracks generations and retries unexpected task exits a bounded number of times.
+
+- [x] **#175 (Phase 2) Persist dynamic exposes with reliable failure semantics.**
+  Use the project's persistence conventions for API-owned rules, schema
+  versioning and stable identities. Serialize conflicting mutations and use
+  revision checks so two editors cannot silently overwrite one another.
+  Stage socket/resource changes and durable writes before acknowledging a
+  mutation; specify rollback and crash recovery where filesystem and socket
+  changes cannot form one transaction. A failed write must not return success
+  or leave an unreported public listener. Respect the server's persistence
+  mode and disclose volatile operation explicitly. Acceptance: restart restores
+  enabled/disabled rules; disk failure, corrupt data and interrupted writes
+  preserve or visibly recover the last committed state without silent loss.
+  shipped: Persisted desired rules and policies transactionally with revisions, rollback, corruption preservation and visible volatile mode.
+
+- [x] **#176 (Phase 2) Reconcile YAML and API rules on live config reload.**
+  Preserve operator ownership: file rules appear in the UI as read-only and
+  are edited through the file; API rules persist separately. Support live
+  add/edit/remove of `expose:` entries, including UDP, through #174. Define
+  deterministic source precedence, stable identities for file rules and
+  conflict reporting on reload and restart; never quietly retarget a running
+  API listener because a file entry claims its port. Validate and stage the
+  whole expose change set before applying it, retaining the previous working
+  set on failure. Acceptance: invalid reloads and source conflicts leave
+  working ports intact and visibly report the failed desired revision.
+  shipped: Reconciles file-owned and API-owned rules together on reload, preserving the active generation when validation or bind conflicts fail.
+
+- [x] **#177 (Phase 2) Define connection draining and immediate shutdown operations.**
+  Target edits affect new TCP connections/new UDP peer sessions; established
+  sessions stay pinned to their original target. Retiring listeners stop new
+  admission. Provide bounded drain and explicitly authorized immediate
+  disconnect; disable/delete defaults to closing the public listener and its
+  sessions, with the impact shown before destructive UI actions. UDP drain
+  needs special handling because receiving established peers shares the
+  listener socket: retain it only until the drain deadline and reject new
+  peers. Track retiring generations so a port cannot be re-bound too early.
+  Acceptance: no traffic switches backend mid-session, deadlines terminate
+  both directions, and all exit paths remove stream registry entries.
+  shipped: Added target pinning, bounded drains, UDP peer retirement and explicit disconnect. TCP half-close uses negotiated protocol v10 with an older-client fallback.
+
+- [x] **#178 (Phase 3) Unify tunnel identity and serving-target resolution.**
+  Share protocol-aware resolution between public expose, discovery and
+  topology, using organization ownership, tunnel name, declared protocol,
+  health, enabled/draining state and encryption eligibility. Audit completed
+  #46's multiplexed-client behavior: resolve the owning service and carry the
+  appropriate selector instead of relying on stale `service: None` assumptions.
+  Allow rules for offline named tunnels and report waiting/incompatible states
+  separately. Keep legacy YAML `token`/`key` matching working with warnings;
+  new API rules use unambiguous organization/tunnel identities. Preserve the
+  current single-target-per-session behavior with documented stable selection;
+  new balancing strategies are not required for this release. Acceptance:
+  identical names in different orgs and multiple services on one connection
+  never route a public visitor to the wrong target.
+  shipped: Uses stable organization and tunnel identities with protocol-aware service selection, health checks and truthful offline or incompatible states.
+
+- [x] **#179 (Phase 3) Move public TCP relay onto the managed lifecycle.**
+  Preserve binary and legacy frame compatibility, stream ownership checks,
+  PROXY protocol visitor metadata, relay logging and existing flow control.
+  Apply admission limits and bounded open/send waits so an unavailable or
+  congested client cannot accumulate unbounded pending public sockets.
+  Verify half-close/response draining, backend refusal, disconnect and timeout
+  behavior under the new manager. Acceptance: existing TCP expose scenarios
+  keep working while create/update/disable/delete operate without restarting
+  the server or disrupting unrelated streams.
+  shipped: Moved TCP visitor streams onto managed listener lifecycles while preserving flow control, PROXY metadata and old-client behavior.
+
+- [x] **#180 (Phase 3) Implement public UDP listeners using existing tunnel messages.**
+  Bind a public UDP socket and map `(listener generation, source IP:port)`
+  to a unique stream pinned to one eligible client/target. Reuse `UdpOpen`,
+  `UdpDatagram`, `UdpClose`, binary frames and `udp_streams`; do not introduce
+  a per-visitor consumer WebSocket inside the server. Preserve datagram
+  boundaries, zero-length datagrams and response destination identity; cap
+  packet size explicitly and never relay a silently truncated datagram.
+  Acceptance: two visitors, including different ports behind one IP, receive
+  only their own responses; TCP and UDP can serve on the same numeric port,
+  including IPv4/IPv6 cases supported by the configured bind policy.
+  shipped: Added public UDP relay over existing tunnel messages, preserving peer identity, datagram boundaries and zero-length packets; TCP and UDP can share a port number.
+
+- [x] **#181 (Phase 3) Bound UDP sessions, queues and public traffic.**
+  Add configurable idle expiry refreshed by both directions, total/per-IP/
+  per-org session limits, new-session admission rate, bounded packet/byte
+  queues and ingress/egress budgets. Drop datagrams under congestion without
+  blocking the shared tunnel receive loop; count only actually accepted/sent
+  bytes as forwarded traffic and expose drop reasons. Apply public source-IP
+  allow/deny policies to actual socket peers, not HTTP forwarding headers.
+  Public UDP can reflect spoofed traffic: document the remaining risk and
+  make egress/resource ceilings explicit rather than promising that per-IP
+  limits authenticate a sender. Acceptance: idle peers, floods and a slow
+  target remain within configured memory/session budgets while unrelated
+  TCP/UDP traffic continues making progress.
+  shipped: Bound UDP peers, per-IP sessions, packet sizes, queues, rates and byte budgets, with observable drop reasons and nonblocking relay progress.
+
+- [x] **#182 (Phase 3) Clean up UDP state across every lifecycle transition.**
+  Handle backend close, client disconnect/reconnect, lost declarations,
+  health changes, token revocation, org suspension, rule updates and listener
+  shutdown. A closed session may select a healthy target on the next packet;
+  never replay old buffered datagrams into the new target. Protect cleanup
+  against an old task removing a newer session for the same peer; ignore late
+  responses from retired streams and enforce declaring-client ownership.
+  Acceptance: repeated reconnects and peer expiry leave no stale sessions,
+  sockets or tasks, and packet races cannot cross targets or rule generations.
+  shipped: Cleans up retired streams and tasks across target changes, disconnects, policy changes, listener drains and shutdown without replaying old datagrams.
+
+- [x] **#183 (Phase 4) Expose a scoped management API with a usable error contract.**
+  Add `/aperio/api/exposes` listing/detail/create/update/delete plus explicit
+  enable/disable, retry and drain/disconnect operations as required by #177.
+  Enforce #171–#173 and shared validation on every operation, filter lists
+  before pagination, and return revisions, source, effective actions,
+  constraints and observed state. Distinguish validation, forbidden,
+  revision conflict, port conflict, quota, persistence and runtime errors.
+  Make retries safe through idempotent semantics or request identifiers.
+  Acceptance: clients can diagnose a failed change without consulting server
+  logs, and out-of-scope resource errors do not disclose another tenant's
+  tunnel names, addresses, activity or ownership.
+  shipped: Added scoped CRUD, action, policy, session and event endpoints with revisions, idempotency and distinct validation, permission, quota, bind and persistence errors.
+
+- [x] **#184 (Phase 4) Provide scoped tunnel, listener and session inventory.**
+  Join declared TCP/UDP tunnels, serving clients/services, public exposures
+  and active relay sessions through stable identifiers. Include offline
+  configured targets, protocol compatibility, encrypted-target exclusions,
+  creation/start times, peer address where authorized, byte/packet totals,
+  idle state and termination reason. Paginate/filter large inventories and
+  cap retained history. Distinguish observed private binder sessions from
+  server-owned exposes; the UI must not imply it can bind a socket on the
+  user's machine. Acceptance: authorized users can trace public endpoint →
+  tunnel → serving service → active session without crossing org boundaries.
+  shipped: Added organization-filtered tunnel, listener, session and retained event inventories with protocol, target, peer and traffic state.
+
+- [x] **#185 (Phase 4) Audit expose changes and measure relay health.**
+  Record actor, organization, resource/revision, operation, safe before/after
+  fields and outcome for mutations, policy/grant changes and manual session
+  termination. Emit runtime transitions and counters for connections,
+  datagrams, forwarded bytes, drops, quota rejection and bind/backend errors.
+  Do not log deprecated shared keys, credentials or traffic payloads; avoid
+  per-packet audit spam and unbounded metric label cardinality. Define bounded
+  retention and organization-scoped access for relay/session history.
+  Acceptance: a user can distinguish no target, bind failure, idle expiry,
+  administrator shutdown and congestion from the UI/API evidence.
+  shipped: Added scoped mutation and lifecycle audit events plus bounded-cardinality relay metrics and retained session history.
+
+- [x] **#186 (Phase 4) Drive topology and live updates from actual runtime state.**
+  Replace topology's config-document-only expose list and duplicated matcher
+  with the manager/resolver's effective state. Extend #167's event stream for
+  configuration, status, permission and aggregate traffic updates, with
+  scoped snapshots/revisions and reconnect resynchronization. Reevaluate
+  authorization for long-lived subscriptions after grant/org changes; do
+  not leak global events to tenant users. Acceptance: an API-created listener
+  appears immediately, a failed bind never appears healthy, and a revoked
+  user stops receiving restricted updates without signing out.
+  shipped: Feeds topology and SSE from manager state, refreshes scoped snapshots and closes live streams when permissions are revoked.
+
+- [x] **#187 (Phase 4) Include expose resources in CLI, backup and recovery workflows.**
+  Extend the existing API CLI with list/show/create/update/enable/disable/
+  delete and session inspection/termination using the same authorization.
+  Include rules, capability grants and delegation policies in appropriate
+  export/import paths, separating configuration from transient sockets and
+  sessions. Import supports validation/preview, organization-id remapping
+  and conflict reporting, and cannot bypass file ownership or port quotas.
+  Acceptance: restore into another instance reports unavailable ports before
+  applying changes and a scoped key cannot export/import another tenant.
+  shipped: Added CLI management and expose-only/full-backup transfer with preview, bind preflight, revision checks and organization remapping. A server test verifies rule and policy round trips.
+
+- [x] **#188 (Phase 5) Build a unified TCP/UDP tunnel and public expose workspace.**
+  Extend the existing Tunnels section and navigation rather than creating an
+  isolated admin-only panel. List protocol, organization, tunnel/service,
+  public endpoint, configuration source, enabled/observed status, active
+  sessions and traffic. Support search/filter/sort and offline targets;
+  provide links from clients/services and topology to the same detail view.
+  Clearly separate a declared tunnel, a private binder and a server public
+  listener. Acceptance: a permitted non-master user can find and inspect all
+  accessible TCP/UDP resources; an unprivileged user sees neither management
+  actions nor out-of-scope inventory.
+  shipped: Extended the existing Tunnels workspace with filtered TCP/UDP inventory, public endpoints, service links and honest separation of private binds from server listeners.
+
+- [x] **#189 (Phase 5) Create and edit public exposes entirely from the dashboard.**
+  Offer an Expose action on an eligible tunnel and a standalone form for an
+  offline target. Select organization, tunnel, TCP/UDP, permitted listener
+  address/port and applicable limits; explain incompatible/encrypted targets
+  and policy constraints inline. Show the endpoint and unauthenticated public
+  reachability before submit, then wait for the API's actual result.
+  Handle stale revisions without losing the user's edits; show field errors,
+  occupied ports, unavailable backends and persistence failures accurately.
+  Acceptance: an authorized user creates TCP and UDP exposures, changes a
+  target/port and sees live results without editing YAML or restarting.
+  shipped: Added dashboard creation and editing for online and offline targets, including field errors, occupied ports and recoverable stale drafts.
+
+- [x] **#190 (Phase 5) Operate listeners and sessions from the dashboard.**
+  Add enable/disable, delete, retry failed activation, bounded drain and
+  immediate disconnect according to effective capabilities. Show the count
+  and type of sessions affected before destructive actions, and separate
+  stopping new admission from forcibly ending active traffic. Provide a
+  paginated session view with authorized peer/traffic/idle information,
+  selected-session termination and relevant audit/error history. File-owned
+  rules show their source and edit guidance rather than a save button that
+  cannot work. Acceptance: one user's permitted operations affect only the
+  chosen resources and long-lived TCP/UDP sessions follow #177 exactly.
+  shipped: Added listener actions, impact-aware confirmations, paginated session history and selected-session termination, respecting file ownership.
+
+- [x] **#191 (Phase 5) Manage expose permissions and delegation in the UI.**
+  Extend user/grant, admin API-key and OIDC mapping views with the new
+  capabilities. Give authorized policy administrators forms for protocol,
+  address/port ranges and quotas; show effective rights, inherited/wildcard
+  sources and restrictive policy intersections. Grant forms may offer only
+  authority the caller can delegate. Surface policy changes' impact on
+  existing listeners, and refresh actions when permissions change.
+  Acceptance: an administrator can authorize a normal user for one org and
+  a bounded port range; that user can publish and manage a tunnel without
+  being given master access or general server-settings privileges.
+  shipped: Added user, API-key and OIDC expose grants plus bounded allocation and quota editors that only offer delegable authority.
+
+- [x] **#192 (Phase 5) Make tunnel controls usable, accessible and operationally honest.**
+  Follow existing translations, keyboard/focus, responsive layouts, loading,
+  empty/error and reconnect states. Copyable endpoints and example connection
+  commands must account for IPv6 and the configured advertised host; wildcard
+  bind addresses are not visitor destinations. Explain that binding a socket
+  does not publish a Docker/Kubernetes host port or change a firewall/NAT rule.
+  Offer relevant deployment guidance and backend authentication guidance at
+  the point of use. Do not mark external reachability verified from local
+  bind success; any connectivity test reports its origin and limits.
+  Acceptance: all primary workflows work on keyboard and small screens, and
+  a newly authorized user can complete them without knowing internal ids.
+  shipped: Added translated, keyboard-accessible desktop and mobile controls, IPv6-aware copyable endpoints and clear bind-versus-public-reachability guidance.
+
+- [x] **#193 (Phase 6) Update configuration, protocol and deployment documentation.**
+  Update shared schemas, generated references, OpenAPI/API CLI docs,
+  `--check-config`, public-expose examples, TCP/UDP troubleshooting and
+  compatibility notes. Document file/API ownership, dynamic persistence,
+  delegated permissions, revocation/lifecycle semantics, limits and the
+  unauthenticated public socket boundary. Include TCP, UDP and same-number
+  dual-protocol examples plus container/firewall mappings. Verify existing
+  UDP wire messages suffice; if a service-selector/capability gap is found,
+  specify additive negotiation and old-client behavior before implementation.
+  Acceptance: documented examples are exercised and legacy TCP YAML/token/
+  key configurations keep their stated behavior without silent widening.
+  shipped: Updated schemas, OpenAPI, CLI, protocol compatibility, deployment examples and TCP/UDP troubleshooting documentation.
+
+- [x] **#194 (Phase 6) Prove isolation, failure recovery and sustained relay behavior.**
+  Add focused unit/integration/conformance coverage for the permission and
+  port-policy matrices, both protocol directions, service selection,
+  cross-org duplicate names, IPv4/IPv6 conflicts, datagram boundaries and
+  zero-length/oversize packets, idle expiry, TCP half-close and flow control.
+  Exercise concurrent edits, revision conflicts, bind/write failures,
+  config reload rollback, restart/crash recovery, revocation, client churn,
+  retired-session races and shutdown. Run bounded load/soak tests demonstrating
+  session/memory/task ceilings, UDP drop behavior and fairness under a slow
+  consumer. Acceptance: measurable resource bounds and regression evidence
+  accompany the feature; successful happy-path echo alone is insufficient.
+  shipped: Added validation, authorization, rollback, restart, drain, traffic-bound and isolation regressions, including real TCP/UDP traffic. Final checks passed 2,232 workspace tests, fmt, all-feature Clippy, 79 dashboard unit tests, five browser contract tests and 290 real-binary e2e tests; three e2e cases were intentionally skipped.
+
+- [x] **#195 (Phase 6) Ship the complete delegated TCP/UDP dashboard journey.**
+  Add end-to-end UI/API scenarios with built-in admin, a specifically
+  authorized non-master user, an unprivileged same-org user, another tenant
+  and scoped API keys. The admin delegates bounded rights; the user discovers
+  a tunnel, creates TCP and UDP public listeners, sends real traffic, inspects
+  topology/sessions, edits/drains/disables/deletes, and verifies persistence
+  after restart. Exercise live permission withdrawal, policy suspension,
+  offline targets, port conflict and stale edits with useful UI recovery.
+  Test direct unauthorized API calls as well as hidden controls. Acceptance:
+  phases 1–5 are usable together with #193/#194 evidence; no required user
+  operation depends on a master login, a second binder client, hand-edited
+  server config or a restart. Deployment port/firewall provisioning remains
+  an explicit infrastructure prerequisite, not an implied product capability.
+  shipped: Verified the delegated non-master journey with real binaries, both protocols, scoped callers, restart persistence, policy withdrawal and live permission revocation, plus a real TCP/UDP dashboard browser run.

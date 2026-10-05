@@ -416,9 +416,11 @@ function BulkDisableButton({ count, onConfirm }: { count: number; onConfirm: () 
 export function ClientsSection({
   clients,
   onChanged,
+  onTunnels,
 }: {
   clients: ClientDetail[]
   onChanged: () => void
+  onTunnels: (client: string) => void
 }) {
   const { t } = useI18n()
   const isMobile = useIsMobile()
@@ -523,6 +525,7 @@ export function ClientsSection({
                         </>
                       }
                     >
+                      <Button size="xs" variant="outline" onClick={(e) => { e.stopPropagation(); onTunnels(c.id) }} onKeyDown={(e) => e.stopPropagation()}>{t('Tunnels')}</Button>
                       <span className="font-mono">{names.join(', ') || NO_VALUE}</span>
                       <span>{formatLastPing(c.last_ping_seconds_ago, t)}</span>
                       <span>{t('{count} requests', { count: formatCount(g.requestCount) })}</span>
@@ -765,6 +768,7 @@ export function ClientsSection({
                   <TableCell className="tabular-nums">{formatCount(g.requestCount)}</TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-2">
+                      <Button size="xs" variant="outline" onClick={() => onTunnels(c.id)} onKeyDown={(e) => e.stopPropagation()}>{t('Tunnels')}</Button>
                       {canMutate ? (
                         <>
                           {g.connections.length === 1 && (

@@ -16,7 +16,7 @@ use tracing::{info, warn};
 /// alerting, token-expiry warnings, the public expose listeners, retention,
 /// backups, and the QoS 1 ack sweeper. Side effects only; the caller keeps
 /// the state.
-pub(crate) fn spawn_background(state: &Arc<AppState>, host: &str) {
+pub(crate) fn spawn_background(state: &Arc<AppState>) {
   let state = state.clone();
   // Flush persistent stats periodically and once more on shutdown.
   let stats_flush_state = state.clone();
@@ -64,7 +64,7 @@ pub(crate) fn spawn_background(state: &Arc<AppState>, host: &str) {
   // Config hot-reload: watch aperio-server.yaml for changes and re-apply the
   // live-editable settings and structured headers/routes without a restart
   // (no `set_var`, so it is safe on the running server). Structural keys
-  // (host/port/data_dir, proxy trust, OIDC, `expose` ports) still need a
+  // (host/port/data_dir, proxy trust, OIDC) still need a
   // restart. Off when no config file is in use, or when disabled explicitly.
   let hot_reload = std::env::var("APERIO_CONFIG_HOT_RELOAD")
     .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
@@ -146,9 +146,6 @@ pub(crate) fn spawn_background(state: &Arc<AppState>, host: &str) {
       }
     });
   }
-
-  // Experimental public TCP expose ports (aperio-server.yaml `expose:`).
-  expose::spawn_listeners(state.clone(), host, expose::from_config_file());
 
   // Per-data-type retention pruner (APERIO_RETENTION_*): inert when nothing
   // is configured.

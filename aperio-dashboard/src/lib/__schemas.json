@@ -3346,7 +3346,7 @@
         "examples": [
           {
             "max": 120,
-            "refill": 20
+            "refill": 20.0
           }
         ]
       },
@@ -3925,10 +3925,10 @@
         "examples": [
           [
             {
-              "burst": 10,
+              "burst": 10.0,
               "hostname": "api.example.com",
               "path": "/api/login",
-              "rps": 5
+              "rps": 5.0
             }
           ]
         ],
@@ -5169,9 +5169,49 @@
         ]
       },
       "ExposeEntry": {
-        "description": "One `expose:` entry of `aperio-server.yaml`: a raw public TCP port the\nserver relays into a client's declared tunnel, with no binder peer.",
+        "description": "One `expose:` entry of `aperio-server.yaml`: a raw public TCP or UDP port the\nserver relays into a client's declared tunnel, with no binder peer.",
         "type": "object",
         "properties": {
+          "address": {
+            "description": "Bind address; omitted uses the server's host setting (IPv6 is v6-only).",
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "ip",
+            "examples": [
+              "0.0.0.0",
+              "::1"
+            ]
+          },
+          "advertised_host": {
+            "description": "Visitor-facing hostname or IP for copied public endpoints; does not change the bind.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "tunnel.example.com"
+            ]
+          },
+          "allowed_ips": {
+            "description": "Allowed visitor IP addresses or CIDRs; empty permits every source.",
+            "type": "array",
+            "examples": [
+              [
+                "192.0.2.0/24",
+                "2001:db8::/32"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "description": "Whether this listener accepts public traffic.",
+            "type": "boolean",
+            "default": true
+          },
           "key": {
             "description": "Deprecated spelling: a shared secret the client's tunnel declaration\nrepeats as `expose: <key>`. Still honored, but it names no owner, cannot\nbe revoked, and lives in plaintext in two files; prefer `tunnel` + `token`.",
             "type": [
@@ -5180,6 +5220,25 @@
             ],
             "examples": [
               "k5fj2q-expose-secret"
+            ]
+          },
+          "limits": {
+            "description": "Protocol-specific connection, queue and bandwidth limits.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ExposeLimits"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "drain_timeout_secs": 30,
+                "max_connections": 256,
+                "open_timeout_secs": 10,
+                "protocol": "tcp"
+              }
             ]
           },
           "org": {
@@ -5203,11 +5262,12 @@
             "minimum": 0
           },
           "protocol": {
-            "description": "Transport of the exposed port; only `tcp` is supported. A public UDP\nport is an amplification surface and is a separate decision.\nDefault: `tcp`.",
+            "description": "Transport of the exposed port: `tcp` or `udp`. UDP listeners use bounded\npeer sessions, queues and datagram sizes.\nDefault: `tcp`.",
             "type": "string",
             "default": "tcp",
             "examples": [
-              "tcp"
+              "tcp",
+              "udp"
             ]
           },
           "token": {
@@ -5236,6 +5296,120 @@
         "additionalProperties": false,
         "required": [
           "port"
+        ]
+      },
+      "ExposeLimits": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "drain_timeout_secs": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "egress_bytes_per_second": {
+                "type": "integer",
+                "format": "uint64",
+                "default": 16777216,
+                "minimum": 0
+              },
+              "ingress_bytes_per_second": {
+                "type": "integer",
+                "format": "uint64",
+                "default": 16777216,
+                "minimum": 0
+              },
+              "max_connections": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "open_timeout_secs": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "protocol": {
+                "type": "string",
+                "const": "tcp"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "protocol",
+              "max_connections",
+              "open_timeout_secs",
+              "drain_timeout_secs"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "egress_bytes_per_second": {
+                "type": "integer",
+                "format": "uint64",
+                "minimum": 0
+              },
+              "idle_timeout_secs": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "ingress_bytes_per_second": {
+                "type": "integer",
+                "format": "uint64",
+                "minimum": 0
+              },
+              "max_datagram_bytes": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "max_sessions": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "max_sessions_per_ip": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "new_sessions_per_second": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "protocol": {
+                "type": "string",
+                "const": "udp"
+              },
+              "queue_bytes": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "queue_packets": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "protocol",
+              "max_sessions",
+              "max_sessions_per_ip",
+              "idle_timeout_secs",
+              "max_datagram_bytes",
+              "queue_packets",
+              "queue_bytes",
+              "new_sessions_per_second",
+              "ingress_bytes_per_second",
+              "egress_bytes_per_second"
+            ]
+          }
         ]
       },
       "FailoverGroup": {
@@ -5477,7 +5651,7 @@
             ],
             "format": "double",
             "examples": [
-              20
+              20.0
             ]
           }
         },
@@ -5932,7 +6106,7 @@
             ],
             "format": "double",
             "examples": [
-              100
+              100.0
             ]
           },
           "hostname": {
@@ -5977,7 +6151,7 @@
             "type": "number",
             "format": "double",
             "examples": [
-              50
+              50.0
             ]
           }
         },
@@ -6179,7 +6353,7 @@
             ],
             "format": "double",
             "examples": [
-              100
+              100.0
             ]
           },
           "methods": {
@@ -6204,7 +6378,7 @@
             "type": "number",
             "format": "double",
             "examples": [
-              50
+              50.0
             ]
           }
         },
@@ -6604,6 +6778,330 @@
           }
         },
         "additionalProperties": false
+      }
+    }
+  },
+  "expose": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "ExposeSpec",
+    "description": "Desired state of a managed public listener. Runtime state is kept separate\nso persisting a resource cannot falsely claim that a socket is listening.",
+    "type": "object",
+    "properties": {
+      "advertised_host": {
+        "description": "Visitor-facing DNS name or IP. Does not alter bind, DNS or firewall configuration.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "allowed_ips": {
+        "description": "Actual socket peers allowed to connect; empty permits every source.",
+        "type": "array",
+        "default": [],
+        "items": {
+          "type": "string"
+        }
+      },
+      "enabled": {
+        "type": "boolean"
+      },
+      "limits": {
+        "$ref": "#/$defs/ExposeLimits"
+      },
+      "listener": {
+        "$ref": "#/$defs/ExposeListener"
+      },
+      "org_id": {
+        "description": "Stable organization id, or `master`. Never `*` or a display name.",
+        "type": "string"
+      },
+      "tunnel": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "org_id",
+      "tunnel",
+      "listener",
+      "enabled",
+      "limits"
+    ],
+    "$defs": {
+      "ExposeLimits": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "drain_timeout_secs": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "egress_bytes_per_second": {
+                "type": "integer",
+                "format": "uint64",
+                "default": 16777216,
+                "minimum": 0
+              },
+              "ingress_bytes_per_second": {
+                "type": "integer",
+                "format": "uint64",
+                "default": 16777216,
+                "minimum": 0
+              },
+              "max_connections": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "open_timeout_secs": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "protocol": {
+                "type": "string",
+                "const": "tcp"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "protocol",
+              "max_connections",
+              "open_timeout_secs",
+              "drain_timeout_secs"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "egress_bytes_per_second": {
+                "type": "integer",
+                "format": "uint64",
+                "minimum": 0
+              },
+              "idle_timeout_secs": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "ingress_bytes_per_second": {
+                "type": "integer",
+                "format": "uint64",
+                "minimum": 0
+              },
+              "max_datagram_bytes": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "max_sessions": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "max_sessions_per_ip": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "new_sessions_per_second": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "protocol": {
+                "type": "string",
+                "const": "udp"
+              },
+              "queue_bytes": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "queue_packets": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "protocol",
+              "max_sessions",
+              "max_sessions_per_ip",
+              "idle_timeout_secs",
+              "max_datagram_bytes",
+              "queue_packets",
+              "queue_bytes",
+              "new_sessions_per_second",
+              "ingress_bytes_per_second",
+              "egress_bytes_per_second"
+            ]
+          }
+        ]
+      },
+      "ExposeListener": {
+        "description": "IPv6 listeners are explicitly v6-only. This removes platform-dependent\ndual-stack overlap; IPv4-mapped IPv6 addresses are rejected by validation.",
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "format": "ip"
+          },
+          "port": {
+            "type": "integer",
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0
+          },
+          "protocol": {
+            "$ref": "#/$defs/ExposeProtocol"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "address",
+          "port",
+          "protocol"
+        ]
+      },
+      "ExposeProtocol": {
+        "type": "string",
+        "enum": [
+          "tcp",
+          "udp"
+        ]
+      }
+    }
+  },
+  "exposePolicy": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "ExposePolicy",
+    "type": "object",
+    "properties": {
+      "allocations": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/ExposeAllocation"
+        }
+      },
+      "egress_bytes_per_second": {
+        "type": "integer",
+        "format": "uint64",
+        "minimum": 0
+      },
+      "ingress_bytes_per_second": {
+        "type": "integer",
+        "format": "uint64",
+        "minimum": 0
+      },
+      "max_rules": {
+        "type": "integer",
+        "format": "uint32",
+        "minimum": 0
+      },
+      "max_tcp_connections": {
+        "type": "integer",
+        "format": "uint64",
+        "minimum": 0
+      },
+      "max_udp_sessions": {
+        "type": "integer",
+        "format": "uint64",
+        "minimum": 0
+      },
+      "org_id": {
+        "type": "string"
+      },
+      "reserved": {
+        "type": "array",
+        "default": [],
+        "items": {
+          "$ref": "#/$defs/ExposeListener"
+        }
+      },
+      "revision": {
+        "type": "integer",
+        "format": "uint64",
+        "minimum": 0
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "org_id",
+      "revision",
+      "allocations",
+      "max_rules",
+      "max_tcp_connections",
+      "max_udp_sessions",
+      "ingress_bytes_per_second",
+      "egress_bytes_per_second"
+    ],
+    "$defs": {
+      "ExposeAllocation": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "format": "ip"
+          },
+          "first_port": {
+            "type": "integer",
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0
+          },
+          "last_port": {
+            "type": "integer",
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0
+          },
+          "protocol": {
+            "$ref": "#/$defs/ExposeProtocol"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "address",
+          "protocol",
+          "first_port",
+          "last_port"
+        ]
+      },
+      "ExposeListener": {
+        "description": "IPv6 listeners are explicitly v6-only. This removes platform-dependent\ndual-stack overlap; IPv4-mapped IPv6 addresses are rejected by validation.",
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "format": "ip"
+          },
+          "port": {
+            "type": "integer",
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0
+          },
+          "protocol": {
+            "$ref": "#/$defs/ExposeProtocol"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "address",
+          "port",
+          "protocol"
+        ]
+      },
+      "ExposeProtocol": {
+        "type": "string",
+        "enum": [
+          "tcp",
+          "udp"
+        ]
       }
     }
   }

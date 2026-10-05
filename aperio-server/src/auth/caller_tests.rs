@@ -8,6 +8,105 @@ use super::*;
 use crate::store::grants::Grant;
 use crate::test_support::*;
 
+#[tokio::test]
+async fn expose_grants_are_live_and_admin_keys_keep_their_scope() {
+  use crate::store::grants::ExposeAction;
+  let state = test_state();
+  let mut grant = child("acme", Role::Viewer);
+  grant.expose.insert(ExposeAction::Create);
+  make_user(&state, "publisher", Some("acme"), vec![grant.clone()]).await;
+  let token = seed_session(&state, Role::Viewer, Some("publisher"), None).await;
+  let headers = cookie_headers(&token);
+  let caller = resolve_caller(&state, &headers).await.unwrap();
+  assert_eq!(
+    caller.expose_actions(Some("acme")),
+    vec![ExposeAction::Read, ExposeAction::Create]
+  );
+  assert!(caller.expose_actions(Some("beta")).is_empty());
+  assert!(!caller.is_master_admin());
+  let id = state
+    .users
+    .lock()
+    .await
+    .find_by_username("publisher")
+    .unwrap()
+    .id
+    .clone();
+  state
+    .users
+    .lock()
+    .await
+    .set_grants(&id, vec![child("acme", Role::Viewer)])
+    .unwrap();
+  assert!(
+    resolve_caller(&state, &headers)
+      .await
+      .unwrap()
+      .expose_actions(Some("acme"))
+      .is_empty()
+  );
+
+  let (key, secret) = state
+    .admin_key_store
+    .lock()
+    .await
+    .create_with_expose(
+      "publisher".into(),
+      Role::Viewer,
+      GrantOrg::Child("acme".into()),
+      None,
+      grant.expose,
+    )
+    .unwrap();
+  let mut headers = HeaderMap::new();
+  headers.insert("authorization", format!("Bearer {secret}").parse().unwrap());
+  let caller = resolve_caller(&state, &headers).await.unwrap();
+  assert!(
+    caller
+      .expose_actions(Some("acme"))
+      .contains(&ExposeAction::Create)
+  );
+  assert!(caller.expose_actions(None).is_empty());
+  assert!(caller.expose_actions(Some("beta")).is_empty());
+  state.admin_key_store.lock().await.revoke(&key.id).unwrap();
+  assert!(resolve_caller(&state, &headers).await.is_none());
+}
+
+#[tokio::test]
+async fn bound_oidc_keeps_expose_capabilities_only_in_its_bound_org() {
+  use crate::store::grants::ExposeAction;
+  let state = test_state();
+  let mut grant = child("acme", Role::Viewer);
+  grant.expose.insert(ExposeAction::Create);
+  make_user(
+    &state,
+    "publisher",
+    None,
+    vec![grant, child("beta", Role::Admin)],
+  )
+  .await;
+  let token = seed_custom(
+    &state,
+    crate::store::sessions::now_secs() + 100,
+    None,
+    Some("publisher"),
+    Role::Admin,
+    Some("beta".into()),
+    Some("acme".into()),
+  )
+  .await;
+  let caller = resolve_caller(&state, &cookie_headers(&token))
+    .await
+    .unwrap();
+  assert!(
+    caller
+      .expose_actions(Some("acme"))
+      .contains(&ExposeAction::Create)
+  );
+  assert!(caller.expose_actions(Some("beta")).is_empty());
+  assert_eq!(caller.effective_org().as_deref(), Some("acme"));
+}
+
 fn child(id: &str, role: Role) -> Grant {
   Grant::new(GrantOrg::Child(id.to_string()), role)
 }

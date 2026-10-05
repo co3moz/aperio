@@ -123,6 +123,7 @@ async fn udp_datagram_and_close_owned() {
   state.udp_streams.lock().await.insert(
     "u1".into(),
     crate::state::UdpStreamHandle {
+      public: None,
       tx,
       client_id: cid.clone(),
     },
@@ -184,6 +185,7 @@ async fn udp_not_owned_rejected() {
   state.udp_streams.lock().await.insert(
     "u1".into(),
     crate::state::UdpStreamHandle {
+      public: None,
       tx,
       client_id: "foreign".into(),
     },

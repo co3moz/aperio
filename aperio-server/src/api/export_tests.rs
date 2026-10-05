@@ -27,6 +27,7 @@ fn import_dump(
   settings_overrides: Option<SettingsOverrides>,
 ) -> Json<ImportDump> {
   Json(ImportDump {
+    exposes: None,
     format_version,
     tokens,
     webhooks,
@@ -447,6 +448,89 @@ async fn a_dump_of_history_imports_back() {
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
   assert_eq!(target.persistent_stats.lock().await.lifetime_requests(), 1);
+}
+
+#[tokio::test]
+async fn expose_rules_and_policies_round_trip_through_a_scoped_dump() {
+  use aperio_config::{
+    expose::{
+      ExposeLimits, ExposeListener, ExposeProtocol, ExposeResource, ExposeSource, ExposeSpec,
+    },
+    expose_policy::{ExposeAllocation, ExposePolicy},
+  };
+
+  let source = Arc::new(test_state());
+  let source_headers = admin_headers(&source).await;
+  let resource = ExposeResource {
+    id: "expose-backup-test".into(),
+    revision: 4,
+    source: ExposeSource::Api,
+    spec: ExposeSpec {
+      org_id: "master".into(),
+      tunnel: "offline_target".into(),
+      listener: ExposeListener {
+        address: "127.0.0.1".parse().unwrap(),
+        port: 24080,
+        protocol: ExposeProtocol::Tcp,
+      },
+      enabled: false,
+      limits: ExposeLimits::defaults(ExposeProtocol::Tcp),
+      allowed_ips: vec!["192.0.2.0/24".into()],
+      advertised_host: Some("edge.example.test".into()),
+    },
+  };
+  let policy = ExposePolicy {
+    org_id: "master".into(),
+    revision: 2,
+    allocations: vec![ExposeAllocation {
+      address: "127.0.0.1".parse().unwrap(),
+      protocol: ExposeProtocol::Tcp,
+      first_port: 24080,
+      last_port: 24089,
+    }],
+    reserved: vec![],
+    max_rules: 3,
+    max_tcp_connections: 30,
+    max_udp_sessions: 40,
+    ingress_bytes_per_second: 50_000,
+    egress_bytes_per_second: 60_000,
+  };
+  {
+    let mut manager = source.exposes.lock().await;
+    let mut document = manager.store.document.clone();
+    document.resources.push(resource.clone());
+    document.policies.push(policy.clone());
+    manager.replace(&source, document, false).await.unwrap();
+  }
+
+  let exported = json_body(
+    export_handler(
+      State(source),
+      ConnectInfo(test_peer()),
+      source_headers,
+      include("exposes"),
+    )
+    .await,
+  )
+  .await;
+  assert_eq!(exported["exposes"]["resources"][0]["id"], resource.id);
+  assert_eq!(
+    exported["exposes"]["policies"][0]["revision"],
+    policy.revision
+  );
+
+  let target = Arc::new(test_state());
+  let response = import_handler(
+    State(target.clone()),
+    ConnectInfo(test_peer()),
+    admin_headers(&target).await,
+    Json(serde_json::from_value(exported).unwrap()),
+  )
+  .await;
+  assert_eq!(response.status(), StatusCode::OK);
+  let manager = target.exposes.lock().await;
+  assert_eq!(manager.store.document.resources, [resource]);
+  assert_eq!(manager.store.document.policies, [policy]);
 }
 
 /// A minimal inbox row for the history-section tests.

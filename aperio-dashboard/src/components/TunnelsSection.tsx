@@ -1,3 +1,7 @@
+import { useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { useSession } from '@/lib/session'
+import { ExposesSection } from './ExposesSection'
 import { CableIcon } from 'lucide-react'
 import { TintBadge } from './badges'
 import { CopyButton, EmptyRow, SectionHeader, SkeletonRows, StatusDot } from './shared'
@@ -11,7 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { api, type DeclaredTunnel } from '@/lib/api'
+import { api, type DeclaredTunnel, type ExposeSpec } from '@/lib/api'
 import { NO_VALUE } from '@/lib/format'
 import { Freshness } from './Freshness'
 import { useStream } from '@/hooks/useStream'
@@ -52,22 +56,22 @@ function localPortHint(tunnel: DeclaredTunnel): number {
   return 20000 + Number(hash % 10000n)
 }
 
-/**
- * The tunnels this organization's clients declare: private services that are
- * never routed or exposed publicly, reachable with `--bind-tunnels`.
- *
- * Read-only on purpose. Seeing what exists is a dashboard question; binding
- * one needs a tunnel token carrying `allow_bind`, which is a separate
- * credential precisely so that browsing cannot become reaching.
- */
-export function TunnelsSection() {
+export function TunnelsSection({ focus, clearFocus }: { focus: { expose?: string; client?: string } | null; clearFocus: () => void }) {
   const { t } = useI18n()
+  const { orgs, masterAdmin } = useSession()
+  const [exposeDraft, setExposeDraft] = useState<Partial<ExposeSpec> | undefined>()
+  const exposeOrg = (tunnel: DeclaredTunnel) => tunnel.org ? orgs.find((o) => o.name === tunnel.org)?.id : 'master'
+  const canExpose = (tunnel: DeclaredTunnel) => {
+    const org = exposeOrg(tunnel)
+    return !!org && !tunnel.encrypt && (masterAdmin || !!orgs.find((o) => o.id === org)?.expose_actions?.includes('create'))
+  }
   const {
-    data: tunnels,
+    data: declarations,
     refresh: load,
     error: failed,
     updatedAt,
   } = useStream<DeclaredTunnel[]>('tunnels', api.declaredTunnels, 10_000)
+  const tunnels = declarations?.filter((tunnel) => !focus?.client || tunnel.client_id === focus.client) ?? null
   const error = failed ? t('Could not load the tunnels; retrying.') : null
 
   return (
@@ -75,12 +79,13 @@ export function TunnelsSection() {
       <SectionHeader
         title={t('Tunnels')}
         description={t(
-          'Private services a client declares but never exposes: a database, an admin port, an SSH daemon. Bind one locally with --bind-tunnels.',
+          'Declared TCP and UDP services. Bind them locally or publish a server endpoint with an explicit expose permission.',
         )}
       >
         <Freshness updatedAt={updatedAt} onRefresh={() => void load()} />
       </SectionHeader>
 
+      {focus && <Button variant="outline" size="sm" onClick={clearFocus}>{t('All')}</Button>}
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       {/* `py-0` because the table is the card: the card's own vertical padding
@@ -103,7 +108,7 @@ export function TunnelsSection() {
             {tunnels?.length === 0 && (
               <EmptyRow colSpan={5} icon={<CableIcon />}>
                 {t(
-                  'No tunnels declared. A client declares them with a tunnels: list in its aperio.yaml; nothing about them is routed or exposed publicly.',
+                  'No tunnels declared. Add a tunnels: list in the client configuration to make a service available for binding or public exposure.',
                 )}
               </EmptyRow>
             )}
@@ -168,13 +173,17 @@ export function TunnelsSection() {
                   )}
                 </TableCell>
                 <TableCell className="text-right">
-                  <CopyButton value={bindSnippet(tunnel)} label={t('Copy config')} />
+                  <div className="flex justify-end gap-2">
+                    <CopyButton value={bindSnippet(tunnel)} label={t('Copy config')} />
+                    {canExpose(tunnel) && <Button size="xs" variant="outline" onClick={() => setExposeDraft({ org_id: exposeOrg(tunnel), tunnel: tunnel.name, listener: { address: '0.0.0.0', port: localPortHint(tunnel), protocol: tunnel.protocol === 'udp' ? 'udp' : 'tcp' } })}>{t('Expose publicly')}</Button>}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </Card>
+      <ExposesSection key={JSON.stringify(focus)} focus={focus} initial={exposeDraft} clearInitial={() => setExposeDraft(undefined)} />
     </div>
   )
 }

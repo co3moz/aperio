@@ -187,6 +187,7 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     config_env_defaults,
     settings_overrides: Mutex::new(settings_overrides),
     settings_path,
+    exposes: Mutex::new(crate::expose_manager::ExposeManager::load(&data_dir)),
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
     active_ws_connections: Arc::new(AtomicUsize::new(0)),
     path_rr: Mutex::new(HashMap::new()),

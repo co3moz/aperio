@@ -61,11 +61,8 @@ pub(crate) async fn resolve_org_oidc(
     .iter()
     .filter_map(|entry| {
       let (group, role) = entry.split_once('=')?;
-      let role = Role::parse(role)?;
-      Some((
-        group.trim().to_string(),
-        crate::store::grants::Grant::new(here.clone(), role),
-      ))
+      let grant = crate::store::grants::Grant::parse_in_org(org_id, role).ok()?;
+      Some((group.trim().to_string(), grant))
     })
     .collect();
   let grants = crate::oidc::OidcGrantPolicy {

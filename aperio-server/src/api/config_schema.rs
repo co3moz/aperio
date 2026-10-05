@@ -20,7 +20,7 @@ use axum::{
 /// `server` for `aperio-server.yaml`.
 #[utoipa::path(get, path = "/aperio/api/config/schema/{kind}", tag = "dashboard",
   description = "JSON Schema of a configuration file, for editors and the dashboard's config builder.",
-  params(("kind" = String, Path, description = "client or server")),
+  params(("kind" = String, Path, description = "client, server, expose or expose-policy")),
   responses(
     (status = 200, description = "JSON Schema document", body = serde_json::Value),
     (status = 404, description = "Unknown schema kind")))]
@@ -28,6 +28,8 @@ pub(crate) async fn config_schema_handler(Path(kind): Path<String>) -> Response 
   let schema = match kind.trim().to_ascii_lowercase().as_str() {
     "client" => aperio_config::schema_json(),
     "server" => aperio_config::server_schema_json(),
+    "expose" => aperio_config::expose_schema_json(),
+    "expose-policy" => aperio_config::expose_policy_schema_json(),
     _ => return (StatusCode::NOT_FOUND, "Unknown schema kind").into_response(),
   };
   // The generated document is valid JSON by construction; parsing it back is

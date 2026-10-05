@@ -147,6 +147,8 @@ pub(crate) struct SessionStatus {
 /// One organization the session may switch into.
 #[derive(serde::Serialize)]
 pub(crate) struct ReachableOrg {
+  pub(crate) expose_bounds: Option<aperio_config::expose_policy::ExposePolicy>,
+  pub(crate) expose_actions: Vec<crate::store::grants::ExposeAction>,
   /// `master`, or the child id.
   pub(crate) id: String,
   pub(crate) name: String,
@@ -161,6 +163,8 @@ async fn reachable_orgs(state: &AppState, caller: &crate::auth::Caller) -> Vec<R
   let mut out = Vec::new();
   if let Some(role) = caller.role_in(None) {
     out.push(ReachableOrg {
+      expose_actions: caller.expose_actions(None),
+      expose_bounds: caller.expose_bounds("master"),
       id: crate::store::orgs::MASTER_ID.to_string(),
       name: "master".to_string(),
       custom_name: None,
@@ -170,6 +174,8 @@ async fn reachable_orgs(state: &AppState, caller: &crate::auth::Caller) -> Vec<R
   for org in state.org_store.lock().await.list() {
     if let Some(role) = caller.role_in(Some(&org.id)) {
       out.push(ReachableOrg {
+        expose_actions: caller.expose_actions(Some(&org.id)),
+        expose_bounds: caller.expose_bounds(&org.id),
         id: org.id.clone(),
         name: org.name.clone(),
         custom_name: org.custom_name.clone(),

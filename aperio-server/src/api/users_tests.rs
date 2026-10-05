@@ -786,6 +786,8 @@ async fn session_org_maps_unnamed_session_to_master() {
 
 fn grant(org: &str, role: &str) -> GrantRequest {
   GrantRequest {
+    expose_bounds: None,
+    expose: Default::default(),
     org: org.to_string(),
     role: role.to_string(),
   }
@@ -835,6 +837,109 @@ async fn grants_of(state: &Arc<AppState>, username: &str) -> Vec<String> {
     .iter()
     .map(|g| g.label())
     .collect()
+}
+
+#[tokio::test]
+async fn expose_rights_require_delegation_and_protect_account_control() {
+  use crate::store::grants::ExposeAction;
+  let state = Arc::new(test_state());
+  let org = make_org(&state, "acme").await;
+  let admin_id = make_user(&state, "org-admin", Role::Admin, Some(&org)).await;
+  let headers = session_for(&state, "org-admin").await;
+  let mut requested = grant(&org, "viewer");
+  requested.expose.insert(ExposeAction::Create);
+  let resp = users_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    create_with_grants("publisher", vec![requested]),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+
+  let mut rights = Grant::new(GrantOrg::Child(org.clone()), Role::Viewer);
+  rights.expose.insert(ExposeAction::Create);
+  let publisher_id = state
+    .users
+    .lock()
+    .await
+    .create_with_grants(
+      "publisher",
+      "long-password",
+      Some(org.clone()),
+      vec![rights],
+    )
+    .unwrap()
+    .id;
+  let password_change = || {
+    Json(UserUpdateRequest {
+      role: None,
+      enabled: None,
+      password: Some("different-password".into()),
+      grants: None,
+    })
+  };
+  let resp = users_update_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    Path(publisher_id.clone()),
+    password_change(),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+  let resp = totp_admin_reset_handler(
+    State(state.clone()),
+    Path(publisher_id.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+  let resp = users_delete_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    Path(publisher_id.clone()),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+  assert!(
+    state
+      .users
+      .lock()
+      .await
+      .verify("publisher", "long-password")
+      .is_some()
+  );
+
+  let mut delegated = Grant::new(GrantOrg::Child(org), Role::Admin);
+  delegated
+    .expose
+    .extend([ExposeAction::Create, ExposeAction::Delegate]);
+  state
+    .users
+    .lock()
+    .await
+    .set_grants(&admin_id, vec![delegated])
+    .unwrap();
+  let resp = users_update_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers,
+    Path(publisher_id),
+    password_change(),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert!(
+    state
+      .users
+      .lock()
+      .await
+      .verify("publisher", "different-password")
+      .is_some()
+  );
 }
 
 #[tokio::test]

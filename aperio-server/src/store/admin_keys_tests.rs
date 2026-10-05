@@ -5,6 +5,35 @@
 use super::*;
 use crate::store::grants::GrantOrg;
 
+#[test]
+fn expose_capabilities_survive_key_store_reload() {
+  use crate::store::grants::ExposeAction;
+  let dir = temp_dir();
+  let mut store = AdminKeyStore::load(&dir);
+  let actions = [ExposeAction::Create, ExposeAction::Disable]
+    .into_iter()
+    .collect();
+  let (_, secret) = store
+    .create_with_expose(
+      "publisher".into(),
+      Role::Viewer,
+      GrantOrg::Child("acme".into()),
+      None,
+      actions,
+    )
+    .unwrap();
+  drop(store);
+  let store = AdminKeyStore::load(&dir);
+  let record = store.verify(&secret).unwrap();
+  assert_eq!(
+    record.expose,
+    [ExposeAction::Create, ExposeAction::Disable]
+      .into_iter()
+      .collect()
+  );
+  assert_eq!(record.scope(), GrantOrg::Child("acme".into()));
+}
+
 fn temp_dir() -> String {
   crate::test_support::test_temp_root()
     .join(format!("adminkeys-test-{}", uuid::Uuid::new_v4()))

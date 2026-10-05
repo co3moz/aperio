@@ -34,6 +34,12 @@ pub(crate) struct TopoStaticRoute {
 /// key is never serialized, only whether a connected client currently serves it.
 #[derive(Serialize, utoipa::ToSchema)]
 pub(crate) struct TopoExpose {
+  pub(crate) id: String,
+  pub(crate) org_id: String,
+  pub(crate) tunnel: String,
+  pub(crate) address: String,
+  pub(crate) state: String,
+  pub(crate) error: Option<String>,
   /// Public port the server listens on.
   pub(crate) port: u16,
   /// Transport (`tcp` while experimental).
@@ -119,10 +125,10 @@ pub(crate) async fn topology_handler(
 
   // Client-less routing is server-level (master) infrastructure; organization
   // dashboards only ever see their own tunnel clients.
-  let (routes, exposes) = if org.is_none() {
+  let routes = if org.is_none() {
     let cfg = state.config();
 
-    let routes = cfg
+    cfg
       .static_routes
       .rules()
       .iter()
@@ -145,43 +151,45 @@ pub(crate) async fn topology_handler(
           status,
         }
       })
-      .collect();
-
-    // Match each expose key to a currently-serving client, mirroring
-    // `expose::find_declarer`, without ever leaking the key itself.
-    let threshold = cfg.client_down_threshold;
-    let live = state.clients.read().await;
-    let exposes = crate::expose::configured_rules()
-      .into_iter()
-      .map(|e| {
-        let served_by = live.iter().find_map(|(cid, c)| {
-          let serving = c.serves_process_scoped(threshold)
-            && c.tunnels().iter().any(|d| {
-              d.protocol == "tcp"
-                && !d.encrypt
-                && match &e.tunnel {
-                  Some(name) => {
-                    crate::tunnel::registry::name_of(d) == name.trim()
-                      && c.perms.token_name.as_deref() == e.token.as_deref().map(str::trim)
-                  }
-                  None => d.expose.as_deref() == e.key.as_deref(),
-                }
-            });
-          serving.then(|| cid.clone())
-        });
-        TopoExpose {
-          port: e.port,
-          protocol: e.protocol,
-          served: served_by.is_some(),
-          served_by,
-        }
-      })
-      .collect();
-
-    (routes, exposes)
+      .collect()
   } else {
-    (Vec::new(), Vec::new())
+    Vec::new()
   };
+  let caller = crate::auth::resolve_caller(&state, &headers).await;
+  let exposes = state
+    .exposes
+    .lock()
+    .await
+    .views(&state)
+    .await
+    .into_iter()
+    .filter(|v| {
+      caller.as_ref().is_some_and(|c| {
+        c.expose_actions(if v.resource.spec.org_id == "master" {
+          None
+        } else {
+          Some(&v.resource.spec.org_id)
+        })
+        .contains(&aperio_config::expose::ExposeAction::Read)
+      })
+    })
+    .map(|v| TopoExpose {
+      id: v.resource.id,
+      org_id: v.resource.spec.org_id,
+      tunnel: v.resource.spec.tunnel,
+      address: v.resource.spec.listener.address.to_string(),
+      port: v.resource.spec.listener.port,
+      protocol: v.resource.spec.listener.protocol.as_str().into(),
+      state: serde_json::to_value(v.state)
+        .ok()
+        .and_then(|s| s.as_str().map(str::to_string))
+        .unwrap_or_default(),
+      error: v.error,
+      served: v.state == aperio_config::expose::ExposeListenerState::Listening
+        && v.target_state == aperio_config::expose::ExposeTargetState::Ready,
+      served_by: v.served_by,
+    })
+    .collect();
 
   // Declared-but-offline: hostnames/paths a token in this org may bind but that
   // no live client currently serves. Scoped per-org like the client list.

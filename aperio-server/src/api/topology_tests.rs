@@ -219,6 +219,7 @@ fn expose_ports_report_who_serves_them_without_leaking_the_key() {
     clients.insert("c-drain".to_string(), draining);
   }
 
+  state.exposes.lock().await.initialize(&state, "127.0.0.1").await;
   let graph = topology_handler(State(state.clone()), admin_headers(&state).await)
     .await
     .0;
@@ -236,7 +237,7 @@ fn expose_ports_report_who_serves_them_without_leaking_the_key() {
     "the key never leaves: {raw}"
   );
 
-  // A tenant sees no exposes at all: they are the operator's ports.
+  // A tenant without expose capabilities cannot see the operator's ports.
   let org = state
     .org_store
     .lock()
@@ -244,10 +245,12 @@ fn expose_ports_report_who_serves_them_without_leaking_the_key() {
     .create("acme", Vec::new(), None)
     .unwrap()
     .id;
-  let token = seed_session(&state, Role::Admin, None, Some(org)).await;
-  let graph = topology_handler(State(state), cookie_headers(&token))
+  state.users.lock().await.create("tenant-admin", "long-password", Role::Admin, Some(org.clone())).unwrap();
+  let token = seed_session(&state, Role::Admin, Some("tenant-admin"), Some(org)).await;
+  let graph = topology_handler(State(state.clone()), cookie_headers(&token))
     .await
     .0;
   assert!(graph.exposes.is_empty());
+  state.exposes.lock().await.shutdown().await;
   });
 }

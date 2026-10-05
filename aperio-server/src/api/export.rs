@@ -62,6 +62,7 @@ pub(crate) enum Section {
   Inbox,
   AdminKeys,
   Activity,
+  Exposes,
 }
 
 impl Section {
@@ -78,6 +79,7 @@ impl Section {
       Section::Inbox => "inbox",
       Section::AdminKeys => "admin_keys",
       Section::Activity => "activity",
+      Section::Exposes => "exposes",
     }
   }
 
@@ -96,7 +98,7 @@ impl Section {
   }
 }
 
-pub(crate) const ALL_SECTIONS: [Section; 11] = [
+pub(crate) const ALL_SECTIONS: [Section; 12] = [
   Section::Tokens,
   Section::Webhooks,
   Section::Users,
@@ -108,6 +110,7 @@ pub(crate) const ALL_SECTIONS: [Section; 11] = [
   Section::Inbox,
   Section::AdminKeys,
   Section::Activity,
+  Section::Exposes,
 ];
 
 /// `?include=tokens,users`. Absent means the default set; an empty value
@@ -145,7 +148,7 @@ fn requested(include: Option<&str>) -> (Vec<Section>, Vec<String>) {
 
 /// Returns the selected sections of the dump as a downloadable JSON document.
 #[utoipa::path(get, path = "/aperio/api/export", tag = "dashboard",
-  description = "Downloads a logical dump. ?include= names the sections (tokens, webhooks, users, organizations, scaling, settings_overrides, statistics, uptime, activity, inbox, admin_keys); omitted, the six configuration sections. Admin only.",
+  description = "Downloads a logical dump. ?include= names the sections (tokens, webhooks, users, organizations, scaling, settings_overrides, statistics, uptime, activity, inbox, admin_keys, exposes); omitted, the configuration sections including API-owned exposes and policies. Admin only.",
   params(("include" = Option<String>, Query, description = "Comma-separated section names; omitted = the configuration sections")),
   responses((status = 200, description = "The dump document", body = serde_json::Value), (status = 400, description = "Unknown section name")))]
 pub(crate) async fn export_handler(
@@ -231,6 +234,28 @@ pub(crate) async fn export_handler(
   };
   let mut counts: Vec<String> = Vec::new();
 
+  if wants(Section::Exposes) {
+    let manager = state.exposes.lock().await;
+    if manager.store.load_error.is_some() {
+      return (
+        StatusCode::CONFLICT,
+        "Expose store requires recovery; refusing an incomplete backup",
+      )
+        .into_response();
+    }
+    let mut document = manager.store.document.clone();
+    document
+      .resources
+      .retain(|r| orgs_included || r.spec.org_id == "master");
+    document
+      .policies
+      .retain(|p| orgs_included || p.org_id == "master");
+    counts.push(format!("exposes={}", document.resources.len()));
+    put(
+      Section::Exposes,
+      serde_json::to_value(document).expect("serializable expose document"),
+    );
+  }
   if wants(Section::Tokens) {
     let rows: Vec<_> = state
       .token_store
@@ -420,6 +445,9 @@ pub(crate) async fn export_handler(
 #[derive(Deserialize, utoipa::ToSchema)]
 pub(crate) struct ImportDump {
   format_version: u32,
+  /// API-owned desired rules and port policies; transient sessions are excluded.
+  #[schema(value_type = Option<serde_json::Value>)]
+  exposes: Option<crate::store::exposes::ExposeDocument>,
   tokens: Option<Vec<ApiToken>>,
   webhooks: Option<Vec<Webhook>>,
   /// Dashboard user records; the full stored shape (hashes, TOTP, passkeys).
@@ -500,6 +528,54 @@ pub(crate) async fn import_handler(
   // identity from the credential that was authorized to start the import.
   let actor = state.session_actor(&headers).await;
 
+  // Preflight expose sockets before changing any other section. The final
+  // apply rechecks them: this is an availability probe, not a reservation
+  // across the independent store transactions used by the existing dump API.
+  if let Some(document) = &dump.exposes {
+    let known: std::collections::HashSet<String> = if let Some(orgs) = &dump.organizations {
+      orgs.iter().map(|o| o.id.clone()).collect()
+    } else {
+      state
+        .org_store
+        .lock()
+        .await
+        .list()
+        .iter()
+        .map(|o| o.id.clone())
+        .collect()
+    };
+    if document
+      .resources
+      .iter()
+      .any(|r| r.spec.org_id != "master" && !known.contains(&r.spec.org_id))
+      || document
+        .policies
+        .iter()
+        .any(|p| p.org_id != "master" && !known.contains(&p.org_id))
+    {
+      return (
+        StatusCode::BAD_REQUEST,
+        "Expose backup references an organization absent from the destination dump",
+      )
+        .into_response();
+    }
+    let manager = state.exposes.lock().await;
+    if manager.store.load_error.is_some() {
+      return (
+        StatusCode::CONFLICT,
+        "Expose store requires recovery before importing",
+      )
+        .into_response();
+    }
+    if let Err(error) = manager.preview(document) {
+      return (
+        StatusCode::CONFLICT,
+        Json(serde_json::json!({"failed_section":"exposes", "error":error, "imported":{}})),
+      )
+        .into_response();
+    }
+  }
+
   // Settings first: they can fail validation, and a rejected import should
   // change nothing at all.
   if let Some(overrides) = dump.settings_overrides
@@ -568,6 +644,23 @@ pub(crate) async fn import_handler(
       state.org_store.lock().await.import(organizations)
     );
     counts.insert("organizations".into(), n.into());
+  }
+  if let Some(document) = dump.exposes {
+    let n = document.resources.len();
+    if let Err(error) = state
+      .exposes
+      .lock()
+      .await
+      .replace(&state, document, false)
+      .await
+    {
+      return (
+        StatusCode::CONFLICT,
+        Json(serde_json::json!({"failed_section":"exposes", "error":error, "imported":counts})),
+      )
+        .into_response();
+    }
+    counts.insert("exposes".into(), n.into());
   }
   if let Some(statistics) = dump.statistics {
     let orgs = statistics.by_org.len();

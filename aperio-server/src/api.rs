@@ -17,6 +17,7 @@ pub(crate) mod config_schema;
 pub(crate) mod edge;
 pub(crate) mod explain;
 pub(crate) mod export;
+pub(crate) mod exposes;
 pub(crate) mod inbox;
 pub(crate) mod inspector;
 pub(crate) mod maintenance;

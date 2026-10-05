@@ -203,7 +203,11 @@ async fn next_tunnel_msg(rx: &mut mpsc::Receiver<Message>) -> TunnelMessage {
 fn dummy_handle() -> TcpStreamHandle {
   let (tx, _rx) = mpsc::channel::<bytes::Bytes>(1);
   let (abort_tx, _abort_rx) = mpsc::channel::<()>(1);
-  TcpStreamHandle { tx, abort_tx }
+  TcpStreamHandle {
+    tx,
+    abort_tx,
+    eof: tokio::sync::watch::channel(false).0,
+  }
 }
 
 #[tokio::test]
@@ -816,4 +820,66 @@ async fn a_v7_server_gets_the_relay_bytes_raw() {
 
   drop(bytes_tx);
   let _ = tokio::time::timeout(Duration::from_secs(2), h).await;
+}
+
+#[tokio::test]
+async fn public_write_eof_flushes_input_and_receives_backend_response() {
+  let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let target = listener.local_addr().unwrap().to_string();
+  let backend = tokio::spawn(async move {
+    let (mut socket, _) = listener.accept().await.unwrap();
+    let mut request = Vec::new();
+    socket.read_to_end(&mut request).await.unwrap();
+    assert_eq!(request, b"firstsecond");
+    socket.write_all(b"response-after-eof").await.unwrap();
+  });
+  let active = Arc::new(Mutex::new(HashMap::new()));
+  let (tx, rx) = mpsc::channel(8);
+  let (abort_tx, abort_rx) = mpsc::channel(1);
+  let (eof, _) = tokio::sync::watch::channel(false);
+  active.lock().await.insert(
+    "half-close".into(),
+    TcpStreamHandle {
+      tx: tx.clone(),
+      abort_tx,
+      eof: eof.clone(),
+    },
+  );
+  let (out, mut received) = mpsc::channel(64);
+  // EOF may already be pending when the backend finishes connecting. Both
+  // queued chunks must still precede its FIN.
+  tx.send(bytes::Bytes::from_static(b"first")).await.unwrap();
+  tx.send(bytes::Bytes::from_static(b"second")).await.unwrap();
+  eof.send_replace(true);
+  let relay = tokio::spawn(handle_tcp_open(
+    "half-close".into(),
+    target,
+    out,
+    active.clone(),
+    rx,
+    abort_rx,
+    None,
+    Default::default(),
+    Default::default(),
+    6,
+    None,
+  ));
+  let mut response = Vec::new();
+  tokio::time::timeout(Duration::from_secs(5), async {
+    loop {
+      match next_tunnel_msg(&mut received).await {
+        TunnelMessage::TcpData { data, .. } => {
+          response.extend(BASE64_STANDARD.decode(data).unwrap())
+        }
+        TunnelMessage::TcpClose { .. } => break,
+        other => panic!("unexpected {other:?}"),
+      }
+    }
+    backend.await.unwrap();
+    relay.await.unwrap();
+  })
+  .await
+  .expect("half-close must finish without waiting for the drain ceiling");
+  assert_eq!(response, b"response-after-eof");
+  assert!(active.lock().await.is_empty());
 }

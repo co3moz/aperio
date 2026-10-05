@@ -8,7 +8,7 @@ WebSocket upgrade requests from visitors are detected automatically and proxied 
 
 ## Protocol versions
 
-The current `PROTOCOL_VERSION` is **9**. Every version below is negotiated on
+The current `PROTOCOL_VERSION` is **10**. Every version below is negotiated on
 connect, so a client and a server that disagree still work: each feature falls
 back to what the older side understands, and the mismatch is logged on both
 sides and shown on the dashboard. The number is bumped when a *frame* changes
@@ -25,6 +25,7 @@ a bump, and the last rows of the table are those.
 | v7 | TCP, UDP and binary WebSocket relay payloads travel as raw binary frames. |
 | v8 | A Ping may describe the connection's work as a `services` list: several services on one connection. |
 | v9 | A service entry may carry `server_side_target`, and a Ping may carry the client's `name`. |
+| v10 | `TcpEof` half-closes a public TCP stream after queued input; `TcpClose` remains immediate. |
 | no bump | `HostnameAssigned`, `Draining` and `ServerShutdown` (informational), `CompressionStart` / `CompressionAck` (an offer a peer may never answer), `OtlpExport` (the OTel bridge), and `AuthAsk` / `AuthVerdict` (a `forward` gate asked over the tunnel with `via: client`). Each reaches only a peer that declared the feature behind it or can ignore it, which is what makes them safe without a bump. [The Embedded Profile](embedded-profile.md) classifies every message for a device that implements the protocol by hand. |
 
 ## Chunked body streaming
@@ -120,3 +121,15 @@ Copy-and-adapt config pairs for this topic:
 
 - [`grpc`](examples/grpc/): a gRPC backend over `h2c://`, alongside HTTP
 - [`headers`](examples/headers/): header rules on both sides, and per service
+
+
+### Public TCP write EOF (v10)
+
+Managed public listeners send `TcpEof {stream_id}` on visitor write EOF only
+when the selected client's protocol announcement is at least 10. The client
+flushes queued visitor data, shuts down the backend write half and continues
+forwarding its response. The server enforces `drain_timeout_secs`; disabling,
+deleting or disconnecting still sends `TcpClose` and ends both directions.
+Older clients receive `TcpClose` and retain their full-close behavior. This is
+an additive control message; TCP data frame encoding and UDP messages do not
+change. See [public expose deployment and diagnostics](public-exposes.md).

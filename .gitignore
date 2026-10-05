@@ -54,3 +54,7 @@ tests/conformance/.data-h2/
 tests/conformance/.h2spec/
 tests/soak/.data/
 tests/soak/reports/
+
+# Playwright browser verification artifacts
+/aperio-dashboard/test-results/
+/aperio-dashboard/playwright-report/

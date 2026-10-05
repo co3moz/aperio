@@ -20,6 +20,7 @@ pub(crate) struct TcpStreamHandle {
   pub(crate) tx: mpsc::Sender<bytes::Bytes>,
   /// Abort handle to stop the relay tasks.
   pub(crate) abort_tx: mpsc::Sender<()>,
+  pub(crate) eof: tokio::sync::watch::Sender<bool>,
 }
 
 /// Opens a TCP connection to the local target and relays bytes
@@ -158,7 +159,13 @@ pub(crate) async fn handle_tcp_open(
     }
   }
 
+  let mut eof = active_streams
+    .lock()
+    .await
+    .get(&stream_id)
+    .map(|h| h.eof.subscribe());
   let (mut read_half, mut write_half) = stream.into_split();
+  let mut tasks = tokio::task::JoinSet::new();
 
   // Backend -> tunnel
   let stream_id_up = stream_id.clone();
@@ -168,7 +175,7 @@ pub(crate) async fn handle_tcp_open(
   // the backend read below, so a visitor reading slower than the backend
   // sends throttles the backend through ordinary TCP backpressure.
   let pause_guard = pauses.register(&stream_id);
-  let up_task = tokio::spawn(async move {
+  tasks.spawn(async move {
     let mut buf = vec![0u8; 16 * 1024];
     loop {
       pause_guard.signal().wait_while_paused().await;
@@ -209,14 +216,26 @@ pub(crate) async fn handle_tcp_open(
     if let Ok(json) = serde_json::to_string(&close) {
       let _ = tunnel_tx_up.send(Message::Text(json.into())).await;
     }
+    false
   });
 
   // Tunnel -> backend
   let stream_id_down = stream_id.clone();
-  let down_task = tokio::spawn(async move {
+  tasks.spawn(async move {
+    let mut graceful = false;
     loop {
       tokio::select! {
-        _ = abort_rx.recv() => break,
+        _ = async {
+          match eof.as_mut() {
+            Some(signal) => {
+              if !*signal.borrow() { let _ = signal.changed().await; }
+            },
+            None => std::future::pending::<()>().await,
+          }
+        }, if !graceful => {
+          graceful = true;
+          bytes_rx.close();
+        },
         chunk = bytes_rx.recv() => match chunk {
           Some(bytes) => {
             activity.stamp();
@@ -241,14 +260,24 @@ pub(crate) async fn handle_tcp_open(
       }
     }
     let _ = write_half.shutdown().await;
+    graceful
   });
 
-  let up_abort = up_task.abort_handle();
-  let down_abort = down_task.abort_handle();
-  tokio::select! {
-    _ = up_task => down_abort.abort(),
-    _ = down_task => up_abort.abort(),
+  let drain = tokio::select! {
+    result = tasks.join_next() => matches!(result, Some(Ok(true))),
+    _ = abort_rx.recv() => false,
+  };
+  if drain {
+    // The server owns the shorter public drain deadline. This final ceiling
+    // also bounds a lost close frame or a misbehaving server.
+    tokio::select! {
+      _ = tasks.join_next() => {},
+      _ = abort_rx.recv() => {},
+      _ = tokio::time::sleep(Duration::from_secs(3600)) => {},
+    }
   }
+  tasks.abort_all();
+  while tasks.join_next().await.is_some() {}
   active_streams.lock().await.remove(&stream_id);
   info!("TCP stream {} closed", stream_id);
 }

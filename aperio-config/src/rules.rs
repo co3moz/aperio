@@ -3,16 +3,35 @@ use serde::{Deserialize, Serialize};
 
 use crate::*;
 
-/// One `expose:` entry of `aperio-server.yaml`: a raw public TCP port the
+/// One `expose:` entry of `aperio-server.yaml`: a raw public TCP or UDP port the
 /// server relays into a client's declared tunnel, with no binder peer.
-#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ExposeEntry {
-  /// Transport of the exposed port; only `tcp` is supported. A public UDP
-  /// port is an amplification surface and is a separate decision.
+  /// Bind address; omitted uses the server's host setting (IPv6 is v6-only).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["0.0.0.0", "::1"]))]
+  pub address: Option<std::net::IpAddr>,
+  /// Whether this listener accepts public traffic.
+  #[serde(default = "expose_enabled")]
+  pub enabled: bool,
+  /// Protocol-specific connection, queue and bandwidth limits.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [{"protocol": "tcp", "max_connections": 256, "open_timeout_secs": 10, "drain_timeout_secs": 30}]))]
+  pub limits: Option<crate::expose::ExposeLimits>,
+  /// Allowed visitor IP addresses or CIDRs; empty permits every source.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  #[schemars(extend("examples" = [["192.0.2.0/24", "2001:db8::/32"]]))]
+  pub allowed_ips: Vec<String>,
+  /// Visitor-facing hostname or IP for copied public endpoints; does not change the bind.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["tunnel.example.com"]))]
+  pub advertised_host: Option<String>,
+  /// Transport of the exposed port: `tcp` or `udp`. UDP listeners use bounded
+  /// peer sessions, queues and datagram sizes.
   /// Default: `tcp`.
   #[serde(default = "default_tcp")]
-  #[schemars(extend("examples" = ["tcp"]))]
+  #[schemars(extend("examples" = ["tcp", "udp"]))]
   pub protocol: String,
   /// Public port the server listens on.
   #[schemars(extend("examples" = [2222]))]
@@ -45,6 +64,28 @@ pub struct ExposeEntry {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["k5fj2q-expose-secret"]))]
   pub key: Option<String>,
+}
+
+fn expose_enabled() -> bool {
+  true
+}
+
+impl Default for ExposeEntry {
+  fn default() -> Self {
+    Self {
+      address: None,
+      enabled: true,
+      limits: None,
+      allowed_ips: Vec::new(),
+      advertised_host: None,
+      protocol: "tcp".into(),
+      port: 0,
+      tunnel: None,
+      org: None,
+      token: None,
+      key: None,
+    }
+  }
 }
 
 /// One `rate_limits:` entry: an aggregate requests-per-second ceiling for a

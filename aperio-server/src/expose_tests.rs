@@ -74,6 +74,11 @@ fn from_config_file_parses_valid_rules() {
 /// An `expose:` rule in the deprecated shared-secret form.
 fn key_rule(key: &str) -> ExposeRule {
   ExposeRule {
+    address: None,
+    enabled: true,
+    limits: None,
+    allowed_ips: Vec::new(),
+    advertised_host: None,
     protocol: "tcp".to_string(),
     port: 5000,
     tunnel: None,
@@ -86,6 +91,11 @@ fn key_rule(key: &str) -> ExposeRule {
 /// An `expose:` rule in the identity form: a named tunnel owned by a token.
 fn named_rule(tunnel: &str, token: Option<&str>) -> ExposeRule {
   ExposeRule {
+    address: None,
+    enabled: true,
+    limits: None,
+    allowed_ips: Vec::new(),
+    advertised_host: None,
     protocol: "tcp".to_string(),
     port: 5000,
     tunnel: Some(tunnel.to_string()),
@@ -381,6 +391,11 @@ async fn spawn_listeners_accepts_and_relays_a_connection() {
     state.clone(),
     "127.0.0.1",
     vec![ExposeRule {
+      address: None,
+      enabled: true,
+      limits: None,
+      allowed_ips: Vec::new(),
+      advertised_host: None,
       protocol: "tcp".to_string(),
       port,
       tunnel: None,
@@ -488,6 +503,11 @@ async fn a_named_rule_without_a_token_accepts_only_the_master_token() {
 /// A rule that claims the port for an organization, by name.
 fn org_rule(tunnel: &str, org: Option<&str>) -> ExposeRule {
   ExposeRule {
+    address: None,
+    enabled: true,
+    limits: None,
+    allowed_ips: Vec::new(),
+    advertised_host: None,
     protocol: "tcp".to_string(),
     port: 5000,
     tunnel: Some(tunnel.to_string()),

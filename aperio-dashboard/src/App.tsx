@@ -188,6 +188,7 @@ export default function App() {
   // so an opened capture can be bookmarked or shared and reopens on reload.
   const [inspectId, setInspectId] = useState<string | null>(() => readParams().get('inspect'))
   const [page, setPage] = useState<Page>(pageFromUrl)
+  const [tunnelFocus, setTunnelFocus] = useState<{ expose?: string; client?: string } | null>(null)
   const [overlay, setOverlay] = useState<OverlayPage | null>(paneFromUrl)
   // What the pane should reveal on arrival, and a counter so asking for the
   // same thing twice still counts as asking.
@@ -207,6 +208,7 @@ export default function App() {
       return
     }
     setPage(next)
+    setTunnelFocus(null)
     const params = readParams()
     params.set('tab', next)
     writeParams(params, true)
@@ -567,11 +569,11 @@ export default function App() {
               )}
               {page === 'clients' && (
                 <>
-                  <ClientsSection clients={stats?.active_clients ?? []} onChanged={refreshStats} />
+                  <ClientsSection clients={stats?.active_clients ?? []} onChanged={refreshStats} onTunnels={(client) => { goto('tunnels'); setTunnelFocus({ client }) }} />
                   <UptimeSection />
                 </>
               )}
-              {page === 'tunnels' && <TunnelsSection />}
+              {page === 'tunnels' && <TunnelsSection focus={tunnelFocus} clearFocus={() => setTunnelFocus(null)} />}
               {page === 'traffic' && <TrafficSection logs={logs} onInspect={setInspect} />}
               {page === 'breakdown' && (
                 // Two questions, two tabs: how much traffic, and how each
@@ -601,7 +603,7 @@ export default function App() {
               )}
               {page === 'topology' && (
                 <div className="flex flex-col gap-6">
-                  <TopologySection />
+                  <TopologySection onExpose={(expose) => { goto('tunnels'); setTunnelFocus({ expose }) }} />
                   <ExplainSection />
                 </div>
               )}

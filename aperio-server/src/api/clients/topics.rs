@@ -47,6 +47,7 @@ pub(crate) enum Topic {
   RouteTrends,
   SlowEndpoints,
   Tunnels,
+  Exposes,
   Audit,
   CacheStats,
   SelfHealth,
@@ -99,6 +100,7 @@ impl Topic {
     Topic::RouteTrends,
     Topic::SlowEndpoints,
     Topic::Tunnels,
+    Topic::Exposes,
     Topic::Audit,
     Topic::CacheStats,
     Topic::SelfHealth,
@@ -125,6 +127,7 @@ impl Topic {
       Topic::RouteTrends => "route_trends",
       Topic::SlowEndpoints => "slow_endpoints",
       Topic::Tunnels => "tunnels",
+      Topic::Exposes => "exposes",
       Topic::Audit => "audit",
       Topic::CacheStats => "cache_stats",
       Topic::SelfHealth => "self_health",
@@ -159,6 +162,7 @@ impl Topic {
       Topic::RouteTrends => "/api/route-trends",
       Topic::SlowEndpoints => "/api/slow-endpoints",
       Topic::Tunnels => "/api/tunnels",
+      Topic::Exposes => "/api/exposes",
       Topic::Audit => "/api/audit",
       Topic::CacheStats => "/api/cache/stats",
       Topic::SelfHealth => "/api/self-health",
@@ -207,6 +211,7 @@ impl Topic {
       Topic::RouteTrends => Cadence::Ticks(7),
       Topic::SlowEndpoints => Cadence::Ticks(7),
       Topic::Tunnels => Cadence::Ticks(5),
+      Topic::Exposes => Cadence::Both(1),
       Topic::CacheStats => Cadence::Ticks(5),
       Topic::SelfHealth => Cadence::Ticks(5),
       // Once a minute keeps the expiry honest; changes arrive through
@@ -236,6 +241,10 @@ impl Topic {
       }
     };
     match event {
+      "expose_changed" | "expose_policy_changed" => {
+        add(Topic::Exposes);
+        add(Topic::Topology);
+      }
       "token_created" | "token_updated" | "token_revoked" | "token_rotated" | "token_refreshed"
       | "tunnel_created" | "tunnel_deleted" => add(Topic::Tokens),
       "user_created"
@@ -281,7 +290,7 @@ impl Topic {
 
   /// Whether a change to this topic is every organization's business.
   pub(crate) fn changes_everyone(self) -> bool {
-    matches!(self, Topic::Orgs)
+    matches!(self, Topic::Orgs | Topic::Exposes)
   }
 
   /// The document the topic's endpoint would answer this caller with, or
@@ -332,6 +341,10 @@ impl Topic {
       Topic::Tunnels => {
         let org = crate::auth::effective_org(state, headers).await;
         to_value(crate::tunnel::registry::visible_in_org(state, org.as_deref()).await)
+      }
+      Topic::Exposes => {
+        body_json(crate::api::exposes::list(s, h, axum::extract::Query(Default::default())).await)
+          .await
       }
       Topic::Audit => to_value(
         crate::api::webhooks::audit_handler(s, h, axum::extract::Query(Default::default()))

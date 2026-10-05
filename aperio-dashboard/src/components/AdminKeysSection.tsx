@@ -1,3 +1,5 @@
+import { ExposeBoundsEditor } from './ExposePolicies'
+import { ExposeActionsEditor } from './ExposeEditor'
 import { Building2Icon, ClockIcon, KeyRoundIcon, PlusIcon, Trash2Icon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -36,7 +38,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { useStream } from '@/hooks/useStream'
-import { api, type AdminKeyView } from '@/lib/api'
+import { api, type AdminKeyView, type ExposeAction, type ExposePolicy } from '@/lib/api'
 import { formatExpiry } from '@/lib/format'
 import { useI18n } from '@/i18n'
 
@@ -78,6 +80,8 @@ function CreateAdminKeyDialog({
   const [name, setName] = useState('')
   const [role, setRole] = useState<string>('operator')
   const [org, setOrg] = useState('')
+  const [expose, setExpose] = useState<ExposeAction[]>([])
+  const [bounds, setBounds] = useState<ExposePolicy | null>(null)
   const [ttlDays, setTtlDays] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -94,6 +98,8 @@ function CreateAdminKeyDialog({
       const created = await api.createAdminKey({
         name: name.trim(),
         role,
+        expose,
+        expose_bounds: bounds,
         ...(org.trim() ? { org_id: org.trim() } : {}),
         ...(Number.isNaN(days) || days <= 0 ? {} : { ttl_seconds: days * 86400 }),
       })
@@ -102,6 +108,8 @@ function CreateAdminKeyDialog({
       setOpen(false)
       setName('')
       setOrg('')
+      setExpose([])
+      setBounds(null)
       setTtlDays('')
       toast.success(t('Admin key "{name}" created', { name: name.trim() }))
     } catch (e) {
@@ -144,7 +152,7 @@ function CreateAdminKeyDialog({
           </div>
           <div className="space-y-1">
             <Label>{t('Organization id (empty = master, * = every organization)')}</Label>
-            <Input value={org} onChange={(e) => setOrg(e.target.value)} placeholder="" />
+            <Input value={org} onChange={(e) => { setOrg(e.target.value); setBounds(null) }} placeholder="" />
           </div>
           <div className="space-y-1">
             <Label>{t('Expires in days (empty = never)')}</Label>
@@ -155,6 +163,8 @@ function CreateAdminKeyDialog({
               placeholder=""
             />
           </div>
+          <ExposeActionsEditor org={org.trim() || 'master'} value={expose} onChange={setExpose} />
+          <ExposeBoundsEditor org={org.trim() || 'master'} value={bounds} onChange={setBounds} />
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
         <DialogFooter>

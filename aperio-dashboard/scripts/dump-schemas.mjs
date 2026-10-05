@@ -19,7 +19,7 @@ const dump = (...args) =>
     }),
   )
 
-const schemas = { client: dump(), server: dump('--', '--server') }
+const schemas = { client: dump(), server: dump('--', '--server'), expose: dump('--', '--expose'), exposePolicy: dump('--', '--expose-policy') }
 writeFileSync(`${root}src/lib/__schemas.json`, `${JSON.stringify(schemas, null, 2)}\n`)
 console.log(
   `schemas written: ${Object.keys(schemas.client.properties).length} client keys, ` +

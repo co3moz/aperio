@@ -450,7 +450,7 @@ impl Dispatch<'_> {
                                               let (abort_tx, abort_rx) = mpsc::channel::<()>(1);
                                               active_tcp_streams.lock().await.insert(
                                                   stream_id.clone(),
-                                                  TcpStreamHandle { tx: bytes_tx, abort_tx },
+                                                  TcpStreamHandle { tx: bytes_tx, abort_tx, eof: tokio::sync::watch::channel(false).0 },
                                               );
                                               let tx = tx_write.clone();
                                               let streams = active_tcp_streams.clone();
@@ -545,6 +545,11 @@ impl Dispatch<'_> {
                                       match BASE64_STANDARD.decode(&data) {
                                           Ok(bytes) => deliver_tcp_bytes(active_tcp_streams, &stream_id, bytes.into()).await,
                                           Err(_) => warn!("Failed to decode Base64 TcpData for stream {}", stream_id),
+                                      }
+                                  }
+                                  TunnelMessage::TcpEof { stream_id } => {
+                                      if let Some(handle) = active_tcp_streams.lock().await.get(&stream_id) {
+                                          handle.eof.send_replace(true);
                                       }
                                   }
                                   TunnelMessage::TcpClose { stream_id } => {

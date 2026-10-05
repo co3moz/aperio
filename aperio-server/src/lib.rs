@@ -12,7 +12,9 @@ mod config_file;
 mod consumers;
 mod deny_list;
 mod error_pages;
+#[cfg(test)]
 mod expose;
+mod expose_manager;
 mod fallbacks;
 mod forward_auth;
 mod forward_auth_tunnel;

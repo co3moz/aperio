@@ -11,6 +11,8 @@
 pub mod authoring;
 pub mod compat;
 pub mod egress;
+pub mod expose;
+pub mod expose_policy;
 pub mod pairing;
 
 // The schema itself, split by which file each part describes and by what it
@@ -345,3 +347,15 @@ mod names_tests;
 #[cfg(test)]
 #[path = "topics_tests.rs"]
 mod topics_tests;
+
+/// JSON Schema of a dynamic public listener specification.
+pub fn expose_schema_json() -> String {
+  serde_json::to_string_pretty(&schemars::schema_for!(expose::ExposeSpec))
+    .expect("expose schema must serialize")
+}
+
+/// JSON Schema of an organization allocation or delegated expose ceiling.
+pub fn expose_policy_schema_json() -> String {
+  serde_json::to_string_pretty(&schemars::schema_for!(expose_policy::ExposePolicy))
+    .expect("expose policy schema must serialize")
+}

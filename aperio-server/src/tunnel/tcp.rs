@@ -382,6 +382,7 @@ async fn relay_udp_consumer(
   state.udp_streams.lock().await.insert(
     stream_id.clone(),
     crate::state::UdpStreamHandle {
+      public: None,
       tx: relay_tx,
       client_id: client_id.clone(),
     },

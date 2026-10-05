@@ -1,3 +1,5 @@
+import { ExposeActionsEditor } from './ExposeEditor'
+import type { ExposeAction } from '@/lib/api'
 import {
   Building2Icon,
   GlobeIcon,
@@ -514,13 +516,16 @@ function PanelField({
 function OidcForm({ org }: { org: Organization }) {
   const { t } = useI18n()
   const [f, setF] = useState({
-    issuer: '',
-    clientId: '',
+    issuer: org.oidc?.issuer ?? '',
+    clientId: org.oidc?.client_id ?? '',
     clientSecret: '',
-    emails: '',
-    defaultRole: 'admin',
-    groupGrants: '',
+    emails: org.oidc?.allowed_emails.join(', ') ?? '',
+    defaultRole: org.oidc ? (org.oidc.default_role ?? 'none') : 'none',
+    groupGrants: org.oidc?.group_grants.join(', ') ?? '',
   })
+  const [group, setGroup] = useState('')
+  const [groupRole, setGroupRole] = useState('viewer')
+  const [groupActions, setGroupActions] = useState<ExposeAction[]>([])
   const [busy, setBusy] = useState(false)
 
   const save = async () => {
@@ -599,6 +604,19 @@ function OidcForm({ org }: { org: Organization }) {
           onChange={(e) => setF((s) => ({ ...s, groupGrants: e.target.value }))}
         />
       </div>
+      <p className="mt-2 text-xs text-muted-foreground">{t('Leave the secret empty to keep it when the issuer and client id are unchanged.')}</p>
+      <details className="mt-3 rounded-lg border p-3"><summary className="cursor-pointer text-sm">{t('Add group mapping')}</summary>
+        <div className="mt-2 grid gap-2">
+          <Input aria-label={t('Group')} value={group} onChange={(e) => setGroup(e.target.value)} />
+          <select className="rounded-md border bg-background p-2 text-sm" aria-label={t('Role')} value={groupRole} onChange={(e) => setGroupRole(e.target.value)}><option value="viewer">{t('Viewer')}</option><option value="operator">{t('Operator')}</option><option value="admin">{t('Admin')}</option></select>
+          <ExposeActionsEditor org={org.id} value={groupActions} onChange={setGroupActions} />
+          <Button type="button" size="sm" variant="outline" disabled={!group.trim() || /[,=]/.test(group)} onClick={() => {
+            const entry = `${group.trim()}=${groupRole}${groupActions.map((action) => `+expose.${action}`).join('')}`
+            setF((f) => ({ ...f, groupGrants: [...f.groupGrants.split(',').map((v) => v.trim()).filter((v) => v && v.split('=')[0] !== group.trim()), entry].join(', ') }))
+            setGroup(''); setGroupActions([])
+          }}>{t('Add')}</Button>
+        </div>
+      </details>
       <Button size="sm" className="mt-2" onClick={save} disabled={busy}>
         {busy && <Spinner />} {t('Save OIDC')}
       </Button>

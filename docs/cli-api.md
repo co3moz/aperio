@@ -300,3 +300,14 @@ Because a failed call exits non-zero, `set -e` scripts stop on an API error rath
 - [Configuration Reference](configuration.md), every setting and the full HTTP endpoint list.
 - [Tokens & Authentication](tokens-and-auth.md), what tokens and roles can do.
 - [The Dashboard](dashboard.md), the same operations with a UI.
+
+
+## Public TCP/UDP listeners
+
+`aperio-client api expose` manages server-owned public listeners through the
+same delegated permissions as the dashboard. It supports list/show, create and
+update from a specification file, enable/disable/retry/drain/delete, session
+inspection/disconnect, policy configuration, and scoped backup/restore with a
+preview and revision check. See [public expose commands and examples](public-exposes.md#cli-and-api).
+A tenant key needs explicit expose actions and a server port allocation; a
+role such as operator alone does not authorize publishing a socket.

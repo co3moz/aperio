@@ -250,7 +250,9 @@ pub(crate) async fn async_main() {
   let app = build_router(state.clone(), metrics_enabled);
 
   let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
-  spawn_background(&state, &host);
+  // Restore public listeners before requests can mutate their desired state.
+  state.exposes.lock().await.initialize(&state, &host).await;
+  spawn_background(&state);
 
   serve_until_shutdown(state.clone(), app).await;
 

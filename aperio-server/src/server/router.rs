@@ -66,6 +66,35 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
       .route("/api/logs", get(logs_handler))
       .route("/api/stream", get(live_stream_handler))
       .route("/api/session", get(auth_session_handler))
+      .route("/api/exposes/{id}/events", get(api::exposes::events))
+      .route("/api/exposes/export", get(api::exposes::export))
+      .route(
+        "/api/exposes/import",
+        axum::routing::post(api::exposes::import),
+      )
+      .route(
+        "/api/exposes",
+        get(crate::api::exposes::list).post(crate::api::exposes::create),
+      )
+      .route("/api/exposes/policies", get(crate::api::exposes::policies))
+      .route(
+        "/api/exposes/policies/{org}",
+        axum::routing::put(crate::api::exposes::set_policy),
+      )
+      .route(
+        "/api/exposes/{id}",
+        get(crate::api::exposes::detail)
+          .put(crate::api::exposes::update)
+          .delete(crate::api::exposes::delete),
+      )
+      .route(
+        "/api/exposes/{id}/actions",
+        axum::routing::post(crate::api::exposes::operate),
+      )
+      .route(
+        "/api/exposes/{id}/sessions",
+        get(crate::api::exposes::sessions),
+      )
       .route(
         "/api/clients/{id}/config",
         get(crate::api::clients::client_config_handler),
@@ -345,6 +374,11 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
             .unwrap()
         }
       },
+    ));
+
+    dash_router = dash_router.layer(axum::middleware::from_fn_with_state(
+      state.clone(),
+      crate::api::exposes::audit_failures,
     ));
 
     // Network-level fence for the admin surface (APERIO_ADMIN_ALLOWED_IPS).

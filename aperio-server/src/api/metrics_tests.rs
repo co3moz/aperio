@@ -123,6 +123,9 @@ fn tmp_dir(kind: &str) -> String {
 fn build_state(config: ServerConfig) -> Arc<AppState> {
   let (client_connected_tx, _) = watch::channel(false);
   Arc::new(AppState {
+    exposes: Mutex::new(crate::expose_manager::ExposeManager::load(&tmp_dir(
+      "exposes",
+    ))),
     clients: tokio::sync::RwLock::new(HashMap::new()),
     consumers: tokio::sync::Mutex::new(Default::default()),
     stream_counts: Arc::new(std::sync::Mutex::new(HashMap::new())),

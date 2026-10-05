@@ -347,6 +347,7 @@ pub(super) async fn v7_relay_frames_deliver_and_keep_their_ownership_fence() {
   state.udp_streams.lock().await.insert(
     "u7".into(),
     crate::state::UdpStreamHandle {
+      public: None,
       tx: udp_tx,
       client_id: cid.clone(),
     },

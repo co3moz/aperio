@@ -76,7 +76,11 @@ pub(crate) fn required_role(path: &str, method: &axum::http::Method) -> crate::s
   // organizations is self-service too: it moves the session between the
   // organizations its grants already reach, and the handler refuses any
   // other target, so a Viewer granted two organizations may use it.
-  if path.starts_with("/api/me/") || path == "/api/orgs/select" {
+  if path.starts_with("/api/me/")
+    || path == "/api/orgs/select"
+    || path == "/api/exposes"
+    || path.starts_with("/api/exposes/")
+  {
     return Role::Viewer;
   }
   if path.starts_with("/api/users")
@@ -241,6 +245,7 @@ async fn shutdown_signal(state: Arc<AppState>) {
   // streams watch this flag, and each tunnel read loop honors its disconnect
   // notify.
   let _ = state.shutdown.send(true);
+  state.exposes.lock().await.shutdown().await;
   {
     let clients = state.clients.read().await;
     for client in clients.values() {

@@ -158,6 +158,11 @@ pub(crate) fn reach(message: &TunnelMessage) -> (Reach, Direction, &'static str)
     ),
     TunnelMessage::TcpOpen { .. } => (NeverSent, ToClient, "a declared TCP tunnel"),
     TunnelMessage::TcpData { .. } => (NeverSent, BothWays, "a declared TCP tunnel"),
+    TunnelMessage::TcpEof { .. } => (
+      NeverSent,
+      ToClient,
+      "a declared TCP tunnel and protocol v10",
+    ),
     TunnelMessage::TcpClose { .. } => (NeverSent, BothWays, "a declared TCP tunnel"),
     TunnelMessage::UdpOpen { .. } => (NeverSent, ToClient, "a declared UDP tunnel"),
     TunnelMessage::UdpDatagram { .. } => (NeverSent, BothWays, "a declared UDP tunnel"),

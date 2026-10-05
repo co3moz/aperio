@@ -283,6 +283,11 @@ pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
       "aperio-test-settings-{}.json",
       uuid::Uuid::new_v4()
     )),
+    exposes: Mutex::new(crate::expose_manager::ExposeManager::load(
+      &test_temp_root()
+        .join(format!("exposes-{}", uuid::Uuid::new_v4()))
+        .to_string_lossy(),
+    )),
     dashboard_enabled: true,
     panel_hostnames: std::sync::RwLock::new(Vec::new()),
     shutdown: watch::channel(false).0,

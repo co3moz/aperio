@@ -1,3 +1,5 @@
+import { ExposeBoundsEditor } from './ExposePolicies'
+import { ExposeActionsEditor } from './ExposeEditor'
 import {
   Building2Icon,
   SearchIcon,
@@ -65,6 +67,8 @@ import {
   type Role,
   type LiveSession,
   type UserGrant,
+  type ExposeAction,
+  type ExposePolicy,
 } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/format'
 import { useOrgLabel, useOrgName, useSession } from '@/lib/session'
@@ -143,11 +147,12 @@ function GrantsEditor({
     <div className="grid gap-2">
       <Label>{t('Grants')}</Label>
       {value.map((g, i) => (
-        <div key={g.org} className="flex items-center gap-2">
+        <div key={g.org} className="grid gap-2 rounded-lg border p-2">
+        <div className="flex items-center gap-2">
           <Select
             items={items}
             value={g.org}
-            onValueChange={(v) => update(i, { org: v as string })}
+            onValueChange={(v) => update(i, { org: v as string, expose: [], expose_bounds: null })}
           >
             <SelectTrigger className="flex-1">
               <SelectValue />
@@ -174,6 +179,9 @@ function GrantsEditor({
           >
             <XIcon />
           </Button>
+        </div>
+        <ExposeActionsEditor org={g.org} value={g.expose ?? []} onChange={(expose) => update(i, { expose })} />
+        <ExposeBoundsEditor org={g.org} value={g.expose_bounds ?? null} onChange={(expose_bounds) => update(i, { expose_bounds })} />
         </div>
       ))}
       <Button
@@ -206,6 +214,8 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
   // password to type.
   const [sso, setSso] = useState(false)
   const [role, setRole] = useState<Role>('viewer')
+  const [expose, setExpose] = useState<ExposeAction[]>([])
+  const [bounds, setBounds] = useState<ExposePolicy | null>(null)
   const [grants, setGrants] = useState<UserGrant[]>([{ org: 'master', role: 'viewer' }])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -224,6 +234,8 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
       setPassword('')
       setSso(false)
       setRole('viewer')
+      setExpose([])
+      setBounds(null)
       setGrants([{ org: 'master', role: 'viewer' }])
       setError(null)
     }
@@ -242,7 +254,7 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
       await api.createUser({
         username: username.trim(),
         ...(sso ? {} : { password }),
-        ...(editGrants ? { grants } : { role }),
+        grants: editGrants ? grants : [{ org: selectedOrg, role, expose, expose_bounds: bounds }],
       })
       setOpen(false)
       toast.success(t('User "{name}" created', { name: username.trim() }))
@@ -301,6 +313,8 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
             <div className="grid gap-2">
               <Label>{t('Role')}</Label>
               <RoleSelect value={role} onChange={setRole} />
+              <ExposeActionsEditor org={selectedOrg} value={expose} onChange={setExpose} />
+              <ExposeBoundsEditor org={selectedOrg} value={bounds} onChange={setBounds} />
             </div>
           )}
           {error && <p className="text-sm text-destructive">{error}</p>}
@@ -324,6 +338,8 @@ function EditUserDialog({ user, onSaved }: { user: DashboardUser; onSaved: () =>
   const editGrants = selectedOrg === 'master'
   const [open, setOpen] = useState(false)
   const [role, setRole] = useState<Role>(user.role)
+  const [expose, setExpose] = useState<ExposeAction[]>(user.grants.find((g) => g.org === selectedOrg)?.expose ?? [])
+  const [bounds, setBounds] = useState<ExposePolicy | null>(user.grants.find((g) => g.org === selectedOrg)?.expose_bounds ?? null)
   const [grants, setGrants] = useState<UserGrant[]>(user.grants)
   const [enabled, setEnabled] = useState(user.enabled)
   const [password, setPassword] = useState('')
@@ -333,6 +349,8 @@ function EditUserDialog({ user, onSaved }: { user: DashboardUser; onSaved: () =>
   const openDialog = (next: boolean) => {
     if (next) {
       setRole(user.role)
+      setExpose(user.grants.find((g) => g.org === selectedOrg)?.expose ?? [])
+      setBounds(user.grants.find((g) => g.org === selectedOrg)?.expose_bounds ?? null)
       setGrants(user.grants)
       setEnabled(user.enabled)
       setPassword('')
@@ -351,7 +369,7 @@ function EditUserDialog({ user, onSaved }: { user: DashboardUser; onSaved: () =>
     setError(null)
     try {
       await api.updateUser(user.id, {
-        ...(editGrants ? { grants } : { role }),
+        grants: editGrants ? grants : [{ org: selectedOrg, role, expose, expose_bounds: bounds }],
         enabled,
         ...(password.trim() ? { password } : {}),
       })
@@ -381,6 +399,8 @@ function EditUserDialog({ user, onSaved }: { user: DashboardUser; onSaved: () =>
             <div className="grid gap-2">
               <Label>{t('Role')}</Label>
               <RoleSelect value={role} onChange={setRole} />
+              <ExposeActionsEditor org={selectedOrg} value={expose} onChange={setExpose} />
+              <ExposeBoundsEditor org={selectedOrg} value={bounds} onChange={setBounds} />
             </div>
           )}
           <label className="flex items-center justify-between gap-3 rounded-3xl border px-4 py-3">

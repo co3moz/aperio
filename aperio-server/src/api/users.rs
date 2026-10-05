@@ -38,6 +38,8 @@ fn grants_view(grants: &[Grant]) -> Vec<serde_json::Value> {
         "org": g.org.as_str(),
         "role": g.role.as_str(),
         "source": g.source,
+        "expose": g.expose,
+        "expose_bounds": g.expose_bounds,
       })
     })
     .collect()
@@ -59,6 +61,11 @@ pub(crate) struct GrantRequest {
   pub(crate) org: String,
   /// One of `viewer`, `operator`, `admin`.
   pub(crate) role: String,
+  #[serde(default)]
+  #[schema(value_type = Vec<String>)]
+  pub(crate) expose: std::collections::BTreeSet<grants::ExposeAction>,
+  #[serde(default)]
+  pub(crate) expose_bounds: Option<aperio_config::expose_policy::ExposePolicy>,
 }
 
 /// Turns a request's grant list into grants: every role must parse, every
@@ -106,7 +113,10 @@ async fn parse_grants(
           .into_response(),
       );
     }
-    out.push(Grant::new(org, role));
+    let mut grant = Grant::new(org, role);
+    grant.expose = entry.expose.clone();
+    grant.expose_bounds = entry.expose_bounds.clone();
+    out.push(grant);
   }
   grants::normalize(out).map_err(|m| (StatusCode::BAD_REQUEST, m).into_response())
 }
@@ -122,7 +132,7 @@ fn check_granter(caller: &Caller, changed: &[Grant]) -> Result<(), Response> {
         (
           StatusCode::FORBIDDEN,
           format!(
-            "you cannot grant or revoke {}: that takes Admin in that organization, and `*` takes `*` Admin",
+            "you cannot grant or revoke {}: this requires Admin in scope and authority to delegate the requested expose capabilities",
             g.label()
           ),
         )
@@ -150,10 +160,12 @@ async fn audit_grant_changes(
         headers,
         ip,
         &format!(
-          "username={} org={} role={}",
+          "username={} org={} role={} expose={:?} expose_bounds={:?}",
           username,
           g.org.as_str(),
-          g.role.as_str()
+          g.role.as_str(),
+          g.expose,
+          g.expose_bounds
         ),
       )
       .await;
@@ -165,10 +177,12 @@ async fn audit_grant_changes(
         headers,
         ip,
         &format!(
-          "username={} org={} role={}",
+          "username={} org={} role={} expose={:?} expose_bounds={:?}",
           username,
           g.org.as_str(),
-          g.role.as_str()
+          g.role.as_str(),
+          g.expose,
+          g.expose_bounds
         ),
       )
       .await;
@@ -178,14 +192,16 @@ async fn audit_grant_changes(
 /// Whether a user id exists and belongs to the caller's effective org, so one
 /// org cannot edit or delete another's users by id.
 async fn user_in_effective_org(state: &Arc<AppState>, headers: &HeaderMap, id: &str) -> bool {
-  let org = crate::auth::effective_org(state, headers).await;
-  state
-    .users
-    .lock()
-    .await
-    .list()
-    .iter()
-    .any(|u| u.id == id && u.org_id == org)
+  let Some(caller) = crate::auth::resolve_caller(state, headers).await else {
+    return false;
+  };
+  let org = caller.effective_org();
+  state.users.lock().await.list().iter().any(|u| {
+    u.id == id && u.org_id == org
+      // Account control can impersonate its permissions. A tenant admin
+      // cannot reset credentials or disable an expose delegate above them.
+      && u.grants.iter().filter(|g| !g.expose.is_empty()).all(|g| caller.may_grant(g))
+  })
 }
 
 fn actor_ip(state: &Arc<AppState>, headers: &HeaderMap, addr: SocketAddr) -> String {
@@ -405,7 +421,13 @@ pub(crate) async fn users_update_handler(
     (None, Some(r)) => {
       let here = GrantOrg::from_org_id(effective.as_deref());
       let mut next: Vec<Grant> = current.iter().filter(|g| g.org != here).cloned().collect();
-      next.push(Grant::new(here, r));
+      let mut grant = current
+        .iter()
+        .find(|g| g.org == here)
+        .cloned()
+        .unwrap_or_else(|| Grant::new(here, r));
+      grant.role = r;
+      next.push(grant);
       Some(next)
     }
     (None, None) => None,
@@ -479,6 +501,9 @@ pub(crate) async fn users_delete_handler(
   headers: HeaderMap,
   Path(id): Path<String>,
 ) -> Response {
+  if !user_in_effective_org(&state, &headers, &id).await {
+    return (StatusCode::NOT_FOUND, "unknown user id").into_response();
+  }
   let org = crate::auth::effective_org(&state, &headers).await;
   let username = {
     let users = state.users.lock().await;
