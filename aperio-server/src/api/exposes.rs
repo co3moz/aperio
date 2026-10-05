@@ -642,7 +642,7 @@ pub(crate) async fn sessions(
   let mut sessions: Vec<_> = manager
     .sessions(page.history.unwrap_or(false))
     .into_iter()
-    .filter(|s| s.expose_id == id)
+    .filter(|s| s.expose_id == id && s.org_id == resource.spec.org_id)
     .collect();
   sessions.sort_by(|a, b| b.started_at.cmp(&a.started_at).then(a.id.cmp(&b.id)));
   let total = sessions.len();

@@ -27,12 +27,6 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
-- [ ] **#196 Isolate expose session history when a resource identity is reused.**
-  Filter active and persisted session records by the current resource's
-  organization as well as its id. Prove that deleting a resource and creating
-  the same UUID in another organization cannot disclose the previous owner's
-  peer addresses or backend targets to the new owner's viewer.
-
 - [ ] **#197 Reject duplicate YAML expose identities after resolving bind addresses.**
   An omitted address and an explicit server bind address currently pass
   validation but become the same runtime id. Reject the collision before
@@ -476,6 +470,12 @@ so.
   `#169`; the last check's `0.6.0-rc.8` was four weeks behind this.
 
 ## Completed
+
+- [x] **#196 Isolate expose session history when a resource identity is reused.**
+  Shipped: session lists filter by the resource's organization and id before
+  counting or paging. A handler regression deletes and recreates a UUID in
+  another tenant, verifies its viewer cannot read the previous owner's stored
+  history, and confirms that its own history remains visible.
 
 - [x] **#168 A request in the gap between a client's connect and its first
   heartbeat is refused, not held.** shipped: a connection that has opened but

@@ -91,6 +91,114 @@ async fn make(
 }
 
 #[tokio::test]
+async fn reused_identity_does_not_disclose_another_organizations_session_history() {
+  let state = Arc::new(test_state());
+  let original = tenant(&state, "original").await;
+  let recipient = tenant(&state, "recipient").await;
+  let (_, owner) = user(
+    &state,
+    "owner",
+    &original,
+    &[ExposeAction::Create, ExposeAction::Delete],
+    None,
+  )
+  .await;
+  let (_, publisher) = user(
+    &state,
+    "publisher",
+    &recipient,
+    &[ExposeAction::Create],
+    None,
+  )
+  .await;
+  let (_, viewer) = user(&state, "reader", &recipient, &[ExposeAction::Read], None).await;
+  let id = uuid::Uuid::new_v4().to_string();
+  assert_eq!(
+    make(&state, &owner, spec(&original, 20000), Some(id.clone()))
+      .await
+      .status(),
+    StatusCode::CREATED
+  );
+  let mut history = crate::expose_manager::SessionView {
+    id: uuid::Uuid::new_v4().to_string(),
+    expose_id: id.clone(),
+    org_id: original,
+    revision: 1,
+    protocol: ExposeProtocol::Tcp,
+    peer: "192.0.2.10:4567".parse().unwrap(),
+    client_id: "private-client".into(),
+    target: "10.0.0.10:5432".into(),
+    started_at: crate::store::tokens::now_secs(),
+    up_bytes: 10,
+    down_bytes: 20,
+    up_packets: 1,
+    down_packets: 1,
+    idle_seconds: 0,
+    ended_at: Some(crate::store::tokens::now_secs()),
+    reason: Some("relay_closed".into()),
+  };
+  state.exposes.lock().await.store.record_session(&history);
+  assert_eq!(
+    delete(
+      State(state.clone()),
+      ConnectInfo(test_peer()),
+      owner,
+      Path(id.clone()),
+      ExposeJson(Revision { revision: 1 })
+    )
+    .await
+    .status(),
+    StatusCode::NO_CONTENT
+  );
+  assert_eq!(
+    make(
+      &state,
+      &publisher,
+      spec(&recipient, 20000),
+      Some(id.clone())
+    )
+    .await
+    .status(),
+    StatusCode::CREATED
+  );
+  let response = sessions(
+    State(state.clone()),
+    viewer.clone(),
+    Path(id.clone()),
+    Query(Page {
+      history: Some(true),
+      ..Default::default()
+    }),
+  )
+  .await;
+  assert_eq!(response.status(), StatusCode::OK);
+  let body = json_body(response).await;
+  assert_eq!(body["total"], 0);
+  assert_eq!(body["items"], serde_json::json!([]));
+
+  history.id = uuid::Uuid::new_v4().to_string();
+  history.org_id = recipient;
+  state.exposes.lock().await.store.record_session(&history);
+  let body = json_body(
+    sessions(
+      State(state.clone()),
+      viewer,
+      Path(id),
+      Query(Page {
+        history: Some(true),
+        limit: Some(1),
+        ..Default::default()
+      }),
+    )
+    .await,
+  )
+  .await;
+  assert_eq!(body["total"], 1);
+  assert_eq!(body["items"][0]["id"], history.id);
+  assert_eq!(state.exposes.lock().await.store.session_history().len(), 2);
+}
+
+#[tokio::test]
 async fn delegated_viewer_creates_but_plain_viewer_and_other_tenant_cannot_access() {
   let state = Arc::new(test_state());
   let org = tenant(&state, "acme").await;

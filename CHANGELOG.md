@@ -6,6 +6,10 @@ project follows semantic versioning per release tag.
 
 ## [Unreleased]
 
+### Security
+
+- **Expose session history stays within its owning organization.** Recreating a deleted expose UUID in another organization no longer reveals the former owner's peer addresses and backend targets. Session lists check both the resource identity and the session's organization before counting or paging records.
+
 ### Added
 
 - **Delegated TCP and UDP public exposes.** Users with explicit organization-scoped grants can create, edit and operate server listeners from the dashboard or API without restarting the server. Port allocations and traffic limits bound each grant; rules persist across restarts and appear in scoped topology, session, audit and metrics views. TCP and UDP listeners can share a port number. The tunnel protocol now negotiates TCP half-close support in v10 and retains a full-close fallback for older clients.
