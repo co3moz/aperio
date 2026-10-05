@@ -27,6 +27,24 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
+- [ ] **#196 Isolate expose session history when a resource identity is reused.**
+  Filter active and persisted session records by the current resource's
+  organization as well as its id. Prove that deleting a resource and creating
+  the same UUID in another organization cannot disclose the previous owner's
+  peer addresses or backend targets to the new owner's viewer.
+
+- [ ] **#197 Reject duplicate YAML expose identities after resolving bind addresses.**
+  An omitted address and an explicit server bind address currently pass
+  validation but become the same runtime id. Reject the collision before
+  opening any sockets, including disabled entries, so replacing the manager
+  entry cannot detach a still-serving listener. Cover startup and reload.
+
+- [ ] **#198 Retain expose quota reservations until draining sessions finish.**
+  Draining marks desired state disabled while existing TCP/UDP sessions still
+  consume capacity and bandwidth. Include those runtime reservations in both
+  organization policy and delegated-bound checks, release them only after
+  sessions end, and prove a second listener cannot exceed either ceiling.
+
 - [ ] **#169 Upgrade `argon2` to 0.6.0 and prove a stored hash still
   verifies.** Found by the recurring dependency check (`#134`): `0.6.0` is
   stable since 2026-08-27, after the last look saw `0.6.0-rc.8`. It buys
