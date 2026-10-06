@@ -110,14 +110,14 @@ fn bounded_change(
   caller: &Caller,
   spec: &ExposeSpec,
   document: &crate::store::exposes::ExposeDocument,
+  manager: &crate::expose_manager::ExposeManager,
 ) -> Result<(), Response> {
   if let Some(bounds) = caller.expose_bounds(&spec.org_id)
     && (!bounds.allows(spec)
       || !bounds.fits(
-        document
-          .resources
+        manager
+          .quota_specs(&document.resources)
           .iter()
-          .map(|r| &r.spec)
           .filter(|s| s.org_id == spec.org_id && bounds.allows(s)),
       ))
   {
@@ -384,7 +384,7 @@ pub(crate) async fn create(
   }
   let mut document = manager.store.document.clone();
   document.resources.push(resource.clone());
-  if let Err(response) = bounded_change(&caller, &resource.spec, &document) {
+  if let Err(response) = bounded_change(&caller, &resource.spec, &document, &manager) {
     return response;
   }
   if let Err(error) = manager.replace(&state, document, false).await {
@@ -455,7 +455,7 @@ pub(crate) async fn update(
   if let Some(row) = document.resources.iter_mut().find(|r| r.id == id) {
     *row = resource.clone();
   }
-  if let Err(response) = bounded_change(&caller, &resource.spec, &document) {
+  if let Err(response) = bounded_change(&caller, &resource.spec, &document, &manager) {
     return response;
   }
   if let Err(error) = manager.replace(&state, document, false).await {
@@ -595,7 +595,7 @@ pub(crate) async fn operate(
         *row = resource.clone();
       }
       if payload.action != "disable"
-        && let Err(response) = bounded_change(&caller, &resource.spec, &document)
+        && let Err(response) = bounded_change(&caller, &resource.spec, &document, &manager)
       {
         return response;
       }
@@ -911,7 +911,7 @@ pub(crate) async fn import(
     }
   }
   for spec in &imported_specs {
-    if let Err(response) = bounded_change(&caller, spec, &document) {
+    if let Err(response) = bounded_change(&caller, spec, &document, &manager) {
       return response;
     }
   }

@@ -654,16 +654,42 @@ impl ExposeManager {
     if !policy.allows(&resource.spec) {
       return Err("listener is outside the organization's port allocation".into());
     }
-    if !policy.fits(
+    let specs = self.quota_specs(
       document
         .resources
         .iter()
-        .map(|r| &r.spec)
-        .chain(files.iter().map(|r| &r.resource.spec)),
-    ) {
+        .chain(files.iter().map(|r| &r.resource)),
+    );
+    if !policy.fits(&specs) {
       return Err("organization expose quota exceeded".into());
     }
     Ok(())
+  }
+
+  /// Desired disabled state survives a restart, but an unchanged live drain
+  /// still owns its original reservation. Changed or removed rules are stopped
+  /// before any replacement listener starts in apply(). Share this accounting
+  /// with identity bounds so delegation cannot bypass the organization budget.
+  pub fn quota_specs<'a>(
+    &self,
+    resources: impl IntoIterator<Item = &'a ExposeResource>,
+  ) -> Vec<ExposeSpec> {
+    resources
+      .into_iter()
+      .map(|resource| {
+        let mut spec = resource.spec.clone();
+        if !spec.enabled
+          && self.entries.get(&resource.id).is_some_and(|entry| {
+            entry.rule.resource == *resource
+              && entry.runtime.control.borrow().deadline.is_some()
+              && entry.task.as_ref().is_some_and(|task| !task.is_finished())
+          })
+        {
+          spec.enabled = true;
+        }
+        spec
+      })
+      .collect()
   }
 
   pub async fn reload(&mut self, state: &Arc<AppState>, host: &str) -> Result<(), String> {
@@ -816,6 +842,18 @@ impl ExposeManager {
         .map_err(|error| format!("persistence: {error}"))?;
     }
     let mut old = std::mem::take(&mut self.entries);
+    // A changed/deleted drain is excluded from the next quota reservation.
+    // Release it before starting *any* new listener, regardless of list order.
+    for entry in old.values_mut() {
+      if entry.runtime.control.borrow().deadline.is_some()
+        && !all
+          .iter()
+          .any(|rule| rule.resource == entry.rule.resource && rule.legacy == entry.rule.legacy)
+      {
+        entry.runtime.stop(None);
+        finish_task(&mut entry.task).await;
+      }
+    }
     for rule in all {
       let id = rule.resource.id.clone();
       let status = if errors.contains_key(&id) {

@@ -132,6 +132,120 @@ async fn clean(state: &Arc<AppState>) {
   .expect("stream registry cleanup");
 }
 
+async fn draining_quota_case(protocol: ExposeProtocol, bandwidth_only: bool) {
+  let state = Arc::new(test_state());
+  let mut rx = client(&state, 6).await;
+  let first = fresh(protocol).await;
+  let capacity = u64::from(first.spec.limits.capacity());
+  let (up, down) = first.spec.limits.bandwidth();
+  let multiplier = if bandwidth_only { 2 } else { 1 };
+  let bandwidth_multiplier = if bandwidth_only { 1 } else { 2 };
+  {
+    let mut manager = state.exposes.lock().await;
+    let mut doc = manager.store.document.clone();
+    doc.policies.push(ExposePolicy {
+      org_id: "master".into(),
+      revision: 1,
+      allocations: vec![aperio_config::expose_policy::ExposeAllocation {
+        address: first.spec.listener.address,
+        protocol,
+        first_port: 1,
+        last_port: u16::MAX,
+      }],
+      reserved: vec![],
+      max_rules: 2,
+      max_tcp_connections: capacity * multiplier,
+      max_udp_sessions: capacity * multiplier,
+      ingress_bytes_per_second: up * bandwidth_multiplier,
+      egress_bytes_per_second: down * bandwidth_multiplier,
+    });
+    doc.resources.push(first.clone());
+    manager.replace(&state, doc, false).await.unwrap();
+  }
+  let address = SocketAddr::new(first.spec.listener.address, first.spec.listener.port);
+  let mut tcp = None;
+  let mut udp = None;
+  let session = match protocol {
+    ExposeProtocol::Tcp => {
+      tcp = Some(TcpStream::connect(address).await.unwrap());
+      match message(&mut rx).await {
+        TunnelMessage::TcpOpen { stream_id, .. } => stream_id,
+        other => panic!("{other:?}"),
+      }
+    }
+    ExposeProtocol::Udp => {
+      let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+      peer.send_to(b"hold reservation", address).await.unwrap();
+      udp = Some(peer);
+      udp_open(&mut rx, b"hold reservation").await
+    }
+  };
+  let second = fresh(protocol).await;
+  let desired;
+  {
+    let mut manager = state.exposes.lock().await;
+    manager.drain(&first.id, Duration::from_secs(60)).unwrap();
+    let mut doc = manager.store.document.clone();
+    doc.resources.push(second);
+    desired = doc.clone();
+    let revision = manager.store.document.revision;
+    assert!(
+      manager
+        .replace(&state, doc, false)
+        .await
+        .unwrap_err()
+        .contains("quota")
+    );
+    assert_eq!(manager.store.document.revision, revision);
+    assert_eq!(manager.sessions(false).len(), 1);
+    assert!(manager.disconnect(&first.id, &session));
+  }
+  tokio::time::timeout(Duration::from_secs(3), async {
+    loop {
+      let finished = state.exposes.lock().await.entries[&first.id]
+        .task
+        .as_ref()
+        .unwrap()
+        .is_finished();
+      if finished {
+        break;
+      }
+      tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+  })
+  .await
+  .expect("drain releases its reservation");
+  state
+    .exposes
+    .lock()
+    .await
+    .replace(&state, desired, false)
+    .await
+    .unwrap();
+  drop((tcp, udp));
+  clean(&state).await;
+}
+
+#[tokio::test]
+async fn draining_tcp_retains_connection_quota_until_sessions_end() {
+  draining_quota_case(ExposeProtocol::Tcp, false).await;
+}
+
+#[tokio::test]
+async fn draining_tcp_retains_bandwidth_quota_until_sessions_end() {
+  draining_quota_case(ExposeProtocol::Tcp, true).await;
+}
+
+#[tokio::test]
+async fn draining_udp_retains_session_quota_until_sessions_end() {
+  draining_quota_case(ExposeProtocol::Udp, false).await;
+}
+
+#[tokio::test]
+async fn draining_udp_retains_bandwidth_quota_until_sessions_end() {
+  draining_quota_case(ExposeProtocol::Udp, true).await;
+}
+
 #[test]
 fn duplicate_file_identities_are_rejected_before_startup_or_reload_binds() {
   let _lock = crate::test_support::config_lock();

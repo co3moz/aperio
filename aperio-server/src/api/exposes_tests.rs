@@ -91,6 +91,87 @@ async fn make(
 }
 
 #[tokio::test]
+async fn delegated_bounds_keep_a_draining_listeners_reservation() {
+  let state = Arc::new(test_state());
+  let org = tenant(&state, "draining").await;
+  let allocation = policy(&org, 1, u16::MAX);
+  {
+    let mut manager = state.exposes.lock().await;
+    let mut document = manager.store.document.clone();
+    document.policies = vec![allocation.clone()];
+    manager.replace(&state, document, false).await.unwrap();
+  }
+  let mut bounds = allocation;
+  bounds.max_tcp_connections = 256;
+  let (_, headers) = user(
+    &state,
+    "publisher",
+    &org,
+    &[
+      ExposeAction::Create,
+      ExposeAction::Disable,
+      ExposeAction::Disconnect,
+    ],
+    Some(bounds),
+  )
+  .await;
+  let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+  let mut client = crate::test_support::mock_client(None, None, None, None);
+  client.tx = tx;
+  client.perms.org_id = Some(org.clone());
+  client.sole_mut().tunnels = vec![crate::protocol::TunnelDecl {
+    name: Some("offline".into()),
+    custom_name: None,
+    target: "127.0.0.1:9000".into(),
+    protocol: "tcp".into(),
+    encrypt: false,
+    idle_timeout: None,
+    expose: None,
+  }];
+  state
+    .clients
+    .write()
+    .await
+    .insert("declaring-client".into(), client);
+  let socket = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = socket.local_addr().unwrap().port();
+  drop(socket);
+  let mut first = spec(&org, port);
+  first.enabled = true;
+  let created = make(&state, &headers, first, None).await;
+  assert_eq!(created.status(), StatusCode::CREATED);
+  let id = json_body(created).await["id"].as_str().unwrap().to_string();
+  let visitor = tokio::net::TcpStream::connect(("127.0.0.1", port))
+    .await
+    .unwrap();
+  tokio::time::timeout(std::time::Duration::from_secs(3), rx.recv())
+    .await
+    .unwrap()
+    .unwrap();
+  let drained = operate(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    Path(id),
+    ExposeJson(Operation {
+      revision: 1,
+      action: "drain".into(),
+      session_id: None,
+      drain_seconds: Some(60),
+    }),
+  )
+  .await;
+  assert_eq!(drained.status(), StatusCode::OK);
+  let mut second = spec(&org, if port == 65535 { port - 1 } else { port + 1 });
+  second.enabled = true;
+  let denied = make(&state, &headers, second, None).await;
+  assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+  assert_eq!(json_body(denied).await["code"], "delegation_bounds");
+  state.exposes.lock().await.shutdown().await;
+  drop(visitor);
+}
+
+#[tokio::test]
 async fn reused_identity_does_not_disclose_another_organizations_session_history() {
   let state = Arc::new(test_state());
   let original = tenant(&state, "original").await;

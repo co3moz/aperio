@@ -27,12 +27,6 @@ there is nothing to build, whatever *Recurring checks* holds.
 
 ## Future ideas
 
-- [ ] **#198 Retain expose quota reservations until draining sessions finish.**
-  Draining marks desired state disabled while existing TCP/UDP sessions still
-  consume capacity and bandwidth. Include those runtime reservations in both
-  organization policy and delegated-bound checks, release them only after
-  sessions end, and prove a second listener cannot exceed either ceiling.
-
 - [ ] **#169 Upgrade `argon2` to 0.6.0 and prove a stored hash still
   verifies.** Found by the recurring dependency check (`#134`): `0.6.0` is
   stable since 2026-08-27, after the last look saw `0.6.0-rc.8`. It buys
@@ -464,6 +458,12 @@ so.
   `#169`; the last check's `0.6.0-rc.8` was four weeks behind this.
 
 ## Completed
+
+- [x] **#198 Retain expose quota reservations until draining sessions finish.**
+  Shipped: organization policies and delegated bounds share runtime-aware
+  quota accounting. Unchanged drains reserve capacity until their task ends;
+  changed drains stop before any replacement starts. TCP/UDP regressions cover
+  session and bandwidth ceilings, release after disconnect, and viewer bounds.
 
 - [x] **#197 Reject duplicate YAML expose identities after resolving bind addresses.**
   Shipped: resolved-address validation rejects duplicate identities, including
