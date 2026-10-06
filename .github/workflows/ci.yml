@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["main", "master"]
+    branches: ["feature/**", "main", "master"]
   pull_request:
     branches: ["main", "master"]
 
@@ -19,10 +19,10 @@ permissions:
 jobs:
   check:
     name: Build, Lint & Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -30,7 +30,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Install Node.js (dashboard build)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -67,10 +67,10 @@ jobs:
 
   coverage:
     name: Test Coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -78,7 +78,7 @@ jobs:
           components: llvm-tools-preview
 
       - name: Install Node.js (the E2E suite runs on it)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -134,10 +134,10 @@ jobs:
 
   audit:
     name: Dependency Vulnerability Audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -151,7 +151,7 @@ jobs:
       # Cache the RustSec advisory database between runs; a stale copy is
       # refreshed by cargo-audit's own git pull, so a weekly key is plenty.
       - name: Cache advisory database
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/advisory-db
           key: advisory-db-${{ github.run_id }}
@@ -164,10 +164,10 @@ jobs:
 
   deny:
     name: Licenses, Sources & Bans
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -187,10 +187,10 @@ jobs:
 
   bench:
     name: Benchmarks (report)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -207,10 +207,10 @@ jobs:
 
   fuzz:
     name: Protocol Fuzzing (smoke)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
@@ -242,16 +242,16 @@ jobs:
 
   e2e:
     name: End-to-End Tunnel Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Node.js (the E2E suite runs on it)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -280,7 +280,7 @@ jobs:
         run: npm run test:ci
 
   # ---------------------------------------------------------------------------
-  # The soak's judge, without the soak (planned_features #98).
+  # The soak's judge, without the soak.
   #
   # The weekly run is where the memory curve is measured; this is the rule
   # that reads it, which is pure arithmetic over a series and therefore cheap
@@ -289,13 +289,13 @@ jobs:
   # weekly job nobody watches.
   soak-rule:
     name: Soak trend rule
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -303,7 +303,7 @@ jobs:
         run: node --test 'tests/soak/*.test.mjs'
 
   # ---------------------------------------------------------------------------
-  # The Helm chart (planned_features #94).
+  # The Helm chart.
   #
   # Linting a chart proves it renders. What is worth proving here is the one
   # claim the chart makes: that `values.config` is the *server's own*
@@ -314,10 +314,10 @@ jobs:
   # on somebody's cluster.
   chart:
     name: Helm chart
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -326,7 +326,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install Node.js (the server build embeds the dashboard)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -392,7 +392,7 @@ jobs:
             ./target/debug/aperio-server --check-config
 
   # ---------------------------------------------------------------------------
-  # Client/server compatibility, N-1 in both directions (planned_features #89).
+  # Client/server compatibility, N-1 in both directions.
   #
   # A server is one box and its clients are a fleet, so the two sides are
   # always upgraded at different times. Everything else in this file tests one
@@ -405,16 +405,16 @@ jobs:
   # gate, because an old client failing a new server is information.
   compat:
     name: Compatibility (previous release, both directions)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Node.js (the E2E suite runs on it)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -507,12 +507,12 @@ jobs:
   detect-book-change:
     name: Detect guide changes
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       changed: ${{ steps.filter.outputs.changed }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Did the guide change?
@@ -531,11 +531,11 @@ jobs:
     name: Typeset the guide
     needs: detect-book-change
     if: needs.detect-book-change.outputs.changed == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Tectonic
         env:
@@ -582,12 +582,12 @@ jobs:
   detect-deps-change:
     name: Detect dependency changes
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       changed: ${{ steps.filter.outputs.changed }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -630,7 +630,7 @@ jobs:
             target: x86_64-pc-windows-msvc
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Installed before the probe so the cache key hashes the same rustc the
       # release job uses; otherwise the probe would key on the image's default
@@ -652,7 +652,7 @@ jobs:
 
       - name: Install Node.js (dashboard build)
         if: steps.probe.outputs.cache-hit != 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 

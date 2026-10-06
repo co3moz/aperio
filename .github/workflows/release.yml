@@ -58,7 +58,7 @@ jobs:
             target: x86_64-pc-windows-msvc
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -66,7 +66,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install Node.js (dashboard build)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -123,8 +123,8 @@ jobs:
             (cd dist-pkg && shasum -a 256 "${bin}-${{ matrix.target }}.tar.gz" > "${bin}-${{ matrix.target }}.tar.gz.sha256")
           done
 
-      # Native packages, from the binaries built two steps up (planned_features
-      # #92). Only for Linux: a .deb or .rpm is a Linux artifact, and the two
+      # Native packages, from the binaries built two steps up. Only for Linux:
+      # a .deb or .rpm is a Linux artifact, and the two
       # musl targets are the ones an ordinary server runs.
       #
       # nfpm rather than cargo-deb plus a second tool for rpm: one description
@@ -193,10 +193,10 @@ jobs:
 
   schema:
     name: Generate config schema
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -227,10 +227,10 @@ jobs:
   # caches them, so a repeat release is a download of nothing.
   book:
     name: Build the guide (PDF)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Tectonic
         env:
@@ -311,7 +311,7 @@ jobs:
   # cross-arch emulation for `apk add ca-certificates` negligible).
   docker:
     name: Build & Push Docker (${{ matrix.image }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [build]
     permissions:
       contents: read
@@ -326,7 +326,7 @@ jobs:
         image: [aperio-server, aperio-client]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Only the two Linux musl artifacts are needed for the images; they are
       # merged into ./pkg/ regardless of which build-matrix job produced them.
@@ -406,7 +406,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [build, schema, book]
     permissions:
       contents: write
@@ -419,7 +419,7 @@ jobs:
       # The SBOM is generated from the sources (Cargo.lock and the dashboard's
       # lockfile), so this job needs the repository as well as the artifacts.
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # The dependency tree the release was built from, as SPDX. It exists so
       # that "are you affected by CVE-X" can be answered by whoever is asking,
@@ -461,8 +461,8 @@ jobs:
           fi
           ls -R dist-pkg
 
-      # Homebrew formulae and Scoop manifests (planned_features #93), rendered
-      # from the assets that were just downloaded. They are attached to the
+      # Homebrew formulae and Scoop manifests, rendered from the assets that
+      # were just downloaded. They are attached to the
       # release, which is what makes them usable with no tap and no bucket:
       #
       #   brew install --formula https://github.com/co3moz/aperio/releases/latest/download/aperio-client.rb
