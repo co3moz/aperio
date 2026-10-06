@@ -118,11 +118,16 @@ fn dispatch(runner: &Runner, delivery: &Delivery) {
   let running = runner.running.clone();
   // Claim a slot before spawning: two messages arriving together must not
   // both see the old count and both start.
-  let claimed = running
-    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
-      (current < runner.max_concurrent).then_some(current + 1)
-    })
-    .is_ok();
+  let mut current = running.load(Ordering::SeqCst);
+  let claimed = loop {
+    if current >= runner.max_concurrent {
+      break false;
+    }
+    match running.compare_exchange_weak(current, current + 1, Ordering::SeqCst, Ordering::SeqCst) {
+      Ok(_) => break true,
+      Err(observed) => current = observed,
+    }
+  };
   if !claimed {
     warn!(
       "Dropping a message on '{}': {} run(s) of `{}` are already going",
