@@ -640,13 +640,21 @@ impl AppState {
   /// very next request.
   pub(crate) fn try_acquire_request_slot(&self) -> Option<RequestSlot> {
     let limit = self.config().max_concurrent_requests;
-    self
-      .active_proxied_requests
-      .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |cur| {
-        if cur < limit { Some(cur + 1) } else { None }
-      })
-      .ok()
-      .map(|_| RequestSlot(self.active_proxied_requests.clone()))
+    let mut current = self.active_proxied_requests.load(Ordering::SeqCst);
+    loop {
+      if current >= limit {
+        return None;
+      }
+      match self.active_proxied_requests.compare_exchange_weak(
+        current,
+        current + 1,
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+      ) {
+        Ok(_) => return Some(RequestSlot(self.active_proxied_requests.clone())),
+        Err(observed) => current = observed,
+      }
+    }
   }
 
   /// Claims a slot under `max_streams_per_ip` for one visitor address, or
@@ -680,13 +688,21 @@ impl AppState {
   /// proxied WebSocket, so long-lived connections can't pile up unbounded.
   pub(crate) fn try_acquire_ws_slot(&self) -> Option<WsSlot> {
     let limit = self.config().max_ws_connections;
-    self
-      .active_ws_connections
-      .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |cur| {
-        if cur < limit { Some(cur + 1) } else { None }
-      })
-      .ok()
-      .map(|_| WsSlot(self.active_ws_connections.clone()))
+    let mut current = self.active_ws_connections.load(Ordering::SeqCst);
+    loop {
+      if current >= limit {
+        return None;
+      }
+      match self.active_ws_connections.compare_exchange_weak(
+        current,
+        current + 1,
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+      ) {
+        Ok(_) => return Some(WsSlot(self.active_ws_connections.clone())),
+        Err(observed) => current = observed,
+      }
+    }
   }
 
   /// Records a server-global (master-organization) audit event: config
