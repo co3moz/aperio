@@ -66,16 +66,16 @@ jobs:
   h2spec:
     name: h2spec (HTTP/2, RFC 9113)
     if: ${{ inputs.conformance }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -99,7 +99,7 @@ jobs:
           retention-days: 30
 
   # ---------------------------------------------------------------------------
-  # Soak: the memory curve (planned_features #98).
+  # Soak: the memory curve.
   #
   # The README says neither binary grows with request count. That is a claim
   # about a shape over time, against a stack this job brings up itself. It
@@ -110,16 +110,16 @@ jobs:
   soak:
     name: Memory over a plateau
     if: ${{ inputs.soak }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -160,7 +160,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Mutants: mutation testing on the modules where a wrong answer is a security
-  # answer (planned_features #127).
+  # answer.
   #
   # A passing suite says the tests ran, not that they check anything. This repo
   # has three reasons to take that literally: the #123 sweep found four tests
@@ -195,11 +195,11 @@ jobs:
   baseline:
     name: "Mutants: baseline"
     if: ${{ inputs.mutants }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -214,7 +214,7 @@ jobs:
     name: "Mutants: shard ${{ matrix.shard }} of 32"
     needs: baseline
     if: ${{ inputs.mutants }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A shard that finds survivors must not stop the others: the whole output
     # is the union of the lists, and half a list is worse than none because it
     # reads like a complete one.
@@ -235,7 +235,7 @@ jobs:
         shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -303,7 +303,7 @@ jobs:
           if-no-files-found: warn
 
   # ---------------------------------------------------------------------------
-  # Compatibility report: the post-release half (planned_features #90).
+  # Compatibility report: the post-release half.
   #
   # `ci.yml`'s `compat` job is the gate: N-1 in both directions, and a failure
   # there stops the build. This is the wider half, and it is deliberately
@@ -326,16 +326,16 @@ jobs:
   compat-report:
     name: Released clients against the released server
     if: ${{ inputs.compat }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Node.js (the E2E suite runs on it)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
