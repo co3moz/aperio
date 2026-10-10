@@ -18,6 +18,8 @@ project follows semantic versioning per release tag.
 
 - **A master Admin could mint an admin key for a child organization it holds nothing in.** Only a `*` key was checked against the minter's grants, so the key API led around the bound the users API keeps: a master Admin refused a Viewer grant in Acme could still create an Admin key scoped to Acme. A key is now bounded like any other grant: its organization takes Admin there, held directly or through `*`, and so do the expose capabilities it carries.
 
+- **A `forward` asked over the tunnel sent the visitor's Aperio cookies to the client.** `cookie` is on the default request allowlist, and the question copied the header whole, so a dashboard session, a share-link cookie and the affinity cookie crossed the tunnel to the client's endpoint, which runs on a tenant's machine. The case that reaches the ask is the dangerous one: a dashboard session the gate does not admit, such as an admin of another organization who signed in at this hostname's `/aperio` and then opened the site. The proxy already took Aperio's cookies out before a request reached a backend; the tunnel-asked `forward` now applies the same rule, and the endpoint gets the visitor's other cookies as before.
+
 ### Added
 
 - **Delegated TCP and UDP public exposes.** Users with explicit organization-scoped grants can create, edit and operate server listeners from the dashboard or API without restarting the server. Port allocations and traffic limits bound each grant; rules persist across restarts and appear in scoped topology, session, audit and metrics views. TCP and UDP listeners can share a port number. The tunnel protocol now negotiates TCP half-close support in v10 and retains a full-close fallback for older clients.

@@ -211,7 +211,7 @@ pub(super) fn header_is_aperios(
 /// A `Cookie` header value with Aperio's own cookies removed, and everything
 /// the visitor set left alone. Empty when nothing survives, which is the
 /// caller's signal to send no cookie header at all.
-pub(super) fn cookies_without_aperios(value: &str) -> String {
+pub(crate) fn cookies_without_aperios(value: &str) -> String {
   value
     .split(';')
     .filter(|part| {
