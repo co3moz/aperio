@@ -947,6 +947,77 @@ async fn a_per_org_login_lives_in_its_organization_and_reaches_nothing_else() {
 }
 
 #[tokio::test]
+async fn a_per_org_login_leaves_what_the_global_provider_mapped() {
+  // One person in two directories under one email: the corporate provider
+  // maps them `*` Admin, Acme's own provider maps them Operator in Acme.
+  // Each login may only take back what its own map produced.
+  let global = mock_oidc_server(
+    200,
+    "{\"access_token\":\"AT\"}",
+    200,
+    "{\"email\":\"ops@corp.com\",\"groups\":[\"ops\"]}",
+  )
+  .await;
+  let tenant = mock_oidc_server(
+    200,
+    "{\"access_token\":\"AT\"}",
+    200,
+    "{\"email\":\"ops@corp.com\",\"groups\":[\"staff\"]}",
+  )
+  .await;
+  let mut state = test_state();
+  let acme = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", Vec::new(), None)
+    .unwrap()
+    .id;
+  state.oidc = Some(oidc_runtime_with(
+    &global,
+    crate::oidc::OidcGrantPolicy {
+      group_grants: vec![("ops".into(), Grant::new(GrantOrg::All, Role::Admin))],
+      ..Default::default()
+    },
+  ));
+  let rt = oidc_runtime_with(
+    &tenant,
+    crate::oidc::OidcGrantPolicy {
+      group_grants: vec![(
+        "staff".into(),
+        Grant::new(GrantOrg::Child(acme.clone()), Role::Operator),
+      )],
+      ..Default::default()
+    },
+  );
+  state.org_oidc.lock().await.insert(acme.clone(), rt);
+  let state = Arc::new(state);
+
+  assert_eq!(
+    login(&state, "csrf-x1", None).await.status(),
+    StatusCode::FOUND
+  );
+  assert_eq!(grants_of(&state, "ops@corp.com").await, vec!["*:admin"]);
+  assert_eq!(
+    login(&state, "csrf-x2", Some(&acme)).await.status(),
+    StatusCode::FOUND
+  );
+  assert_eq!(
+    grants_of(&state, "ops@corp.com").await,
+    vec!["*:admin".to_string(), format!("{acme}:operator")]
+  );
+  // And the corporate login again leaves Acme's grant where it is.
+  assert_eq!(
+    login(&state, "csrf-x3", None).await.status(),
+    StatusCode::FOUND
+  );
+  assert_eq!(
+    grants_of(&state, "ops@corp.com").await,
+    vec!["*:admin".to_string(), format!("{acme}:operator")]
+  );
+}
+
+#[tokio::test]
 async fn a_disabled_record_is_refused_rather_than_recreated() {
   let base = mock_oidc_server(
     200,

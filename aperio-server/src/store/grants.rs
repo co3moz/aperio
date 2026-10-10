@@ -114,6 +114,14 @@ pub struct Grant {
   /// hand-written one is left alone by the map.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub source: Option<String>,
+  /// Which identity provider's map produced a mapped grant: the child
+  /// organization whose own OIDC login did, or `None` for the server's
+  /// global provider. Read only when `source` is set. Without it, a login
+  /// through one provider took back what the other had mapped, so the same
+  /// email signing in through Acme's provider lost the `*` its corporate
+  /// login had been granted.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub source_org: Option<String>,
 }
 
 impl Grant {
@@ -124,6 +132,7 @@ impl Grant {
       expose: BTreeSet::new(),
       expose_bounds: None,
       source: None,
+      source_org: None,
     }
   }
 
@@ -135,6 +144,7 @@ impl Grant {
       expose: BTreeSet::new(),
       expose_bounds: None,
       source: Some(group.to_string()),
+      source_org: None,
     }
   }
 
@@ -227,22 +237,38 @@ pub fn parse_group_map(raw: &str) -> Result<Vec<(String, Grant)>, String> {
 
 /// Applies what a login's group claims mapped to onto a record's grants.
 ///
-/// The map owns what it produced: a grant it produces now is written, a grant
-/// it produced before and no longer does is removed, and a grant written by
-/// hand (no `source`) is left alone unless the map now names the same
-/// organization, where the directory wins. Returns the new list and what
-/// changed, `(next, added, removed)`, for the audit log; nothing here is
-/// persisted.
+/// `provider` is whose map this is: the child organization of a
+/// per-organization OIDC login, or `None` for the global one. A map owns what
+/// it produced and nothing else: a grant it produces now is written, a grant
+/// it produced before and no longer does is removed, and anything else, a
+/// grant written by hand (no `source`) or one another provider mapped, is
+/// left alone unless this map now names the same organization, where the
+/// directory signing in now wins. Returns the new list and what changed,
+/// `(next, added, removed)`, for the audit log; nothing here is persisted.
+///
+/// A grant mapped before `source_org` existed reads as the global
+/// provider's. If a per-organization map wrote it, the next global login
+/// takes it back, as every login did then, and the next login through that
+/// organization writes it again under its own name.
 pub fn apply_group_map(
   current: &[Grant],
   mapped: Vec<Grant>,
+  provider: Option<&str>,
 ) -> (Vec<Grant>, Vec<Grant>, Vec<Grant>) {
+  let owned = |g: &Grant| g.source.is_some() && g.source_org.as_deref() == provider;
+  let mapped: Vec<Grant> = mapped
+    .into_iter()
+    .map(|mut m| {
+      m.source_org = provider.map(str::to_string);
+      m
+    })
+    .collect();
   // Rebuild from this login's groups, then diff the effective grants. In
   // particular, two groups contributing different expose actions must not
   // accumulate revoked actions or generate changes on every identical login.
   let mut next: Vec<Grant> = current
     .iter()
-    .filter(|g| g.source.is_none() && !mapped.iter().any(|m| m.org == g.org))
+    .filter(|g| !owned(g) && !mapped.iter().any(|m| m.org == g.org))
     .cloned()
     .collect();
   for m in mapped {

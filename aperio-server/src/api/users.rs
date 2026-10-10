@@ -38,6 +38,7 @@ fn grants_view(grants: &[Grant]) -> Vec<serde_json::Value> {
         "org": g.org.as_str(),
         "role": g.role.as_str(),
         "source": g.source,
+        "source_org": g.source_org,
         "expose": g.expose,
         "expose_bounds": g.expose_bounds,
       })
