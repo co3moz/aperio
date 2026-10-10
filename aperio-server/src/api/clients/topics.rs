@@ -378,6 +378,12 @@ async fn body_json(resp: Response) -> Option<serde_json::Value> {
 
 /// Reads the topics a stream request asks for: `?topics=a,b` and the bare
 /// `?a&b` spelling, either or both. Unknown names are the error, by name.
+///
+/// Only a *bare* key is a topic. A parameter carrying a value, a cache
+/// buster's `?_=1696000000` or anything else a caller adds to a URL, was
+/// never this endpoint's, and the stream accepted it for as long as it took
+/// no parameters at all; reading it as a misspelled topic turned a script
+/// that had always worked into a `400`.
 pub(crate) fn topics_from_query(
   params: &std::collections::HashMap<String, String>,
 ) -> Result<Vec<Topic>, String> {
@@ -402,8 +408,8 @@ pub(crate) fn topics_from_query(
       take(raw);
     }
   }
-  for key in params.keys() {
-    if key != "topics" {
+  for (key, value) in params {
+    if key != "topics" && value.is_empty() {
       take(key);
     }
   }

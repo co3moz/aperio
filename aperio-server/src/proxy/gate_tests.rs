@@ -1465,6 +1465,7 @@ async fn a_client_declared_forward_is_asked_of_the_client_over_the_tunnel() {
       let id = value["id"].as_str().unwrap().to_string();
       crate::forward_auth_tunnel::resolve(
         &state,
+        "c1",
         &id,
         crate::forward_auth_tunnel::AskAnswer {
           status: 200,

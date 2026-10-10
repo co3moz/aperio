@@ -88,3 +88,36 @@ async fn a_redirect_comes_back_as_itself_and_an_unreachable_endpoint_is_an_error
   assert_eq!(out.status, 0);
   assert!(out.error.is_some());
 }
+
+#[test]
+fn only_a_declared_endpoint_is_called_unless_the_client_agreed() {
+  let own: aperio_config::AuthSetting =
+    serde_yaml::from_str("{method: forward, url: 'http://127.0.0.1:7070/check', via: client}")
+      .unwrap();
+  let other: aperio_config::AuthSetting =
+    serde_yaml::from_str("{method: basic, users: 'a:b'}").unwrap();
+  let declared = [Some(&other), None, Some(&own)];
+  assert!(may_call("http://127.0.0.1:7070/check", declared, false));
+  // The server's own choice of URL, or a near match of ours.
+  for url in [
+    "http://169.254.169.254/latest/meta-data/",
+    "http://127.0.0.1:7070/check?x",
+    "http://127.0.0.1:7070/Check",
+  ] {
+    assert!(!may_call(url, declared, false), "{url}");
+    assert!(may_call(url, declared, true), "{url} with the opt-in");
+  }
+  // A `forward` without `via: client` is not this client's to call; the
+  // client refuses to start with one anyway.
+  let server_side: aperio_config::AuthSetting =
+    serde_yaml::from_str("{method: forward, url: 'http://127.0.0.1:7070/check'}").unwrap();
+  assert!(!may_call(
+    "http://127.0.0.1:7070/check",
+    [Some(&server_side)],
+    false
+  ));
+  // A refusal is an error answer, which the server turns into a refusal.
+  let answer = refused("http://169.254.169.254/");
+  assert_eq!(answer.status, 0);
+  assert!(answer.error.unwrap().contains("allow_server_forward"));
+}

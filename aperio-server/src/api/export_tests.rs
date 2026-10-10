@@ -749,3 +749,44 @@ async fn import_write_failure_is_not_reported_as_applied_and_preserves_tokens() 
   drop(state);
   let _ = std::fs::remove_dir_all(dir);
 }
+
+#[tokio::test]
+async fn a_dump_either_way_takes_every_organization() {
+  // A named master Admin runs the server without reaching the children and
+  // may not grant `*`; an import would write a `*` grant for it and an
+  // export would read tenants it cannot open.
+  let state = Arc::new(test_state());
+  state
+    .users
+    .lock()
+    .await
+    .create("root", "long-password", Role::Admin, None)
+    .unwrap();
+  let token = seed_session(&state, Role::Viewer, Some("root"), None).await;
+  assert!(crate::auth::is_master_admin(&state, &cookie_headers(&token)).await);
+  let resp = export_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    cookie_headers(&token),
+    all(),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  let resp = import_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    cookie_headers(&token),
+    import_dump(FORMAT_VERSION, None, None, None, None, None),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  // The built-in account holds `*`.
+  let resp = export_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    admin_headers(&state).await,
+    all(),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+}

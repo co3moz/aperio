@@ -887,7 +887,7 @@ async fn expose_rights_require_delegation_and_protect_account_control() {
     password_change(),
   )
   .await;
-  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
   let resp = totp_admin_reset_handler(
     State(state.clone()),
     Path(publisher_id.clone()),
@@ -895,7 +895,7 @@ async fn expose_rights_require_delegation_and_protect_account_control() {
     headers.clone(),
   )
   .await;
-  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
   let resp = users_delete_handler(
     State(state.clone()),
     ConnectInfo(test_peer()),
@@ -903,7 +903,7 @@ async fn expose_rights_require_delegation_and_protect_account_control() {
     Path(publisher_id.clone()),
   )
   .await;
-  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
   assert!(
     state
       .users
@@ -1110,6 +1110,110 @@ async fn an_update_is_bounded_on_the_removed_grant_as_much_as_the_added_one() {
   )
   .await;
   assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn account_control_is_bounded_by_every_grant_the_account_holds() {
+  // Setting a password is signing in as the account, so a master Admin who
+  // may not grant `*`, or a child organization it holds nothing in, may not
+  // take over an account that holds one either.
+  let state = Arc::new(test_state());
+  let acme = make_org(&state, "acme").await;
+  make_user(&state, "root", Role::Admin, None).await;
+  let (star_id, tenant_id) = {
+    let mut users = state.users.lock().await;
+    let star = users
+      .create_with_grants(
+        "star",
+        "long-password",
+        None,
+        crate::store::grants::all_admin(),
+      )
+      .unwrap()
+      .id;
+    let tenant = users
+      .create_with_grants(
+        "acme-admin",
+        "long-password",
+        None,
+        vec![Grant::new(GrantOrg::Child(acme.clone()), Role::Admin)],
+      )
+      .unwrap()
+      .id;
+    (star, tenant)
+  };
+  let root = session_for(&state, "root").await;
+  let update = |password: Option<&str>, enabled: Option<bool>| {
+    Json(UserUpdateRequest {
+      role: None,
+      enabled,
+      password: password.map(str::to_string),
+      grants: None,
+    })
+  };
+  for (id, name) in [(&star_id, "star"), (&tenant_id, "acme-admin")] {
+    let resp = users_update_handler(
+      State(state.clone()),
+      ConnectInfo(test_peer()),
+      root.clone(),
+      Path(id.clone()),
+      update(Some("attacker-chosen"), None),
+    )
+    .await;
+    assert_eq!(
+      resp.status(),
+      StatusCode::FORBIDDEN,
+      "{name}: password reset"
+    );
+    let resp = users_update_handler(
+      State(state.clone()),
+      ConnectInfo(test_peer()),
+      root.clone(),
+      Path(id.clone()),
+      update(None, Some(false)),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN, "{name}: disable");
+    let resp = totp_admin_reset_handler(
+      State(state.clone()),
+      Path(id.clone()),
+      ConnectInfo(test_peer()),
+      root.clone(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN, "{name}: TOTP reset");
+    let resp = users_delete_handler(
+      State(state.clone()),
+      ConnectInfo(test_peer()),
+      root.clone(),
+      Path(id.clone()),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN, "{name}: delete");
+    let users = state.users.lock().await;
+    assert!(users.verify(name, "long-password").is_some(), "{name}");
+  }
+  // A master user holding master alone is still the master Admin's to run.
+  let viewer_id = make_user(&state, "reader", Role::Viewer, None).await;
+  let resp = users_update_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    root,
+    Path(viewer_id),
+    update(Some("different-password"), None),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  // And the built-in account, which holds `*`, may reset the `*` Admin.
+  let resp = users_update_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    admin_headers(&state).await,
+    Path(star_id),
+    update(Some("different-password"), None),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
 }
 
 #[tokio::test]

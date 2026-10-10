@@ -1339,6 +1339,56 @@ async fn a_panel_is_set_by_an_admin_of_the_organization_inside_its_fence() {
 }
 
 #[tokio::test]
+async fn a_panel_cannot_take_a_name_somebody_else_is_serving() {
+  // Acme's fence covers `*.shop.test`, and so does nothing stop a master
+  // client from serving `www.shop.test`: the master token is never fenced.
+  let state = Arc::new(test_state());
+  let acme = fenced_org(&state, "acme", "*.shop.test").await;
+  let acme_admin = granted_user(&state, "acme-admin", vec![(&acme, Role::Admin)]).await;
+  state.clients.write().await.insert(
+    "master-client".to_string(),
+    mock_client(Some("www.shop.test"), None, None, None),
+  );
+  let resp = set_panel(
+    &state,
+    cookie_headers(&acme_admin),
+    &acme,
+    Some("www.shop.test"),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::CONFLICT);
+  assert_eq!(panel_of(&state, &acme).await, None);
+  assert!(!state.is_panel_hostname("www.shop.test"));
+  // Not the super-admin either: the traffic is somebody's, whoever asks.
+  let resp = set_panel(
+    &state,
+    admin_headers(&state).await,
+    &acme,
+    Some("www.shop.test"),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::CONFLICT);
+
+  // Its own connection is Acme's to take off the air.
+  let mut own = mock_client(Some("app.shop.test"), None, None, None);
+  own.perms.org_id = Some(acme.clone());
+  state
+    .clients
+    .write()
+    .await
+    .insert("acme-client".to_string(), own);
+  let resp = set_panel(
+    &state,
+    cookie_headers(&acme_admin),
+    &acme,
+    Some("app.shop.test"),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert!(state.is_panel_hostname("app.shop.test"));
+}
+
+#[tokio::test]
 async fn a_panel_needs_a_fence_and_cannot_be_the_servers_own() {
   let mut cfg = test_config();
   cfg.dashboard_hostname = Some("panel.test".to_string());

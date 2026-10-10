@@ -32,7 +32,7 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use axum::body::Body;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::Response;
 use tokio::sync::oneshot;
 
@@ -135,6 +135,9 @@ pub(crate) async fn ask_over_tunnel(
     }
   };
   *asked_client = Some(client.id.clone());
+  // From here on, the question. The pick above read the affinity cookie;
+  // the endpoint never sees it, nor any other cookie of Aperio's own.
+  let headers = &without_aperio_cookies(headers);
   let cache_key = (!cfg.cache.is_zero()).then(|| {
     format!(
       "{}\0{}",
@@ -312,10 +315,58 @@ pub(crate) async fn ask_over_tunnel(
   )
 }
 
-/// Delivers a client's answer to the ask waiting for it. An answer nobody is
-/// waiting for (a late one, or one for an ask that timed out) is dropped.
-pub(crate) async fn resolve(state: &AppState, id: &str, answer: AskAnswer) {
-  let pending = state.pending_auth_asks.lock().await.remove(id);
+/// The visitor's headers as a client's endpoint may see them: the `Cookie`
+/// header with Aperio's own cookies taken out, and everything else as sent.
+///
+/// `cookie` is on the default request allowlist, so without this the
+/// visitor's dashboard session, share link and affinity cookies crossed the
+/// tunnel to a client, which is a tenant's machine. A dashboard session
+/// presented to a gate that does not admit it, an admin of another
+/// organization browsing this site, is exactly the case that reaches the
+/// ask. It is the rule the proxy already applies before a request reaches a
+/// backend: a credential addressed to Aperio is not addressed to what is
+/// behind it.
+fn without_aperio_cookies(headers: &HeaderMap) -> HeaderMap {
+  let mut out = headers.clone();
+  out.remove(header::COOKIE);
+  for value in headers.get_all(header::COOKIE) {
+    let Ok(value) = value.to_str() else {
+      continue;
+    };
+    let kept = crate::proxy::cookies_without_aperios(value);
+    if !kept.is_empty()
+      && let Ok(kept) = HeaderValue::from_str(&kept)
+    {
+      out.append(header::COOKIE, kept);
+    }
+  }
+  out
+}
+
+/// Delivers a client's answer to the ask waiting for it, when `client_id` is
+/// the connection that was asked. An answer nobody is waiting for (a late
+/// one, or one for an ask that timed out) is dropped, and so is one from any
+/// other connection: an ask id is handed to one client, and the verdict it
+/// carries opens a gate, so a second client that learned the id must not be
+/// able to answer for the first. The check and the removal share one lock,
+/// so a refused answer does not leave the genuine one looking for an ask that
+/// is momentarily gone.
+pub(crate) async fn resolve(state: &AppState, client_id: &str, id: &str, answer: AskAnswer) {
+  let pending = {
+    let mut pending = state.pending_auth_asks.lock().await;
+    match pending.get(id) {
+      Some(ask) if ask.client_id == client_id => pending.remove(id),
+      Some(ask) => {
+        tracing::warn!(
+          "Client {} answered an auth check that was asked of {}; ignoring it",
+          client_id,
+          ask.client_id
+        );
+        None
+      }
+      None => None,
+    }
+  };
   if let Some(ask) = pending {
     let _ = ask.tx.send(answer);
   }

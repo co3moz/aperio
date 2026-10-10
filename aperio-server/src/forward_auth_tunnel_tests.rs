@@ -124,6 +124,7 @@ async fn the_question_carries_what_the_server_composed_and_a_2xx_admits() {
 
   resolve(
     &state,
+    "c1",
     &id,
     AskAnswer {
       status: 200,
@@ -156,6 +157,7 @@ async fn a_refusal_is_the_endpoints_own_with_the_headers_a_browser_needs() {
   let (id, _) = next_ask(&mut rx).await;
   resolve(
     &state,
+    "c1",
     &id,
     AskAnswer {
       status: 302,
@@ -193,6 +195,7 @@ async fn every_way_the_answer_fails_to_come_back_refuses() {
   let (id, _) = next_ask(&mut rx).await;
   resolve(
     &state,
+    "c1",
     &id,
     AskAnswer {
       status: 0,
@@ -247,6 +250,7 @@ async fn the_ask_is_priced_from_the_visitors_bucket_and_capped_per_connection() 
   let (id, _) = next_ask(&mut rx).await;
   resolve(
     &state,
+    "c1",
     &id,
     AskAnswer {
       status: 200,
@@ -326,6 +330,7 @@ async fn an_admission_is_remembered_for_the_cache_span() {
   let (id, _) = next_ask(&mut rx).await;
   resolve(
     &state,
+    "c1",
     &id,
     AskAnswer {
       status: 200,
@@ -367,6 +372,7 @@ async fn cached_admission_is_scoped_to_the_client_that_granted_it() {
   let (first_client, first_id) = next_ask_from_either(&mut rx_a, &mut rx_b).await;
   resolve(
     &state,
+    first_client,
     &first_id,
     AskAnswer {
       status: 200,
@@ -386,6 +392,7 @@ async fn cached_admission_is_scoped_to_the_client_that_granted_it() {
   assert_ne!(first_client, second_client, "round robin chooses the peer");
   resolve(
     &state,
+    second_client,
     &second_id,
     AskAnswer {
       status: 200,
@@ -395,4 +402,100 @@ async fn cached_admission_is_scoped_to_the_client_that_granted_it() {
   )
   .await;
   assert!(matches!(second.await.unwrap(), Verdict::Allow(_)));
+}
+
+#[tokio::test]
+async fn aperios_own_cookies_never_cross_the_tunnel() {
+  // A dashboard session that did not open this gate, a share link and the
+  // affinity cookie are Aperio's; the client's endpoint gets the rest.
+  let (state, mut rx) = state_with_client().await;
+  let headers = headers_with(&[(
+    "cookie",
+    "sid=1; __Host-aperio_session=0f0e0d0c-aaaa-bbbb-cccc-000000000000; aperio_session=x; \
+     aperio_share=s; aperio_affinity=c1; theme=dark",
+  )]);
+  let asking = {
+    let state = state.clone();
+    tokio::spawn(async move { ask(&state, &cfg(0), &headers).await })
+  };
+  let (id, question) = next_ask(&mut rx).await;
+  let sent: Vec<(String, String)> =
+    serde_json::from_value(question["request_headers"].clone()).unwrap();
+  let cookie = sent
+    .iter()
+    .find(|(k, _)| k == "cookie")
+    .map(|(_, v)| v.clone());
+  assert_eq!(cookie.as_deref(), Some("sid=1; theme=dark"));
+  assert!(!question.to_string().contains("aperio_"), "{question}");
+  resolve(
+    &state,
+    "c1",
+    &id,
+    AskAnswer {
+      status: 403,
+      headers: Vec::new(),
+      error: None,
+    },
+  )
+  .await;
+  assert!(matches!(asking.await.unwrap(), Verdict::Deny(_)));
+
+  // Nothing but Aperio's cookies: no cookie header at all.
+  let headers = headers_with(&[("cookie", "aperio_session=x")]);
+  let asking = {
+    let state = state.clone();
+    tokio::spawn(async move { ask(&state, &cfg(0), &headers).await })
+  };
+  let (id, question) = next_ask(&mut rx).await;
+  let sent: Vec<(String, String)> =
+    serde_json::from_value(question["request_headers"].clone()).unwrap();
+  assert!(sent.iter().all(|(k, _)| k != "cookie"), "{sent:?}");
+  resolve(
+    &state,
+    "c1",
+    &id,
+    AskAnswer {
+      status: 403,
+      headers: Vec::new(),
+      error: None,
+    },
+  )
+  .await;
+  let _ = asking.await;
+}
+
+#[tokio::test]
+async fn only_the_asked_connection_can_answer() {
+  let (state, mut rx) = state_with_client().await;
+  let asking = {
+    let state = state.clone();
+    tokio::spawn(async move { ask(&state, &cfg(0), &HeaderMap::new()).await })
+  };
+  let (id, _) = next_ask(&mut rx).await;
+  // Another connection presenting the id: ignored, and the ask still waits
+  // for its own client.
+  resolve(
+    &state,
+    "intruder",
+    &id,
+    AskAnswer {
+      status: 200,
+      headers: vec![("x-auth-user".to_string(), "mallory".to_string())],
+      error: None,
+    },
+  )
+  .await;
+  assert!(state.pending_auth_asks.lock().await.contains_key(&id));
+  resolve(
+    &state,
+    "c1",
+    &id,
+    AskAnswer {
+      status: 403,
+      headers: Vec::new(),
+      error: None,
+    },
+  )
+  .await;
+  assert!(matches!(asking.await.unwrap(), Verdict::Deny(_)));
 }

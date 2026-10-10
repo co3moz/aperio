@@ -602,7 +602,7 @@ async fn settle_record(
   let (next, mut added, removed) = if rt.grants.group_grants.is_empty() && !created {
     (before.clone(), Vec::new(), Vec::new())
   } else {
-    grants::apply_group_map(&before, mapped)
+    grants::apply_group_map(&before, mapped, bound_org)
   };
   if created {
     for g in &next {

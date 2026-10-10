@@ -275,6 +275,13 @@ pub struct FileConfig {
   /// service. Cannot be combined with `serve:`. Default: `false`.
   #[schemars(extend("examples" = [true]))]
   pub server_side: Option<bool>,
+  /// Answer a `forward` check (`via: client`) whose endpoint the *server*
+  /// wrote, in its own `auth:`, rather than one of this client's services.
+  /// Such a check makes this client call a URL the server chose, from this
+  /// client's network, so it is refused unless this is set; the checks this
+  /// client's own `auth:` declares are always answered. Default: `false`.
+  #[schemars(extend("examples" = [true]))]
+  pub allow_server_forward: Option<bool>,
   /// Gate this client behind your own visitor login instead of the server's.
   /// A `user:password` scalar, one `{method: ...}` block, or a list of them.
   #[schemars(extend("examples" = ["admin:s3cret", {"method": "none"}]))]

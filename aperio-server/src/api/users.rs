@@ -38,6 +38,7 @@ fn grants_view(grants: &[Grant]) -> Vec<serde_json::Value> {
         "org": g.org.as_str(),
         "role": g.role.as_str(),
         "source": g.source,
+        "source_org": g.source_org,
         "expose": g.expose,
         "expose_bounds": g.expose_bounds,
       })
@@ -189,19 +190,45 @@ async fn audit_grant_changes(
   }
 }
 
-/// Whether a user id exists and belongs to the caller's effective org, so one
-/// org cannot edit or delete another's users by id.
-async fn user_in_effective_org(state: &Arc<AppState>, headers: &HeaderMap, id: &str) -> bool {
+/// Whether the caller may act on the account `id`: it has to exist in the
+/// caller's effective org (`404` otherwise, so one org cannot probe another's
+/// users by id), and hold nothing the caller could not grant (`403`).
+///
+/// The second half is the whole of it for account control. Resetting a
+/// password, clearing a second factor, disabling or deleting an account is
+/// taking over or taking away everything the account holds, so it is bounded
+/// the way granting is: a master Admin who may not hand out `*` may not set
+/// the password of a `*` Admin and sign in as one, and a tenant admin may not
+/// reset an expose delegate above them.
+#[allow(clippy::result_large_err)] // see api/tokens.rs
+async fn manageable_user(
+  state: &Arc<AppState>,
+  headers: &HeaderMap,
+  id: &str,
+  not_found: &'static str,
+) -> Result<(), Response> {
   let Some(caller) = crate::auth::resolve_caller(state, headers).await else {
-    return false;
+    return Err((StatusCode::NOT_FOUND, not_found).into_response());
   };
   let org = caller.effective_org();
-  state.users.lock().await.list().iter().any(|u| {
-    u.id == id && u.org_id == org
-      // Account control can impersonate its permissions. A tenant admin
-      // cannot reset credentials or disable an expose delegate above them.
-      && u.grants.iter().filter(|g| !g.expose.is_empty()).all(|g| caller.may_grant(g))
-  })
+  let users = state.users.lock().await;
+  let Some(user) = users.list().iter().find(|u| u.id == id && u.org_id == org) else {
+    return Err((StatusCode::NOT_FOUND, not_found).into_response());
+  };
+  match user.grants.iter().find(|g| !caller.may_grant(g)) {
+    None => Ok(()),
+    Some(above) => Err(
+      (
+        StatusCode::FORBIDDEN,
+        format!(
+          "you cannot manage {}: it holds {}, which you cannot grant",
+          user.username,
+          above.label()
+        ),
+      )
+        .into_response(),
+    ),
+  }
 }
 
 fn actor_ip(state: &Arc<AppState>, headers: &HeaderMap, addr: SocketAddr) -> String {
@@ -377,7 +404,7 @@ pub(crate) struct UserUpdateRequest {
   description = "Updates a user's role or grants, enabled state, or password (admin only).",
   params(("id" = String, Path, description = "User record id")),
   request_body = UserUpdateRequest,
-  responses((status = 200, description = "Updated user", body = serde_json::Value), (status = 400, description = "Invalid value"), (status = 403, description = "A grant the caller cannot give or take away"), (status = 404, description = "Unknown user id")))]
+  responses((status = 200, description = "Updated user", body = serde_json::Value), (status = 400, description = "Invalid value"), (status = 403, description = "A grant the caller cannot give or take away, or a user holding one"), (status = 404, description = "Unknown user id")))]
 pub(crate) async fn users_update_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -401,9 +428,10 @@ pub(crate) async fn users_update_handler(
     },
     None => None,
   };
-  // Isolation: only users in the caller's effective org may be edited.
-  if !user_in_effective_org(&state, &headers, &id).await {
-    return (StatusCode::NOT_FOUND, "unknown user id").into_response();
+  // Isolation: only users in the caller's effective org may be edited, and
+  // only by a caller who could grant everything they hold.
+  if let Err(resp) = manageable_user(&state, &headers, &id, "unknown user id").await {
+    return resp;
   }
   let effective = caller.effective_org();
   let current = match state.users.lock().await.get(&id) {
@@ -494,15 +522,15 @@ pub(crate) async fn users_update_handler(
 #[utoipa::path(delete, path = "/aperio/api/users/{id}", tag = "users",
   description = "Deletes a dashboard user (admin only). Live sessions of that user are dropped.",
   params(("id" = String, Path, description = "User record id")),
-  responses((status = 200, description = "Deleted"), (status = 404, description = "Unknown user id"), (status = 500, description = "The change could not be saved and was rolled back")))]
+  responses((status = 200, description = "Deleted"), (status = 403, description = "The user holds a grant the caller cannot give"), (status = 404, description = "Unknown user id"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn users_delete_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
   Path(id): Path<String>,
 ) -> Response {
-  if !user_in_effective_org(&state, &headers, &id).await {
-    return (StatusCode::NOT_FOUND, "unknown user id").into_response();
+  if let Err(resp) = manageable_user(&state, &headers, &id, "unknown user id").await {
+    return resp;
   }
   let org = crate::auth::effective_org(&state, &headers).await;
   let username = {
@@ -702,7 +730,7 @@ pub(crate) async fn totp_disable_handler(
 #[utoipa::path(delete, path = "/aperio/api/users/{id}/totp", tag = "users",
   description = "Clears TOTP for a user (admin only), the escape hatch when someone loses their authenticator and recovery codes.",
   params(("id" = String, Path, description = "User id")),
-  responses((status = 200, description = "Cleared"), (status = 404, description = "Unknown user"), (status = 500, description = "The change could not be saved and was rolled back")))]
+  responses((status = 200, description = "Cleared"), (status = 403, description = "The user holds a grant the caller cannot give"), (status = 404, description = "Unknown user"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn totp_admin_reset_handler(
   State(state): State<Arc<AppState>>,
   Path(id): Path<String>,
@@ -711,8 +739,8 @@ pub(crate) async fn totp_admin_reset_handler(
 ) -> Response {
   // Isolation: only users in the caller's effective org may be reset (this
   // guard was missing, unlike users update/delete).
-  if !user_in_effective_org(&state, &headers, &id).await {
-    return (StatusCode::NOT_FOUND, "Unknown user").into_response();
+  if let Err(resp) = manageable_user(&state, &headers, &id, "Unknown user").await {
+    return resp;
   }
   if let Err(e) = state.users.lock().await.totp_disable(&id) {
     return user_error(e);

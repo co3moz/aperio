@@ -319,6 +319,7 @@ pub(crate) fn build_specs(
       // The env/file spelling of a `services:` entry's `server_side:`, for a
       // file-less client: the same field, applied to the one service.
       server_side_target: settings.server_side.then(|| target.clone()),
+      allow_server_forward: settings.allow_server_forward,
       target,
       hostnames: settings.hostnames.clone(),
       path: settings.path.clone(),
@@ -457,6 +458,7 @@ pub(crate) fn build_specs(
           .server_side
           .unwrap_or(settings.server_side)
           .then(|| target.clone()),
+        allow_server_forward: settings.allow_server_forward,
         target,
         hostnames: entry
           .hostname

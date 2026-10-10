@@ -122,13 +122,13 @@ fn oidc_capability_changes_are_recomputed_not_accumulated() {
     &[ExposeAction::Delete],
   );
   second.source = Some("admins".into());
-  let (both, _, _) = apply_group_map(&[], vec![first.clone(), second.clone()]);
+  let (both, _, _) = apply_group_map(&[], vec![first.clone(), second.clone()], None);
   assert!(may_expose(&both, Some("acme"), ExposeAction::Delete));
   assert!(may_expose(&both, Some("acme"), ExposeAction::Create));
-  let (same, added, removed) = apply_group_map(&both, vec![first.clone(), second]);
+  let (same, added, removed) = apply_group_map(&both, vec![first.clone(), second], None);
   assert_eq!(same, both);
   assert!(added.is_empty() && removed.is_empty());
-  let (next, added, removed) = apply_group_map(&both, vec![first.clone()]);
+  let (next, added, removed) = apply_group_map(&both, vec![first.clone()], None);
   assert_eq!(next, vec![first]);
   assert!(!may_expose(&next, Some("acme"), ExposeAction::Delete));
   assert_eq!(added.len(), 1);
@@ -346,6 +346,7 @@ fn the_map_owns_what_it_produced_and_leaves_hand_written_grants_alone() {
   let (next, added, removed) = apply_group_map(
     std::slice::from_ref(&by_hand),
     vec![ops.clone(), aud.clone()],
+    None,
   );
   assert_eq!(next, vec![by_hand.clone(), ops.clone(), aud.clone()]);
   assert_eq!(added, vec![ops.clone(), aud.clone()]);
@@ -353,7 +354,7 @@ fn the_map_owns_what_it_produced_and_leaves_hand_written_grants_alone() {
 
   // Second login: out of the ops group. The mapped grant goes, the hand one
   // stays, and the unchanged mapped one is neither added nor removed.
-  let (next, added, removed) = apply_group_map(&next, vec![aud.clone()]);
+  let (next, added, removed) = apply_group_map(&next, vec![aud.clone()], None);
   assert_eq!(next, vec![by_hand.clone(), aud.clone()]);
   assert!(added.is_empty());
   assert_eq!(removed, vec![ops.clone()]);
@@ -361,7 +362,8 @@ fn the_map_owns_what_it_produced_and_leaves_hand_written_grants_alone() {
   // The directory wins over a hand-written grant in the organization it
   // names, and says so as a removal plus an addition.
   let mapped_master = Grant::mapped(GrantOrg::Master, Role::Admin, "aperio-admins");
-  let (next, added, removed) = apply_group_map(&next, vec![aud.clone(), mapped_master.clone()]);
+  let (next, added, removed) =
+    apply_group_map(&next, vec![aud.clone(), mapped_master.clone()], None);
   assert_eq!(next, vec![aud.clone(), mapped_master.clone()]);
   assert_eq!(added, vec![mapped_master.clone()]);
   assert_eq!(removed, vec![by_hand.clone()]);
@@ -369,8 +371,56 @@ fn the_map_owns_what_it_produced_and_leaves_hand_written_grants_alone() {
   // Two groups naming one organization: the higher role wins.
   let low = Grant::mapped(GrantOrg::Child("acme".into()), Role::Viewer, "acme-all");
   let high = Grant::mapped(GrantOrg::Child("acme".into()), Role::Admin, "acme-admins");
-  let (next, _, _) = apply_group_map(&[], vec![low.clone(), high.clone()]);
+  let (next, _, _) = apply_group_map(&[], vec![low.clone(), high.clone()], None);
   assert_eq!(next, vec![high.clone()]);
-  let (next, _, _) = apply_group_map(&[], vec![high.clone(), low.clone()]);
+  let (next, _, _) = apply_group_map(&[], vec![high.clone(), low.clone()], None);
   assert_eq!(next, vec![high]);
+}
+
+#[test]
+fn a_provider_owns_only_what_its_own_map_produced() {
+  // The corporate directory maps `*` Admin. The same email then signs in
+  // through Acme's own provider, whose map can only name Acme.
+  let star = Grant::mapped(GrantOrg::All, Role::Admin, "ops");
+  let (after_global, _, _) = apply_group_map(&[], vec![star.clone()], None);
+  let acme_staff = Grant::mapped(GrantOrg::Child("acme".into()), Role::Operator, "staff");
+  let (after_acme, added, removed) =
+    apply_group_map(&after_global, vec![acme_staff.clone()], Some("acme"));
+  assert!(removed.is_empty(), "Acme's login took back {removed:?}");
+  assert_eq!(added.len(), 1);
+  assert_eq!(added[0].source_org.as_deref(), Some("acme"));
+  assert_eq!(role_in(&after_acme, None), Some(Role::Admin));
+  assert_eq!(role_in(&after_acme, Some("acme")), Some(Role::Operator));
+
+  // The global login again, same groups: Acme's grant is not its to take.
+  let (after_global, added, removed) = apply_group_map(&after_acme, vec![star.clone()], None);
+  assert!(added.is_empty() && removed.is_empty());
+  assert_eq!(after_global.len(), after_acme.len());
+
+  // Out of Acme's group: Acme's login takes back its own grant only.
+  let (after_acme, added, removed) = apply_group_map(&after_global, Vec::new(), Some("acme"));
+  assert!(added.is_empty());
+  assert_eq!(removed.len(), 1);
+  assert_eq!(removed[0].org, GrantOrg::Child("acme".into()));
+  assert_eq!(role_in(&after_acme, None), Some(Role::Admin));
+
+  // Both directories naming the same organization is a real conflict, and
+  // the one signing in now wins it.
+  let global_acme = Grant::mapped(GrantOrg::Child("acme".into()), Role::Admin, "acme-ops");
+  let (both, _, _) = apply_group_map(&after_acme, vec![star, global_acme], None);
+  let (next, _, _) = apply_group_map(&both, vec![acme_staff], Some("acme"));
+  assert_eq!(role_in(&next, Some("acme")), Some(Role::Operator));
+  assert_eq!(role_in(&next, None), Some(Role::Admin));
+}
+
+#[test]
+fn a_grant_mapped_before_provenance_reads_as_the_global_providers() {
+  let old: Grant =
+    serde_json::from_str(r#"{"org":"acme","role":"viewer","source":"staff"}"#).unwrap();
+  assert_eq!(old.source_org, None);
+  // Not Acme's to take back, and the global map no longer produces it.
+  let (_, _, removed) = apply_group_map(std::slice::from_ref(&old), Vec::new(), Some("acme"));
+  assert!(removed.is_empty());
+  let (_, _, removed) = apply_group_map(std::slice::from_ref(&old), Vec::new(), None);
+  assert_eq!(removed, vec![old]);
 }

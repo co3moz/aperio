@@ -210,6 +210,10 @@ pub(crate) struct ServiceSpec {
   /// the ask is meaningless without it, and it is sent only when asked, which
   /// is what keeps a relayed service's backend address off the wire.
   pub(crate) server_side_target: Option<String>,
+  /// Answer a `forward` check whose endpoint the server wrote
+  /// (`allow_server_forward`, a top-level setting carried on every service so
+  /// a reload applies it with the rest of the config).
+  pub(crate) allow_server_forward: bool,
   /// Per-service visitor login (`user:password`) the server should gate this
   /// service behind, overriding its own APERIO_SERVER_AUTH (None = no override).
   pub(crate) visitor_auth: Option<String>,

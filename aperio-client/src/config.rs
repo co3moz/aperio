@@ -167,6 +167,9 @@ pub(crate) struct ClientSettings {
   /// through this client (top-level default for every entry, or the single
   /// service of a file-less client).
   pub(crate) server_side: bool,
+  /// Answer a `forward` check whose endpoint the server wrote, not this
+  /// client's own config (`allow_server_forward`).
+  pub(crate) allow_server_forward: bool,
   /// This service's visitor gate: the `user:password` scalar that predates
   /// the grammar, one `{method: ...}` block, or a list of them
   /// (None = no override, the server's own gate applies).

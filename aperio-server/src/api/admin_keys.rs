@@ -18,7 +18,7 @@ use tracing::info;
 
 use crate::routing::extract_client_ip;
 use crate::state::AppState;
-use crate::store::grants::GrantOrg;
+use crate::store::grants::{Grant, GrantOrg};
 use crate::store::users::Role;
 
 /// The `org_id` an admin key reports: `null` for master, `*` for every
@@ -102,7 +102,7 @@ pub(crate) struct AdminKeyCreateRequest {
 #[utoipa::path(post, path = "/aperio/api/admin-keys", tag = "admin-keys",
   description = "Creates a scoped admin key; the secret is returned once.",
   request_body = AdminKeyCreateRequest,
-  responses((status = 200, description = "Created key + secret", body = serde_json::Value), (status = 400, description = "Invalid role"), (status = 500, description = "The change could not be saved and was rolled back")))]
+  responses((status = 200, description = "Created key + secret", body = serde_json::Value), (status = 400, description = "Invalid role"), (status = 403, description = "A key wider than the caller's own grants"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn admin_keys_create_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -171,6 +171,27 @@ pub(crate) async fn admin_keys_create_handler(
     return (
       StatusCode::BAD_REQUEST,
       "Expose bounds must name the key's concrete organization",
+    )
+      .into_response();
+  }
+  // A key is a grant someone holds without a session, so it is bounded the
+  // way a grant on a user is: a role in a child organization takes Admin
+  // there, held directly or through `*`. Requiring Admin in master is not
+  // enough, since that no longer reaches the children by itself, and a key
+  // would otherwise be the way around the bound the users API keeps.
+  let mut grant = Grant::new(scope.clone(), role);
+  grant.expose = payload.expose.clone();
+  grant.expose_bounds = payload.expose_bounds.clone();
+  let may_grant = crate::auth::resolve_caller(&state, &headers)
+    .await
+    .is_some_and(|c| c.may_grant(&grant));
+  if !may_grant {
+    return (
+      StatusCode::FORBIDDEN,
+      format!(
+        "you cannot mint a key holding {}: this requires Admin in that organization",
+        grant.label()
+      ),
     )
       .into_response();
   }

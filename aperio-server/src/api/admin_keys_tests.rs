@@ -182,3 +182,56 @@ async fn create_and_revoke_require_master_admin() {
   .await;
   assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn a_key_is_bounded_by_the_minters_grants() {
+  // A named master Admin runs the server and is not `*`: it may mint a
+  // master key, and not a key in a child organization it holds nothing in.
+  let state = Arc::new(test_state());
+  let acme = state
+    .org_store
+    .lock()
+    .await
+    .create("acme", Vec::new(), None)
+    .unwrap()
+    .id;
+  state
+    .users
+    .lock()
+    .await
+    .create("root", "long-password", Role::Admin, None)
+    .unwrap();
+  let token = crate::test_support::seed_session(&state, Role::Viewer, Some("root"), None).await;
+  let root = crate::test_support::cookie_headers(&token);
+  for (role, org) in [
+    ("admin", Some(acme.as_str())),
+    ("viewer", Some(acme.as_str())),
+  ] {
+    let resp = admin_keys_create_handler(
+      State(state.clone()),
+      ConnectInfo(test_peer()),
+      root.clone(),
+      create_req("k", role, org, None),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN, "{role} in acme");
+  }
+  assert!(state.admin_key_store.lock().await.list().is_empty());
+  let resp = admin_keys_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    root,
+    create_req("k", "admin", None, None),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  // The built-in account holds `*` and reaches acme.
+  let resp = admin_keys_create_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    admin_headers(&state).await,
+    create_req("k2", "admin", Some(&acme), None),
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::OK);
+}

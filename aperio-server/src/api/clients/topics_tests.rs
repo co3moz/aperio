@@ -60,6 +60,16 @@ fn the_query_is_read_in_both_spellings_and_an_unknown_name_is_refused() {
       .unwrap()
       .is_empty()
   );
+
+  // A bare unknown name is a misspelled topic; a parameter with a value is
+  // somebody else's, as it always was on this URL.
+  let mut bare = std::collections::HashMap::new();
+  bare.insert("nonsense".to_string(), String::new());
+  assert!(topics_from_query(&bare).is_err());
+  let mut valued = std::collections::HashMap::new();
+  valued.insert("_".to_string(), "1696000000".to_string());
+  valued.insert("tokens".to_string(), String::new());
+  assert_eq!(topics_from_query(&valued).unwrap(), vec![Topic::Tokens]);
 }
 
 #[test]
