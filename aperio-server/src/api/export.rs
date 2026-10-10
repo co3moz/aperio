@@ -158,8 +158,8 @@ pub(crate) async fn export_handler(
   Query(query): Query<ExportQuery>,
 ) -> Response {
   // The dump spans every organization's tokens, users, webhooks, and orgs,
-  // a whole-server backup, restricted to the master super-admin.
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  // a whole-server backup, restricted to the holder of `*` Admin.
+  if let Err(resp) = require_every_organization(&state, &headers).await {
     return resp;
   }
   let (sections, unknown) = requested(query.include.as_deref());
@@ -474,6 +474,33 @@ pub(crate) struct ImportDump {
   admin_keys: Option<Vec<crate::store::admin_keys::AdminKey>>,
 }
 
+/// The gate on a whole-server dump, either direction: `*` Admin, not merely
+/// Admin in master.
+///
+/// Since 0.12.0 a named master Admin runs the server without reaching the
+/// child organizations, and may not grant `*`. A dump reads every
+/// organization's tokens, users and keys, and an import writes them back,
+/// grants included, so with master Admin as the gate an import was a way to
+/// hand oneself `*` and an export a way to read tenants one may not open.
+#[allow(clippy::result_large_err)] // see api/tokens.rs
+async fn require_every_organization(state: &AppState, headers: &HeaderMap) -> Result<(), Response> {
+  crate::auth::require_master_admin(state, headers).await?;
+  let holds_all = crate::auth::resolve_caller(state, headers)
+    .await
+    .is_some_and(|c| c.holds_all_admin());
+  if !holds_all {
+    return Err(
+      (
+        StatusCode::FORBIDDEN,
+        "a whole-server dump reads and replaces every organization, which takes Admin in every \
+         organization (*)",
+      )
+        .into_response(),
+    );
+  }
+  Ok(())
+}
+
 /// Applies a dump: each present section *replaces* the corresponding store.
 #[utoipa::path(post, path = "/aperio/api/import", tag = "dashboard",
   description = "Applies a dump created by /aperio/api/export; every section present in the document replaces its store, a missing one leaves it untouched (admin only).",
@@ -485,8 +512,8 @@ pub(crate) async fn import_handler(
   headers: HeaderMap,
   Json(dump): Json<ImportDump>,
 ) -> Response {
-  // Import replaces every organization's stores, master super-admin only.
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  // Import replaces every organization's stores, `*` Admin only.
+  if let Err(resp) = require_every_organization(&state, &headers).await {
     return resp;
   }
   if dump.format_version != FORMAT_VERSION {

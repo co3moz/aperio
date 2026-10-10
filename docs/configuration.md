@@ -1333,8 +1333,8 @@ A window whose `to:` is earlier than its `from:` wraps midnight, and then `days:
 
 | Endpoint | What it does | Credential |
 | --- | --- | --- |
-| `GET /aperio/api/export` | Downloads a logical dump. ?include= names the sections (tokens, webhooks, users, organizations, scaling, settings_overrides, statistics, uptime, activity, inbox, admin_keys); omitted, the six configuration sections. | a dashboard session or admin key, **Admin in master** |
-| `POST /aperio/api/import` | Applies a dump created by /aperio/api/export; every section present in the document replaces its store, a missing one leaves it untouched (admin only). | a dashboard session or admin key, **Admin in master** |
+| `GET /aperio/api/export` | Downloads a logical dump. ?include= names the sections (tokens, webhooks, users, organizations, scaling, settings_overrides, statistics, uptime, activity, inbox, admin_keys); omitted, the six configuration sections. | a dashboard session or admin key, **`*` Admin** (every organization) |
+| `POST /aperio/api/import` | Applies a dump created by /aperio/api/export; every section present in the document replaces its store, a missing one leaves it untouched (admin only). | a dashboard session or admin key, **`*` Admin** (every organization) |
 | `GET /aperio/api/settings` | Effective server settings plus which keys are overridden from the dashboard. | a dashboard session or admin key, **Admin in master** |
 | `PUT /aperio/api/settings` | Applies dashboard settings overrides live and persists them (missing keys keep env defaults). | a dashboard session or admin key, **Admin in master** |
 
