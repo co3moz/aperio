@@ -15,6 +15,16 @@
           true
         ]
       },
+      "allow_server_forward": {
+        "description": "Answer a `forward` check (`via: client`) whose endpoint the *server*\nwrote, in its own `auth:`, rather than one of this client's services.\nSuch a check makes this client call a URL the server chose, from this\nclient's network, so it is refused unless this is set; the checks this\nclient's own `auth:` declares are always answered. Default: `false`.",
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "examples": [
+          true
+        ]
+      },
       "allowed_ips": {
         "description": "Visitor IPs/CIDRs allowed to reach this service (plain IPs or CIDR\nranges); empty/unset = everyone. Enforced by the server before dispatch.",
         "type": [

@@ -639,15 +639,26 @@ impl Dispatch<'_> {
                                       // endpoint on its own network and sends back the
                                       // verdict, never a body. Off the read loop, so a slow
                                       // endpoint holds up nothing else on this connection.
+                                      // Only an endpoint this client's own config names, unless
+                                      // it agreed to call the ones the server writes.
+                                      let permitted = crate::forward_ask::may_call(
+                                          &url,
+                                          services.iter().map(|s| s.visitor_auth_policy.as_ref()),
+                                          services.iter().any(|s| s.spec.allow_server_forward),
+                                      );
                                       let tx = tx_write.clone();
                                       tokio::spawn(async move {
-                                          let out = crate::forward_ask::answer(
-                                              &url,
-                                              &request_headers,
-                                              &response_headers,
-                                              Duration::from_millis(timeout_ms),
-                                          )
-                                          .await;
+                                          let out = if permitted {
+                                              crate::forward_ask::answer(
+                                                  &url,
+                                                  &request_headers,
+                                                  &response_headers,
+                                                  Duration::from_millis(timeout_ms),
+                                              )
+                                              .await
+                                          } else {
+                                              crate::forward_ask::refused(&url)
+                                          };
                                           let verdict = TunnelMessage::AuthVerdict {
                                               id,
                                               status: out.status,

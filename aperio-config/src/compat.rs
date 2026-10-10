@@ -199,6 +199,25 @@ pub const CONFIG_CHANGES: &[ConfigChange] = &[
   ConfigChange {
     // Mid-cycle version, confirmed by the release configuration audit.
     version: "0.13.0",
+    surface: ConfigSurface::Client,
+    // `Breaking`: a gate the server wrote with `via: client` refuses every
+    // visitor once its clients upgrade, until they opt in. `Always`, since the
+    // clients affected are precisely the ones that never wrote the new key;
+    // a client file cannot say whether its server writes such a gate.
+    severity: ChangeSeverity::Breaking,
+    applies: Applies::Always,
+    fields: &["allow_server_forward"],
+    summary: "a client no longer calls a `forward` endpoint (`via: client`) that the server wrote; \
+              it calls only the ones its own `auth:` declares, so a server cannot make it send \
+              requests anywhere on its network",
+    action: "nothing, unless the server's own `auth:` (or a `routes:` policy) has a `forward` \
+              with `via: client`: then set `allow_server_forward: true` \
+              (`APERIO_ALLOW_SERVER_FORWARD=1`) on each client that should answer it, or the \
+              gate refuses every visitor",
+  },
+  ConfigChange {
+    // Mid-cycle version, confirmed by the release configuration audit.
+    version: "0.13.0",
     surface: ConfigSurface::Server,
     severity: ChangeSeverity::Breaking,
     applies: Applies::WhenSet,

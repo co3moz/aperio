@@ -23,6 +23,55 @@ pub(crate) struct Answer {
 /// a browser needs to act on a refusal.
 const ALWAYS_BACK: &[&str] = &["location", "content-type", "www-authenticate", "set-cookie"];
 
+/// Whether this client may call `url` for the server.
+///
+/// A `forward` endpoint one of this client's own services declares is its
+/// operator's choice, and is always answered. Any other URL is the server's
+/// choice, a `forward` written in the server's own `auth:`, and calling it
+/// means making a request from this client's network to wherever the server
+/// says, the cloud metadata address and an internal admin port included.
+/// That is answered only when this client said so with
+/// `allow_server_forward`. Compared exactly: the server sends back the URL it
+/// was told, byte for byte, so a near match is somebody else's URL.
+pub(crate) fn may_call<'a>(
+  url: &str,
+  declared: impl IntoIterator<Item = Option<&'a aperio_config::AuthSetting>>,
+  allow_server_forward: bool,
+) -> bool {
+  allow_server_forward
+    || declared.into_iter().flatten().any(|policy| {
+      policy
+        .methods()
+        .iter()
+        .any(|m| aperio_config::forward_via_client(m) && m.url.as_deref() == Some(url))
+    })
+}
+
+/// The answer to an ask [`may_call`] refused, saying what would allow it.
+pub(crate) fn refused(url: &str) -> Answer {
+  // Once per process at `warn`: the server's visitors decide how often this
+  // fires, and the line says everything there is to say the first time.
+  static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+  if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+    tracing::warn!(
+      "The server asked this client to call {url} for a forward check that this client's own \
+       config does not declare; refused. Set allow_server_forward: true \
+       (APERIO_ALLOW_SERVER_FORWARD=1) to answer checks the server writes"
+    );
+  } else {
+    tracing::debug!("Refused a server-written forward check of {url}");
+  }
+  Answer {
+    status: 0,
+    headers: Vec::new(),
+    error: Some(format!(
+      "the client calls only the forward endpoints its own config declares; {url} is the \
+       server's, which takes allow_server_forward: true (APERIO_ALLOW_SERVER_FORWARD=1) on the \
+       client"
+    )),
+  }
+}
+
 /// Asks `url` about the request the headers describe, within `timeout`.
 pub(crate) async fn answer(
   url: &str,

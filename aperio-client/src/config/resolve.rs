@@ -355,6 +355,13 @@ pub(crate) fn resolve_settings(
       home.server_side,
     )
     .unwrap_or(false),
+    allow_server_forward: layered(
+      None,
+      local.allow_server_forward,
+      env_bool("APERIO_ALLOW_SERVER_FORWARD"),
+      home.allow_server_forward,
+    )
+    .unwrap_or(false),
     // The CLI flag and the environment variable are scalars, so they can only
     // ever mean `basic` with one credential; a file may say more than that.
     visitor_auth: layered(
