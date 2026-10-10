@@ -194,6 +194,22 @@ async fn check_panel_hostname(
         .into_response(),
     );
   }
+  // Becoming a panel drops whoever serves the name. This organization's own
+  // connections are its to drop; anybody else's are not, and a fence that
+  // covers a name does not make the traffic on it this organization's.
+  let outside = state.clients_serving_outside(id, &host).await;
+  if outside > 0 {
+    return Err(
+      (
+        StatusCode::CONFLICT,
+        format!(
+          "{host} is being served by {outside} connection(s) outside this organization; a \
+           panel would take it off the air for them, so it cannot be claimed while they serve it"
+        ),
+      )
+        .into_response(),
+    );
+  }
   Ok(Some(host))
 }
 

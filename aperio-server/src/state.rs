@@ -1027,6 +1027,20 @@ impl AppState {
     })
   }
 
+  /// How many connections outside organization `org` serve `host`. A panel
+  /// takes its name off the air for everyone else, so an organization may
+  /// claim a name as its panel only while nobody else is serving it: a fence
+  /// can cover a name a master client serves, or overlap another
+  /// organization's.
+  pub(crate) async fn clients_serving_outside(&self, org: &str, host: &str) -> usize {
+    let clients = self.clients.read().await;
+    clients
+      .values()
+      .filter(|c| c.perms.org_id.as_deref() != Some(org))
+      .filter(|c| c.effective_hostnames().into_iter().any(|h| h == host))
+      .count()
+  }
+
   /// Rebuilds the panel set and drops every connection serving a panel
   /// hostname: a panel serves the panel and nothing else, and a bind that
   /// was there first does not get to keep the name. Returns how many were
