@@ -834,6 +834,16 @@ async fn an_organizations_panel_admits_its_own_people_and_the_super_admin() {
   )
   .await;
   assert_eq!(res.err(), Some(StatusCode::UNAUTHORIZED));
+  // A trailing dot is the same panel, as it is to the layer serving it.
+  for host in ["panel.acme.test.", "PANEL.acme.test.:443"] {
+    let res = call_login(
+      state.clone(),
+      basic_headers("dave:password1", Some(host)),
+      login_query(Some("/")),
+    )
+    .await;
+    assert_eq!(res.err(), Some(StatusCode::UNAUTHORIZED), "{host}");
+  }
   // And Dave is still Dave elsewhere.
   let res = call_login(
     state.clone(),

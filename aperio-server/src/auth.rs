@@ -201,6 +201,14 @@ pub(crate) async fn auth_login_handler(
     .and_then(|v| v.to_str().ok())
     .map(|h| h.split(':').next().unwrap_or(h).trim().to_ascii_lowercase())
     .filter(|h| !h.is_empty());
+  // The same hostname, spelled the way the panel layer, the session lookup,
+  // the passkey and the OIDC logins spell it: without a trailing dot, and
+  // with an IPv6 literal kept whole. It answers the admin-plane questions,
+  // whose panel this is and which hostname a fenced session is bound to,
+  // since a second spelling is a second answer. `panel.acme.test.` used to
+  // be no panel at all here while the panel layer still served the
+  // dashboard on it, so the organization's login rule did not apply.
+  let admin_host = crate::server::panel::request_host(&headers);
 
   // The route the visitor was heading to selects which service's client-set
   // credentials apply. A dashboard login (redirect under /aperio) never uses a
@@ -275,7 +283,7 @@ pub(crate) async fn auth_login_handler(
         // as a wrong password, byte for byte, so the panel does not say
         // which names exist elsewhere.
         let verified = match verified {
-          Some(v) if state.login_admits(host.as_deref(), &v.4).await => Some(v),
+          Some(v) if state.login_admits(admin_host.as_deref(), &v.4).await => Some(v),
           _ => None,
         };
         if let Some((user_id, user_name, role, totp_secret, _grants)) = verified {
@@ -442,7 +450,7 @@ pub(crate) async fn auth_login_handler(
       role: identity.1,
       selected_org: None,
       bound_org: None,
-      login_host: host.clone(),
+      login_host: admin_host,
     },
   );
 

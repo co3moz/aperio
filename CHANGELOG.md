@@ -24,6 +24,8 @@ project follows semantic versioning per release tag.
 
 - **Export and import take `*` Admin, not Admin in master.** A dump reads every organization's tokens, users and admin keys, and an import writes them back, grants included. With Admin in master as the gate, a named master Admin, which 0.12.0 made less than `*`, could import a dump granting itself `*` and could export tenants it may not open. Both endpoints now require Admin in every organization: the built-in account, an existing master Admin that the 0.12.0 upgrade widened to `*`, or a user or key granted `*` since. A master Admin without `*` gets a `403` that names the requirement.
 
+- **A trailing dot slipped past an organization's panel login rule.** The password login read the hostname its own way, so `panel.acme.test.` was not Acme's panel to it, while the panel layer, which strips the dot, still served Acme's dashboard there. Any user, Beta's admin included, could sign in on Acme's panel that way. The same mismatch left a session minted under `fenced_login` on a trailing-dot or IPv6-literal hostname bound to a name no request ever matched. The password login now spells the hostname the way the passkey and OIDC logins and the session lookup already did.
+
 ### Added
 
 - **Delegated TCP and UDP public exposes.** Users with explicit organization-scoped grants can create, edit and operate server listeners from the dashboard or API without restarting the server. Port allocations and traffic limits bound each grant; rules persist across restarts and appear in scoped topology, session, audit and metrics views. TCP and UDP listeners can share a port number. The tunnel protocol now negotiates TCP half-close support in v10 and retains a full-close fallback for older clients.
