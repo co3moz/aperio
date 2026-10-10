@@ -343,10 +343,30 @@ fn without_aperio_cookies(headers: &HeaderMap) -> HeaderMap {
   out
 }
 
-/// Delivers a client's answer to the ask waiting for it. An answer nobody is
-/// waiting for (a late one, or one for an ask that timed out) is dropped.
-pub(crate) async fn resolve(state: &AppState, id: &str, answer: AskAnswer) {
-  let pending = state.pending_auth_asks.lock().await.remove(id);
+/// Delivers a client's answer to the ask waiting for it, when `client_id` is
+/// the connection that was asked. An answer nobody is waiting for (a late
+/// one, or one for an ask that timed out) is dropped, and so is one from any
+/// other connection: an ask id is handed to one client, and the verdict it
+/// carries opens a gate, so a second client that learned the id must not be
+/// able to answer for the first. The check and the removal share one lock,
+/// so a refused answer does not leave the genuine one looking for an ask that
+/// is momentarily gone.
+pub(crate) async fn resolve(state: &AppState, client_id: &str, id: &str, answer: AskAnswer) {
+  let pending = {
+    let mut pending = state.pending_auth_asks.lock().await;
+    match pending.get(id) {
+      Some(ask) if ask.client_id == client_id => pending.remove(id),
+      Some(ask) => {
+        tracing::warn!(
+          "Client {} answered an auth check that was asked of {}; ignoring it",
+          client_id,
+          ask.client_id
+        );
+        None
+      }
+      None => None,
+    }
+  };
   if let Some(ask) = pending {
     let _ = ask.tx.send(answer);
   }

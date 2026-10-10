@@ -833,6 +833,7 @@ pub(crate) async fn handle_socket(
             } => {
               crate::forward_auth_tunnel::resolve(
                 &ctx.state,
+                &ctx.client_id,
                 &id,
                 crate::forward_auth_tunnel::AskAnswer {
                   status,

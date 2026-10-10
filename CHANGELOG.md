@@ -26,6 +26,8 @@ project follows semantic versioning per release tag.
 
 - **A trailing dot slipped past an organization's panel login rule.** The password login read the hostname its own way, so `panel.acme.test.` was not Acme's panel to it, while the panel layer, which strips the dot, still served Acme's dashboard there. Any user, Beta's admin included, could sign in on Acme's panel that way. The same mismatch left a session minted under `fenced_login` on a trailing-dot or IPv6-literal hostname bound to a name no request ever matched. The password login now spells the hostname the way the passkey and OIDC logins and the session lookup already did.
 
+- **A tunnel-asked `forward` verdict is accepted only from the connection that was asked.** The server matched an `AuthVerdict` to its waiting visitor by the ask's id alone, so any connected client holding the id could answer for another client's endpoint. The id is a random UUID sent only to the asked client, so this was not reachable in practice, but a verdict opens a gate. It is now checked against the asking connection the way response frames already are.
+
 ### Added
 
 - **Delegated TCP and UDP public exposes.** Users with explicit organization-scoped grants can create, edit and operate server listeners from the dashboard or API without restarting the server. Port allocations and traffic limits bound each grant; rules persist across restarts and appear in scoped topology, session, audit and metrics views. TCP and UDP listeners can share a port number. The tunnel protocol now negotiates TCP half-close support in v10 and retains a full-close fallback for older clients.
