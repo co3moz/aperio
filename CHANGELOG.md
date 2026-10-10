@@ -34,6 +34,8 @@ project follows semantic versioning per release tag.
 
 - **Signing in through an organization's own identity provider took back what the global one had granted.** A login applies the provider's group map to the dashboard record matched by email, and every grant any map had produced counted as that login's to take back. So an operator mapped `*` Admin by the corporate directory lost it by signing in through Acme's provider with the same email, and the next corporate login took Acme's grant away again. Each mapped grant now records which provider produced it (`source_org` on the grant, `null` for the global provider). A login takes back only its own provider's grants, and where both providers name the same organization the one signing in now wins. A grant mapped before this release reads as the global provider's.
 
+- **`/aperio/api/stream` refused URLs it used to accept.** The bare `?tokens&uptime` spelling of topics read every query parameter as a topic name, so a cache buster such as `?_=1696000000`, or any parameter a script had always added, became an "unknown stream topic" `400` on a stream that took no parameters before 0.12.0. Only a bare key is a topic now; a parameter with a value is ignored, as it always was.
+
 ## [0.12.0] - 2026-09-30
 
 ### Security
