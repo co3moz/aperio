@@ -14,6 +14,8 @@ project follows semantic versioning per release tag.
 
 - **Expose session history stays within its owning organization.** Recreating a deleted expose UUID in another organization no longer reveals the former owner's peer addresses and backend targets. Session lists check both the resource identity and the session's organization before counting or paging records.
 
+- **A master Admin could take over a `*` Admin's account.** 0.12.0 made a named Admin of master something less than `*`: it may not grant `*`, nor a role in a child organization it holds nothing in. Granting was bounded, but account control was not. The same master Admin could set the password of a `*` Admin, or of a master user granted Admin in a child organization, and sign in as them. It could also disable, delete or clear the second factor of those accounts. Resetting a password, disabling, deleting and resetting TOTP now take the authority to grant everything the account holds, the same bound a grant change has. A user above the caller answers `403` naming the grant in the way, not a bare `404` as an expose delegate did before.
+
 ### Added
 
 - **Delegated TCP and UDP public exposes.** Users with explicit organization-scoped grants can create, edit and operate server listeners from the dashboard or API without restarting the server. Port allocations and traffic limits bound each grant; rules persist across restarts and appear in scoped topology, session, audit and metrics views. TCP and UDP listeners can share a port number. The tunnel protocol now negotiates TCP half-close support in v10 and retains a full-close fallback for older clients.
