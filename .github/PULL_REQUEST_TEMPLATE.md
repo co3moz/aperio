@@ -22,7 +22,7 @@
       environment variable, `docs/configuration.md`, `docs/book/aperio.tex`
 - [ ] A config change that can affect an existing file has a `CONFIG_CHANGES`
       entry with an honest severity (`aperio-config/src/compat.rs`)
-- [ ] The tunnel protocol still accepts an older peer, or the break is agreed
-      in an issue first and refuses the connection with a message that says so
+- [ ] A wire change (frame, handshake header, Ping shape) lands only in a minor
+      release, never in a patch
 - [ ] New Rust tests live in a sibling `<module>_tests.rs`, not inline
 - [ ] English throughout, and no em dashes

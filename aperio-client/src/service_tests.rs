@@ -43,10 +43,10 @@ fn test_fast_reconnect_delay_bounds() {
 // Test harness: a minimal loopback server and a fully-populated ServiceSpec.
 // ---------------------------------------------------------------------------
 
+use crate::accept_paired as accept_async;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::accept_async;
 
 /// A ServiceSpec with every field defaulted; tests override the few they care
 /// about. `ws_url`/`ws_urls` point at the loopback server, `target` at a
@@ -1252,6 +1252,10 @@ async fn accept_announcing(stream: TcpStream, protocol: u32) -> WebSocketStream<
       resp.headers_mut().insert(
         crate::protocol::PROTOCOL_HEADER,
         protocol.to_string().parse().unwrap(),
+      );
+      resp.headers_mut().insert(
+        aperio_config::pairing::RELEASE_HEADER,
+        env!("CARGO_PKG_VERSION").parse().unwrap(),
       );
       Ok(resp)
     },

@@ -389,13 +389,17 @@ pub(crate) async fn bridge_connection(
     }
     Err(_) => return,
   }
-  let (ws, _) = match crate::dial::connect_ws(req, None).await {
+  let (ws, response) = match crate::dial::connect_ws(req, None).await {
     Ok(x) => x,
     Err(e) => {
       error!("TCP bridge failed to reach server: {:?}", e);
       return;
     }
   };
+  if let Some(refused) = crate::dial::unpaired_server(&response) {
+    error!("TCP bridge refused the server: {}", refused);
+    return;
+  }
   let (mut ws_tx, mut ws_rx) = ws.split();
 
   // End-to-end handshake with the declaring client (encrypted tunnels).

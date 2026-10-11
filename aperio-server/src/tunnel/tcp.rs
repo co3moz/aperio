@@ -83,6 +83,9 @@ pub(crate) async fn tcp_ws_handler(
     info!("Unauthorized TCP tunnel attempt blocked.");
     return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
   };
+  if let Some(refused) = super::ws::refuse_unpaired_client(&headers, addr) {
+    return refused;
+  }
 
   let requested_client = params
     .get("client")
@@ -265,6 +268,9 @@ pub(crate) async fn udp_ws_handler(
     info!("Unauthorized UDP tunnel attempt blocked.");
     return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
   };
+  if let Some(refused) = super::ws::refuse_unpaired_client(&headers, addr) {
+    return refused;
+  }
 
   let requested_name = params
     .get("tunnel")

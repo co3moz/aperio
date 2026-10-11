@@ -4,7 +4,6 @@ use std::time::Duration;
 use tokio_tungstenite::tungstenite::{client::IntoClientRequest, http::HeaderValue};
 
 use crate::config::{ClientSettings, SettingsSources, build_http_url, build_ws_url};
-use crate::protocol::PROTOCOL_VERSION;
 
 /// `aperio-client check`: diagnoses configuration and connectivity, config
 /// resolution (with the layer each value came from), server reachability and
@@ -259,27 +258,27 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
                 .unwrap_or(0)
             ),
           );
-          match body.get("protocol").and_then(|v| v.as_u64()) {
-            Some(p) if p == PROTOCOL_VERSION as u64 => {
-              pass("protocol", format!("v{PROTOCOL_VERSION} on both sides"))
-            }
-            Some(p) => fail(
-              "protocol",
-              format!(
-                "server speaks v{p}, this client speaks v{PROTOCOL_VERSION}, update the older side"
-              ),
-              &mut failures,
-            ),
+          match body.get("version").and_then(|v| v.as_str()) {
             None if token.is_none() => pass(
-              "protocol",
-              "not reported to a check without a token (the server keeps its version and protocol \
-               for credentialed callers); configure the token to compare"
+              "release",
+              "not reported to a check without a token (the server keeps its version for \
+               credentialed callers); configure the token to compare"
                 .to_string(),
             ),
-            None => pass(
-              "protocol",
-              "server predates protocol reporting (assuming compatible)".to_string(),
-            ),
+            announced => match aperio_config::pairing::check(
+              env!("CARGO_PKG_VERSION"),
+              aperio_config::pairing::Side::Client,
+              announced,
+            ) {
+              None => pass(
+                "release",
+                format!(
+                  "server v{version} and client v{} share a minor release",
+                  env!("CARGO_PKG_VERSION")
+                ),
+              ),
+              Some(refused) => fail("release", refused.message(), &mut failures),
+            },
           }
         }
       },
@@ -310,16 +309,32 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
             match tokio::time::timeout(Duration::from_secs(5), crate::dial::connect_ws(req, None))
               .await
             {
-              Ok(Ok((mut ws, _))) => {
+              Ok(Ok((mut ws, response))) => {
                 let rtt = started.elapsed();
                 let _ = ws.close(None).await;
-                pass(
-                  "token check",
-                  format!(
-                    "accepted by the server (WS handshake {} ms)",
-                    rtt.as_millis()
-                  ),
-                );
+                if let Some(refused) = crate::dial::unpaired_server(&response) {
+                  fail("token check", refused, &mut failures);
+                } else {
+                  pass(
+                    "token check",
+                    format!(
+                      "accepted by the server (WS handshake {} ms)",
+                      rtt.as_millis()
+                    ),
+                  );
+                }
+              }
+              Ok(Err(tokio_tungstenite::tungstenite::Error::Http(resp)))
+                if resp.status().as_u16() == 426 =>
+              {
+                let detail = resp
+                  .body()
+                  .as_ref()
+                  .and_then(|b| std::str::from_utf8(b).ok())
+                  .map(str::trim)
+                  .unwrap_or("this client and this server do not share a minor release")
+                  .to_string();
+                fail("token check", detail, &mut failures)
               }
               Ok(Err(tokio_tungstenite::tungstenite::Error::Http(resp))) => fail(
                 "token check",

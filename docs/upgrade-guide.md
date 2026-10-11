@@ -25,117 +25,43 @@ The history deliberately starts at the release that introduced the mechanism: en
 
 ## Client ↔ server compatibility
 
-Client and server negotiate a tunnel `PROTOCOL_VERSION` on every connection and
-log a warning when they differ. The protocol is designed to tolerate skew:
+**A client and a server must share a minor release.** `0.13.0` and `0.13.4`
+talk to each other; `0.13.x` and `0.12.x` do not, in either direction. In a 0.x
+version the minor number is where the tunnel protocol, the handshake and the
+configuration are allowed to change, so neither side carries code for a peer
+of another minor: there is no compatibility window and no negotiation of what
+an older peer can do.
 
-- **New optional Ping fields degrade gracefully.** A field a peer does not know
-  is simply absent (serde defaults fill it in), so an **older client keeps
-  working against a newer server** and vice-versa, it just does not benefit
-  from the newer feature. Every per-service flag (cache, resilience, response
-  timeout, device key, …) was added this way.
-- **Except where being ignored would be worse than being refused**, which is
-  the one case that is negotiated instead. A client's `auth:` gate is the
-  example: an older server that ignored a method it does not understand would
-  read the client as declaring *no* gate, and the route would come up open.
-  `multiplex: true` (protocol 8) and `server_side: true` (protocol 9) are the
-  other two, because a server that ignores them would silently serve less than
-  the file says. So it is negotiated: the server announces on the handshake which methods it accepts from a
-  client, and a client whose gate needs one that is missing **does not serve
-  that service**, logging which side is too old. Only that service stops; the
-  client's others keep running. What is assumed of a server that announces
-  nothing is exactly what the old scalar field can carry: `method: none`, or a
-  `basic` naming one `user:password`. A gate of any other shape, including a
-  `basic` naming two users, is held back there too, since the field that would
-  carry it is the one such a server ignores.
-- **A protocol-version bump signals a breaking frame change.** When the major
-  tunnel behavior changes (the v1→v2 streamed-body frames, the v2→v3 per-stream
-  flow control), both sides log the mismatch. Traffic still flows for the shared
-  subset, but you should update the older side to avoid subtle
-  incompatibilities. The fallbacks are per feature: a pre-v2 peer gets buffered
-  bodies and base64 frames, a pre-v5 server gets a buffered response body
-  base64-encoded inside the JSON instead of as bytes in one frame, a pre-v6
-  client gets its request bodies the same way, and a pre-v3 client is
-  never asked to pause, so the
-  server lets its streams buffer up to `APERIO_STREAM_BACKLOG_LIMIT` (16 MB)
-  before dropping them. Running an old client therefore costs worse behavior
-  under load, not a broken connection.
+The rule is enforced **at the WebSocket upgrade**, before a socket exists, on
+every tunnel endpoint (`/aperio/ws`, `/aperio/tcp`, `/aperio/udp`):
 
-Rule of thumb: **upgrade the server first, then the clients.** The server stays
-backward-compatible with older clients, so a fleet can be rolled forward
-gradually with no coordinated cutover. It is also the order that avoids the one
-exception above: a client upgraded first, whose file uses a newer gate, will
-hold that service back until its server catches up.
+- The client announces its release (`x-aperio-release`). A server on another
+  minor answers `426 Upgrade Required` with a sentence naming both releases and
+  the side to upgrade. A client that announces nothing predates the rule and is
+  refused the same way.
+- The server announces its own release on the response, and a client refuses
+  a server on another minor, or one that announces nothing, with the same
+  sentence.
+- Neither side gives up. A refused client keeps retrying on its normal backoff,
+  so it connects by itself as soon as the other side is upgraded.
+
+`aperio-client check` reports the pairing as its own line (`release`), so a
+mismatch is visible before anything is started.
 
 | Situation | Behavior |
 | --- | --- |
-| Newer server, older client | Works; client misses newer per-service features. A pre-v3 client cannot be flow-controlled, so a download to a visitor slower than the backend is cut at `APERIO_STREAM_BACKLOG_LIMIT` instead of the producer being paused. |
-| Older server, newer client | Works; newer client's new flags are ignored by the server. The exception is a client-declared `auth:` gate beyond `basic`: rather than be ignored, it is negotiated, and the client holds that one service back until the server understands it. |
-| Protocol-version mismatch | Logged on both sides + shown on the dashboard; shared subset works. |
+| Same minor, any patch | Works. |
+| Server on a newer minor | Refused at the upgrade: *Upgrade the client.* |
+| Server on an older minor | Refused at the upgrade: *Upgrade the server.* |
 
-The versioned config JSON Schemas (`aperio-client.<tag>.json`,
-`aperio-server.<tag>.json`) are attached to each GitHub Release, so an editor
-validates the exact keys a given version accepts.
+**A patch release never forces anything.** Fixes ship as patches and pair with
+every other patch of the same minor, so only a minor release asks for the
+server and its clients to move together. Plan those as a short window: upgrade
+the server, then the clients; services come back as each client is upgraded,
+since a refused client reconnects on its own.
 
-### What is enforced at connect time
-
-The window above is also checked when a client connects, not only in CI. The
-client announces its release on the upgrade request and the server answers
-with its own release and the oldest client it accepts. A pairing outside the
-window is refused **at the upgrade**, with a sentence naming both versions and
-which side to upgrade, rather than being allowed to establish and then
-misbehave somewhere the cause is no longer visible.
-
-Two things it deliberately does not do. A client that announces nothing is
-admitted: a release old enough to predate the header is inside the promise
-anyway, and reading silence as age would take a fleet down on the very upgrade
-that introduced the check. And a client *newer* than the server is not
-refused, because that is not an unsupported pairing, it is the ordinary shape
-of a fleet mid-upgrade seen from the other end.
-
-Today the floors are set exactly where this document's promise is, every
-released client from v0.1.0 onward, so nothing that works is refused. The
-mechanism exists so that when a release does break something, narrowing the
-window is one line in the same change, and the operator gets an answer instead
-of a mystery.
-
-### What is actually checked
-
-The paragraphs above are a promise, and a promise nothing checks is a wish. CI
-runs a slice of the end-to-end suite against the **previous release's real
-binaries, in both directions**: that release's client against this server, and
-this client against that server. A change that breaks either pairing fails the
-build rather than reaching a fleet.
-
-The slice is proxying a request end to end plus the admin API, because those
-are what the promise is *about*: whatever else changed between two versions, a
-request still reaches the backend and an operator can still see it. It is
-deliberately not the whole suite, which asserts features that did not exist in
-every past release, and would report the absence of a feature as an
-incompatibility.
-
-After a release is published, the Chore workflow's compatibility report
-(`.github/workflows/chore.yml`, started by hand) pairs the **newly released
-server with the client binary of every previous release** and prints the result
-as a table, so the wider claim is measured too rather than inferred from the
-narrow one. It is deliberately not a gate: an old client failing against a new
-server is information, not a regression. The pairing it runs is old client
-against new server, because that is the one a deployment actually produces,
-the server being upgraded first and then running ahead of its fleet for a
-while.
-
-The report has so far found every released client from **v0.1.0 onward**
-passing that slice against the newest server; the run after each release is
-what keeps that sentence honest.
-
-The supported window is therefore **one release of skew, gated**, and
-everything older, measured after each release and reported rather than
-enforced. Anyone can measure a specific pairing themselves, since the suite
-takes the binaries as inputs:
-
-```bash
-APERIO_CLIENT_BIN=/path/to/old/aperio-client npm --prefix tests/e2e run test:compat
-APERIO_SERVER_BIN=/path/to/old/aperio-server npm --prefix tests/e2e run test:compat
-```
+The versioned JSON Schemas (`aperio-client.<tag>.json`) are attached to each
+GitHub Release, so an editor validates the exact keys a given version accepts.
 
 ## Upgrading to 0.12.0: what an OIDC login is, and a wider default
 
@@ -217,14 +143,16 @@ a migration flag, so there is no deadline attached to it.
    process alongside the old one and drain the old one for a
    [zero-downtime restart](development.md#zero-downtime-restarts); otherwise a
    normal restart broadcasts a graceful shutdown so clients reconnect promptly.
-5. **Verify.** `aperio-server --verify-audit` confirms the audit chain survived,
+5. **Roll the clients forward.** On a patch release this can happen at any
+   pace. On a minor release the old clients are refused until they are
+   upgraded, so do it right after the server; each one reconnects by itself.
+6. **Verify.** `aperio-server --verify-audit` confirms the audit chain survived,
    and the dashboard shows every client reconnected and healthy.
-6. **Roll the clients forward** at your own pace.
 
 ## Downgrade
 
 Downgrading the server is generally safe because store changes are additive: a
-newer store opened by an older server ignores columns it does not know. The
-exception is a protocol-version bump, pair the server downgrade with clients
-that speak the matching version. Always keep the pre-upgrade backup until the
+newer store opened by an older server ignores columns it does not know. Across
+a minor release the clients have to be downgraded with it, since a client pairs
+only with a server of its own minor. Always keep the pre-upgrade backup until the
 new version has run cleanly for a while.

@@ -93,7 +93,11 @@ fn build_request(url: &str, token: Option<&str>) -> axum::http::Request<()> {
     .header("Connection", "Upgrade")
     .header("Upgrade", "websocket")
     .header("Sec-WebSocket-Version", "13")
-    .header("Sec-WebSocket-Key", generate_key());
+    .header("Sec-WebSocket-Key", generate_key())
+    .header(
+      aperio_config::pairing::RELEASE_HEADER,
+      env!("CARGO_PKG_VERSION"),
+    );
   if let Some(t) = token {
     b = b.header("Authorization", format!("Bearer {t}"));
   }

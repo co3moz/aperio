@@ -142,15 +142,6 @@ pub(crate) async fn run_service(
             if let Ok(g) = HeaderValue::from_str(&spec.instance_group) {
               req.headers_mut().insert("x-aperio-instance", g);
             }
-            // The release this binary is, so the server can refuse a pairing
-            // it does not support at connect time rather than letting the
-            // connection come up and misbehave somewhere deeper (#113).
-            // Non-secret, and a server too old to read it simply ignores it.
-            if let Ok(v) = HeaderValue::from_str(env!("CARGO_PKG_VERSION")) {
-              req
-                .headers_mut()
-                .insert(aperio_config::pairing::CLIENT_RELEASE_HEADER, v);
-            }
             Ok(req)
           }
           Err(e) => Err(format!("Invalid token header format: {:?}", e)),
@@ -185,24 +176,12 @@ pub(crate) async fn run_service(
           // as the network allows, forever, with an error line per attempt.
           Ok((ws_stream, response)) => 'connection: {
             info!("[{}] Successfully connected to Aperio Server!", label);
-            // The half of the window only this side can judge (#113). A server
-            // cannot know it is too old for something a future client wants,
-            // so the client compares what the server announced against its own
-            // floor. Held back rather than served: a service that comes up
-            // against a server it does not support is the connection that
-            // establishes and then misbehaves, which is what the gate exists
-            // to prevent. A server that announces nothing is admitted, since
-            // silence predates the header.
-            if let Some(refused) = aperio_config::pairing::check(
-              response
-                .headers()
-                .get(aperio_config::pairing::SERVER_RELEASE_HEADER)
-                .and_then(|v| v.to_str().ok()),
-              aperio_config::pairing::MIN_SUPPORTED_SERVER,
-              aperio_config::pairing::Side::Server,
-            ) {
-              error!("[{}] Refusing to serve: {}", label, refused.message());
-              break 'outer;
+            // The same rule from this end: a server on another minor is not
+            // served. Retried rather than given up, so the service comes back
+            // by itself once the server is upgraded.
+            if let Some(refused) = crate::dial::unpaired_server(&response) {
+              error!("[{}] Refusing to serve: {}", label, refused);
+              break 'connection;
             }
             // Multiplexing is negotiated, not assumed. A server too old to
             // serve a list of services would read the Ping's singular fields
@@ -914,10 +893,10 @@ pub(crate) async fn run_service(
                   label
                 );
               } else if code == 426 {
-                // The pairing gate (#113). Its whole value is the sentence in
-                // the body, which names both versions and which side to
-                // upgrade, so reporting the bare status would throw away the
-                // answer and leave a retry loop with no visible cause.
+                // The pairing gate. Its whole value is the sentence in the
+                // body, which names both releases and which side to upgrade,
+                // so reporting the bare status would throw away the answer and
+                // leave a retry loop with no visible cause.
                 let detail = resp
                   .body()
                   .as_ref()

@@ -11,7 +11,6 @@
 
 use super::run_check;
 use crate::config::{ClientSettings, SettingsSources, Source};
-use crate::protocol::PROTOCOL_VERSION;
 use aperio_config::{ServiceEntry, TunnelDecl};
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -31,10 +30,9 @@ enum Ws {
 struct MockCfg {
   /// HTTP status returned for `/aperio/health`.
   health_status: u16,
-  /// `protocol` field of the health JSON (None = omit it).
-  protocol: Option<i64>,
-  /// Whether the health JSON carries a `version` field.
-  version: bool,
+  /// The release the mock announces, in the health JSON and on the
+  /// WebSocket upgrade (None = announce nothing).
+  version: Option<String>,
   /// Answer `/aperio/health` with `status` only unless the request carries
   /// an Authorization header, the way a current server does.
   health_needs_auth: bool,
@@ -48,8 +46,7 @@ impl Default for MockCfg {
   fn default() -> Self {
     MockCfg {
       health_status: 200,
-      protocol: Some(PROTOCOL_VERSION as i64),
-      version: true,
+      version: Some(env!("CARGO_PKG_VERSION").to_string()),
       health_needs_auth: false,
       ws: Ws::Accept,
       aux_status: 200,
@@ -126,6 +123,11 @@ fn handle_conn(mut stream: std::net::TcpStream, cfg: MockCfg) {
       }
       Ws::Reject => write_resp(&mut stream, 401, "text/plain", "no"),
       Ws::Accept => {
+        let release = cfg
+          .version
+          .as_deref()
+          .map(|v| format!("x-aperio-release: {v}\r\n"))
+          .unwrap_or_default();
         let key = head
           .lines()
           .find_map(|l| l.strip_prefix("Sec-WebSocket-Key: "))
@@ -139,7 +141,7 @@ fn handle_conn(mut stream: std::net::TcpStream, cfg: MockCfg) {
         let accept = derive_accept_key(key.as_bytes());
         let _ = write!(
           stream,
-          "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+          "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n{release}\r\n"
         );
       }
     }
@@ -161,11 +163,8 @@ fn handle_conn(mut stream: std::net::TcpStream, cfg: MockCfg) {
     }
     if (200..300).contains(&cfg.health_status) {
       let mut fields: Vec<String> = Vec::new();
-      if cfg.version {
-        fields.push("\"version\":\"9.9.9\"".to_string());
-      }
-      if let Some(p) = cfg.protocol {
-        fields.push(format!("\"protocol\":{p}"));
+      if let Some(v) = &cfg.version {
+        fields.push(format!("\"version\":\"{v}\""));
       }
       fields.push("\"connected_clients\":3".to_string());
       let body = format!("{{{}}}", fields.join(","));
@@ -428,20 +427,23 @@ async fn drive(scenario: &str) -> ! {
       });
       s.server = Some(format!("http://127.0.0.1:{port}"));
     }
-    "protomismatch" => {
+    // A server on another minor release.
+    "releasemismatch" => {
       let port = spawn_mock(MockCfg {
-        protocol: Some(999),
-        version: false, // → "unknown" version, missing connected_clients default
+        version: Some("0.1.0".to_string()),
         ..Default::default()
       });
       s.server = Some(format!("http://127.0.0.1:{port}"));
+      s.token = Some("tok".to_string());
     }
-    "protonone" => {
+    // A server that announces no release at all predates the rule.
+    "releasenone" => {
       let port = spawn_mock(MockCfg {
-        protocol: None, // omit → "predates protocol reporting"
+        version: None,
         ..Default::default()
       });
       s.server = Some(format!("http://127.0.0.1:{port}"));
+      s.token = Some("tok".to_string());
     }
     // A current server: the numbers come out for the token the check sends.
     "healthwithtoken" => {
@@ -453,7 +455,7 @@ async fn drive(scenario: &str) -> ! {
       s.token = Some("tok".to_string());
     }
     // The same server, no token configured: liveness only, and the report
-    // says why the protocol was not compared instead of guessing.
+    // says why the release was not compared instead of guessing.
     "healthwithouttoken" => {
       let port = spawn_mock(MockCfg {
         health_needs_auth: true,
@@ -606,32 +608,40 @@ fn health_non_success_status_fails() {
 }
 
 #[test]
-fn protocol_mismatch_fails() {
-  assert_eq!(run_scenario("protomismatch"), 1);
+fn a_server_on_another_minor_fails_the_check() {
+  let (code, out) = run_scenario_output("releasemismatch");
+  assert_eq!(code, 1, "{out}");
+  assert!(out.contains("this server is 0.1.0"), "{out}");
+  assert!(out.contains("Upgrade the server"), "{out}");
 }
 
 #[test]
-fn protocol_absent_is_assumed_compatible() {
-  assert_eq!(run_scenario("protonone"), 1);
+fn a_server_that_announces_no_release_fails_the_check() {
+  let (code, out) = run_scenario_output("releasenone");
+  assert_eq!(code, 1, "{out}");
+  assert!(out.contains("announced no release"), "{out}");
 }
 
 #[test]
 fn the_health_numbers_come_out_for_the_configured_token() {
   let (_, out) = run_scenario_output("healthwithtoken");
-  assert!(out.contains("server v9.9.9"), "{out}");
+  assert!(
+    out.contains(&format!("server v{}", env!("CARGO_PKG_VERSION"))),
+    "{out}"
+  );
   assert!(out.contains("3 client(s) connected"), "{out}");
-  assert!(out.contains("on both sides"), "{out}");
+  assert!(out.contains("share a minor release"), "{out}");
 }
 
 #[test]
-fn a_check_without_a_token_is_told_the_protocol_was_withheld() {
+fn a_check_without_a_token_is_told_the_release_was_withheld() {
   let (_, out) = run_scenario_output("healthwithouttoken");
   assert!(out.contains("healthy"), "{out}");
   assert!(
     out.contains("not reported to a check without a token"),
     "{out}"
   );
-  assert!(!out.contains("predates protocol reporting"), "{out}");
+  assert!(!out.contains("announced no release"), "{out}");
 }
 
 #[test]

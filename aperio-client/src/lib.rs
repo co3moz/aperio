@@ -130,6 +130,34 @@ pub(crate) fn test_http_client() -> reqwest::Client {
   reqwest::Client::new()
 }
 
+/// Accepts a tunnel WebSocket the way a server of this client's release does.
+///
+/// A bare `accept_async` answers with no release, which the pairing check
+/// reads as a server from before the rule and refuses. Mock servers in the
+/// tests accept through here so they look like what they stand in for.
+// The error type is tungstenite's, so its size is not ours to box away.
+#[cfg(test)]
+#[allow(clippy::result_large_err)]
+pub(crate) async fn accept_paired<S>(
+  stream: S,
+) -> Result<tokio_tungstenite::WebSocketStream<S>, tokio_tungstenite::tungstenite::Error>
+where
+  S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+  tokio_tungstenite::accept_hdr_async(
+    stream,
+    |_req: &tokio_tungstenite::tungstenite::handshake::server::Request,
+     mut resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
+      resp.headers_mut().insert(
+        aperio_config::pairing::RELEASE_HEADER,
+        tokio_tungstenite::tungstenite::http::HeaderValue::from_static(env!("CARGO_PKG_VERSION")),
+      );
+      Ok(resp)
+    },
+  )
+  .await
+}
+
 /// Entry point for the Aperio client, called by the thin binary in
 /// `main.rs`. Resolves the layered configuration, spawns one service task per
 /// exposed target, and supervises them: a config-file change re-resolves

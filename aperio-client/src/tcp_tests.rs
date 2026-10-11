@@ -2,10 +2,10 @@
 //! refuses the connection, a failed handshake, and the bridge side a peer binds.
 
 use super::*;
+use crate::accept_paired as accept_async;
 use base64::prelude::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio_tungstenite::accept_async;
 
 /// Installs a max-level tracing subscriber once, so the `info!`/`error!`
 /// macros actually evaluate their arguments (otherwise the disabled macros

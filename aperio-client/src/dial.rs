@@ -346,7 +346,13 @@ pub(crate) async fn connect_ws<R>(
 where
   R: IntoClientRequest + Unpin,
 {
-  let request = request.into_client_request()?;
+  let mut request = request.into_client_request()?;
+  // Every tunnel dial announces this binary's release, so the server can
+  // refuse a client on another minor before a socket exists.
+  request.headers_mut().insert(
+    aperio_config::pairing::RELEASE_HEADER,
+    tokio_tungstenite::tungstenite::http::HeaderValue::from_static(env!("CARGO_PKG_VERSION")),
+  );
   let uri = request.uri();
   let host = uri
     .host()
@@ -420,6 +426,22 @@ where
   let _ = stream.set_nodelay(true);
 
   handshake(request, stream, config, HANDSHAKE_TIMEOUT, &host, port).await
+}
+
+/// Why the server that answered a handshake is not one this client pairs
+/// with, as the sentence to log; `None` when it is on this client's minor.
+///
+/// A server that announced no release predates the rule and is refused.
+pub(crate) fn unpaired_server(response: &Response) -> Option<String> {
+  aperio_config::pairing::check(
+    env!("CARGO_PKG_VERSION"),
+    aperio_config::pairing::Side::Client,
+    response
+      .headers()
+      .get(aperio_config::pairing::RELEASE_HEADER)
+      .and_then(|v| v.to_str().ok()),
+  )
+  .map(|refused| refused.message())
 }
 
 /// The TLS and WebSocket handshakes, under a budget.

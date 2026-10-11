@@ -59,11 +59,11 @@ concrete problem before.
   change can alter how an *existing* file behaves: a key renamed, removed or
   given a new meaning, a default that changes what a file does. This is what
   lets an operator upgrade blind. Purely additive keys need none.
-- **Backward compatibility on the tunnel protocol.** Design changes so an older
-  peer keeps working. A change that genuinely cannot be made compatibly is a
-  discussion to open in the issue *before* the code, not a surprise in a diff:
-  the server is one box and the clients are a fleet, and they are never
-  upgraded at the same moment.
+- **The tunnel protocol is frozen within a minor release.** A client and a
+  server pair only on the same minor (`aperio-config/src/pairing.rs`), so a
+  patch must not change a frame, a handshake header or the Ping's shape. On a
+  minor release the protocol may change freely, and code kept only for an
+  older peer is deleted rather than carried.
 - **Tests next to the module.** Rust unit tests live in a sibling
   `<module>_tests.rs`, wired in with `#[cfg(test)] #[path = "..."] mod tests;`,
   never inline. A module and its tests grow at different rates.

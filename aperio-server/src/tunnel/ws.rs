@@ -72,6 +72,38 @@ pub(crate) const ALTERNATE_SERVERS_HEADER: &str = "x-aperio-alternate-servers";
 /// one turns every reconnect into a walk through addresses nobody chose.
 pub(crate) const MAX_ALTERNATES: usize = 8;
 
+/// Refuses an upgrade from a client on another minor release, or one that
+/// announced none, with `426` and a sentence naming both releases.
+///
+/// Shared by every tunnel endpoint (`/aperio/ws`, `/aperio/tcp`,
+/// `/aperio/udp`): a binder is a client too, and the code behind each of them
+/// assumes a peer of its own minor.
+pub(crate) fn refuse_unpaired_client(headers: &HeaderMap, addr: SocketAddr) -> Option<Response> {
+  let refused = aperio_config::pairing::check(
+    env!("CARGO_PKG_VERSION"),
+    aperio_config::pairing::Side::Server,
+    headers
+      .get(aperio_config::pairing::RELEASE_HEADER)
+      .and_then(|v| v.to_str().ok()),
+  )?;
+  let msg = refused.message();
+  warn!("Tunnel connection refused from {addr}: {msg}");
+  // 426 says what happened in the status as well as the body: this is not
+  // the token, not the quota, not the server being busy.
+  let mut response = (StatusCode::UPGRADE_REQUIRED, msg).into_response();
+  announce_release(&mut response);
+  Some(response)
+}
+
+/// Puts this server's release on a handshake response.
+pub(crate) fn announce_release(response: &mut Response) {
+  if let Ok(value) = axum::http::HeaderValue::from_str(env!("CARGO_PKG_VERSION")) {
+    response
+      .headers_mut()
+      .insert(aperio_config::pairing::RELEASE_HEADER, value);
+  }
+}
+
 /// Reads `alternate_servers` from its comma-separated spelling.
 ///
 /// Only the two schemes a tunnel is dialed with survive. The list is announced
@@ -218,25 +250,10 @@ pub(crate) async fn ws_handler(
     return (StatusCode::SERVICE_UNAVAILABLE, msg).into_response();
   }
 
-  // The pairing itself, before a socket exists (#113). A client too old for
-  // this server is refused here, where the cause is the answer, rather than
-  // being allowed to establish and then fail somewhere three layers deeper
-  // for a reason nothing connects back to its version. A client that
-  // announces nothing is admitted: silence predates the header and is inside
-  // the documented window, and reading it as age would take a fleet down on
-  // the upgrade that introduced this.
-  if let Some(refused) = aperio_config::pairing::check(
-    headers
-      .get(aperio_config::pairing::CLIENT_RELEASE_HEADER)
-      .and_then(|v| v.to_str().ok()),
-    aperio_config::pairing::MIN_SUPPORTED_CLIENT,
-    aperio_config::pairing::Side::Client,
-  ) {
-    let msg = refused.message();
-    warn!("Tunnel connection refused from {addr}: {msg}");
-    // 426 says what happened in the status as well as the body: this is not
-    // the token, not the quota, not the server being busy.
-    return (StatusCode::UPGRADE_REQUIRED, msg).into_response();
+  // The pairing itself, before a socket exists: a client on another minor
+  // release is refused here, where the cause is the answer.
+  if let Some(refused) = refuse_unpaired_client(&headers, addr) {
+    return refused;
   }
 
   // Validate maximum active tunnels limit (protects against file descriptor exhaustion).
@@ -311,21 +328,8 @@ pub(crate) async fn ws_handler(
   if let Ok(value) = axum::http::HeaderValue::from_str(&PROTOCOL_VERSION.to_string()) {
     response.headers_mut().insert(PROTOCOL_HEADER, value);
   }
-  // What this server is and what it accepts, so the other direction of the
-  // window can be judged by the only side able to judge it: a server cannot
-  // know it is too old for something a future client wants, but the client
-  // can, and it now has the number to compare against (#113).
-  if let Ok(value) = axum::http::HeaderValue::from_str(env!("CARGO_PKG_VERSION")) {
-    response
-      .headers_mut()
-      .insert(aperio_config::pairing::SERVER_RELEASE_HEADER, value);
-  }
-  if let Ok(value) = axum::http::HeaderValue::from_str(aperio_config::pairing::MIN_SUPPORTED_CLIENT)
-  {
-    response
-      .headers_mut()
-      .insert(aperio_config::pairing::MIN_CLIENT_HEADER, value);
-  }
+  // What this server is, so the client can apply the same rule from its end.
+  announce_release(&mut response);
   // What this connection may declare, which is not the same as what this
   // build supports: controlling the visitor gate is a token permission, and a
   // token without it has its declaration dropped on the Ping. Announcing the

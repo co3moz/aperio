@@ -240,13 +240,17 @@ async fn bridge_udp_session(
   // connection honours the configured `ip_family` and falls back across every
   // resolved address; `connect_async` picks an address itself and does
   // neither, which stranded UDP binds on hosts where only one family works.
-  let (ws, _) = match crate::dial::connect_ws(req, None).await {
+  let (ws, response) = match crate::dial::connect_ws(req, None).await {
     Ok(x) => x,
     Err(e) => {
       warn!("UDP bridge failed to reach server: {:?}", e);
       return;
     }
   };
+  if let Some(refused) = crate::dial::unpaired_server(&response) {
+    error!("UDP bridge refused the server: {}", refused);
+    return;
+  }
   let (mut ws_tx, mut ws_rx) = ws.split();
 
   loop {

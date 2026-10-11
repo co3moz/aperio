@@ -3,9 +3,9 @@
 //! relaying it.
 
 use super::*;
+use crate::accept_paired as accept_async;
 use base64::prelude::*;
 use tokio::net::{TcpListener, UdpSocket};
-use tokio_tungstenite::accept_async;
 
 /// Installs a max-level tracing subscriber once, so the `info!`/`debug!`/
 /// `error!` macros actually evaluate their arguments (otherwise the disabled

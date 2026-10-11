@@ -58,6 +58,10 @@ pub(super) fn client_request(url: &str, token: &str) -> axum::http::Request<()> 
     .header("Upgrade", "websocket")
     .header("Sec-WebSocket-Version", "13")
     .header("Sec-WebSocket-Key", generate_key())
+    .header(
+      aperio_config::pairing::RELEASE_HEADER,
+      env!("CARGO_PKG_VERSION"),
+    )
     .header("Authorization", format!("Bearer {token}"))
     .body(())
     .unwrap()
