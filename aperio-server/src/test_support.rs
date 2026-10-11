@@ -518,3 +518,63 @@ pub(crate) fn ok_tunnel_response() -> TunnelResponse {
     timings: None,
   }
 }
+
+/// Reads a frame the server sent a client as the message it carries.
+///
+/// Relay payloads and buffered request bodies travel as tagged binary frames,
+/// so a test that inspects what reached a client reads both shapes through
+/// here: a binary frame comes back as the JSON variant it stands for, with
+/// its bytes base64-encoded, so assertions stay about the message.
+pub(crate) fn sent_message(msg: &Message) -> Option<crate::protocol::TunnelMessage> {
+  use crate::protocol::{
+    FRAME_REQUEST_FULL, FRAME_REQUEST_FULL_ZLIB, FRAME_TCP_DATA, FRAME_UDP_DATAGRAM,
+    FRAME_WS_DATA_BIN, TunnelMessage, decode_binary_frame, inflate_payload, split_full_response,
+  };
+  use base64::prelude::*;
+  match msg {
+    Message::Text(text) => serde_json::from_str(text).ok(),
+    Message::Binary(bytes) => {
+      let (tag, id, payload) = decode_binary_frame(bytes)?;
+      let (stream_id, data) = (id.to_string(), BASE64_STANDARD.encode(payload));
+      match tag {
+        FRAME_TCP_DATA => Some(TunnelMessage::TcpData { stream_id, data }),
+        FRAME_UDP_DATAGRAM => Some(TunnelMessage::UdpDatagram { stream_id, data }),
+        FRAME_WS_DATA_BIN => Some(TunnelMessage::WsData {
+          stream_id,
+          data,
+          is_text: false,
+        }),
+        FRAME_REQUEST_FULL | FRAME_REQUEST_FULL_ZLIB => {
+          let inflated;
+          let payload = if tag == FRAME_REQUEST_FULL_ZLIB {
+            inflated = inflate_payload(payload, 64 << 20)?;
+            &inflated[..]
+          } else {
+            payload
+          };
+          let (json, body) = split_full_response(payload)?;
+          match serde_json::from_str(json).ok()? {
+            TunnelMessage::Request {
+              service,
+              id,
+              method,
+              uri,
+              headers,
+              ..
+            } => Some(TunnelMessage::Request {
+              service,
+              id,
+              method,
+              uri,
+              headers,
+              body: Some(BASE64_STANDARD.encode(body)),
+            }),
+            other => Some(other),
+          }
+        }
+        _ => None,
+      }
+    }
+    _ => None,
+  }
+}

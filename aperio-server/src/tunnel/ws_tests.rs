@@ -464,11 +464,8 @@ pub(super) fn alternates_are_capped() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-pub(super) async fn the_handshake_says_what_protocol_this_server_speaks() {
-  // Read by a client before it has declared anything, which is what makes a
-  // capability that changes the *first Ping* negotiable at all: multiplexing
-  // is decided from this number, and a server too old to send it is a server
-  // too old to serve a list.
+pub(super) async fn the_handshake_says_what_release_this_server_is() {
+  // Read by the client to apply the pairing rule from its own end.
   let state = Arc::new(test_state());
   let url = start_server(state.clone()).await;
   let (token, _) = make_dynamic_token(&state, true).await;
@@ -478,13 +475,32 @@ pub(super) async fn the_handshake_says_what_protocol_this_server_speaks() {
     .expect("the handshake");
   let announced = resp
     .headers()
-    .get(PROTOCOL_HEADER)
+    .get(aperio_config::pairing::RELEASE_HEADER)
     .expect("the announcement")
     .to_str()
     .unwrap()
-    .parse::<u32>()
-    .expect("a number");
-  assert_eq!(announced, PROTOCOL_VERSION);
+    .to_string();
+  assert_eq!(announced, env!("CARGO_PKG_VERSION"));
+}
+
+#[tokio::test]
+pub(super) async fn a_client_on_another_minor_is_refused_with_426() {
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut req = client_request(&url, "test");
+  req.headers_mut().insert(
+    aperio_config::pairing::RELEASE_HEADER,
+    axum::http::HeaderValue::from_static("0.1.0"),
+  );
+  match tokio_tungstenite::connect_async(req).await {
+    Err(tokio_tungstenite::tungstenite::Error::Http(resp)) => {
+      assert_eq!(resp.status().as_u16(), 426);
+      let body = String::from_utf8(resp.body().clone().unwrap_or_default()).unwrap();
+      assert!(body.contains("this client is 0.1.0"), "{body}");
+      assert!(body.ends_with("Upgrade the client."), "{body}");
+    }
+    other => panic!("expected a 426 refusal, got {other:?}"),
+  }
 }
 
 // ---------------------------------------------------------------------------

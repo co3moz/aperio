@@ -176,17 +176,6 @@ pub(crate) fn effective_body_limit(global: usize, declared: Option<u64>) -> usiz
   }
 }
 
-/// Whether a buffered body travels as bytes in the dispatch frame (v6) rather
-/// than base64 inside the JSON.
-///
-/// A function rather than a line at the call site because the call site is
-/// inside the dispatch loop, which re-runs with a *different* client after a
-/// failover, and the answer is a property of that client rather than of the
-/// request.
-fn body_frame_negotiated(protocol: Option<u32>, body: &[u8]) -> bool {
-  protocol.is_some_and(|v| v >= 6) && !body.is_empty()
-}
-
 /// Whether a visitor-supplied request id may be adopted.
 ///
 /// The value ends up in the access log, in the audit trail of what served

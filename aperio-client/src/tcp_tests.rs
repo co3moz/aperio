@@ -192,8 +192,8 @@ async fn next_tunnel_msg(rx: &mut mpsc::Receiver<Message>) -> TunnelMessage {
       .await
       .expect("timed out waiting for tunnel message")
       .expect("tunnel channel closed");
-    if let Message::Text(json) = m {
-      return serde_json::from_str(&json).unwrap();
+    if let Some(msg) = crate::protocol::decode_sent(&m) {
+      return msg;
     }
   }
 }
@@ -233,8 +233,6 @@ async fn test_handle_tcp_open_relays_plaintext() {
     None,
     activity.clone(),
     Default::default(),
-    // The pre-v7 shape: base64 TcpData inside JSON.
-    6,
     None,
   ));
 
@@ -286,7 +284,6 @@ async fn test_handle_tcp_open_connect_fails() {
     None,
     crate::service::ActivityClock::default(),
     Default::default(),
-    6,
     None,
   )
   .await;
@@ -320,7 +317,6 @@ async fn test_handle_tcp_open_e2e_roundtrip() {
     Some(crate::e2e::E2eParams { psk: None }),
     crate::service::ActivityClock::default(),
     Default::default(),
-    6,
     None,
   ));
 
@@ -368,7 +364,6 @@ async fn test_handle_tcp_open_e2e_handshake_fails() {
     Some(crate::e2e::E2eParams { psk: None }),
     crate::service::ActivityClock::default(),
     Default::default(),
-    6,
     None,
   ));
 
@@ -719,7 +714,6 @@ async fn test_handle_tcp_open_e2e_decrypt_failure() {
     Some(crate::e2e::E2eParams { psk: None }),
     crate::service::ActivityClock::default(),
     Default::default(),
-    6,
     None,
   ));
 
@@ -765,7 +759,6 @@ async fn test_handle_tcp_open_up_task_send_failure() {
     None,
     crate::service::ActivityClock::default(),
     Default::default(),
-    6,
     None,
   ));
 
@@ -800,7 +793,6 @@ async fn a_v7_server_gets_the_relay_bytes_raw() {
     None,
     crate::service::ActivityClock::default(),
     Default::default(),
-    7,
     None,
   ));
 
@@ -861,7 +853,6 @@ async fn public_write_eof_flushes_input_and_receives_backend_response() {
     None,
     Default::default(),
     Default::default(),
-    6,
     None,
   ));
   let mut response = Vec::new();

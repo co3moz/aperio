@@ -26,9 +26,7 @@ the slowest-endpoints report, and the [k6 soak test](../tests/soak/k6.js)).
 - **`APERIO_IP_LIMIT_MAX` / `_REFILL`.** Per-visitor token bucket. The burst
   (`max`) absorbs page loads; the refill (`req/s`) sets the sustained rate.
 - **Response bodies over 32 KB stream as binary frames** rather than travelling
-  base64-encoded inside one JSON message, against a peer that negotiated binary
-  frames (tunnel protocol v2 and later). Against an older server the threshold
-  is 256 KB and the framing is base64. Streaming is a third fewer bytes on the
+  inside one message. Streaming is a third fewer bytes on the
   wire for those responses, which is what matters on a real link; on loopback
   it measures as roughly break-even at 32 KB and a few percent above it, since
   there the cost is CPU rather than bandwidth.

@@ -30,17 +30,6 @@ use tracing::warn;
 /// because a server that ignores it shows the id, as it always did.
 pub(crate) const PROTOCOL_VERSION: u32 = 10;
 
-/// Handshake response header carrying the server's tunnel protocol version.
-///
-/// The Ping already carries the client's, and the Pong the server's, but both
-/// arrive after the client has declared what it serves. A capability that
-/// changes *what the first Ping may say* has to be known before that Ping goes
-/// out, which is what this header is for: it is read off the upgrade response,
-/// with nothing declared yet, exactly like the visitor-gate announcement beside
-/// it. A server too old to send it is a server too old to have the capability,
-/// so absent reads as "no", never as "assume yes".
-pub(crate) const PROTOCOL_HEADER: &str = "x-aperio-protocol";
-
 // --- Protocol v2 binary frames: [tag][id_len][id bytes][payload] ---
 // Data-heavy chunk messages skip the base64+JSON encoding entirely. The tag
 // byte never collides with zlib-compressed JSON frames, which start with
@@ -215,20 +204,16 @@ pub(crate) fn encode_binary_frame(tag: u8, id: &str, payload: &[u8]) -> Option<V
 /// Chunk feeder for one streamed request body in flight.
 pub(crate) type RequestBodyFeeder = mpsc::Sender<Result<bytes::Bytes, std::io::Error>>;
 
-/// One relay payload, in the shape the peer negotiated: a v7 server takes
-/// the raw bytes in a tagged binary frame, anything older takes the JSON
-/// message with the payload base64-encoded. The server has the mirror of
-/// this; see its doc for why the decision lives in one function.
+/// One relay payload as a tagged binary frame carrying the raw bytes. The
+/// JSON message is only the shape for a stream id too long for the frame
+/// header, which no id the server mints is.
 pub(crate) fn relay_frame(
-  protocol: u32,
   tag: u8,
   stream_id: &str,
   bytes: &[u8],
   json_fallback: impl FnOnce(String) -> TunnelMessage,
 ) -> Option<Message> {
-  if protocol >= 7
-    && let Some(frame) = encode_binary_frame(tag, stream_id, bytes)
-  {
+  if let Some(frame) = encode_binary_frame(tag, stream_id, bytes) {
     return Some(Message::Binary(frame.into()));
   }
   use base64::prelude::*;
@@ -939,5 +924,72 @@ pub(crate) async fn send_tunnel_msg(
   match serde_json::to_string(msg) {
     Ok(json) => tx.send(Message::Text(json.into())).await.map_err(|_| ()),
     Err(_) => Err(()),
+  }
+}
+
+/// Reads a frame this client sent as the message it stands for.
+///
+/// Responses, response chunks and relay payloads travel as tagged binary
+/// frames; a test inspecting the tunnel reads both shapes through here, a
+/// binary frame coming back as its JSON variant with the bytes base64-encoded.
+#[cfg(test)]
+pub(crate) fn decode_sent(msg: &tokio_tungstenite::tungstenite::Message) -> Option<TunnelMessage> {
+  use base64::prelude::*;
+  use tokio_tungstenite::tungstenite::Message;
+  match msg {
+    Message::Text(text) => serde_json::from_str(text).ok(),
+    Message::Binary(bytes) => {
+      let (tag, id, payload) = decode_binary_frame(bytes)?;
+      let encoded = BASE64_STANDARD.encode(payload);
+      match tag {
+        FRAME_RESPONSE_CHUNK => Some(TunnelMessage::ResponseChunk {
+          id: id.to_string(),
+          data: encoded,
+        }),
+        FRAME_TCP_DATA => Some(TunnelMessage::TcpData {
+          stream_id: id.to_string(),
+          data: encoded,
+        }),
+        FRAME_UDP_DATAGRAM => Some(TunnelMessage::UdpDatagram {
+          stream_id: id.to_string(),
+          data: encoded,
+        }),
+        FRAME_WS_DATA_BIN => Some(TunnelMessage::WsData {
+          stream_id: id.to_string(),
+          data: encoded,
+          is_text: false,
+        }),
+        FRAME_RESPONSE_FULL | FRAME_RESPONSE_FULL_ZLIB => {
+          let inflated;
+          let payload = if tag == FRAME_RESPONSE_FULL_ZLIB {
+            inflated = inflate_payload(payload, 64 << 20)?;
+            &inflated[..]
+          } else {
+            payload
+          };
+          let (json, body) = split_full_response(payload)?;
+          match serde_json::from_str(json).ok()? {
+            TunnelMessage::Response {
+              id,
+              status,
+              headers,
+              trailers,
+              timings,
+              ..
+            } => Some(TunnelMessage::Response {
+              id,
+              status,
+              headers,
+              body: Some(BASE64_STANDARD.encode(body)),
+              trailers,
+              timings,
+            }),
+            other => Some(other),
+          }
+        }
+        _ => None,
+      }
+    }
+    _ => None,
   }
 }

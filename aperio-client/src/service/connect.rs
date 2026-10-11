@@ -109,28 +109,6 @@ pub(crate) struct LiveDecl {
   pub(crate) connections_configured: u32,
 }
 
-/// Lowest tunnel protocol version that can carry several services on one
-/// connection.
-///
-/// v8 is where the Ping's `services` list became something a server reads and
-/// acts on; 0.9.0 shipped protocol 7, so no released server before 0.10.0
-/// announces it. Compared against what the server announces on the handshake
-/// rather than against a release number, because it is the wire format that has
-/// to agree, and a fork or a pre-release is honest about its protocol in a way
-/// its version string need not be.
-pub(crate) const MIN_MULTIPLEX_PROTOCOL: u32 = 8;
-
-/// The protocol a server has to speak before a service may ask to be served
-/// from it (`server_side: true`).
-///
-/// Negotiated for the same reason multiplexing is, and more sharply. An older
-/// server does not refuse the field, it ignores it and relays the request,
-/// which is the quiet half-serve: a client asks for this precisely when it
-/// cannot reach the target itself, so the fallback is not a slower service but
-/// connection errors from a backend nobody can see. Reading silence as consent
-/// is the one mistake worth spending a handshake to avoid.
-pub(crate) const MIN_SERVER_SIDE_PROTOCOL: u32 = 9;
-
 /// Most services this client will put on one connection.
 ///
 /// The server's own ceiling, mirrored so the refusal happens where the message
@@ -165,28 +143,12 @@ pub(crate) enum GateNegotiation {
     /// The methods it does, so the message names the way out.
     accepted: Vec<String>,
   },
-  /// This server announced nothing, so it predates the field a policy travels
-  /// in, and this policy cannot be said in the scalar it does read. Named
-  /// apart from [`Self::Unsupported`] because the method is not the problem:
-  /// an old server understands `basic` perfectly, it just has nowhere to put
-  /// two of them, and a message saying it "does not accept basic" would send
-  /// its reader looking for the wrong thing.
-  TooOldForPolicy {
-    /// The methods written, for the message.
-    wanted: Vec<String>,
-  },
 }
 
 /// Decides what to announce, given what the server said it accepts.
 ///
-/// **An absent announcement is the important case.** A server too old to send
-/// the header sends nothing, and nothing has to read as "only the two methods
-/// that always travelled", never as "anything goes": such a server would
-/// ignore a policy it does not understand, read this client as declaring *no*
-/// gate, and bring the route up open. That is the failure this whole
-/// negotiation exists to prevent, and it is the one path no integration test
-/// can reach without an old binary, which is why it is a function with tests
-/// rather than eight lines inside a connect loop.
+/// The server always announces the list, empty for a token that may not
+/// declare a gate; an absent header reads the same way, as nothing accepted.
 pub(crate) fn negotiate_visitor_gate(
   announced: Option<&str>,
   policy: Option<&aperio_config::AuthSetting>,
@@ -197,7 +159,7 @@ pub(crate) fn negotiate_visitor_gate(
       .map(|m| m.trim().to_ascii_lowercase())
       .filter(|m| !m.is_empty())
       .collect(),
-    None => vec!["none".to_string(), "basic".to_string()],
+    None => Vec::new(),
   };
   let Some(policy) = policy else {
     return GateNegotiation::Scalar;
@@ -237,16 +199,6 @@ pub(crate) fn negotiate_visitor_gate(
       .all(|m| m.method.trim().eq_ignore_ascii_case("none"));
   if carried_by_scalar {
     return GateNegotiation::Scalar;
-  }
-  // Past here the policy can only travel in the field an old server does not
-  // read, so an absent announcement refuses, even though every method named is
-  // in the fallback list. Checking the names alone is not enough: `basic` is
-  // one an old server understands, but two credentials under it have nowhere
-  // to go, the scalar holds one. Sending the rich field anyway is precisely
-  // the silent open route this negotiation exists to prevent, and it is the
-  // shape that looks safest, since nothing in the policy is exotic.
-  if announced.is_none() {
-    return GateNegotiation::TooOldForPolicy { wanted };
   }
   GateNegotiation::Methods(specs)
 }

@@ -16,7 +16,7 @@ use std::sync::atomic::Ordering;
 use tracing::{info, warn};
 
 use super::*;
-use crate::protocol::{PROTOCOL_VERSION, ServiceDecl};
+use crate::protocol::ServiceDecl;
 use crate::routing::{normalize_hostname_bind, normalize_path_bind};
 use crate::state::ClientHandle;
 use tokio::sync::Semaphore;
@@ -621,18 +621,8 @@ impl ConnCtx {
       }
       handle.service_at_mut(service_index).allowed_ips = effective_ips;
     }
-    // Warn once per change, not on every heartbeat.
-    if protocol.is_some() && handle.client_protocol != protocol {
+    if protocol.is_some() {
       handle.client_protocol = protocol;
-      if let Some(p) = protocol
-        && p != PROTOCOL_VERSION
-      {
-        warn!(
-          "Client {} speaks tunnel protocol v{} but this server speaks v{}; \
-                     update the older side to avoid subtle incompatibilities",
-          client_id, p, PROTOCOL_VERSION
-        );
-      }
     }
     // Dynamic-token clients are subject to token pinning.
     if let Some(id) = handle.perms.token_id.clone() {

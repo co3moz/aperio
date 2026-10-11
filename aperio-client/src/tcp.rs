@@ -42,9 +42,6 @@ pub(crate) async fn handle_tcp_open(
   e2e: Option<crate::e2e::E2eParams>,
   activity: crate::service::ActivityClock,
   pauses: crate::flow::PauseRegistry,
-  // The tunnel protocol the server announced: v7 takes relay payloads as raw
-  // binary frames, anything older takes base64 inside JSON.
-  protocol: u32,
   // The visitor's address, when this tunnel declares `proxy_protocol: true`
   // and the server reported one. `None` means no header is written, which is
   // also what an older server produces.
@@ -75,7 +72,6 @@ pub(crate) async fn handle_tcp_open(
   let (mut sealer, mut opener) = if let Some(params) = e2e {
     let hs = crate::e2e::Handshake::new(crate::e2e::Role::Responder, params.psk);
     let sent = match crate::protocol::relay_frame(
-      protocol,
       crate::protocol::FRAME_TCP_DATA,
       &stream_id,
       &hs.frame,
@@ -193,7 +189,6 @@ pub(crate) async fn handle_tcp_open(
             None => buf[..n].to_vec(),
           };
           let Some(frame) = crate::protocol::relay_frame(
-            protocol,
             crate::protocol::FRAME_TCP_DATA,
             &stream_id_up,
             &payload,

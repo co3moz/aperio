@@ -1235,24 +1235,16 @@ fn should_retire_idle_covers_inflight_and_cold_start() {
   assert!(!should_retire_idle(700, 1_000, 300, 1));
 }
 
-/// Accepts one connection on the mock server and announces `protocol` on the
-/// handshake response, the way a real server does.
-///
-/// `accept_async` answers with a bare 101, which is what a server too old to
-/// have the header looks like: the two spellings are what the multiplex gate
-/// is deciding between, so both are used below.
+/// Accepts one connection on the mock server and announces this release on
+/// the handshake response, the way a real server does.
 // The error type is tungstenite's `Callback` contract, not ours, so its size is
 // not something this can box away.
 #[allow(clippy::result_large_err)]
-async fn accept_announcing(stream: TcpStream, protocol: u32) -> WebSocketStream<TcpStream> {
+async fn accept_announcing(stream: TcpStream) -> WebSocketStream<TcpStream> {
   tokio_tungstenite::accept_hdr_async(
     stream,
     |_req: &tokio_tungstenite::tungstenite::handshake::server::Request,
      mut resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
-      resp.headers_mut().insert(
-        crate::protocol::PROTOCOL_HEADER,
-        protocol.to_string().parse().unwrap(),
-      );
       resp.headers_mut().insert(
         aperio_config::pairing::RELEASE_HEADER,
         env!("CARGO_PKG_VERSION").parse().unwrap(),
@@ -1318,7 +1310,7 @@ async fn a_multiplexed_connection_declares_every_service_in_one_ping() {
   ));
 
   let (stream, _) = listener.accept().await.unwrap();
-  let mut ws = accept_announcing(stream, crate::protocol::PROTOCOL_VERSION).await;
+  let mut ws = accept_announcing(stream).await;
   let ping = next_ping(&mut ws).await.expect("the first heartbeat");
   let TunnelMessage::Ping {
     services,
@@ -1395,49 +1387,6 @@ async fn a_connection_carrying_one_service_still_sends_no_list() {
 }
 
 #[tokio::test]
-async fn a_server_that_cannot_serve_a_list_is_not_sent_one() {
-  // The failure this prevents: an older server reads the singular fields,
-  // brings up the first service and silently drops the rest. Refused at the
-  // handshake instead, before anything has been declared.
-  let (listener, ws_url) = loopback_ws().await;
-  let specs = two_multiplexed(&ws_url);
-  let services: Vec<ServiceRuntime> = specs
-    .into_iter()
-    .map(|s| {
-      let health = BackendHealth::for_spec(&s);
-      ServiceRuntime::new(s, health)
-    })
-    .collect();
-  let (cancel_tx, cancel_rx) = watch::channel(false);
-  let svc = tokio::spawn(run_service(
-    services,
-    test_shared(),
-    cancel_rx,
-    true,
-    1,
-    ConnectionCeiling::new(),
-  ));
-
-  for announced in [None, Some(MIN_MULTIPLEX_PROTOCOL - 1)] {
-    let (stream, _) = listener.accept().await.unwrap();
-    let mut ws = match announced {
-      // No header at all is what every server before 0.10.0 answers with.
-      None => accept_async(stream).await.unwrap(),
-      Some(p) => accept_announcing(stream, p).await,
-    };
-    // Nothing is declared: the client leaves rather than announcing services
-    // this server would serve fewer of than it was told.
-    assert!(
-      next_ping(&mut ws).await.is_none(),
-      "a server announcing {announced:?} was sent a declaration"
-    );
-  }
-
-  cancel_tx.send(true).unwrap();
-  let _ = tokio::time::timeout(Duration::from_secs(5), svc).await;
-}
-
-#[tokio::test]
 async fn a_refused_connection_backs_off_instead_of_redialing_flat_out() {
   // A refusal is not a reason to stop retrying, but it is a reason to wait.
   // The backoff, the jitter and the failover to the next server all live at
@@ -1489,50 +1438,6 @@ async fn a_refused_connection_backs_off_instead_of_redialing_flat_out() {
   let _ = tokio::time::timeout(Duration::from_secs(5), svc).await;
 }
 
-/// A service that asks to be served from the server is not announced to a
-/// server that cannot honour it.
-///
-/// The failure this prevents is quieter than the multiplexing one. An older
-/// server does not refuse the field, it ignores it and relays the request
-/// through this client, and a service sets `server_side:` precisely when this
-/// client cannot reach the target itself. So the fallback is not a slower
-/// service, it is connection errors from a backend the operator cannot see
-/// from either side.
-#[tokio::test]
-async fn a_server_that_cannot_serve_from_itself_is_not_asked_to() {
-  let (listener, ws_url) = loopback_ws().await;
-  let mut spec = test_spec(&ws_url, "http://127.0.0.1:9");
-  spec.name = Some("web".to_string());
-  spec.hostnames = vec!["web.example.com".to_string()];
-  spec.server_side_target = Some("http://127.0.0.1:9".to_string());
-  let health = BackendHealth::for_spec(&spec);
-  let (cancel_tx, cancel_rx) = watch::channel(false);
-  let svc = tokio::spawn(run_service(
-    vec![ServiceRuntime::new(spec, health)],
-    test_shared(),
-    cancel_rx,
-    true,
-    1,
-    ConnectionCeiling::new(),
-  ));
-
-  for announced in [None, Some(MIN_SERVER_SIDE_PROTOCOL - 1)] {
-    let (stream, _) = listener.accept().await.unwrap();
-    let mut ws = match announced {
-      // No header at all is every server that predates the ability.
-      None => accept_async(stream).await.unwrap(),
-      Some(p) => accept_announcing(stream, p).await,
-    };
-    assert!(
-      next_ping(&mut ws).await.is_none(),
-      "a server announcing {announced:?} was asked to serve from itself"
-    );
-  }
-
-  cancel_tx.send(true).unwrap();
-  let _ = tokio::time::timeout(Duration::from_secs(5), svc).await;
-}
-
 /// And a server that can is asked normally.
 #[tokio::test]
 async fn a_server_that_can_serve_from_itself_receives_the_declaration() {
@@ -1553,7 +1458,7 @@ async fn a_server_that_can_serve_from_itself_receives_the_declaration() {
   ));
 
   let (stream, _) = listener.accept().await.unwrap();
-  let mut ws = accept_announcing(stream, MIN_SERVER_SIDE_PROTOCOL).await;
+  let mut ws = accept_announcing(stream).await;
   let ping = next_ping(&mut ws).await.expect("a declaration");
   let asked = match &ping {
     TunnelMessage::Ping { services, .. } => services

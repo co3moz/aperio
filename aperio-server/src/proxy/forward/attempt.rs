@@ -233,8 +233,7 @@ impl Attempt<'_> {
       // whichever client the first one failed over to, and one that does not
       // speak v6 cannot read it, so the request would hang until the gateway
       // timeout with no sign of why.
-      let full_body_frame =
-        !stream_request && body_frame_negotiated(selected.protocol, &body_bytes);
+      let full_body_frame = !stream_request && !body_bytes.is_empty();
       let base64_body = if stream_request || full_body_frame || body_bytes.is_empty() {
         None
       } else {

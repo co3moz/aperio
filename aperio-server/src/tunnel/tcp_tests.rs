@@ -596,10 +596,14 @@ async fn tcp_relay_full_roundtrip() {
     .send(TMessage::Binary(vec![10, 20, 30].into()))
     .await
     .unwrap();
-  match recv_msg(&mut crx).await {
-    Message::Text(t) => assert!(t.contains("TcpData")),
-    other => panic!("expected TcpData, got {other:?}"),
-  }
+  let frame = recv_msg(&mut crx).await;
+  assert!(
+    matches!(
+      crate::test_support::sent_message(&frame),
+      Some(TunnelMessage::TcpData { .. })
+    ),
+    "expected TcpData, got {frame:?}"
+  );
 
   // Tunnel -> consumer via the registered relay channel.
   let relay_tx = wait_for_tcp_stream(&state).await;
@@ -654,10 +658,14 @@ async fn udp_relay_full_roundtrip() {
     .send(TMessage::Binary(vec![7, 7].into()))
     .await
     .unwrap();
-  match recv_msg(&mut crx).await {
-    Message::Text(t) => assert!(t.contains("UdpDatagram")),
-    other => panic!("expected UdpDatagram, got {other:?}"),
-  }
+  let frame = recv_msg(&mut crx).await;
+  assert!(
+    matches!(
+      crate::test_support::sent_message(&frame),
+      Some(TunnelMessage::UdpDatagram { .. })
+    ),
+    "expected UdpDatagram, got {frame:?}"
+  );
 
   let relay_tx = wait_for_udp_stream(&state).await;
   relay_tx

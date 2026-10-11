@@ -74,14 +74,11 @@ async fn client(state: &Arc<AppState>, version: u32) -> mpsc::Receiver<Message> 
   rx
 }
 async fn message(rx: &mut mpsc::Receiver<Message>) -> TunnelMessage {
-  match tokio::time::timeout(Duration::from_secs(3), rx.recv())
+  let frame = tokio::time::timeout(Duration::from_secs(3), rx.recv())
     .await
     .expect("relay deadline")
-    .expect("client channel")
-  {
-    Message::Text(json) => serde_json::from_str(&json).unwrap(),
-    other => panic!("unexpected frame {other:?}"),
-  }
+    .expect("client channel");
+  crate::test_support::sent_message(&frame).unwrap_or_else(|| panic!("unexpected frame {frame:?}"))
 }
 async fn udp_open(rx: &mut mpsc::Receiver<Message>, expected: &[u8]) -> String {
   let id = match message(rx).await {

@@ -27,18 +27,6 @@ pub(crate) const MAX_CONNECTIONS_HEADER: &str = "x-aperio-max-connections";
 /// which is the failure the empty-list refusal beside it exists to prevent.
 pub(crate) const MAX_DECLARED_SERVICES: usize = 256;
 
-/// The tunnel protocol version this server speaks, announced on the upgrade
-/// response (`planned_features.md` #120).
-///
-/// The Pong already carries it, and for everything the protocol has added so
-/// far that was early enough: a client learns the peer's version and picks its
-/// frame encoding from then on. Multiplexing is the first capability that
-/// changes what the *first Ping* is allowed to say, and by the time a Pong
-/// arrives that Ping has been sent. So the number is put where the client can
-/// read it before it declares anything, next to the visitor-gate announcement,
-/// which is on the upgrade response for the same reason.
-pub(crate) const PROTOCOL_HEADER: &str = "x-aperio-protocol";
-
 /// The visitor-auth methods a client may declare, announced on the handshake
 /// response (`planned_features.md` #111).
 ///
@@ -323,10 +311,6 @@ pub(crate) async fn ws_handler(
     });
   if let Ok(value) = axum::http::HeaderValue::from_str(&ceiling.to_string()) {
     response.headers_mut().insert(MAX_CONNECTIONS_HEADER, value);
-  }
-  // What this server can be told, before the client has told it anything.
-  if let Ok(value) = axum::http::HeaderValue::from_str(&PROTOCOL_VERSION.to_string()) {
-    response.headers_mut().insert(PROTOCOL_HEADER, value);
   }
   // What this server is, so the client can apply the same rule from its end.
   announce_release(&mut response);

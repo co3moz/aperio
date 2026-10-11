@@ -117,7 +117,7 @@ async fn a_connection_the_backend_had_already_closed_is_dialed_again_once() {
     }
   });
 
-  let (tx, _rx) = mpsc::channel::<Message>(64);
+  let (tx, mut rx) = mpsc::channel::<Message>(64);
   // Retrying is off, as it is by default: this is not the retry policy, which
   // is about a backend that failed, it is the client's own pool racing the
   // backend's idle timeout.
@@ -136,18 +136,16 @@ async fn a_connection_the_backend_had_already_closed_is_dialed_again_once() {
         raw_body: None,
       },
       None,
-      false,
-      false,
     )
   };
 
-  let Some(TunnelMessage::Response { status, .. }) = call(1).await else {
+  let Some(TunnelMessage::Response { status, .. }) = answered(&mut rx, call(1)).await else {
     panic!("the first request should be answered");
   };
   assert_eq!(status, 200);
 
   // The second goes onto the pooled connection the backend is about to drop.
-  let Some(TunnelMessage::Response { status, body, .. }) = call(2).await else {
+  let Some(TunnelMessage::Response { status, body, .. }) = answered(&mut rx, call(2)).await else {
     panic!("the second request should be answered");
   };
   assert_eq!(

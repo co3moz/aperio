@@ -185,18 +185,13 @@ retired generations. Labels contain only protocol, direction, observed state
 and fixed rejection reasons, never visitor addresses or resource UUIDs.
 
 
-## TCP write EOF and older clients
+## TCP write EOF
 
-Protocol v10 adds the server-to-client `TcpEof {stream_id}` message. It closes
+A visitor's write EOF reaches the client as `TcpEof {stream_id}`. It closes
 only the backend socket's write direction, after queued visitor bytes have
 been delivered; backend responses continue until backend EOF, administrative
-close or the configured public listener drain deadline. The server sends it
-only when the client's existing protocol announcement is at least 10.
-`TcpClose` keeps its immediate-close meaning. With older clients the server
-uses the existing full-close behavior, so applications that send a request
-and then require a response after write EOF should upgrade their client.
-UDP uses the existing UdpOpen/UdpDatagram/UdpClose wire messages without a
-protocol change. Binary and legacy JSON payload encodings remain supported.
+close or the configured public listener drain deadline. `TcpClose` keeps its
+immediate-close meaning. UDP uses the UdpOpen/UdpDatagram/UdpClose messages.
 
 
 ## YAML and deployment examples

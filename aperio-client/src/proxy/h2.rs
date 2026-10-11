@@ -136,7 +136,6 @@ pub(crate) async fn handle_incoming_request_h2(
   ctx: &ForwardContext,
   req: ForwardRequest,
   streamed_body: Option<mpsc::Receiver<Result<bytes::Bytes, std::io::Error>>>,
-  binary_chunks: bool,
 ) -> Option<TunnelMessage> {
   let ForwardRequest {
     id,
@@ -378,7 +377,7 @@ pub(crate) async fn handle_incoming_request_h2(
             .as_ref()
             .expect("bytes are only held while streaming");
           if let Some(part) = coalescer.take()
-            && send_response_chunk(tunnel_tx, &id, &part, binary_chunks, guard.signal())
+            && send_response_chunk(tunnel_tx, &id, &part, guard.signal())
               .await
               .is_err()
           {
@@ -455,7 +454,7 @@ pub(crate) async fn handle_incoming_request_h2(
             return None;
           }
           for part in buf.chunks(STREAM_CHUNK_SIZE) {
-            if send_response_chunk(tunnel_tx, &id, part, binary_chunks, guard.signal())
+            if send_response_chunk(tunnel_tx, &id, part, guard.signal())
               .await
               .is_err()
             {
@@ -472,7 +471,7 @@ pub(crate) async fn handle_incoming_request_h2(
           .expect("streaming implies a pause guard");
         coalescer.add(&chunk);
         while let Some(part) = coalescer.pop_full() {
-          if send_response_chunk(tunnel_tx, &id, &part, binary_chunks, pause.signal())
+          if send_response_chunk(tunnel_tx, &id, &part, pause.signal())
             .await
             .is_err()
           {
@@ -508,7 +507,7 @@ pub(crate) async fn handle_incoming_request_h2(
       let guard = pause_guard
         .as_ref()
         .expect("streaming implies a pause guard");
-      if send_response_chunk(tunnel_tx, &id, &part, binary_chunks, guard.signal())
+      if send_response_chunk(tunnel_tx, &id, &part, guard.signal())
         .await
         .is_err()
       {

@@ -508,12 +508,12 @@ pub(crate) fn spawn_custom(
   tokio::spawn(async move {
     let mut i = 0;
     while i < responses.len() {
-      let Some(Message::Text(text)) = rx.recv().await else {
+      let Some(frame) = rx.recv().await else {
         return;
       };
-      let id = match serde_json::from_str::<TunnelMessage>(&text) {
-        Ok(TunnelMessage::Request { id, .. }) => id,
-        Ok(TunnelMessage::RequestStart { id, .. }) => id,
+      let id = match crate::test_support::sent_message(&frame) {
+        Some(TunnelMessage::Request { id, .. }) => id,
+        Some(TunnelMessage::RequestStart { id, .. }) => id,
         _ => continue, // streamed-body chunks / RequestEnd
       };
       if let Some(req) = state.pending_requests.lock().await.remove(&id) {
@@ -1368,29 +1368,6 @@ pub(crate) async fn handler_org_month_quota_returns_429() {
   state.clients.write().await.insert("c1".to_string(), c);
   let resp = run(state, get("/orgquota")).await;
   assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
-}
-
-#[test]
-pub(crate) fn a_body_frame_is_decided_per_client_not_per_request() {
-  // The bug this covers: the choice was made once, before the dispatch loop,
-  // and the loop re-enters with a *different* client after a failover or a
-  // 5xx retry. A v6 frame handed to a client that speaks v5 is a message it
-  // cannot read, so the request hung until the gateway timeout with nothing
-  // saying why.
-  let body = b"payload".as_slice();
-  assert!(body_frame_negotiated(Some(6), body));
-  assert!(body_frame_negotiated(Some(7), body));
-  assert!(
-    !body_frame_negotiated(Some(5), body),
-    "v5 needs base64 in JSON"
-  );
-  assert!(!body_frame_negotiated(Some(2), body));
-  assert!(
-    !body_frame_negotiated(None, body),
-    "a client that announced nothing is assumed old"
-  );
-  // An empty body has nothing to carry either way, so it stays in the JSON.
-  assert!(!body_frame_negotiated(Some(6), b""));
 }
 
 // --- request id correlation (planned_features #30) --------------------------

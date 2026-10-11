@@ -238,15 +238,13 @@ impl PumpCost for WsStreamMessage {
 
 /// Producer-side flow control of one pumped stream: tracks the bytes queued
 /// between the tunnel read loop and the consumer, and asks the producing
-/// client to pause/resume around the watermarks (protocol v3). For older
-/// clients only the hard backlog cap applies.
+/// client to pause/resume around the watermarks. The hard backlog cap still
+/// applies to a client that ignores a pause.
 pub(crate) struct StreamFlow {
   /// The stream's id on the wire (request id or stream id).
   stream_id: String,
   /// The producing client's tunnel writer, for pause/resume messages.
   client_tx: mpsc::Sender<Message>,
-  /// Whether the client announced protocol v3+ when the stream started.
-  supports_pause: bool,
   /// The watermarks this stream runs with.
   limits: StreamLimits,
   /// Bytes enqueued but not yet forwarded to the consumer.
@@ -268,13 +266,11 @@ impl StreamFlow {
   pub(crate) fn new(
     stream_id: String,
     client_tx: mpsc::Sender<Message>,
-    supports_pause: bool,
     limits: StreamLimits,
   ) -> Self {
     StreamFlow {
       stream_id,
       client_tx,
-      supports_pause,
       limits,
       backlog: std::sync::atomic::AtomicUsize::new(0),
       paused: AtomicBool::new(false),
@@ -294,10 +290,7 @@ impl StreamFlow {
   /// watermark. Called on the tunnel read loop, so it never blocks.
   fn on_enqueued(&self, cost: usize) {
     let backlog = self.backlog.fetch_add(cost, Ordering::SeqCst) + cost;
-    if self.supports_pause
-      && backlog >= self.limits.pause_bytes
-      && !self.paused.swap(true, Ordering::SeqCst)
-    {
+    if backlog >= self.limits.pause_bytes && !self.paused.swap(true, Ordering::SeqCst) {
       // A full writer channel just means the pause is retried on the next
       // chunk; the flag is put back so that retry happens.
       let sent = self.try_notify(&TunnelMessage::StreamPause {
@@ -391,7 +384,6 @@ impl StreamFlow {
     Self::new(
       stream_id.to_string(),
       mpsc::channel(1).0,
-      false,
       StreamLimits::default(),
     )
   }

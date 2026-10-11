@@ -198,26 +198,20 @@ pub(crate) fn encode_binary_frame(tag: u8, id: &str, payload: &[u8]) -> Option<V
   Some(out)
 }
 
-/// One relay payload, in the shape the peer negotiated: a v7 peer takes the
-/// raw bytes in a tagged binary frame, anything older takes the JSON message
-/// with the payload base64-encoded.
+/// One relay payload as a tagged binary frame carrying the raw bytes.
 ///
-/// One function for both directions and all three relay kinds, because the
-/// decision is the same everywhere and getting it wrong on one of the four
-/// senders is exactly the bug this centralizes away: a v7 frame handed to a
-/// v6 peer is silently dropped, so the stream would hang with no error.
+/// The JSON message with the payload base64-encoded is only the shape for a
+/// stream id too long to fit the frame header, which no id this server
+/// mints is; it keeps the sender from dropping the payload if one ever is.
 #[cfg(not(fuzzing))]
 pub fn relay_frame(
-  protocol: u32,
   tag: u8,
   stream_id: &str,
   bytes: &[u8],
   json_fallback: impl FnOnce(String) -> TunnelMessage,
 ) -> Option<axum::extract::ws::Message> {
   use axum::extract::ws::Message;
-  if protocol >= 7
-    && let Some(frame) = encode_binary_frame(tag, stream_id, bytes)
-  {
+  if let Some(frame) = encode_binary_frame(tag, stream_id, bytes) {
     return Some(Message::Binary(frame.into()));
   }
   use base64::prelude::*;

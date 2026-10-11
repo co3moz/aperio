@@ -15,10 +15,8 @@ async fn next_tunnel_msg(rx: &mut mpsc::Receiver<Message>) -> TunnelMessage {
     .await
     .expect("timed out waiting for tunnel message")
     .expect("tunnel channel closed");
-  match msg {
-    Message::Text(json) => serde_json::from_str(&json).unwrap(),
-    other => panic!("expected text tunnel message, got {:?}", other),
-  }
+  crate::protocol::decode_sent(&msg)
+    .unwrap_or_else(|| panic!("expected a tunnel message, got {msg:?}"))
 }
 
 /// Waits until the stream handle is registered and returns its sender/abort.
@@ -119,8 +117,6 @@ async fn test_ws_echo_text_and_binary() {
       10,
       activity_c,
       Default::default(),
-      // These fix the pre-v7 shape: base64 WsData inside JSON.
-      6,
     )
     .await;
   });
@@ -200,7 +196,6 @@ async fn test_ws_backend_closes_emits_wsclose() {
       10,
       crate::service::ActivityClock::default(),
       Default::default(),
-      6,
     )
     .await;
   });
@@ -250,7 +245,6 @@ async fn test_ws_backend_handshake_timeout() {
     1,
     crate::service::ActivityClock::default(),
     Default::default(),
-    6,
   )
   .await;
   match next_tunnel_msg(&mut rx).await {
@@ -275,7 +269,6 @@ async fn test_ws_unix_target_rejected() {
     10,
     crate::service::ActivityClock::default(),
     Default::default(),
-    6,
   )
   .await;
   match next_tunnel_msg(&mut rx).await {
@@ -300,7 +293,6 @@ async fn test_ws_invalid_target_rejected() {
     10,
     crate::service::ActivityClock::default(),
     Default::default(),
-    6,
   )
   .await;
   match next_tunnel_msg(&mut rx).await {
@@ -326,7 +318,6 @@ async fn test_ws_bad_incoming_uri_rejected() {
     10,
     crate::service::ActivityClock::default(),
     Default::default(),
-    6,
   )
   .await;
   match next_tunnel_msg(&mut rx).await {
@@ -352,7 +343,6 @@ async fn test_ws_backend_unreachable() {
     10,
     crate::service::ActivityClock::default(),
     Default::default(),
-    6,
   )
   .await;
   match next_tunnel_msg(&mut rx).await {
@@ -385,7 +375,6 @@ async fn test_ws_trim_bind_path() {
       10,
       crate::service::ActivityClock::default(),
       Default::default(),
-      6,
     )
     .await;
   });

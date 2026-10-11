@@ -118,25 +118,16 @@ pub(crate) async fn handle_incoming_request(
   ctx: &ForwardContext,
   req: ForwardRequest,
   streamed_body: Option<mpsc::Receiver<Result<bytes::Bytes, std::io::Error>>>,
-  binary_chunks: bool,
-  full_body_frames: bool,
 ) -> Option<TunnelMessage> {
   // HTTP/2 targets (h2c:// / h2://, e.g. gRPC backends) take the hyper-based
   // path, which speaks HTTP/2 to the backend and relays trailers.
   if ctx.h2_client.is_some() {
-    return crate::proxy::h2::handle_incoming_request_h2(ctx, req, streamed_body, binary_chunks)
-      .await;
+    return crate::proxy::h2::handle_incoming_request_h2(ctx, req, streamed_body).await;
   }
   // Unix socket targets (unix:///path.sock) take the hyper-based path that
   // dials the socket directly; reqwest cannot.
   if ctx.unix_socket.is_some() {
-    return crate::proxy::unix::handle_incoming_request_unix(
-      ctx,
-      req,
-      streamed_body,
-      binary_chunks,
-    )
-    .await;
+    return crate::proxy::unix::handle_incoming_request_unix(ctx, req, streamed_body).await;
   }
   // Timeline anchor: everything below is measured from receipt of the
   // tunnel request, in microseconds, and reported with buffered responses.
@@ -336,12 +327,7 @@ pub(crate) async fn handle_incoming_request(
       // Read the body incrementally. Bodies up to the stream threshold are
       // buffered and returned as a single Response message; larger bodies
       // switch to chunked streaming so memory usage stays bounded.
-      let threshold = if binary_chunks {
-        BINARY_STREAM_THRESHOLD
-      } else {
-        STREAM_THRESHOLD
-      }
-      .min(ctx.max_response_body_size);
+      let threshold = BINARY_STREAM_THRESHOLD.min(ctx.max_response_body_size);
       // Sized up front from the backend's own Content-Length, capped at the
       // point where this switches to streaming anyway. Growing into an empty
       // Vec was the single heaviest thing in a profile of the client under
@@ -372,7 +358,7 @@ pub(crate) async fn handle_incoming_request(
                 .as_ref()
                 .expect("bytes are only held while streaming");
               if let Some(part) = coalescer.take()
-                && send_response_chunk(tunnel_tx, &id, &part, binary_chunks, guard.signal())
+                && send_response_chunk(tunnel_tx, &id, &part, guard.signal())
                   .await
                   .is_err()
               {
@@ -436,7 +422,7 @@ pub(crate) async fn handle_incoming_request(
                     return None;
                   }
                   for part in buf.chunks(STREAM_CHUNK_SIZE) {
-                    if send_response_chunk(tunnel_tx, &id, part, binary_chunks, guard.signal())
+                    if send_response_chunk(tunnel_tx, &id, part, guard.signal())
                       .await
                       .is_err()
                     {
@@ -450,7 +436,7 @@ pub(crate) async fn handle_incoming_request(
               Some(guard) => {
                 coalescer.add(&chunk);
                 while let Some(part) = coalescer.pop_full() {
-                  if send_response_chunk(tunnel_tx, &id, &part, binary_chunks, guard.signal())
+                  if send_response_chunk(tunnel_tx, &id, &part, guard.signal())
                     .await
                     .is_err()
                   {
@@ -494,7 +480,7 @@ pub(crate) async fn handle_incoming_request(
         // The body ended with a partial frame still held back: it goes out
         // before the End that closes the stream.
         if let Some(part) = coalescer.take()
-          && send_response_chunk(tunnel_tx, &id, &part, binary_chunks, guard.signal())
+          && send_response_chunk(tunnel_tx, &id, &part, guard.signal())
             .await
             .is_err()
         {
@@ -523,10 +509,8 @@ pub(crate) async fn handle_incoming_request(
         respond_us: received_at.elapsed().as_micros() as u64,
       });
 
-      // A v5 peer takes the body as bytes in the same frame as the envelope.
-      // Anything older gets it base64-encoded inside the JSON, which is what
-      // every version before this did.
-      if full_body_frames && !buf.is_empty() {
+      // The body travels as bytes in the same frame as the envelope.
+      if !buf.is_empty() {
         let envelope = TunnelMessage::Response {
           id: id.clone(),
           status,

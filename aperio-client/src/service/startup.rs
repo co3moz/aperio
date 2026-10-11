@@ -14,7 +14,6 @@ pub(crate) struct Prepared {
   /// still one socket, one client id and one heartbeat, so one of its services
   /// has to stand for it; what a *request* is about is resolved per request.
   pub(crate) spec: ServiceSpec,
-  pub(crate) multiplexed: bool,
   pub(crate) label: String,
   /// The health probes this connection owns, to be aborted when it is done.
   pub(crate) probe_tasks: Vec<tokio::task::JoinHandle<()>>,
@@ -143,7 +142,6 @@ pub(crate) async fn prepare(
   };
   Some(Prepared {
     spec,
-    multiplexed,
     label,
     probe_tasks,
   })

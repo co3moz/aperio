@@ -547,35 +547,6 @@ pub(crate) struct AppState {
 /// What one call costs against the per-IP bucket (planned_features #64).
 ///
 impl AppState {
-  /// Whether `client_id` announced a protocol version with per-stream flow
-  /// control (v3+), i.e. it honors `StreamPause`/`StreamResume`. Read when a
-  /// stream starts; a client is only routable once its first Ping announced
-  /// the version, so the answer is stable by then.
-  /// The tunnel protocol version this connection announced (via Ping), or 1
-  /// for a client that has not announced yet. Read once per relay stream:
-  /// the announcement precedes routability, so the answer is stable by the
-  /// time any stream targets the connection.
-  pub(crate) async fn client_protocol(&self, client_id: &str) -> u32 {
-    self
-      .clients
-      .read()
-      .await
-      .get(client_id)
-      .and_then(|h| h.client_protocol)
-      .unwrap_or(1)
-  }
-
-  pub(crate) async fn client_supports_pause(&self, client_id: &str) -> bool {
-    self
-      .clients
-      .read()
-      .await
-      .get(client_id)
-      .and_then(|h| h.client_protocol)
-      .unwrap_or(0)
-      >= 3
-  }
-
   /// The flow-control watermarks new streams start with: the live config's
   /// values, repaired into a consistent trio. Snapshotted per stream, so a
   /// settings change applies to streams started after it.

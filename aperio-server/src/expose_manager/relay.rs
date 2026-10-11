@@ -342,7 +342,6 @@ async fn tcp(
   let flow = crate::state::StreamFlow::new(
     guard.id.clone(),
     guard.target.tx.clone(),
-    state.client_supports_pause(&guard.target.client_id).await,
     state.stream_limits(),
   );
   let sender =
@@ -383,7 +382,6 @@ async fn tcp(
       };
       bandwidth(&runtime, false, size, ingress_bytes_per_second).await;
       let Some(frame) = crate::protocol::relay_frame(
-        guard.target.protocol,
         crate::protocol::FRAME_TCP_DATA,
         &guard.id,
         &buffer[..size],
@@ -443,7 +441,7 @@ async fn tcp(
     _ = stop.changed() => "administrator_closed",
     reason = &mut downstream => reason,
     reason = &mut upstream => {
-      let eof = if reason == "visitor_eof" && guard.target.protocol >= 10 {
+      let eof = if reason == "visitor_eof" {
         TunnelMessage::TcpEof { stream_id: guard.id.clone() }
       } else { TunnelMessage::TcpClose { stream_id: guard.id.clone() } };
       let _ = send(&guard.target.tx, eof, Duration::from_secs(2)).await;
@@ -515,32 +513,33 @@ async fn udp(
   let mut health = tokio::time::interval(Duration::from_secs(1));
   loop {
     tokio::select! {
-      _ = stop.changed() => { guard.reason = "administrator_closed"; break; },
-      _ = tokio::time::sleep_until((idle + Duration::from_secs(idle_timeout_secs.into())).into()) => { guard.reason = "idle_timeout"; break; },
-      _ = health.tick() => {
-        if !resolve::still_serving(&state, &guard.target).await { guard.reason = "target_unavailable"; break; }
-      },
-      datagram = ingress.recv() => {
-        let Some(bytes) = datagram else { break; };
-        if !runtime.budget.lock().unwrap_or_else(|e| e.into_inner()).bytes(false, bytes.len(), ingress_bytes_per_second) { runtime.dropped("ingress_rate"); continue; }
-        let Some(frame) = crate::protocol::relay_frame(guard.target.protocol, crate::protocol::FRAME_UDP_DATAGRAM, &guard.id,
-          &bytes, |data| TunnelMessage::UdpDatagram { stream_id: guard.id.clone(), data }) else { runtime.dropped("frame_error"); continue; };
-        match guard.target.tx.try_send(frame) {
-          Ok(()) => { idle = Instant::now(); up_count.fetch_add(bytes.len() as u64, Ordering::Relaxed); runtime.transfer(&guard.id, false, bytes.len()); },
-          Err(mpsc::error::TrySendError::Full(_)) => runtime.dropped("client_queue"),
-          Err(mpsc::error::TrySendError::Closed(_)) => { guard.reason = "client_disconnected"; break; },
+          _ = stop.changed() => { guard.reason = "administrator_closed"; break; },
+          _ = tokio::time::sleep_until((idle + Duration::from_secs(idle_timeout_secs.into())).into()) => { guard.reason = "idle_timeout"; break; },
+          _ = health.tick() => {
+            if !resolve::still_serving(&state, &guard.target).await { guard.reason = "target_unavailable"; break; }
+          },
+          datagram = ingress.recv() => {
+            let Some(bytes) = datagram else { break; };
+            if !runtime.budget.lock().unwrap_or_else(|e| e.into_inner()).bytes(false, bytes.len(), ingress_bytes_per_second) { runtime.dropped("ingress_rate"); continue; }
+            let Some(frame) = crate::protocol::relay_frame(
+    crate::protocol::FRAME_UDP_DATAGRAM, &guard.id,
+              &bytes, |data| TunnelMessage::UdpDatagram { stream_id: guard.id.clone(), data }) else { runtime.dropped("frame_error"); continue; };
+            match guard.target.tx.try_send(frame) {
+              Ok(()) => { idle = Instant::now(); up_count.fetch_add(bytes.len() as u64, Ordering::Relaxed); runtime.transfer(&guard.id, false, bytes.len()); },
+              Err(mpsc::error::TrySendError::Full(_)) => runtime.dropped("client_queue"),
+              Err(mpsc::error::TrySendError::Closed(_)) => { guard.reason = "client_disconnected"; break; },
+            }
+          },
+          response = receiver.recv() => {
+            let Some(TcpConsumerMsg::Data(bytes)) = response else { guard.reason = "backend_closed"; break; };
+            if bytes.len() > max_datagram_bytes as usize { runtime.dropped("oversize"); continue; }
+            if !runtime.budget.lock().unwrap_or_else(|e| e.into_inner()).bytes(true, bytes.len(), egress_bytes_per_second) { runtime.dropped("egress_rate"); continue; }
+            match socket.try_send_to(&bytes, peer) {
+              Ok(n) if n == bytes.len() => { idle = Instant::now(); down_count.fetch_add(n as u64, Ordering::Relaxed); runtime.transfer(&guard.id, true, n); },
+              _ => runtime.dropped("socket_send"),
+            }
+          },
         }
-      },
-      response = receiver.recv() => {
-        let Some(TcpConsumerMsg::Data(bytes)) = response else { guard.reason = "backend_closed"; break; };
-        if bytes.len() > max_datagram_bytes as usize { runtime.dropped("oversize"); continue; }
-        if !runtime.budget.lock().unwrap_or_else(|e| e.into_inner()).bytes(true, bytes.len(), egress_bytes_per_second) { runtime.dropped("egress_rate"); continue; }
-        match socket.try_send_to(&bytes, peer) {
-          Ok(n) if n == bytes.len() => { idle = Instant::now(); down_count.fetch_add(n as u64, Ordering::Relaxed); runtime.transfer(&guard.id, true, n); },
-          _ => runtime.dropped("socket_send"),
-        }
-      },
-    }
   }
   let _ = finished.send((peer, guard.id.clone()));
 }

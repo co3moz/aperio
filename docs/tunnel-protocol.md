@@ -8,12 +8,11 @@ WebSocket upgrade requests from visitors are detected automatically and proxied 
 
 ## Protocol versions
 
-The current `PROTOCOL_VERSION` is **10**. Every version below is negotiated on
-connect, so a client and a server that disagree still work: each feature falls
-back to what the older side understands, and the mismatch is logged on both
-sides and shown on the dashboard. The number is bumped when a *frame* changes
-shape; a new message type that an older peer can safely ignore is added without
-a bump, and the last rows of the table are those.
+The current `PROTOCOL_VERSION` is **10**. Nothing is negotiated by it: a client
+and a server pair only on the same minor release (see
+[Upgrade Guide](upgrade-guide.md#client--server-compatibility)), so both sides
+always speak the whole current protocol. The table is the history of how the
+wire reached its present shape.
 
 | Version | What it added |
 | --- | --- |
@@ -62,15 +61,13 @@ One trade-off: streamed uploads cannot fail over or be replayed from the request
 
 ## A gate asked over the tunnel
 
-A `forward` visitor-auth method with `via: client` is decided by an endpoint on the *client's* network. The server, holding a request it cannot yet admit, sends an `AuthAsk` frame to the connection that would serve the request, carrying the composed question: the request line as `X-Forwarded-*` headers plus the allow-listed request headers, the URL to ask, and a timeout. The client calls the endpoint and answers with an `AuthVerdict`, a status and the allow-listed response headers, never a body. Either frame is ignored by a peer that does not know it, and the method itself is negotiated on the handshake like every other client-declared gate, so no protocol bump was needed. See [Visitor authentication](configuration.md#the-forward-method).
+A `forward` visitor-auth method with `via: client` is decided by an endpoint on the *client's* network. The server, holding a request it cannot yet admit, sends an `AuthAsk` frame to the connection that would serve the request, carrying the composed question: the request line as `X-Forwarded-*` headers plus the allow-listed request headers, the URL to ask, and a timeout. The client calls the endpoint and answers with an `AuthVerdict`, a status and the allow-listed response headers, never a body. See [Visitor authentication](configuration.md#the-forward-method).
 
 ## Messages between clients (v4)
 
 Messages between clients arrived in **v4**, which added frames carrying them between the clients of one organization: `Subscribe` and `Unsubscribe` name topic filters, `Publish` carries one message in either direction, `PublishAck` acknowledges a `qos: 1` delivery so the server stops resending it, and `SubscribeRefused` / `PublishRefused` say which filter or message was not accepted and why.
 
 They ride the connection that already exists, so nothing new is dialled and the message is authenticated by the token the client connected with. The server keys subscriptions on the client *process* rather than the connection, so a client running several services receives one copy rather than one per service. See [Messages Between Clients](messaging.md) for the whole shape.
-
-An older client is unaffected: it never sends `Subscribe`, so it never receives a `Publish`, and the two server-to-client frames are ignored the way every unknown message is.
 
 ## Per-stream flow control
 
@@ -92,7 +89,7 @@ The client side has the mirror of the same rule. Its read loop is shared by ever
 
 ## Tunnel compression
 
-With `APERIO_TUNNEL_COMPRESSION=1` (yaml `tunnel_compression`) the server offers per-message zlib compression for JSON frames. Clients that support it acknowledge, and both directions switch to compressed frames; older clients keep working uncompressed. The client bounds decompression output as a memory-protection measure.
+With `APERIO_TUNNEL_COMPRESSION=1` (yaml `tunnel_compression`) the server offers per-message zlib compression for JSON frames. The client acknowledges, and both directions switch to compressed frames. The client bounds decompression output as a memory-protection measure.
 
 ## Emergency tunnels
 
@@ -125,11 +122,8 @@ Copy-and-adapt config pairs for this topic:
 
 ### Public TCP write EOF (v10)
 
-Managed public listeners send `TcpEof {stream_id}` on visitor write EOF only
-when the selected client's protocol announcement is at least 10. The client
+Managed public listeners send `TcpEof {stream_id}` on visitor write EOF. The client
 flushes queued visitor data, shuts down the backend write half and continues
 forwarding its response. The server enforces `drain_timeout_secs`; disabling,
 deleting or disconnecting still sends `TcpClose` and ends both directions.
-Older clients receive `TcpClose` and retain their full-close behavior. This is
-an additive control message; TCP data frame encoding and UDP messages do not
-change. See [public expose deployment and diagnostics](public-exposes.md).
+See [public expose deployment and diagnostics](public-exposes.md).

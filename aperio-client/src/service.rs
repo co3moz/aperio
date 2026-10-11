@@ -82,7 +82,6 @@ pub(crate) async fn run_service(
 ) {
   let startup::Prepared {
     spec,
-    multiplexed,
     label,
     probe_tasks,
   } = match startup::prepare(&services, &shared, run_probe, connection_index, &ceiling).await {
@@ -183,62 +182,6 @@ pub(crate) async fn run_service(
               error!("[{}] Refusing to serve: {}", label, refused);
               break 'connection;
             }
-            // Multiplexing is negotiated, not assumed. A server too old to
-            // serve a list of services would read the Ping's singular fields
-            // instead, bring up the first service and silently drop the rest:
-            // a connection that establishes and then serves less than it was
-            // told to, which is the failure the connect-time gate exists to
-            // prevent. So the services are held back until a server that says
-            // it can carry them answers, and the log line says which side has
-            // to move.
-            //
-            // Absent means old. The header was added with the ability, so a
-            // server that does not send it cannot have it, and reading silence
-            // as consent is the one mistake that produces the quiet half-serve.
-            if multiplexed {
-              let announced = response
-                .headers()
-                .get(crate::protocol::PROTOCOL_HEADER)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.trim().parse::<u32>().ok());
-              if announced.is_none_or(|p| p < MIN_MULTIPLEX_PROTOCOL) {
-                error!(
-                  "[{}] This server speaks tunnel protocol {}, and carrying {} services on one connection (multiplex: true) needs {}. Not serving these {} service(s): upgrade the server to 0.10.0 or newer, or set multiplex: false to give each its own connection. Retrying.",
-                  label,
-                  announced
-                    .map(|p| p.to_string())
-                    .unwrap_or_else(|| "an older version".to_string()),
-                  services.len(),
-                  MIN_MULTIPLEX_PROTOCOL,
-                  services.len()
-                );
-                break 'connection;
-              }
-            }
-            // The same question for `server_side:`, and the answer matters
-            // more. A server that cannot honour it does not say so: it
-            // ignores the field and relays, and a client asks for this
-            // precisely when it cannot reach the target itself, so serving on
-            // would mean connection errors from a backend nobody can see.
-            let asks_server_side = services.iter().any(|s| s.spec.server_side_target.is_some());
-            if asks_server_side {
-              let announced = response
-                .headers()
-                .get(crate::protocol::PROTOCOL_HEADER)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.trim().parse::<u32>().ok());
-              if announced.is_none_or(|p| p < MIN_SERVER_SIDE_PROTOCOL) {
-                error!(
-                  "[{}] This server speaks tunnel protocol {}, and serving a service from the server (server_side: true) needs {}. Not serving: an older server would relay these requests through this client instead, silently, and a service that asked for this usually cannot reach its target from here. Upgrade the server, or remove server_side: to serve it over the tunnel deliberately. Retrying.",
-                  label,
-                  announced
-                    .map(|p| p.to_string())
-                    .unwrap_or_else(|| "an older version".to_string()),
-                  MIN_SERVER_SIDE_PROTOCOL
-                );
-                break 'connection;
-              }
-            }
             // The server announces what this token may open for one service.
             // Published for the siblings waiting on it above; refreshed on
             // every reconnect, so raising the number on the server reaches a
@@ -311,19 +254,6 @@ pub(crate) async fn run_service(
                       accepted.join(", ")
                     );
                   }
-                  withheld.push(i);
-                  None
-                }
-                GateNegotiation::TooOldForPolicy { wanted } => {
-                  // Same refusal, different reason: the server is old enough
-                  // that it never says what it accepts, and a gate of this shape
-                  // can only be sent in a field it does not read. It would
-                  // ignore that field, see no gate, and serve the route open.
-                  error!(
-                    "[{}] This server is too old to be told an `auth:` of this shape (`{}`): it can only be given a single `user:password`. Not serving this service: upgrade the server, or write the gate as one credential.",
-                    service_label,
-                    wanted.join(", ")
-                  );
                   withheld.push(i);
                   None
                 }
@@ -791,10 +721,6 @@ pub(crate) async fn run_service(
               .map(|s| Arc::new(forward_context(&s.spec, &tx_write, &stream_pauses)))
               .collect();
 
-            // Protocol version the server announced via Pong; v2 enables
-            // binary chunk frames and streamed request bodies.
-            let server_protocol = Arc::new(std::sync::atomic::AtomicU32::new(1));
-
             // Streamed request bodies in flight: request id → chunk feeder.
             let active_request_streams: Arc<Mutex<HashMap<String, RequestBodyFeeder>>> =
               Arc::new(Mutex::new(HashMap::new()));
@@ -811,7 +737,6 @@ pub(crate) async fn run_service(
               health_report: &health_report,
               tx_write: tx_write.clone(),
               last_pong_time: last_pong_time.clone(),
-              server_protocol: server_protocol.clone(),
               compress_out: compress_out.clone(),
               stream_pauses: stream_pauses.clone(),
               max_message_size: spec.max_message_size,

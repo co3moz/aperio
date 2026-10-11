@@ -13,7 +13,6 @@ pub(crate) struct Target {
   pub transport: super::ExposeProtocol,
   pub org_id: Option<String>,
   pub target: String,
-  pub protocol: u32,
   pub service: Option<String>,
   pub tx: mpsc::Sender<Message>,
 }
@@ -98,7 +97,6 @@ pub(crate) async fn target(
         org_id: client.perms.org_id.clone(),
         tx: client.tx.clone(),
         target: declaration.target.clone(),
-        protocol: client.client_protocol.unwrap_or(1),
         service,
       });
     }

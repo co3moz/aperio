@@ -381,9 +381,6 @@ async fn relay_udp_consumer(
   log: RelayIdentity,
 ) {
   let stream_id = uuid::Uuid::new_v4().to_string();
-  // Read once per stream: the announcement precedes routability, so the
-  // client's protocol cannot change mid-stream in a way that matters.
-  let protocol = state.client_protocol(&client_id).await;
   let (relay_tx, mut relay_rx) = mpsc::channel::<TcpConsumerMsg>(64);
   state.udp_streams.lock().await.insert(
     stream_id.clone(),
@@ -430,7 +427,6 @@ async fn relay_udp_consumer(
       };
       // v7 takes the datagram raw; an older client takes base64 in JSON.
       let Some(frame) = crate::protocol::relay_frame(
-        protocol,
         crate::protocol::FRAME_UDP_DATAGRAM,
         &stream_id_up,
         &bytes,
@@ -576,18 +572,12 @@ async fn relay_tcp_consumer(
   log: RelayIdentity,
 ) {
   let stream_id = uuid::Uuid::new_v4().to_string();
-  // Read once per stream, like the pause support below.
-  let protocol = state.client_protocol(&client_id).await;
   let (relay_tx, mut relay_rx) = mpsc::channel::<TcpConsumerMsg>(64);
   // The tunnel read loop feeds a pump rather than this channel: a consumer
   // that stops reading must not stall the other streams on that tunnel;
   // past the byte watermark the client is asked to pause producing.
-  let flow = crate::state::StreamFlow::new(
-    stream_id.clone(),
-    client_tx.clone(),
-    state.client_supports_pause(&client_id).await,
-    state.stream_limits(),
-  );
+  let flow =
+    crate::state::StreamFlow::new(stream_id.clone(), client_tx.clone(), state.stream_limits());
   let relay_tx =
     crate::state::spawn_consumer_pump(relay_tx, state.config().gateway_response_timeout, flow);
   state.tcp_streams.lock().await.insert(
@@ -644,7 +634,6 @@ async fn relay_tcp_consumer(
       };
       // v7 takes the bytes raw; an older client takes base64 in JSON.
       let Some(frame) = crate::protocol::relay_frame(
-        protocol,
         crate::protocol::FRAME_TCP_DATA,
         &stream_id_up,
         &bytes,

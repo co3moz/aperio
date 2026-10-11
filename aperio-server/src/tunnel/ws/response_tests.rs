@@ -270,7 +270,6 @@ async fn slow_consumer_pauses_and_resumes_a_v3_producer() {
     StreamFlow::new(
       "r1".into(),
       client_tx,
-      true,
       crate::state::StreamLimits::default(),
     ),
   );

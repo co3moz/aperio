@@ -77,8 +77,8 @@ async fn next_tunnel_msg(rx: &mut mpsc::Receiver<Message>) -> TunnelMessage {
       .await
       .expect("timed out waiting for tunnel message")
       .expect("tunnel channel closed");
-    if let Message::Text(json) = m {
-      return serde_json::from_str(&json).unwrap();
+    if let Some(msg) = crate::protocol::decode_sent(&m) {
+      return msg;
     }
   }
 }
@@ -122,8 +122,6 @@ async fn test_handle_udp_open_relays_and_aborts() {
     abort_rx,
     Duration::from_secs(30),
     activity.clone(),
-    // The pre-v7 shape: base64 UdpDatagram inside JSON.
-    6,
   ));
 
   // tunnel -> backend
@@ -185,7 +183,6 @@ async fn test_handle_udp_open_target_unreachable() {
     abort_rx,
     Duration::from_secs(30),
     crate::service::ActivityClock::default(),
-    6,
   )
   .await;
 
@@ -221,7 +218,6 @@ async fn test_handle_udp_open_idle_expiry() {
     abort_rx,
     Duration::from_millis(20),
     crate::service::ActivityClock::default(),
-    6,
   )
   .await;
 
@@ -252,7 +248,6 @@ async fn test_handle_udp_open_datagram_sender_closed() {
     abort_rx,
     Duration::from_secs(30),
     crate::service::ActivityClock::default(),
-    6,
   ));
 
   // Dropping the only datagram sender closes datagram_rx -> None -> break.
@@ -287,7 +282,6 @@ async fn test_handle_udp_open_tunnel_closed_stops_relay() {
     abort_rx,
     Duration::from_secs(30),
     crate::service::ActivityClock::default(),
-    6,
   ));
 
   // Prime the connected socket so the backend learns the relay's address,
@@ -500,7 +494,6 @@ async fn test_handle_udp_open_send_recv_errors() {
     abort_rx,
     Duration::from_secs(2),
     crate::service::ActivityClock::default(),
-    6,
   ));
 
   for _ in 0..5 {
