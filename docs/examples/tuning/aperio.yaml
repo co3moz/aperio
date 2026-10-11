@@ -32,5 +32,3 @@ services:
     bandwidth: 8mbit             # server paces responses to this rate
     capture: false               # keep this firehose out of the request
                                  # inspector; traffic and statistics still count
-
-version: 0.12.0

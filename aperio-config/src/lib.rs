@@ -9,11 +9,11 @@
 //! has a specific format.
 
 pub mod authoring;
-pub mod compat;
 pub mod egress;
 pub mod expose;
 pub mod expose_policy;
 pub mod pairing;
+pub mod removed;
 
 // The schema itself, split by which file each part describes and by what it
 // describes about it. Everything is re-exported, so `aperio_config::Thing`

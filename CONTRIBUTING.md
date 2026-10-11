@@ -55,10 +55,10 @@ concrete problem before.
   book's reference table (`docs/book/aperio.tex`). A setting that reaches only
   one surface is unfinished, not "to be completed later". See
   [the naming standard](docs/configuration.md#the-standard-one-name-three-surfaces).
-- **A `CONFIG_CHANGES` entry** (`aperio-config/src/compat.rs`) whenever a config
-  change can alter how an *existing* file behaves: a key renamed, removed or
-  given a new meaning, a default that changes what a file does. This is what
-  lets an operator upgrade blind. Purely additive keys need none.
+- **A removed or renamed key leaves a hint** in `aperio-config/src/removed.rs`
+  naming what replaced it, and a **Breaking** line in `CHANGELOG.md`. There is
+  no `version:` and no translation layer, so the hint is what an operator
+  reads after an upgrade.
 - **The tunnel protocol is frozen within a minor release.** A client and a
   server pair only on the same minor (`aperio-config/src/pairing.rs`), so a
   patch must not change a frame, a handshake header or the Ping's shape. On a

@@ -12,7 +12,6 @@ Since 0.10.0 the server is **closed by default**. Most examples set `public: tru
 - `https://tunnel.example.com` is a placeholder server URL. Replace it with your server's public URL.
 - `apr_<scenario>_change_me` is a placeholder token. For a basic example, replace it with the same long random master token in both files. Organization, binder, and publisher examples use separately issued tokens; follow their READMEs. Do not commit real tokens; use environment-variable expansion such as `${APERIO_SERVER_TOKEN}` for secrets.
 - Each folder covers one scenario. Some include multiple services to show how the settings differ.
-- `version:` records the Aperio release the file targets. Keep it current so the client can report configuration changes during upgrades. See the [Upgrade Guide](../upgrade-guide.md).
 
 | Folder | Scenario |
 | --- | --- |

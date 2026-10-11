@@ -19,5 +19,3 @@ services:
   # - name: api
   #   target: http://localhost:4000
   #   hostname: api.example.com
-
-version: 0.12.0

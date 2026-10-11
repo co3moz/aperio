@@ -26,9 +26,3 @@ port: 8080
 # `allowed_ips` are the real ones rather than the proxy's.
 # trusted_proxies:
 #   - 127.0.0.1
-
-# The version this file was written for. On startup the server compares it
-# against its own build and reports every recorded change to the configuration
-# format that landed in between, refusing to start when one of them has
-# security consequences. Keep it current when you upgrade.
-version: __APERIO_VERSION__

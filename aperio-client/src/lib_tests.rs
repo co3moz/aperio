@@ -21,7 +21,6 @@ pub(crate) fn base_settings() -> ClientSettings {
     device_key: None,
     device_key_file: None,
     idle_timeout: None,
-    config_version: None,
     server: Some("https://tunnel.example.com".to_string()),
     target: Some("http://localhost:3000".to_string()),
     serve: None,

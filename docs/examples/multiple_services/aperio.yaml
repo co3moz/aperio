@@ -25,5 +25,3 @@ services:
     public: true
     target: http://localhost:5000
     path: /docs                     # path bind; the prefix is stripped by default
-
-version: 0.12.0

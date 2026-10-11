@@ -468,29 +468,6 @@ fn test_no_shadowing_for_distinct_routes() {
 }
 
 #[test]
-fn version_report_paths_warn_refuse_and_pass() {
-  // No `version:` at all is a warning: an upgrade cannot warn a file that
-  // never says what it targets.
-  let _g = EnvGuard::acquire();
-  set("APERIO_SERVER_TOKEN", "0123456789abcdef");
-  let _ = crate::config_file::reload();
-  assert_eq!(run(), 0);
-
-  // A version older than a recorded Breaking change writing one of its keys
-  // is reported; the Security path refuses outright with dashboard_auth set.
-  load_config("version: 0.5.0\nserver:\n  token: 0123456789abcdef\ndashboard_auth: legacy\n");
-  assert_eq!(run(), 1, "a Security entry must fail the check");
-
-  // The same old version without the affected key is a warning, not a fail.
-  load_config("version: 0.7.9\nserver:\n  token: 0123456789abcdef\ngateway_timeout: 10\n");
-  assert_eq!(run(), 0);
-
-  // A garbage version is an error.
-  load_config("version: not-a-version\nserver:\n  token: 0123456789abcdef\n");
-  assert_eq!(run(), 1);
-}
-
-#[test]
 fn scaling_and_edge_partial_configuration_is_called_out() {
   let _g = EnvGuard::acquire();
   set("APERIO_SERVER_TOKEN", "0123456789abcdef");

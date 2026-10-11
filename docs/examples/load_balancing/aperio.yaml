@@ -20,5 +20,3 @@ services:
     priority: 1                 # machine B: 0
     health:
       endpoint: /api/status
-
-version: 0.12.0

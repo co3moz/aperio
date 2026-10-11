@@ -11,5 +11,3 @@ server:
 services: []
 
 messages_listen: 127.0.0.1:1888
-
-version: 0.12.0

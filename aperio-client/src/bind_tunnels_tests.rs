@@ -23,7 +23,6 @@ fn settings_with(
     device_key: None,
     device_key_file: None,
     idle_timeout: None,
-    config_version: None,
     server: Some("https://tunnel.example.com".to_string()),
     target: None,
     serve: None,

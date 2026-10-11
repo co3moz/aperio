@@ -7,5 +7,3 @@ services:
   # example, and declaring the route public would walk around it.
   - target: http://localhost:3000
     hostname: app.example.com
-
-version: 0.12.0

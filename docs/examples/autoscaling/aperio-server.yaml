@@ -15,5 +15,3 @@ scaling:
   # Seconds after which an unrefreshed autoscaling record is dropped, so a
   # decommissioned service does not keep a cold-start trap behind.
   record_ttl: 2592000
-
-version: 0.12.0

@@ -341,13 +341,6 @@ pub struct FileConfig {
   /// startup (env: APERIO_TLS_CIPHER_SUITES).
   #[schemars(extend("examples" = ["TLS13_AES_256_GCM_SHA384,TLS13_CHACHA20_POLY1305_SHA256"]))]
   pub tls_cipher_suites: Option<String>,
-  /// The Aperio version this file was written for, e.g. `0.5.0`. On startup
-  /// the client compares it against its own build and reports every recorded
-  /// change to the configuration format that landed in between, refusing to
-  /// start when one of them has security consequences. Unset disables the
-  /// check (env: APERIO_VERSION).
-  #[schemars(extend("examples" = ["0.5.0"]))]
-  pub version: Option<String>,
   /// Fixed instance UUID kept across restarts, so failover and `--bind-tunnels`
   /// can recognize this client; a random one is used when unset.
   #[schemars(extend("examples" = ["3f2504e0-4f89-41d3-9a0c-0305e82c3301"]))]

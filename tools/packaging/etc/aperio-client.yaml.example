@@ -24,5 +24,3 @@ server:
 services:
   - target: http://127.0.0.1:3000
     hostname: myapp.example.com
-
-version: __APERIO_VERSION__

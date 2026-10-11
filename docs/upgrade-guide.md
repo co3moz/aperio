@@ -3,25 +3,14 @@
 How to upgrade Aperio safely, and what to expect from version skew between the
 server and its clients.
 
-## Declaring the version your config was written for
+## Configuration across an upgrade
 
-Both configuration files take a `version:` key naming the Aperio release they were written against:
-
-```yaml
-# aperio.yaml (or aperio-server.yaml)
-version: 0.12.0
-```
-
-On startup the binary compares that against its own build and looks up every recorded change to the *configuration format* that landed in between. The behaviour is deliberately quiet:
-
-- **Nothing changed in that range**, the upgrade cannot affect this file, and nothing is printed. Silence is the signal.
-- **Something changed**, a warning names each change, the keys it touched, and what to do about it, then asks you to set `version:` to the new release once you have looked.
-- **A change with security consequences**, the binary **refuses to start**. A default that opens something previously closed, or an enforcement that silently stopped applying, is exactly the case where continuing quietly is worse than an outage you can see.
-- **No `version:` at all**, the check is off, and one informational line says so. Existing deployments keep working unchanged; adding the key is what buys the warning.
-
-This check flags configuration changes during upgrades. It also warns when a file declares a version newer than the binary, as can happen after a rollback.
-
-The history deliberately starts at the release that introduced the mechanism: entries for older versions could only be guesses. From that point on, every change able to alter how an existing file behaves is recorded as part of the change itself.
+A configuration file does not declare the release it was written for, and no
+layer translates an old spelling into a new one. A key that was removed or
+renamed is reported by name when the client reads the file, with what replaced
+it, instead of the generic "not a setting" a typo gets. The
+[CHANGELOG](../CHANGELOG.md) lists every such key under the release that moved
+it, marked **Breaking**.
 
 ## Client ↔ server compatibility
 
@@ -65,8 +54,7 @@ GitHub Release, so an editor validates the exact keys a given version accepts.
 
 ## Upgrading to 0.12.0: what an OIDC login is, and a wider default
 
-Two recorded configuration changes, both reported by the `version:` check
-above. Neither needs a coordinated cutover.
+Two configuration changes. Neither needs a coordinated cutover.
 
 **A global OIDC login is no longer the super-admin.** Every address on the
 allowed-emails list used to sign in as the built-in `aperio` account. Now an

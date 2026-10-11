@@ -7,5 +7,3 @@ bind-tunnels:
   pg_main:
     port: 15432
     psk: replace-with-a-long-random-string   # must match the declaring side
-
-version: 0.12.0

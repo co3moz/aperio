@@ -198,13 +198,6 @@ pub struct ServerFileConfig {
   #[schemars(extend("examples" = [{"pause_bytes": 2097152, "resume_bytes": 524288, "backlog_limit": 16777216}]))]
   pub stream: Option<StreamGroup>,
   // --- Core ---
-  /// The Aperio version this file was written for, e.g. `0.5.0`. On startup
-  /// the server compares it against its own build and reports every recorded
-  /// change to the configuration format that landed in between, refusing to
-  /// start when one of them has security consequences. Unset disables the
-  /// check (env: APERIO_VERSION).
-  #[schemars(extend("examples" = ["0.5.0"]))]
-  pub version: Option<String>,
   /// Deprecated spelling of `server.token` (env: APERIO_SERVER_TOKEN).
   pub server_token: Option<String>,
   /// Address to bind (bare env: HOST). Default: `0.0.0.0`.

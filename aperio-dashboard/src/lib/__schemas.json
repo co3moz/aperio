@@ -903,16 +903,6 @@
           "$ref": "#/$defs/TunnelDecl"
         }
       },
-      "version": {
-        "description": "The Aperio version this file was written for, e.g. `0.5.0`. On startup\nthe client compares it against its own build and reports every recorded\nchange to the configuration format that landed in between, refusing to\nstart when one of them has security consequences. Unset disables the\ncheck (env: APERIO_VERSION).",
-        "type": [
-          "string",
-          "null"
-        ],
-        "examples": [
-          "0.5.0"
-        ]
-      },
       "wait_for_backend": {
         "description": "Hold the service out of routing until the backend first accepts a\nconnection, avoiding connection-refused errors while it boots\n(superseded by `target_health` when that is set). Deprecated spelling of\n`health.wait_for_backend`.",
         "type": [
@@ -3356,7 +3346,7 @@
         "examples": [
           {
             "max": 120,
-            "refill": 20.0
+            "refill": 20
           }
         ]
       },
@@ -3935,10 +3925,10 @@
         "examples": [
           [
             {
-              "burst": 10.0,
+              "burst": 10,
               "hostname": "api.example.com",
               "path": "/api/login",
-              "rps": 5.0
+              "rps": 5
             }
           ]
         ],
@@ -4408,16 +4398,6 @@
           60
         ],
         "minimum": 0
-      },
-      "version": {
-        "description": "The Aperio version this file was written for, e.g. `0.5.0`. On startup\nthe server compares it against its own build and reports every recorded\nchange to the configuration format that landed in between, refusing to\nstart when one of them has security consequences. Unset disables the\ncheck (env: APERIO_VERSION).",
-        "type": [
-          "string",
-          "null"
-        ],
-        "examples": [
-          "0.5.0"
-        ]
       },
       "visitor_identity_headers": {
         "description": "Announce to the backend who the *visitor* is, as `x-aperio-visitor-how`\n(`session` / `bearer` / `share`) and `x-aperio-visitor-id` (the email or\nusername behind a session, where there is one). Off by default and the\nsame trust surface as `identity_headers`; an ungated or deliberately\nopen route identifies nobody and sends neither header\n(env: APERIO_VISITOR_IDENTITY_HEADERS).",
@@ -5661,7 +5641,7 @@
             ],
             "format": "double",
             "examples": [
-              20.0
+              20
             ]
           }
         },
@@ -6116,7 +6096,7 @@
             ],
             "format": "double",
             "examples": [
-              100.0
+              100
             ]
           },
           "hostname": {
@@ -6161,7 +6141,7 @@
             "type": "number",
             "format": "double",
             "examples": [
-              50.0
+              50
             ]
           }
         },
@@ -6363,7 +6343,7 @@
             ],
             "format": "double",
             "examples": [
-              100.0
+              100
             ]
           },
           "methods": {
@@ -6388,7 +6368,7 @@
             "type": "number",
             "format": "double",
             "examples": [
-              50.0
+              50
             ]
           }
         },

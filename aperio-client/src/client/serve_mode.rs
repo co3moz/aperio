@@ -1,7 +1,7 @@
 //! Static file mode: standing a local server in front of each `serve:`
 //! directory, retiring the ones a reload removed, and the port each one gets.
 
-use tracing::{error, info, warn};
+use tracing::info;
 
 use crate::config::ClientSettings;
 use crate::*;
@@ -90,56 +90,6 @@ pub(crate) fn retire_unused_serve_listeners(
       false
     }
   });
-}
-
-/// Compares the declared config version against this build and reports what
-/// changed in between, exiting when a change has security consequences.
-///
-/// Quiet by design: an upgrade that cannot affect the file says nothing at
-/// all, so the one time it does speak is worth reading. `quiet` suppresses
-/// the informational nudge in `api` mode, whose output is piped.
-pub(crate) fn report_config_upgrade(
-  declared: Option<&str>,
-  quiet: bool,
-  keys: &aperio_config::compat::ConfigKeys,
-) {
-  use aperio_config::compat::{CONFIG_CHANGES, ConfigSurface, check_upgrade, report_lines};
-
-  let report = match check_upgrade(
-    declared,
-    env!("CARGO_PKG_VERSION"),
-    ConfigSurface::Client,
-    CONFIG_CHANGES,
-    keys,
-  ) {
-    Ok(report) => report,
-    Err(e) => {
-      error!("CRITICAL ERROR: {e}");
-      std::process::exit(1);
-    }
-  };
-  if report.declared.is_none() {
-    if !quiet {
-      info!(
-        "No `version:` in the configuration, so upgrade checks are off. Add `version: {}` to be warned when a future upgrade changes how this file is read.",
-        report.current
-      );
-    }
-    return;
-  }
-  if report.must_refuse() {
-    for line in report_lines(&report) {
-      error!("{line}");
-    }
-    error!(
-      "CRITICAL ERROR: refusing to start under a configuration whose security-relevant settings changed meaning. Review the above, then set `version: {}` to acknowledge them.",
-      report.current
-    );
-    std::process::exit(1);
-  }
-  for line in report_lines(&report) {
-    warn!("{line}");
-  }
 }
 
 /// Returns the loopback port serving `dir`, starting the static server on

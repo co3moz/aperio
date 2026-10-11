@@ -19,5 +19,3 @@ ui_language: en
 
 # To run headless with no dashboard at all, set:
 # dashboard: false
-
-version: 0.12.0

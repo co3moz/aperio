@@ -250,16 +250,6 @@ pub async fn run() {
     }
   };
 
-  // Upgrade safety: compare the version the file declares against this build
-  // and report every recorded config-format change in between. A change with
-  // security consequences stops the client here rather than letting it run
-  // under a configuration whose meaning shifted.
-  report_config_upgrade(
-    settings.config_version.as_deref(),
-    api_mode,
-    &config::config_keys(cli.opts.config.as_deref()),
-  );
-
   // Fix the server dialing family for the process. Effective at startup only;
   // a hot-reload cannot change it (mirrors other connection-level globals).
   dial::set_ip_family(settings.ip_family);

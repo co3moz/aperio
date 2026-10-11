@@ -155,14 +155,8 @@ jobs:
 
           # nfpm globs `src` before expanding variables in it, so the binary is
           # staged at a fixed path rather than named through the environment.
-          # The shipped config declares the version it was written for, which
-          # is what makes the upgrade check work for someone who installed from
-          # a package and never edited that line. A literal here would go stale
-          # the moment it shipped, so it is stamped now.
           mkdir -p dist
-          for f in tools/packaging/etc/*; do
-            sed "s/__APERIO_VERSION__/${NFPM_VERSION}/" "$f" > "dist/$(basename "$f")"
-          done
+          cp tools/packaging/etc/* dist/
 
           for bin in aperio-server aperio-client; do
             cp "target/${{ matrix.target }}/release/${bin}" "dist/${bin}"

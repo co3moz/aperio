@@ -20,8 +20,8 @@
 - [ ] `CHANGELOG.md` updated in this same commit, or the change is purely internal
 - [ ] A new setting reaches **all** its surfaces: yaml field with a doc comment,
       environment variable, `docs/configuration.md`, `docs/book/aperio.tex`
-- [ ] A config change that can affect an existing file has a `CONFIG_CHANGES`
-      entry with an honest severity (`aperio-config/src/compat.rs`)
+- [ ] A removed or renamed key has a hint in `aperio-config/src/removed.rs`
+      and a Breaking line in `CHANGELOG.md`
 - [ ] A wire change (frame, handshake header, Ping shape) lands only in a minor
       release, never in a patch
 - [ ] New Rust tests live in a sibling `<module>_tests.rs`, not inline

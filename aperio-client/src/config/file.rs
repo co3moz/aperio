@@ -200,6 +200,10 @@ pub(crate) fn warn_unknown_keys(doc: &serde_yaml::Mapping, path: &str) {
     if known.iter().any(|k| k == key) {
       return;
     }
+    if let Some(hint) = aperio_config::removed::client_hint(key) {
+      warn!("{path}: `{key}` in {where_} was {hint}");
+      return;
+    }
     match aperio_config::authoring::suggest(key, known.iter().map(String::as_str)) {
       Some(hint) => warn!("{path}: `{key}` in {where_} is not a setting; did you mean `{hint}`?"),
       None => warn!("{path}: `{key}` in {where_} is not a setting and is ignored"),

@@ -19,5 +19,3 @@ oidc_redirect_url: https://tunnel.example.com/aperio/oidc/callback
 
 # Requested scopes (default shown).
 oidc_scopes: [openid, email, profile]
-
-version: 0.12.0

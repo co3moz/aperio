@@ -71,9 +71,6 @@ pub(crate) struct ClientSettings {
   /// Retire this client after it has served nothing for this long, in
   /// seconds (config files / env only; None = never).
   pub(crate) idle_timeout: Option<u64>,
-  /// The Aperio version this config declares it was written for; drives the
-  /// upgrade-safety check at startup. None = the file says nothing.
-  pub(crate) config_version: Option<String>,
   /// Admin API key used by the `api` subcommand (never by the tunnel).
   pub(crate) api_key: Option<String>,
   pub(crate) server: Option<String>,
@@ -325,36 +322,6 @@ fn env_bool(key: &str) -> Option<bool> {
 /// Layered lookup: CLI > local file > environment > home file.
 fn layered<T>(cli: Option<T>, local: Option<T>, env: Option<T>, home: Option<T>) -> Option<T> {
   cli.or(local).or(env).or(home)
-}
-
-/// The keys the client's yaml files actually write, so an upgrade report can
-/// skip a change about a key this deployment never set.
-///
-/// Read separately from `FileConfig`: the typed struct cannot say whether a
-/// key was written or merely defaulted, and that difference is the whole point
-/// here. Both layers count, a key inherited from `~/.aperio.yaml` is as set
-/// as one written next to the binary.
-pub(crate) fn config_keys(explicit_config: Option<&str>) -> aperio_config::compat::ConfigKeys {
-  let read = |path: &str| -> Option<serde_yaml::Mapping> {
-    let raw = std::fs::read_to_string(path).ok()?;
-    match serde_yaml::from_str::<serde_yaml::Value>(&raw).ok()? {
-      serde_yaml::Value::Mapping(map) => Some(map),
-      _ => None,
-    }
-  };
-  let mut merged = serde_yaml::Mapping::new();
-  for doc in [
-    home_config_path().and_then(|p| read(&p.to_string_lossy())),
-    read(explicit_config.unwrap_or("aperio.yaml")),
-  ]
-  .into_iter()
-  .flatten()
-  {
-    for (k, v) in doc {
-      merged.insert(k, v);
-    }
-  }
-  aperio_config::compat::ConfigKeys::from_mapping(&merged)
 }
 
 /// The two logging settings, resolved before the subscriber is installed.

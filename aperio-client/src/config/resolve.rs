@@ -56,13 +56,6 @@ pub(crate) fn resolve_settings(
     ),
     scaling: resolve_scaling(local, home),
     idle_timeout,
-    config_version: layered(
-      None,
-      local.version.clone(),
-      env_str("APERIO_VERSION"),
-      home.version.clone(),
-    )
-    .and_then(nonempty),
     server_urls: layered(
       None,
       local.server_urls(),

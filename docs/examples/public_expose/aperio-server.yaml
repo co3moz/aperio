@@ -14,5 +14,3 @@ expose:
   - protocol: tcp        # tcp only; a public udp port is an amplification surface
     port: 2222
     tunnel: ssh
-
-version: 0.12.0

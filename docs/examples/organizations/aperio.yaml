@@ -9,5 +9,3 @@ services:
   - target: http://localhost:3000
     public: true
     hostname: app.acme.example.com
-
-version: 0.12.0

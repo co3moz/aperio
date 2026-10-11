@@ -150,12 +150,8 @@ pub fn run() {
     std::process::exit(decrypt_backup());
   }
 
-  // Upgrade safety: compare the version the file declares against this build
-  // and report every recorded config-format change in between. Runs before
-  // the diagnostic subcommands so they inherit the same verdict, and before
-  // anything binds a port, since a security-relevant change must stop the
-  // start rather than be noticed afterwards.
-  report_config_upgrade();
+  // A removed setting still configured stops the start before anything binds
+  // a port, naming what replaced it.
   refuse_removed_settings();
 
   // `aperio-server --check-config` lints the layered configuration (file +
