@@ -121,8 +121,7 @@ pushes back on the producer instead, and three watermarks control that.
   flapping chunk by chunk. Too small and a fast producer stalls waiting for the
   queue to drain almost empty.
 - **`APERIO_STREAM_BACKLOG_LIMIT`** (16 MB). Only bites for a producer that
-  cannot be paused, i.e. a pre-v3 client. Upgrading clients matters more here
-  than tuning the number.
+  ignores a pause.
 
 Note that this is the *server's* side of a slow link. The client-side
 `bandwidth` cap below is the complement: it paces what the server sends toward a

@@ -243,10 +243,6 @@ fn is_zero(value: &u8) -> bool {
   *value == 0
 }
 
-fn default_true() -> bool {
-  true
-}
-
 // The tunnel declaration is shared with the `aperio.yaml` schema crate so the
 // same type serves both the config file and the wire (Ping) form.
 pub(crate) use aperio_config::{ScalingDecl, TunnelDecl};
@@ -406,15 +402,11 @@ fn is_zero_u32(v: &u32) -> bool {
 #[serde(tag = "type")]
 pub(crate) enum TunnelMessage {
   Ping {
-    /// Every service this connection serves (#46, protocol v8).
-    ///
-    /// Absent from a client that predates v8, and from a v8 client running
-    /// the ordinary one-service-per-connection shape: those describe their
-    /// service in the top-level fields below, exactly as before. When present
-    /// it is authoritative and the top-level per-service fields are ignored,
-    /// so the two spellings can never half-agree.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    services: Option<Vec<ServiceDecl>>,
+    /// Every service this connection serves, at least one. A connection
+    /// carrying one service sends a list of one; there is no second spelling
+    /// in top-level fields, so the declaration has one shape to read.
+    #[serde(default)]
+    services: Vec<ServiceDecl>,
     client_id: String,
     /// What to call this client, from `name:` in its file. A label the server
     /// shows instead of an id, never something it addresses: `client_id`
@@ -423,168 +415,27 @@ pub(crate) enum TunnelMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     name: Option<String>,
     timestamp: u64,
-    path_bind: Option<String>,
-    #[serde(default)]
-    hostname_bind: Option<String>,
-    /// Additional hostname binds beyond `hostname_bind` (multi-hostname
-    /// services). Additive; older peers omit it and send only the single
-    /// `hostname_bind`.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    hostname_binds: Vec<String>,
-    /// Maximum concurrent requests this client is willing to process.
-    /// The server queues excess requests instead of dispatching them.
-    #[serde(default)]
-    max_concurrent: Option<u32>,
-    /// True when the client has a TCP target configured (APERIO_TCP_TARGET).
-    #[serde(default)]
-    tcp: bool,
     /// Client build version (CARGO_PKG_VERSION), for display/diagnostics.
     #[serde(default)]
     version: Option<String>,
-    /// Tunnel wire protocol version this client speaks.
+    /// Tunnel wire protocol version the client speaks, for display.
     #[serde(default)]
     protocol: Option<u32>,
-    /// Result of the client's own backend health probe (APERIO_TARGET_HEALTH).
-    /// False takes this client out of routing without dropping the tunnel.
-    #[serde(default = "default_true")]
-    backend_healthy: bool,
-    /// False only while a configured health check has not completed its first
-    /// probe yet (UI shows "checking" vs "down"). Older peers omit it → true.
-    #[serde(default = "default_true")]
-    backend_probed: bool,
-    /// Load-balancing priority tier: 0 = primary (default), higher numbers
-    /// are standbys (used with the server's primary-standby strategy).
-    #[serde(default)]
-    priority: u32,
-    /// Announced downstream link capacity in bytes/second; the server paces
-    /// tunnel frames so this client is never pushed faster than its network.
-    #[serde(default)]
-    bandwidth_bps: Option<u64>,
-    /// Handle of the service this connection exposes (from the client's
-    /// `services:` list), for the dashboard.
-    #[serde(default)]
-    service: Option<String>,
-    /// What that service is called on screen (`custom_name:`), when the file
-    /// gave it one. Free text; the handle above is what anything addresses.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    service_custom_name: Option<String>,
-    /// The client declares its service public: the server skips the visitor
-    /// auth gate for traffic routed here (honored only when the token
-    /// permits publishing public services).
-    #[serde(default)]
-    public: bool,
-    /// Per-service visitor credentials ("user:password") declared by the
-    /// client: the server gates traffic routed here behind a login with these
-    /// credentials (honored only when the token may control the visitor gate,
-    /// same permission as `public`, and the server has not set
-    /// APERIO_IGNORE_CLIENT_AUTH). None = no override.
-    #[serde(default)]
-    visitor_auth: Option<String>,
-    /// The full visitor-auth policy, when the scalar above cannot carry it.
-    ///
-    /// Sent only to a server that announced, on the handshake response, that
-    /// it understands the methods in it (`planned_features.md` #111). A
-    /// server that ignored this field would read the client as declaring no
-    /// gate at all, and the route would come up open, so it is negotiated
-    /// rather than assumed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    visitor_auth_methods: Option<Vec<aperio_config::AuthMethodSpec>>,
-    /// Visitor IPs/CIDRs allowed to reach this service (empty = everyone).
-    /// The server rejects other visitors with 403 before dispatching.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    allowed_ips: Vec<String>,
-    /// Tunnels declared by this client (`tunnels:` list): normally
-    /// unexposed local services reachable by a peer client via
-    /// `--bind-tunnels` with the same token and this client's id.
-    #[serde(default)]
-    tunnels: Vec<TunnelDecl>,
-    /// Opt this service into the server-side response cache (effective only
-    /// when the server enables APERIO_CACHE).
-    #[serde(default)]
-    cache: bool,
-    /// The client asks the server to keep serving this service's cached
-    /// responses (marked, even expired) while no healthy client is
-    /// connected, instead of failing with 504. Needs `cache`.
-    #[serde(default)]
-    resilience: bool,
-    /// The client asks the server not to record this service's transactions
-    /// for the request inspector. Absent on older clients, which means the
-    /// default: record.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    no_capture: bool,
-    /// Largest request body, in bytes, visitors may upload to this service;
-    /// the server answers bigger uploads with an early 413 before they enter
-    /// the tunnel (None = only the server's global limit applies).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    max_request_body: Option<u64>,
-    /// How long, in seconds, the server should wait for this service to answer
-    /// a dispatched request before failing it, a per-service override of the
-    /// server's global gateway response timeout (None = use the global value).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    response_timeout: Option<u64>,
-    /// Trust-on-first-use device key for token pinning (`APERIO_DEVICE_KEY`).
-    /// The server pins the first key seen for the token and rejects later
-    /// connections announcing a different key (None = not announced).
+    /// Trust-on-first-use device key for token pinning. The server pins the
+    /// first key seen for the token and rejects a later connection announcing
+    /// a different one (None = not announced).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     client_key: Option<String>,
-    /// Ask the server to persist inbound POSTs to this service into its
-    /// webhook inbox (browse & re-fire from the dashboard).
-    #[serde(default)]
-    webhook_inbox: bool,
-    /// Redirect URL the server should answer to visitors rejected by this
-    /// service's `allowed_ips` when no route candidate admits them
-    /// (None = stealth: same answer as an unclaimed route).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    denied: Option<String>,
-    /// Autoscaling declaration: the endpoint the server calls when this
-    /// service needs capacity it does not have. Persisted server-side against
-    /// this client's binds and deliberately outliving the connection, so a
-    /// scale-to-zero service can be woken when nothing is running. Honored
-    /// only when the token permits it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    scaling: Option<ScalingDecl>,
-    /// Parallel tunnel connections this service has open *right now*. Every
-    /// one of them announces the same count; the dashboard needs it to explain
-    /// per-connection values such as the bandwidth share.
-    ///
-    /// Re-read on every heartbeat, not captured when the connection came up:
-    /// an elastic pool changes this while running, and a value fixed at
-    /// connect time reported whatever the pool happened to be when this
-    /// particular connection opened, which is how the dashboard came to show
-    /// `connections: 3` beside four live connections.
-    #[serde(default)]
-    connections: Option<u32>,
-    /// The pool's floor and ceiling (`connections: {min, max}`). Absent, or
-    /// equal to each other, for a fixed `connections: N`. Without these the
-    /// server cannot tell a pool sitting at its floor from a fixed pool of
-    /// the same size, so it cannot say whether a number is expected to move.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    connections_min: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    connections_max: Option<u32>,
-    /// Settings this client resolved to something other than the config asked
-    /// for. Additive; older peers omit it.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    config_notes: Vec<ConfigNote>,
-    /// Static Prometheus labels this client announces (`metrics_labels:`),
-    /// attached to its own series so one Prometheus can serve several
-    /// environments without relabelling rules. Validated and capped by the
-    /// server on arrival: label cardinality is how a metrics backend dies,
-    /// and these come from clients.
-    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    metrics_labels: std::collections::BTreeMap<String, String>,
     /// Seconds this client gives its own in-flight requests when it is asked
     /// to stand down (`reload_drain:`). Announced so the server can size its
     /// shutdown drain from what its clients actually expect, rather than from
     /// a number nobody revisits.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     drain_secs: Option<u64>,
-    /// What the client observes about itself (planned_features #37): CPU as a
-    /// percentage of one core and resident memory of the client process, and
-    /// round-trip time, jitter and reconnect count of this tunnel connection.
-    /// All additive and all optional: an older client omits them, and the
-    /// process figures are absent on platforms where they cannot be read
-    /// without guessing.
+    /// What the client observes about itself: CPU as a percentage of one core
+    /// and resident memory of the client process, and round-trip time, jitter
+    /// and reconnect count of this tunnel connection. The process figures are
+    /// absent on platforms where they cannot be read without guessing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     cpu_percent: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

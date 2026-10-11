@@ -26,44 +26,27 @@ async fn ping_master_applies_all_binds() {
 
   let mut ping = base_ping();
   if let TunnelMessage::Ping {
-    ref mut path_bind,
-    ref mut hostname_bind,
-    ref mut hostname_binds,
-    ref mut max_concurrent,
-    ref mut tcp,
+    ref mut services,
     ref mut version,
     ref mut protocol,
-    ref mut priority,
-    ref mut bandwidth_bps,
-    ref mut service,
-    ref mut public,
-    ref mut visitor_auth,
-    ref mut allowed_ips,
-    ref mut tunnels,
-    ref mut cache,
-    ref mut resilience,
-    ref mut max_request_body,
-    ref mut response_timeout,
-    ref mut webhook_inbox,
-    ref mut denied,
-    ref mut backend_healthy,
     ..
   } = ping
   {
-    *path_bind = Some("/api".into());
-    *hostname_bind = Some("example.com".into());
-    *hostname_binds = vec!["a.example.com".into(), "b.example.com".into()];
-    *max_concurrent = Some(4);
-    *tcp = true;
+    let d = &mut services[0];
+    d.path_bind = Some("/api".into());
+    d.hostname_bind = Some("example.com".into());
+    d.hostname_binds = vec!["a.example.com".into(), "b.example.com".into()];
+    d.max_concurrent = Some(4);
+    d.tcp = true;
     *version = Some("9.9.9".into());
     *protocol = Some(9999);
-    *priority = 7;
-    *bandwidth_bps = Some(1_000_000);
-    *service = Some("svc".into());
-    *public = true;
-    *visitor_auth = Some("user:pass".into());
-    *allowed_ips = vec!["127.0.0.1".into(), "bogus".into()];
-    *tunnels = vec![TunnelDecl {
+    d.priority = 7;
+    d.bandwidth_bps = Some(1_000_000);
+    d.service = Some("svc".into());
+    d.public = true;
+    d.visitor_auth = Some("user:pass".into());
+    d.allowed_ips = vec!["127.0.0.1".into(), "bogus".into()];
+    d.tunnels = vec![TunnelDecl {
       custom_name: None,
       name: None,
       target: "127.0.0.1:9".into(),
@@ -72,13 +55,13 @@ async fn ping_master_applies_all_binds() {
       idle_timeout: None,
       expose: None,
     }];
-    *cache = true;
-    *resilience = true;
-    *max_request_body = Some(1000);
-    *response_timeout = Some(30);
-    *webhook_inbox = true;
-    *denied = Some("https://example.com/denied".into());
-    *backend_healthy = false;
+    d.cache = true;
+    d.resilience = true;
+    d.max_request_body = Some(1000);
+    d.response_timeout = Some(30);
+    d.webhook_inbox = true;
+    d.denied = Some("https://example.com/denied".into());
+    d.backend_healthy = false;
   }
   send(&mut ws, &ping).await;
   read_until_pong(&mut ws).await;
@@ -109,11 +92,11 @@ async fn ping_master_applies_all_binds() {
   // and the healthy-again transition.
   let mut ping2 = ping.clone();
   if let TunnelMessage::Ping {
-    ref mut backend_healthy,
-    ..
+    ref mut services, ..
   } = ping2
   {
-    *backend_healthy = true;
+    let d = &mut services[0];
+    d.backend_healthy = true;
   }
   send(&mut ws, &ping2).await;
   read_until_pong(&mut ws).await;
@@ -141,13 +124,12 @@ async fn ping_master_invalid_visitor_and_denied() {
 
   let mut ping = base_ping();
   if let TunnelMessage::Ping {
-    ref mut visitor_auth,
-    ref mut denied,
-    ..
+    ref mut services, ..
   } = ping
   {
-    *visitor_auth = Some("no-colon-here".into()); // invalid creds
-    *denied = Some("ftp://bad".into()); // not http(s) -> filtered
+    let d = &mut services[0];
+    d.visitor_auth = Some("no-colon-here".into()); // invalid creds
+    d.denied = Some("ftp://bad".into()); // not http(s) -> filtered
   }
   send(&mut ws, &ping).await;
   read_until_pong(&mut ws).await;
@@ -168,15 +150,13 @@ async fn ping_dynamic_token_denies_public_and_visitor_auth() {
 
   let mut ping = base_ping();
   if let TunnelMessage::Ping {
-    ref mut public,
-    ref mut visitor_auth,
-    ref mut allowed_ips,
-    ..
+    ref mut services, ..
   } = ping
   {
-    *public = true;
-    *visitor_auth = Some("user:pass".into());
-    *allowed_ips = vec!["10.0.0.0/8".into(), "junk".into()];
+    let d = &mut services[0];
+    d.public = true;
+    d.visitor_auth = Some("user:pass".into());
+    d.allowed_ips = vec!["10.0.0.0/8".into(), "junk".into()];
   }
   send(&mut ws, &ping).await;
   read_until_pong(&mut ws).await;
@@ -366,10 +346,10 @@ async fn a_v8_ping_declaring_one_service_is_the_shape_that_already_worked() {
     ref mut services, ..
   } = ping
   {
-    *services = Some(vec![crate::protocol::ServiceDecl {
+    *services = vec![crate::protocol::ServiceDecl {
       hostname_bind: Some("one.e2e.local".into()),
       ..Default::default()
-    }]);
+    }];
   }
   send(&mut ws, &ping).await;
 
@@ -513,14 +493,12 @@ async fn a_service_list_past_the_ceiling_is_refused_before_it_is_walked() {
     ref mut services, ..
   } = ping
   {
-    *services = Some(
-      (0..MAX_DECLARED_SERVICES + 1)
-        .map(|i| crate::protocol::ServiceDecl {
-          service: Some(format!("svc{i}")),
-          ..Default::default()
-        })
-        .collect(),
-    );
+    *services = (0..MAX_DECLARED_SERVICES + 1)
+      .map(|i| crate::protocol::ServiceDecl {
+        service: Some(format!("svc{i}")),
+        ..Default::default()
+      })
+      .collect();
   }
   send(&mut ws, &ping).await;
 
@@ -543,14 +521,12 @@ async fn a_list_at_the_ceiling_is_served() {
     ref mut services, ..
   } = ping
   {
-    *services = Some(
-      (0..MAX_DECLARED_SERVICES)
-        .map(|i| crate::protocol::ServiceDecl {
-          service: Some(format!("svc{i}")),
-          ..Default::default()
-        })
-        .collect(),
-    );
+    *services = (0..MAX_DECLARED_SERVICES)
+      .map(|i| crate::protocol::ServiceDecl {
+        service: Some(format!("svc{i}")),
+        ..Default::default()
+      })
+      .collect();
   }
   send(&mut ws, &ping).await;
   read_until_pong(&mut ws).await;
@@ -571,11 +547,11 @@ async fn a_list_at_the_ceiling_is_served() {
 fn ping_with_concurrency(n: u32) -> TunnelMessage {
   let mut ping = base_ping();
   if let TunnelMessage::Ping {
-    ref mut max_concurrent,
-    ..
+    ref mut services, ..
   } = ping
   {
-    *max_concurrent = Some(n);
+    let d = &mut services[0];
+    d.max_concurrent = Some(n);
   }
   ping
 }
@@ -725,10 +701,10 @@ async fn a_permitted_target_is_served_from_the_server() {
     ref mut services, ..
   } = ping
   {
-    *services = Some(vec![crate::protocol::ServiceDecl {
+    *services = vec![crate::protocol::ServiceDecl {
       server_side_target: Some("http://10.1.2.3:8080".into()),
       ..Default::default()
-    }]);
+    }];
   }
   send(&mut ws, &ping).await;
   let cid = wait_client_id(&state).await;
@@ -758,10 +734,10 @@ async fn a_token_without_the_permission_is_refused_and_not_relayed() {
     ref mut services, ..
   } = ping
   {
-    *services = Some(vec![crate::protocol::ServiceDecl {
+    *services = vec![crate::protocol::ServiceDecl {
       server_side_target: Some("http://10.1.2.3:8080".into()),
       ..Default::default()
-    }]);
+    }];
   }
   send(&mut ws, &ping).await;
   let cid = wait_client_id(&state).await;
@@ -808,11 +784,11 @@ async fn a_target_outside_the_operators_list_is_refused() {
     ref mut services, ..
   } = ping
   {
-    *services = Some(vec![crate::protocol::ServiceDecl {
+    *services = vec![crate::protocol::ServiceDecl {
       hostname_bind: Some("ss.e2e.local".into()),
       server_side_target: Some("http://192.168.9.9:8080".into()),
       ..Default::default()
-    }]);
+    }];
   }
   send(&mut ws, &ping).await;
   let cid = wait_client_id(&state).await;

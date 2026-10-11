@@ -1312,18 +1312,10 @@ async fn a_multiplexed_connection_declares_every_service_in_one_ping() {
   let (stream, _) = listener.accept().await.unwrap();
   let mut ws = accept_announcing(stream).await;
   let ping = next_ping(&mut ws).await.expect("the first heartbeat");
-  let TunnelMessage::Ping {
-    services,
-    hostname_bind,
-    service,
-    max_concurrent,
-    ..
-  } = ping
-  else {
+  let TunnelMessage::Ping { services, .. } = ping else {
     unreachable!("next_ping only returns Pings")
   };
 
-  let services = services.expect("a connection carrying two services declares a list");
   assert_eq!(
     services
       .iter()
@@ -1342,18 +1334,13 @@ async fn a_multiplexed_connection_declares_every_service_in_one_ping() {
   // rather than a number of connections it does not have.
   assert_eq!(services[0].connections, Some(1));
   assert_eq!(services[1].connections, Some(1));
-  // The singular fields still describe the first service, so a server reading
-  // only them sees a consistent connection rather than a half-merged one.
-  assert_eq!(service, Some("web".to_string()));
-  assert_eq!(hostname_bind, Some("web.example.com".to_string()));
-  assert_eq!(max_concurrent, None);
 
   cancel_tx.send(true).unwrap();
   let _ = tokio::time::timeout(Duration::from_secs(5), svc).await;
 }
 
 #[tokio::test]
-async fn a_connection_carrying_one_service_still_sends_no_list() {
+async fn a_connection_carrying_one_service_sends_a_list_of_one() {
   // The list is what narrows which servers can read a Ping, so it is sent only
   // when there is more than one service to describe. A one-entry list would
   // say nothing the singular fields do not.
@@ -1373,14 +1360,13 @@ async fn a_connection_carrying_one_service_still_sends_no_list() {
   ));
 
   let (stream, _) = listener.accept().await.unwrap();
-  // Deliberately the bare handshake an old server sends: a single service
-  // must not be gated on an announcement it does not need.
   let mut ws = accept_async(stream).await.unwrap();
   let ping = next_ping(&mut ws).await.expect("the first heartbeat");
   let TunnelMessage::Ping { services, .. } = ping else {
     unreachable!("next_ping only returns Pings")
   };
-  assert!(services.is_none());
+  // One service is a list of one: there is no second spelling.
+  assert_eq!(services.len(), 1);
 
   cancel_tx.send(true).unwrap();
   let _ = tokio::time::timeout(Duration::from_secs(5), svc).await;
@@ -1461,9 +1447,7 @@ async fn a_server_that_can_serve_from_itself_receives_the_declaration() {
   let mut ws = accept_announcing(stream).await;
   let ping = next_ping(&mut ws).await.expect("a declaration");
   let asked = match &ping {
-    TunnelMessage::Ping { services, .. } => services
-      .as_ref()
-      .is_some_and(|list| list.iter().any(|s| s.server_side_target.is_some())),
+    TunnelMessage::Ping { services, .. } => services.iter().any(|s| s.server_side_target.is_some()),
     _ => false,
   };
   assert!(

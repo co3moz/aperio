@@ -52,13 +52,9 @@ fn test_tunnel_decl_serde_defaults() {
   let decl: TunnelDecl = serde_json::from_str(r#"{"target":"127.0.0.1:27017"}"#).unwrap();
   assert_eq!(decl.protocol, "tcp");
 
-  // Ping messages without a tunnels field (older peers) parse fine.
-  let ping = r#"{"type":"Ping","client_id":"c","timestamp":1,"path_bind":null}"#;
-  let msg: TunnelMessage = serde_json::from_str(ping).unwrap();
-  match msg {
-    TunnelMessage::Ping { tunnels, .. } => assert!(tunnels.is_empty()),
-    other => panic!("expected Ping, got {other:?}"),
-  }
+  // A service entry without a tunnels field parses with none.
+  let decl: ServiceDecl = serde_json::from_str(r#"{"service":"web"}"#).unwrap();
+  assert!(decl.tunnels.is_empty());
 
   // TcpOpen without a target (older servers) parses as the legacy form.
   let open = r#"{"type":"TcpOpen","stream_id":"s1"}"#;

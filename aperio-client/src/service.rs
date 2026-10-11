@@ -538,18 +538,8 @@ pub(crate) async fn run_service(
                 // that reads it treats it as authoritative and a one-entry list
                 // says nothing the singular fields do not: what it would
                 // change is which servers can read the Ping at all.
-                let first = &decls[0];
                 TunnelMessage::Ping {
-                  // Also sent for a single service when it asks to be served
-                  // from the server, because that ask exists only in the list:
-                  // the singular fields are the shim an older server reads and
-                  // they deliberately do not carry it. Without this the feature
-                  // worked only on a multiplexed connection, which is not
-                  // where most services live, and it failed by relaying
-                  // silently. Found by the e2e phase, which is what it is for.
-                  services: (decls.len() > 1
-                    || decls.iter().any(|d| d.server_side_target.is_some()))
-                  .then(|| decls.clone()),
+                  services: decls.clone(),
                   cpu_percent: self_health_ping.cpu_percent(),
                   rss_bytes: crate::health_report::rss_bytes(),
                   rtt_ms,
@@ -561,45 +551,10 @@ pub(crate) async fn run_service(
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs(),
-                  path_bind: first.path_bind.clone(),
-                  hostname_bind: first.hostname_bind.clone(),
-                  hostname_binds: first.hostname_binds.clone(),
-                  max_concurrent: first.max_concurrent,
-                  tcp: first.tcp,
                   version: Some(env!("CARGO_PKG_VERSION").to_string()),
                   protocol: Some(PROTOCOL_VERSION),
-                  backend_healthy: first.backend_healthy,
-                  backend_probed: first.backend_probed,
-                  priority: first.priority,
-                  bandwidth_bps: first.bandwidth_bps,
-                  service: first.service.clone(),
-                  service_custom_name: first.service_custom_name.clone(),
-                  // No `server_side_target` here on purpose. These singular
-                  // fields are the shim an older server reads, and an older
-                  // server cannot honour this: it would relay instead, which
-                  // is the silent fallback the feature exists to avoid. The
-                  // ask travels only in the `services` list, where a server
-                  // that understands it will find it.
-                  public: first.public,
-                  visitor_auth: first.visitor_auth.clone(),
-                  visitor_auth_methods: first.visitor_auth_methods.clone(),
-                  allowed_ips: first.allowed_ips.clone(),
-                  tunnels: first.tunnels.clone(),
-                  cache: first.cache,
-                  resilience: first.resilience,
-                  no_capture: first.no_capture,
-                  max_request_body: first.max_request_body,
-                  response_timeout: first.response_timeout,
                   client_key: client_key_ping.clone(),
-                  webhook_inbox: first.webhook_inbox,
-                  denied: first.denied.clone(),
-                  scaling: first.scaling.clone(),
-                  connections: first.connections,
-                  connections_min: first.connections_min,
-                  connections_max: first.connections_max,
-                  metrics_labels: first.metrics_labels.clone(),
                   drain_secs: drain_secs_ping,
-                  config_notes: first.config_notes.clone(),
                 }
               };
               // The first Ping goes out immediately: it announces the binds,

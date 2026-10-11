@@ -73,19 +73,15 @@ fn test_decode_never_panics_and_holds_invariants() {
 }
 
 #[test]
-fn test_ping_backward_compat() {
-  // Ping messages without the newer optional fields (older clients) parse,
-  // and the serde defaults hold: backend_healthy=true, tunnels empty.
-  let ping = r#"{"type":"Ping","client_id":"c","timestamp":1,"path_bind":null}"#;
+fn a_ping_carries_its_services_as_a_list() {
+  // One shape: every service is an entry of `services`, even a single one.
+  let ping = r#"{"type":"Ping","client_id":"c","timestamp":1,"services":[{"service":"web"}]}"#;
   let msg: TunnelMessage = serde_json::from_str(ping).unwrap();
   match msg {
-    TunnelMessage::Ping {
-      backend_healthy,
-      tunnels,
-      ..
-    } => {
-      assert!(backend_healthy);
-      assert!(tunnels.is_empty());
+    TunnelMessage::Ping { services, .. } => {
+      assert_eq!(services.len(), 1);
+      assert_eq!(services[0].service.as_deref(), Some("web"));
+      assert!(services[0].tunnels.is_empty());
     }
     other => panic!("expected Ping, got {other:?}"),
   }
