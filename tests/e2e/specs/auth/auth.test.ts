@@ -10,7 +10,7 @@ import { createServer } from 'node:http'
 const HOST = 'app.e2e.local'
 
 export class AuthServer extends AperioServerBase({
-  settings: { access: { gate: 'demo:secret123' } },
+  settings: { access: { method: 'basic', users: 'demo:secret123' } },
 }) {}
 
 /** A server whose gate is written as a list: a login for people, a key for
@@ -18,12 +18,10 @@ export class AuthServer extends AperioServerBase({
 export class BearerServer extends AperioServerBase({
   settings: {
     identity_headers: { visitor: true },
-    access: {
-      gate: [
-        { method: 'basic', users: 'demo:secret123' },
-        { method: 'bearer', secret: '0123456789abcdef-e2e-secret', query: true },
-      ],
-    },
+    access: [
+      { method: 'basic', users: 'demo:secret123' },
+      { method: 'bearer', secret: '0123456789abcdef-e2e-secret', query: true },
+    ],
   },
 }) {}
 
@@ -457,7 +455,7 @@ export class BearerMethodSpec extends Test({
 
 /** A server that serves what is declared reachable, and nothing else. */
 export class ClosedServer extends AperioServerBase({
-  settings: { access: { default: 'deny' } },
+  settings: { access: 'deny' },
 }) {}
 
 export class ClosedBackend extends StandardBackendBase() {}
@@ -531,17 +529,15 @@ function signHs256(claims: Record<string, unknown>): string {
 export class JwtServer extends AperioServerBase({
   settings: {
     identity_headers: { visitor: true },
-    access: {
-      gate: [
-        {
-          method: 'jwt',
-          hmac_secret: JWT_SECRET,
-          issuer: 'https://accounts.e2e.local',
-          audience: 'aperio',
-          claims: { groups: 'engineering' },
-        },
-      ],
-    },
+    access: [
+      {
+        method: 'jwt',
+        hmac_secret: JWT_SECRET,
+        issuer: 'https://accounts.e2e.local',
+        audience: 'aperio',
+        claims: { groups: 'engineering' },
+      },
+    ],
   },
 }) {}
 
@@ -674,16 +670,14 @@ export class ForwardServer extends AperioServerBase({
   _settings() {
     return {
       ...super._settings(),
-      access: {
-        gate: [
-          {
-            method: 'forward',
-            url: `http://127.0.0.1:${this.endpoint._port}/_authcheck`,
-            request_headers: ['x-e2e-user'],
-            response_headers: ['x-auth-user'],
-          },
-        ],
-      },
+      access: [
+        {
+          method: 'forward',
+          url: `http://127.0.0.1:${this.endpoint._port}/_authcheck`,
+          request_headers: ['x-e2e-user'],
+          response_headers: ['x-auth-user'],
+        },
+      ],
     }
   }
 }
@@ -753,7 +747,7 @@ const DECLARED_HOST = 'declared-gate.e2e.local'
 /** Its own server: the polling below would otherwise drain the shared one's
  *  per-IP bucket and fail whatever test ran next. */
 export class DeclaredGateServer extends AperioServerBase({
-  settings: { access: { gate: 'demo:secret123' } },
+  settings: { access: { method: 'basic', users: 'demo:secret123' } },
 }) {}
 
 export class DeclaredGateBackend extends StandardBackendBase() {}

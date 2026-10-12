@@ -424,3 +424,41 @@ fn a_component_error_is_named_inside_its_site() {
   let e = refused("- hostname: a.test\n  maintenance:\n    - {from: \"2 am\", to: \"04:00\"}\n");
   assert!(e.starts_with("sites[0] (a.test): maintenance[0]"), "{e}");
 }
+
+#[test]
+fn a_sites_access_is_compiled_and_none_reads_as_public() {
+  let s = sites(
+    "- hostname: a.test\n  access: public\n\
+     - hostname: b.test\n  access: {method: none}\n\
+     - hostname: c.test\n  access: [{method: aperio}, {method: bearer, secret: a-long-enough-secret}]\n",
+  );
+  assert!(matches!(
+    s.access_for(Some("a.test"), "/"),
+    Some(SiteAccess::Public)
+  ));
+  assert!(matches!(
+    s.access_for(Some("b.test"), "/"),
+    Some(SiteAccess::Public)
+  ));
+  assert!(matches!(
+    s.access_for(Some("c.test"), "/"),
+    Some(SiteAccess::Gate(_))
+  ));
+  assert!(s.access_for(Some("d.test"), "/").is_none());
+  assert!(s.gates_on_host(Some("c.test")));
+  assert!(!s.gates_on_host(Some("a.test")));
+  assert!(s.public_on_host(Some("a.test")));
+}
+
+#[test]
+fn a_site_that_answers_is_not_gated_and_says_so() {
+  let e = refused("- hostname: a.test\n  respond: {body: hi}\n  access: {method: aperio}\n");
+  assert!(e.contains("`access`"), "{e}");
+  assert!(e.contains("nobody is gated from"), "{e}");
+}
+
+#[test]
+fn a_sites_gate_the_server_cannot_honour_is_refused() {
+  let e = refused("- hostname: a.test\n  access: {method: ldap}\n");
+  assert!(e.starts_with("sites[0] (a.test): access"), "{e}");
+}

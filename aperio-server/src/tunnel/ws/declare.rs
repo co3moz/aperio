@@ -589,19 +589,51 @@ impl ConnCtx {
         );
       }
     }
+    // Who decides this service's route, said once per connection. A site's
+    // `access` covering it is the operator's word and wins over the
+    // service's own, which a client author would otherwise go on editing
+    // without effect; say so to them, not only in this log.
+    let site_host = {
+      let service = handle.service_at(service_index);
+      let path = service.declared_path.as_deref().unwrap_or("/");
+      let cfg = state.config();
+      service
+        .declared_hostname
+        .iter()
+        .chain(service.declared_hostnames.iter())
+        .find(|h| cfg.sites.access_for(Some(h), path).is_some())
+        .cloned()
+    };
+    let declares_access = {
+      let service = handle.service_at(service_index);
+      service.visitor_auth.is_some() || service.visitor_auth_policy.is_some() || service.public
+    };
+    if !handle.service_at(service_index).ungated_warned
+      && let Some(host) = site_host
+    {
+      handle.service_at_mut(service_index).ungated_warned = true;
+      if declares_access {
+        info!(
+          "Client {} declares `access:` for {}, where a site's `access` decides who may reach it",
+          client_id, host
+        );
+        self.notify(
+          declaration.service.as_deref(),
+          format!(
+            "`access:` is not what decides who reaches {host}: the server's site for it sets \
+             `access`, which wins over what a client declares"
+          ),
+        );
+      }
+    }
     // The service nothing gates. Said once per connection, and only
     // while the server is still open by default, because that is the
     // configuration where an ungated service is reachable by anyone and
     // nothing in the file says so: it is open because nothing closed it.
-    // Under `default_access: deny` this is not a warning but the stated
-    // policy, and the route is simply refused (planned_features #108).
+    // Under `access: deny` this is not a warning but the stated policy, and
+    // the route is simply refused (planned_features #108).
     if !handle.service_at(service_index).ungated_warned
-      && handle.service_at(service_index).visitor_auth.is_none()
-      && handle
-        .service_at(service_index)
-        .visitor_auth_policy
-        .is_none()
-      && !handle.service_at(service_index).public
+      && !declares_access
       && !state.config().visitor_auth.gates()
       && state.oidc.is_none()
     {
@@ -612,19 +644,19 @@ impl ConnCtx {
         // cause is, on the connection whose service is being refused,
         // and it names the line to write rather than the state it found.
         warn!(
-          "Client {} declares no gate and is not declared open, so its traffic is refused (`access.default` is `deny`). Write `access: public` on the service if it is meant to be reachable by anyone, or give it an `access:` method.",
+          "Client {} declares no gate and is not declared open, so its traffic is refused (the server's `access` is `deny`). Write `access: public` on the service if it is meant to be reachable by anyone, or give it an `access:` method.",
           client_id
         );
         self.notify(
           declaration.service.as_deref(),
           "visitors are refused: this service declares no `access:` and the server is closed \
-           by default (`access.default` is `deny`), so it answers as an unclaimed hostname does. \
+           by default (its `access` is `deny`), so it answers as an unclaimed hostname does. \
            Write `access: public` if it is meant to be reachable by anyone, or an `access:` method."
             .to_string(),
         );
       } else {
         warn!(
-          "Client {} serves traffic that nothing gates: this server has no `access.gate` and the service declares neither a gate nor `access: public`, so it is reachable by anyone. Declare it (an `access:` method, or `access: public`), or set `access.default` to `deny` to refuse what nothing declares.",
+          "Client {} serves traffic that nothing gates: the server's `access` is `public` and the service declares no `access:`, so it is reachable by anyone. Declare it (an `access:` method, or `access: public`), or set the server's `access` to `deny` to refuse what nothing declares.",
           client_id
         );
       }

@@ -151,7 +151,7 @@ Written in a `services:` entry for that service, or under `defaults:` for every 
 
 | Env variable | CLI | yaml key | Description | Default |
 | --- | --- | --- | --- | --- |
-| `APERIO_ACCESS` | `--access` | `access` | Who may reach the service: `public`, one method block, or a list of them (any one admits). Unset, the server's own visitor gate and `access.default` decide. | the server's gate |
+| `APERIO_ACCESS` | `--access` | `access` | Who may reach the service: `public`, one method block, or a list of them (any one admits). Unset, the server's own `access` decides, and a site's `access` on the server wins over this either way. | the server's gate |
 | `APERIO_ALLOWED_IPS` | `--allowed-ips` | `allowed_ips` | Visitor IPs/CIDRs allowed to reach this service (comma-separated on the CLI/env, a list in yaml; e.g. `203.0.113.7,10.0.0.0/8`). Enforced by the server **per candidate, before dispatch**, blocked traffic never enters the tunnel. When several clients serve one route, each candidate is filtered by its *own* list and the request goes to any passing candidate (**union semantics**, deliberately fail-open: one unrestricted client joining a route opens it; use the token-level `allowed_ips` for route-wide lockdown). A visitor every candidate rejects gets the `denied:` redirect of the most-primary declaring candidate, or, without one, a **stealth answer identical to an unclaimed route** (504), so the route's existence never leaks to blocked IPs. Purely restrictive, no token permission needed. | everyone |
 | `APERIO_CACHE_ENABLED` |  | `cache.enabled` | Opt this service into the server-side GET response cache (needs `cache.enabled` on the **server**; strictly `Cache-Control`-driven). | `false` |
 | `APERIO_CACHE_OFFLINE` |  | `cache.offline` | Serve fresh or stale cached responses while no healthy client is connected, up to the server's `cache.max_stale` window. Needs `cache.enabled` here and caching on the server. Once a client reconnects, cache hits still apply and misses can reach the backend. | `false` |
@@ -516,7 +516,7 @@ Preset headers replace whatever the backend sent for the same name, but explicit
 
 ### Visitor authentication
 
-A service's `access:` says who may reach it. It is the same method grammar as the server's own visitor gate, `access.gate`: on the server it is the default gate for every route, on a client's service it overrides that gate for the traffic routed there.
+A service's `access:` says who may reach it. It is one grammar wherever a route's access is written: a client's service, a [site](#sites), and the server's own `access`. On the server it is what a route nothing else declares answers; on a client's service it speaks for the traffic routed there; on a site it is the operator's word on that hostname, and wins over what the clients serving it declare.
 
 ```yaml
 access: public                                     # anyone, with no login
@@ -528,7 +528,7 @@ access:                                            # several: any one admits
     secret: ${API_SECRET}
 ```
 
-The list is **any-of**: a visitor is admitted by the first method that admits them, which is what lets one route say "a browser signs in, a script presents a key". Unset, the server's own gate and `access.default` decide. Six methods exist, simplest first:
+The list is **any-of**: a visitor is admitted by the first method that admits them, which is what lets one route say "a browser signs in, a script presents a key". Unset, the server's own `access` decides. Six methods exist, simplest first:
 
 | `method:` | What it does | Where it may be written |
 | --- | --- | --- |
@@ -630,9 +630,15 @@ That is worth the machinery because of what the alternative does quietly: a serv
 
 **The announcement is about the connection, not about the build.** Declaring a visitor gate needs the same token permission as `access: public`, so a token without it is answered with an empty list and holds the service back, rather than being told the gate was accepted and then having it dropped a message later. The server's log names the token and the reason; the client says the permission is the usual cause.
 
-#### The scalar spelling, and what still reads it
+#### Who has the last word
 
-The server's `access.gate` still takes the scalar `user:password`, the spelling that predates the grammar, and the dashboard's visitor-password field carries it. A client's `access:` does not: `public` is its one scalar, and a login is written as a method block, so a value can never be read as a password when it was meant as a keyword. A policy the scalar cannot express (several users, or `method: none`) shows as empty in the dashboard's field, so `GET /aperio/api/settings` reports `visitor_auth_methods` beside it and what is in force stays readable.
+Three places can say who reaches a route, and they are asked in this order:
+
+1. **A site's `access`**, in the server's settings, covering the hostname (and the path, when the site names one). The operator's word on a hostname is the last one: whatever the clients serving it declare, this decides. A client whose own `access:` is overruled this way is told so once per connection, in its own log, so its author does not go on editing a line that has no effect.
+2. **A client's `access:`** for its own service, when every client serving the route declares the same one.
+3. **The server's `access`**, for a route nothing above speaks for.
+
+`public` is a keyword, never a password: a login is always a method block, so a value cannot be read as a credential when it was meant as a word.
 
 #### Telling the backend who came in
 
@@ -654,25 +660,26 @@ A session is for one of two things: administering Aperio, or viewing a site behi
 | Credential | Plane |
 | --- | --- |
 | Master token, a named dashboard user, a passkey, OIDC | **admin**: the dashboard, its API, and (fenced by organization) the visitor gate |
-| `access.gate` | **visitor**: every proxied hostname, nothing administrative |
+| A `basic` login in the server's `access`, or a site's | **visitor**: the hostnames that gate covers, nothing administrative |
 | A client's own `access:` | **visitor**, and only on that hostname |
 
 The visitor password is server-wide, so a visitor who signs in on one hostname is not asked again on the next; what it never opens is Aperio itself.
 
 #### Closed by default
 
-`access.default` says what a route **nobody gated** means:
+The server's `access` says what a route **nothing declares** answers:
 
 | Value | Meaning |
 | --- | --- |
-| `deny` (default since 0.10.0) | A route is served because something said so, an `access:` policy that admits the visitor or an explicit `access: public`, and not because nothing said otherwise. A caller carrying a valid Aperio session (master token, dashboard session, passkey or OIDC) also reaches it, see below. |
-| `allow` | What the server did before 0.10.0: with no gate anywhere, every route serves everyone. |
+| `deny` (the default) | A route is served because something said so, a client's or a site's `access` that admits the visitor, or an explicit `access: public`, and not because nothing said otherwise. A caller carrying a valid Aperio session (master token, dashboard session, passkey or OIDC) also reaches it, see below. |
+| `public` | With nothing gating a route, it serves everyone: what the server did before 0.10.0. |
+| a method block or a list | A route nothing else declares is behind this gate, the same grammar a client's `access:` has. |
 
-Under `deny` an undeclared route is refused with the same answer an unclaimed hostname gives, so the existence of something there does not leak to a caller who was never going to be let in. Two exceptions, both deliberate: this server's own signed-in users (a master token, a dashboard session, a passkey or an OIDC login against the hostname's organization) reach it, because "not published" says nothing about whether the operator may look; and a service with `cache.offline` and a cached entry answers from that entry rather than the stealth refusal. A route that *is* gated is untouched: the posture decides what an unstated route means, nothing else.
+Under `deny` an undeclared route is refused with the same answer an unclaimed hostname gives, so the existence of something there does not leak to a caller who was never going to be let in. Two exceptions, both deliberate: this server's own signed-in users (a master token, a dashboard session, a passkey or an OIDC login against the hostname's organization) reach it, because "not published" says nothing about whether the operator may look; and a service with `cache.offline` and a cached entry answers from that entry rather than the stealth refusal. A route that *is* gated is untouched: the default decides what an unstated route means, nothing else.
 
 This is the setting that makes `auth: DUMMY:DUMMY` unnecessary. It was the only way to say "not public" while being public was an exemption from a gate that might not exist.
 
-**The default is `deny` from 0.10.0.** Before that it was `allow`, and a client serving something nothing gated was warned once per connection naming the line to write, so the flip was not the first anyone heard of it. If this server publishes a public site, which is the commonest deployment there is, every client serving one now has to say so with `access: public`; until it does, those routes answer as an unclaimed hostname does. Setting `allow` restores the previous behaviour exactly and is a supported posture, not a migration escape hatch. An unreadable value refuses the start rather than being guessed at: `off`, `false` and `no` could each mean either side of this.
+**The default is `deny`.** If this server publishes a public site, which is the commonest deployment there is, every client serving one says so with `access: public`, or a site for the hostname does; until one of them does, those routes answer as an unclaimed hostname does, and the client is told why in its own log. `public` here is a supported setting, not a migration escape hatch.
 
 ### Editor autocompletion (JSON Schema)
 
@@ -734,7 +741,7 @@ A change is checked before anything moves: a value the server cannot honour is r
 
 **Security-relevant settings take more.** The paths that decide who reaches what, or where the server may be steered (`access`, `proxy`, `security`, `outbound`, `oidc`, the dashboard's hostname and fence, `inspector.redact`, the metrics and edge tokens, `otel.endpoint`/`otel.headers`, the autoscaling fences, `routing.require_hostname_bind`), need Admin in every organization (`*`) and, from a dashboard session, a sign-in from the last ten minutes. Such a change is audited a second time as `settings_security_changed`. `GET /aperio/api/settings` lists them as `security_paths`, and the restart-only ones as `restart_paths`.
 
-**Credentials are never read back.** `oidc.client_secret`, `metrics.token`, `edge.token`, `otel.headers` and the secrets of `access.gate` read as `********`. Writing `********` back keeps the stored value, so a page that saves the whole document does not erase a secret it was never shown; a mask with nothing stored behind it is refused.
+**Credentials are never read back.** `oidc.client_secret`, `metrics.token`, `edge.token`, `otel.headers` and the secrets inside the server's `access` and each site's `access` read as `********`. Writing `********` back keeps the stored value, so a page that saves the whole document does not erase a secret it was never shown; a mask with nothing stored behind it is refused.
 
 #### Values
 
@@ -819,9 +826,7 @@ Every setting, by section, with its default. A blank default is unset. The `site
 
 | Setting | Description | Default |
 | --- | --- | --- |
-| `access.default` | What a route nobody gated means: `deny`, the default since 0.10.0, where a route is served because something declared it reachable rather than because nothing declared otherwise, or `allow`, what the server did before 0.10.0. See [Closed by default](#closed-by-default). | `deny` |
-| `access.gate` | The default visitor gate in front of all proxied traffic: `user:password`, one method block, or a list of them. See [Visitor authentication](#visitor-authentication). |  |
-| `access.ignore_client_auth` | `true` = ignore any client-declared per-service visitor password (see the client `auth` setting) and keep sole control of the visitor gate with `access.gate` / OIDC. | `false` |
+| `access` | What a route nothing else declares answers: `deny` refuses it, `public` serves it to anyone, and a method block or a list of them gates it. A client's `access:` speaks for its own service, and a site's `access` speaks for its hostname over both. See [Visitor authentication](#visitor-authentication). | `deny` |
 
 #### Alerts (`alerts`)
 
@@ -1105,6 +1110,7 @@ Three settings add up instead, because for them "most specific wins" would be th
 
 | Setting | Effect |
 | --- | --- |
+| `access` | Who may reach the site: `public`, a method block, or a list of them, the grammar of a client's `access:`. It wins over what any client serving the site declares, and a client overruled this way is told so in its own log. |
 | `redirect` | Answer every request here with a redirect, without a client: `url`, `permanent` (`301` rather than `302`), `preserve_path` (append the request path and query). |
 | `respond` | Answer with a fixed response: `status` (default `200`), `content_type` (default `text/html; charset=utf-8`), `body`. Typical uses: a "coming soon" page for a hostname whose client is not deployed yet, or a fixed `/robots.txt`. |
 | `timeout` | How long to wait for the serving client's answer (`2m`), over `gateway.response_timeout` and any `timeout` the client declared. |
@@ -1116,7 +1122,7 @@ Three settings add up instead, because for them "most specific wins" would be th
 | `pages` | The hostname's own `unavailable` (`504`) and `maintenance` (`503`) pages, the HTML itself, at most 512KB each. The `*` site's are the server's. A maintenance page fills in `{reason}` and `{until}` where it writes them. |
 | `maintenance` | Recurring windows during which the hostname answers the maintenance page: `from` and `to` (`HH:MM`, a `to` earlier than `from` wraps midnight), optional `days` (`mon`..`sun`, the day a window *starts*), `tz` (an IANA zone, default `UTC`) and `reason`. See [Dashboard](dashboard.md#maintenance-mode) for the runtime flag beside it. |
 
-A site that answers (`redirect` or `respond`) comes before client routing; maintenance still wins over it, and the visitor gate does not apply, since it serves operator-authored content. Because such a site never reaches a client, it cannot also carry `timeout`, `headers`, `rate_limit`, `canary`, `waf` or `fallback`: write those on a second site with the same hostname and path. `fallback`, `pages` and `maintenance` are about the whole hostname, so a site with a `path` cannot carry them.
+A site that answers (`redirect` or `respond`) comes before client routing; maintenance still wins over it, and the visitor gate does not apply, since it serves operator-authored content. Because such a site never reaches a client, it cannot also carry `access`, `timeout`, `headers`, `rate_limit`, `canary`, `waf` or `fallback`: write those on a second site with the same hostname and path. `fallback`, `pages` and `maintenance` are about the whole hostname, so a site with a `path` cannot carry them.
 
 A site that cannot work is refused when the settings are saved, naming it (`sites[2] (app.example.com/api): waf[0].path: not a regular expression`), and so is a site that sets nothing. `aperio-server check` reports the same before a deploy.
 

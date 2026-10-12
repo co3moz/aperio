@@ -33,7 +33,6 @@ fn test_config(metrics_token: Option<String>) -> ServerConfig {
     ip_limit_refill: 1.0,
     visitor_auth: crate::visitor_auth::Policy::default(),
     trust_proxy: false,
-    ignore_client_auth: false,
     real_ip_header: None,
     trusted_proxies: Vec::new(),
     admin_allowed_ips: Vec::new(),

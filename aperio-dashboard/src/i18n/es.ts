@@ -513,6 +513,10 @@ export const es: Record<string, string> = {
   Variable: 'Variable',
   'Visitor Experience': 'Experiencia del visitante',
   'Visitor password': 'Contraseña de visitante',
+  'Default access':
+    'Acceso por defecto',
+  'deny, public, or a gate in front of every route nothing else declares':
+    'deny, public o una puerta delante de cada ruta que nada más declara',
   'Wait for a client to (re)connect before failing a request':
     'Esperar a que un cliente (re)conecte antes de fallar una petición',
   'Wait for a client to answer a dispatched request': 'Esperar la respuesta del cliente a una petición enviada',
@@ -1092,10 +1096,14 @@ export const es: Record<string, string> = {
     'los visitantes deben iniciar sesión (o llevar un enlace compartido) antes de que esto llegue a un cliente: OIDC está configurado para visitantes',
   'this hostname is served without a visitor gate':
     'este hostname se sirve sin puerta de visitantes',
+  "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare":
+    'los visitantes deben iniciar sesión (o llevar un enlace compartido) antes de que esto llegue a un cliente: el access de un site protege esta ruta, por encima de lo que declaren los clientes que la sirven',
+  "a site's access opens this route to anyone, over what the clients serving it declare":
+    'el access de un site abre esta ruta a cualquiera, por encima de lo que declaren los clientes que la sirven',
   "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization":
     'Los visitantes deben iniciar sesión (o traer un enlace compartido) antes de que esto llegue a un cliente: esta ruta pide un inicio de sesión de Aperio, una sesión del panel que alcance la organización de este host',
-  'nothing declares this route reachable and `access.default` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
-    'nada declara que esta ruta sea alcanzable y `access.default` es `deny`, así que no se publica: un visitante sin sesión de Aperio recibe la misma respuesta que da un hostname sin reclamar, y un usuario de Aperio con sesión iniciada sigue llegando',
+  "nothing declares this route reachable and the server's `access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it":
+    'nada declara que esta ruta sea alcanzable y el `access` del servidor es `deny`, así que no se publica: un visitante sin sesión de Aperio recibe la misma respuesta que da un hostname sin reclamar, y un usuario de Aperio con sesión iniciada sigue llegando',
   '{count} client(s) would take it: {clients}':
     '{count} cliente(s) la tomarían: {clients}',
   'no connected client serves this hostname and path':
@@ -1138,14 +1146,12 @@ export const es: Record<string, string> = {
     'Sin cliente',
   'maintenance mode':
     'modo de mantenimiento',
-  'auth: on the service':
-    'auth: en el servicio',
-  'access.gate / OIDC':
-    'access.gate / OIDC',
-  'access.default':
-    'access.default',
-  'access.gate':
-    'access.gate',
+  'access: on the service':
+    'access: en el servicio',
+  'access / OIDC':
+    'access / OIDC',
+  'access':
+    'access',
   'OIDC':
     'OIDC',
   'hostname/path binds':

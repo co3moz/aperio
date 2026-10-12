@@ -27,7 +27,7 @@ const SOURCE = join(
 )
 const rust = readFileSync(SOURCE, 'utf8')
 
-/** Every `section.field` of the server's settings: a path (`access.gate`) is
+/** Every `section.field` of the server's settings: a path (`limits.tunnels`) is
  *  written the way a code is, and names a setting instead. */
 const settingPaths = (() => {
   type Node = { $ref?: string; properties?: Record<string, unknown> }

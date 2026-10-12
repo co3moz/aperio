@@ -8,10 +8,15 @@
 # with `GET /aperio/api/export?include=settings`.
 
 settings:
+  # A visitor login in front of every route that does not say otherwise.
+  # Clients may write their own `access:` per service, as their token allows.
   access:
-    # A visitor login form in front of all proxied traffic (clients may
-    # override or opt out per service, as permitted by their token).
-    gate: visitor:replace-with-a-strong-password
-    # Uncomment to veto all client-declared visitor passwords and keep sole
-    # control of the visitor gate here.
-    # ignore_client_auth: true
+    method: basic
+    users: visitor:replace-with-a-strong-password
+
+  # A site's `access` is the operator's word on a hostname, and wins over
+  # whatever the clients serving it declare. Uncomment to keep sole control
+  # of who reaches the staff app here, whatever its client says.
+  # sites:
+  #   - hostname: staff.example.com
+  #     access: {method: aperio}

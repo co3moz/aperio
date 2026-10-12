@@ -215,7 +215,7 @@ pub(crate) struct ServiceSpec {
   /// a reload applies it with the rest of the config).
   pub(crate) allow_server_forward: bool,
   /// Per-service visitor login (`user:password`) the server should gate this
-  /// service behind, overriding its own `access.gate` (None = no override).
+  /// service behind, overriding its own `access` (None = no override).
   pub(crate) visitor_auth: Option<String>,
   /// The full `auth:` policy for this service, when it says more than the
   /// scalar above can carry. Announced only to a server that said it

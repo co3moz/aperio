@@ -22,16 +22,14 @@ pub(crate) fn valid_visitor_creds(creds: &str) -> bool {
 /// *every* client in it declares the *same* override, mirroring the "all
 /// members must agree" rule of [`route_is_public`], so a request can never be
 /// gated by (or leak past) an override that only some pool members set. Returns
-/// `None` (use the server's own gate) when the pool is empty, mixed, declares
-/// differing credentials, or the server set `access.ignore_client_auth`.
+/// `None` (use the server's own gate) when the pool is empty, mixed, or
+/// declares differing credentials. A site's `access` is checked before any of
+/// this and wins over it.
 pub(crate) async fn route_visitor_auth(
   state: &AppState,
   uri_path: &str,
   request_host: Option<&str>,
 ) -> Option<String> {
-  if state.config().ignore_client_auth {
-    return None;
-  }
   // Mirror `route_is_public`: a traversal path must not select (or unlock) a
   // client's per-service credentials for a scope it could escape from.
   if request_path_has_traversal(uri_path) {
@@ -77,9 +75,6 @@ pub(crate) async fn route_visitor_policy(
   uri_path: &str,
   request_host: Option<&str>,
 ) -> Option<crate::visitor_auth::Policy> {
-  if state.config().ignore_client_auth {
-    return None;
-  }
   if request_path_has_traversal(uri_path) {
     return None;
   }
@@ -155,9 +150,6 @@ pub(crate) async fn route_path_bind(
 /// traversal path, the answer was to serve it: `/./admin` reached the backend
 /// with no credential while `/admin` answered 401.
 pub(crate) async fn host_has_visitor_auth(state: &AppState, request_host: Option<&str>) -> bool {
-  if state.config().ignore_client_auth {
-    return false;
-  }
   let clients = state.clients.read().await;
   // Asked of each service, not of the connection. Reading the gate off one
   // service and the hostname off another is the same bug in a second

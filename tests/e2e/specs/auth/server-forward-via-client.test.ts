@@ -26,18 +26,16 @@ export class ServerViaClientServer extends AperioServerBase({
   _settings() {
     return {
       ...super._settings(),
-      access: {
-        gate: [
-          {
-            method: 'forward',
-            url: `http://127.0.0.1:${this.endpoint._port}/_authcheck`,
-            via: 'client',
-            request_headers: ['x-e2e-user'],
-            response_headers: ['x-auth-user'],
-            cache: 0,
-          },
-        ],
-      },
+      access: [
+        {
+          method: 'forward',
+          url: `http://127.0.0.1:${this.endpoint._port}/_authcheck`,
+          via: 'client',
+          request_headers: ['x-e2e-user'],
+          response_headers: ['x-auth-user'],
+          cache: 0,
+        },
+      ],
     }
   }
 }

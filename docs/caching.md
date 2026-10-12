@@ -92,7 +92,7 @@ to the `cache.max_stale` (env `cache.max_stale`) window past their lifetime, mar
 `x-aperio-stale: true` once past it and always with an `Age` header. When a client reconnects, cache hits continue until expiry and misses can reach the backend again. See
 [Client Resilience](client-resilience.md).
 
-This holds under the closed posture too. With `default_access: deny` a route
+This holds under the closed posture too. With the server's `access` at `deny` a route
 whose client has gone is normally refused before anything consults the cache,
 which is the one condition serve-stale exists for; a resilient entry is
 answered with instead. It cannot disclose a route the posture hides, because

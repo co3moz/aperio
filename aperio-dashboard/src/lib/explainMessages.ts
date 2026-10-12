@@ -57,8 +57,11 @@ export const EXPLAIN_MESSAGES: Record<string, string> = {
   'visitor_gate.aperio_login':
     "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization",
   'visitor_gate.open': 'this hostname is served without a visitor gate',
+  'visitor_gate.site':
+    "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare",
+  'visitor_gate.site_public': "a site's access opens this route to anyone, over what the clients serving it declare",
   'visitor_gate.undeclared':
-    'nothing declares this route reachable and `access.default` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it',
+    "nothing declares this route reachable and the server's `access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it",
 
   'routing.candidates': '{count} client(s) would take it: {clients}',
   'routing.none': 'no connected client serves this hostname and path',
@@ -163,11 +166,11 @@ export const EXPLAIN_STAGES: Record<string, string> = {
 // the same word in every language and left alone; these are the few that were
 // written as prose and so have to be said in the reader's.
 export const EXPLAIN_SETTINGS: Record<string, string> = {
-  'setting.default_access': 'access.default',
+  'setting.default_access': 'access',
   'setting.maintenance_mode': 'maintenance mode',
-  'setting.service_auth': 'auth: on the service',
-  'setting.server_auth_oidc': 'access.gate / OIDC',
-  'setting.server_auth': 'access.gate',
+  'setting.service_auth': 'access: on the service',
+  'setting.server_auth_oidc': 'access / OIDC',
+  'setting.server_auth': 'access',
   'setting.oidc': 'OIDC',
   'setting.host_path_binds': 'hostname/path binds',
 }

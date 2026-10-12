@@ -164,18 +164,18 @@ async fn a_security_change_takes_a_recent_sign_in_and_others_do_not() {
   let resp = put(
     &state,
     stale,
-    serde_json::json!({"limits": {"tunnels": 9}, "access": {"default": "allow"}}),
+    serde_json::json!({"limits": {"tunnels": 9}, "access": "public"}),
   )
   .await;
   assert_eq!(resp.status(), StatusCode::FORBIDDEN);
   let msg = text(resp).await;
   assert!(
-    msg.contains("access.default") && msg.contains("Sign in again"),
+    msg.contains("access") && msg.contains("Sign in again"),
     "{msg}"
   );
   assert_eq!(
-    crate::live::current().access.default,
-    ServerSettings::default().access.default
+    crate::live::current().access,
+    ServerSettings::default().access
   );
 
   // The same change from a fresh sign-in goes through, and is audited on its
@@ -184,7 +184,7 @@ async fn a_security_change_takes_a_recent_sign_in_and_others_do_not() {
   let resp = put(
     &state,
     fresh,
-    serde_json::json!({"limits": {"tunnels": 9}, "access": {"default": "allow"}}),
+    serde_json::json!({"limits": {"tunnels": 9}, "access": "public"}),
   )
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
@@ -316,8 +316,8 @@ async fn put_rejects_an_unknown_value_or_key() {
 async fn put_rejects_values_the_server_cannot_honour() {
   for (body, path) in [
     (
-      serde_json::json!({"access": {"gate": "nopassword"}}),
-      "access.gate",
+      serde_json::json!({"access": {"method": "basic", "users": "nopassword"}}),
+      "access",
     ),
     (
       serde_json::json!({"sites": [{"hostname": "*", "pages": {"unavailable": "x".repeat(512 * 1024 + 1)}}]}),
@@ -355,7 +355,7 @@ async fn a_mask_with_no_credential_behind_it_is_refused() {
 #[tokio::test]
 async fn a_gate_set_and_then_cleared_gates_and_then_does_not() {
   let state = Arc::new(test_state());
-  apply_settings(&state, doc("access:\n  gate: 'user:pw'\n"))
+  apply_settings(&state, doc("access: {method: basic, users: 'user:pw'}\n"))
     .await
     .unwrap();
   assert!(state.config().visitor_auth.gates());

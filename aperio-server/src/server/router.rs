@@ -387,7 +387,7 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
     // the assets route below so public login assets stay reachable, and it
     // wraps only the dashboard + /api routes, the login page, auth endpoints,
     // health and OIDC routes live on the root router and are never fenced, so
-    // access.gate-protected proxied sites keep working from any address.
+    // gated proxied sites keep working from any address.
     let ip_state = state.clone();
     dash_router = dash_router.layer(axum::middleware::from_fn(
       move |req: axum::extract::Request, next: axum::middleware::Next| {
@@ -430,7 +430,7 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
     app = app.nest("/aperio", dash_router);
   } else {
     // Even with the dashboard disabled the login page (used by
-    // access.gate-protected proxied sites) still needs its assets.
+    // gated proxied sites) still needs its assets.
     app = app.nest(
       "/aperio",
       Router::new().route("/assets/{*path}", get(dashboard_asset_handler)),

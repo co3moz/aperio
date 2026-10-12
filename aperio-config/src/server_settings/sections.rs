@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::AlertRule;
 use crate::units::{ByteSize, Span};
-use crate::{AlertRule, AuthSetting};
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
@@ -200,34 +200,6 @@ impl Default for Outlier {
       eject_for: Span::secs(30),
     }
   }
-}
-
-/// What a route nobody gated means.
-#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Default, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
-#[schemars(inline)]
-pub enum DefaultAccess {
-  /// A route is served because something declared it reachable.
-  #[default]
-  Deny,
-  /// Every route serves everyone unless something gates it.
-  Allow,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq, JsonSchema)]
-#[serde(default, deny_unknown_fields)]
-pub struct Access {
-  /// What a route nobody gated means: `deny` (the default) or `allow`.
-  /// Security-relevant.
-  pub default: DefaultAccess,
-  /// The visitor gate in front of every proxied route that does not carry
-  /// its own: a `user:password`, one method block, or a list of them.
-  #[serde(skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["visitor:a-strong-password", {"method": "aperio"}]))]
-  pub gate: Option<AuthSetting>,
-  /// Ignore the gates clients declare for their own services, and keep sole
-  /// control with `gate`. Security-relevant. Default `false`.
-  pub ignore_client_auth: bool,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq, JsonSchema)]

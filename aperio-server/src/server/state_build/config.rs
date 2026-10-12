@@ -217,12 +217,29 @@ pub(crate) fn build_config(
 
   crate::oidc::grant_policy(&s.oidc)?;
 
-  let visitor_auth = match &s.access.gate {
-    Some(gate) => {
-      crate::visitor_auth::validate_gate(gate)?;
-      crate::visitor_auth::Policy::compile(gate)
+  // One value says what a route nothing declares answers: refused, served
+  // to anyone, or gated.
+  let (visitor_auth, default_access) = match &s.access {
+    aperio_config::ServerAccess::Deny => (
+      crate::visitor_auth::Policy::default(),
+      crate::settings::DefaultAccess::Deny,
+    ),
+    aperio_config::ServerAccess::Declared(aperio_config::Access::Public) => (
+      crate::visitor_auth::Policy::default(),
+      crate::settings::DefaultAccess::Allow,
+    ),
+    aperio_config::ServerAccess::Declared(gate) => {
+      let setting = gate.auth_setting();
+      crate::visitor_auth::validate_gate(&setting)?;
+      let policy = crate::visitor_auth::Policy::compile(&setting);
+      // `{method: none}` is `public` spelled as a method.
+      let posture = if policy.admits_everyone() {
+        crate::settings::DefaultAccess::Allow
+      } else {
+        crate::settings::DefaultAccess::Deny
+      };
+      (policy, posture)
     }
-    None => crate::visitor_auth::Policy::default(),
   };
 
   let metrics_token = if s.metrics.enabled {
@@ -252,7 +269,6 @@ pub(crate) fn build_config(
     ip_limit_refill: s.limits.ip_rate.per_second,
     visitor_auth,
     trust_proxy,
-    ignore_client_auth: s.access.ignore_client_auth,
     real_ip_header,
     trusted_proxies,
     admin_allowed_ips,
@@ -260,7 +276,7 @@ pub(crate) fn build_config(
     fenced_login: s.dashboard.fenced_login,
     secure_cookies: s.security.secure_cookies.unwrap_or(trust_proxy),
     require_hostname_bind: s.routing.require_hostname_bind,
-    default_access: s.access.default,
+    default_access,
     metrics_token,
     scaling_enabled: s.scaling.enabled,
     scaling_allow_http: s.scaling.allow_http,
@@ -455,9 +471,6 @@ fn log_posture(c: &ServerConfig) {
         if cidrs == 1 { "y" } else { "ies" }
       );
     }
-  }
-  if c.ignore_client_auth {
-    info!("access.ignore_client_auth is on: client-declared visitor gates are ignored");
   }
 }
 

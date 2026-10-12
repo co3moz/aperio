@@ -39,6 +39,176 @@ pub struct OtelBridge {
   pub queue: Option<usize>,
 }
 
+/// Who may reach a route: `public`, one method block, or a list of them.
+///
+/// One grammar wherever a route's access is written: a client service's
+/// `access:`, a site's `access`, and the server's own `access` (which adds
+/// `deny`, see [`ServerAccess`]). The methods are `basic`, `bearer`, `jwt`,
+/// `forward` and `aperio`, and a list admits a visitor when **any** of its
+/// methods does, which is what "a browser signs in, a script presents a key"
+/// needs.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Access {
+  /// `public`: anyone, with no login (needs a token that allows it).
+  Public,
+  /// One method: `{method: basic, users: "admin:${PASS}"}`.
+  One(Box<AuthMethodSpec>),
+  /// Several methods, any one of which admits the visitor.
+  Any(Vec<AuthMethodSpec>),
+}
+
+impl JsonSchema for Access {
+  fn schema_name() -> std::borrow::Cow<'static, str> {
+    "Access".into()
+  }
+
+  fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let method = generator.subschema_for::<AuthMethodSpec>();
+    schemars::json_schema!({
+      "description": "`public`, one method block, or a list of them (any one admits).",
+      // Written whole in the environment (`APERIO_ACCESS=public`, or the
+      // block as yaml): a method's fields are not settings of their own.
+      "x-env": "whole",
+      "anyOf": [
+        { "type": "string", "const": "public", "description": "Anyone, with no login (needs a token that allows it)." },
+        method,
+        { "type": "array", "items": method }
+      ]
+    })
+  }
+}
+
+impl Serialize for Access {
+  fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+    match self {
+      Access::Public => s.serialize_str("public"),
+      Access::One(spec) => spec.serialize(s),
+      Access::Any(specs) => specs.serialize(s),
+    }
+  }
+}
+
+impl<'de> Deserialize<'de> for Access {
+  fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+    use serde::de::Error;
+    // Read loosely first and then strictly, so a mistake inside a method block
+    // is reported by the block's own fields ("unknown field `userz`") rather
+    // than as an untagged enum matching nothing.
+    match serde_json::Value::deserialize(d)? {
+      serde_json::Value::String(word) if word.trim() == "public" => Ok(Access::Public),
+      serde_json::Value::String(word) => Err(D::Error::custom(format!(
+        "`{word}` is not an access policy; write `public`, or a method block such as \
+         {{method: basic, users: \"user:password\"}}"
+      ))),
+      value @ serde_json::Value::Object(_) => serde_json::from_value(value)
+        .map(|spec| Access::One(Box::new(spec)))
+        .map_err(D::Error::custom),
+      value @ serde_json::Value::Array(_) => serde_json::from_value(value)
+        .map(Access::Any)
+        .map_err(D::Error::custom),
+      other => Err(D::Error::custom(format!(
+        "`{other}` is not an access policy; write `public`, a method block, or a list of them"
+      ))),
+    }
+  }
+}
+
+impl Access {
+  /// The policy in the method grammar the tunnel handshake carries:
+  /// `public` is the open gate, `method: none`.
+  pub fn auth_setting(&self) -> AuthSetting {
+    match self {
+      Access::Public => AuthSetting::One(Box::new(AuthMethodSpec {
+        method: "none".to_string(),
+        ..Default::default()
+      })),
+      Access::One(spec) => AuthSetting::One(spec.clone()),
+      Access::Any(specs) => AuthSetting::Any(specs.clone()),
+    }
+  }
+}
+
+/// The server's `access`: what a route answers when nothing more specific
+/// says. `deny` (the default) refuses a route nothing declares; otherwise the
+/// grammar of [`Access`], so `public` serves it to anyone and a method gates
+/// it.
+///
+/// It replaces three settings that each said a part of this:
+/// `access.default` (`deny` or `allow`), `access.gate` (the gate for a route
+/// that declares none) and `access.ignore_client_auth` (whose job a site's
+/// `access` does now, per hostname rather than for the whole server).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum ServerAccess {
+  /// A route nothing declares is not published.
+  #[default]
+  Deny,
+  /// `public`, or a gate, for a route nothing declares.
+  Declared(Access),
+}
+
+impl JsonSchema for ServerAccess {
+  fn schema_name() -> std::borrow::Cow<'static, str> {
+    "ServerAccess".into()
+  }
+
+  fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let method = generator.subschema_for::<AuthMethodSpec>();
+    schemars::json_schema!({
+      "description": "`deny` (the default), `public`, one method block, or a list of them (any one admits).",
+      "anyOf": [
+        { "type": "string", "enum": ["deny", "public"] },
+        method,
+        { "type": "array", "items": method }
+      ]
+    })
+  }
+}
+
+impl Serialize for ServerAccess {
+  fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+    match self {
+      ServerAccess::Deny => s.serialize_str("deny"),
+      ServerAccess::Declared(access) => access.serialize(s),
+    }
+  }
+}
+
+impl<'de> Deserialize<'de> for ServerAccess {
+  fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+    use serde::de::Error;
+    let value = serde_json::Value::deserialize(d)?;
+    match &value {
+      serde_json::Value::String(word) if word.trim() == "deny" => return Ok(ServerAccess::Deny),
+      serde_json::Value::String(word) if word.trim() != "public" => {
+        return Err(D::Error::custom(format!(
+          "`{word}` is not an access policy; write `deny`, `public`, or a method block such \
+           as {{method: aperio}}"
+        )));
+      }
+      // The block `access` was before 0.13.0. Said in full, because read as a
+      // method block it would be refused for a missing `method`, which sends
+      // the reader looking in the wrong place.
+      serde_json::Value::Object(map)
+        if !map.contains_key("method")
+          && ["default", "gate", "ignore_client_auth"]
+            .iter()
+            .any(|k| map.contains_key(*k)) =>
+      {
+        return Err(D::Error::custom(
+          "`access` is one value since 0.13.0: `deny`, `public`, or a gate. `access.gate` \
+           is now `access` itself, `access.default: allow` is `access: public`, and \
+           `access.ignore_client_auth` is a site's `access`, which wins over what clients \
+           declare for that hostname",
+        ));
+      }
+      _ => {}
+    }
+    serde_json::from_value::<Access>(value)
+      .map(ServerAccess::Declared)
+      .map_err(D::Error::custom)
+  }
+}
+
 /// How a visitor gate is written, on either side of the tunnel.
 ///
 /// Three spellings of one thing. The scalar `auth: "user:password"` predates

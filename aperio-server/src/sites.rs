@@ -1,11 +1,15 @@
 //! What the server does for a hostname, or a path under one, by itself (the
 //! `sites` setting).
 //!
-//! A site carries an answer given without a client (`redirect`, `respond`),
-//! the policy on proxied traffic (`timeout`, `headers`, `rate_limit`,
-//! `canary`, `waf`), and what its hostname says when nothing serves it
-//! (`fallback`, `pages`, `maintenance`). One matcher decides which sites a
-//! request falls under, where seven sections used to each have their own.
+//! A site carries who may reach it (`access`), an answer given without a
+//! client (`redirect`, `respond`), the policy on proxied traffic (`timeout`,
+//! `headers`, `rate_limit`, `canary`, `waf`), and what its hostname says when
+//! nothing serves it (`fallback`, `pages`, `maintenance`). One matcher
+//! decides which sites a request falls under, where seven sections used to
+//! each have their own.
+//!
+//! A site's `access` is the operator's word on a hostname, so it wins over
+//! whatever the clients serving it declare for their own services.
 //!
 //! A request takes each setting from the most specific matching site that
 //! writes it: an exact hostname before a pattern before `*`, then the longest
@@ -135,6 +139,15 @@ impl Answer {
   }
 }
 
+/// A site's `access`, compiled.
+#[derive(Clone, Debug)]
+pub(crate) enum SiteAccess {
+  /// Anyone, with no login.
+  Public,
+  /// The gate a visitor has to pass.
+  Gate(crate::visitor_auth::Policy),
+}
+
 /// A site's `rate_limit`: one token bucket every visitor shares.
 #[derive(Clone, Debug)]
 pub(crate) struct RateLimit {
@@ -167,6 +180,7 @@ pub(crate) struct Site {
   pub(crate) hostname: String,
   /// Normalized path prefix, or None for the whole hostname.
   pub(crate) path: Option<String>,
+  pub(crate) access: Option<SiteAccess>,
   pub(crate) answer: Option<Answer>,
   /// Seconds to wait for the serving client's answer.
   pub(crate) timeout: Option<u64>,
@@ -270,6 +284,33 @@ impl Sites {
       .sites
       .iter()
       .filter(move |s| s.path.is_none() && s.host_matches(host))
+  }
+
+  /// Who may reach this request's route, when a site says: the most specific
+  /// site that writes `access`.
+  pub(crate) fn access_for(&self, host: Option<&str>, path: &str) -> Option<&SiteAccess> {
+    self.matching(host, path).find_map(|s| s.access.as_ref())
+  }
+
+  /// True when some site covering this hostname, at any path, gates it.
+  ///
+  /// For a path that cannot be trusted to mean what it looks like (`/a/../b`):
+  /// it is never matched against a site's `path`, so the gate assumes the
+  /// strictest thing any site on the hostname says.
+  pub(crate) fn gates_on_host(&self, host: Option<&str>) -> bool {
+    self
+      .sites
+      .iter()
+      .any(|s| matches!(s.access, Some(SiteAccess::Gate(_))) && s.host_matches(host))
+  }
+
+  /// True when the site covering the whole hostname that says who may reach
+  /// it says anyone may.
+  pub(crate) fn public_on_host(&self, host: Option<&str>) -> bool {
+    matches!(
+      self.hostwide(host).find_map(|s| s.access.as_ref()),
+      Some(SiteAccess::Public)
+    )
   }
 
   /// The site that answers this request by itself, if one does.
@@ -448,6 +489,21 @@ fn compile_site(i: usize, raw: &aperio_config::Site) -> Result<Site, String> {
     })?),
   };
 
+  let access = match &raw.access {
+    None => None,
+    Some(aperio_config::Access::Public) => Some(SiteAccess::Public),
+    Some(declared) => {
+      let setting = declared.auth_setting();
+      crate::visitor_auth::validate_gate(&setting).map_err(err)?;
+      let policy = crate::visitor_auth::Policy::compile(&setting);
+      Some(if policy.admits_everyone() {
+        SiteAccess::Public
+      } else {
+        SiteAccess::Gate(policy)
+      })
+    }
+  };
+
   if raw.redirect.is_some() && raw.respond.is_some() {
     return Err(err(
       "`redirect` and `respond` are two answers; a site gives one".to_string(),
@@ -482,6 +538,7 @@ fn compile_site(i: usize, raw: &aperio_config::Site) -> Result<Site, String> {
   // a setting that silently does not apply.
   if answer.is_some() {
     let proxied: Vec<&str> = [
+      ("access", raw.access.is_some()),
       ("timeout", raw.timeout.is_some()),
       ("headers", raw.headers.is_some()),
       ("rate_limit", raw.rate_limit.is_some()),
@@ -494,8 +551,8 @@ fn compile_site(i: usize, raw: &aperio_config::Site) -> Result<Site, String> {
     .collect();
     if !proxied.is_empty() {
       return Err(err(format!(
-        "`{}` apply to traffic a client serves, and this site answers by itself with `{}`; \
-         put them on a second site with the same hostname and path",
+        "`{}` apply to traffic a client serves, and this site answers by itself with `{}`, \
+         which nobody is gated from; put them on a second site with the same hostname and path",
         proxied.join("`, `"),
         if raw.redirect.is_some() {
           "redirect"
@@ -659,6 +716,7 @@ fn compile_site(i: usize, raw: &aperio_config::Site) -> Result<Site, String> {
     rank: (host_rank(&hostname), path.as_deref().map_or(0, str::len)),
     hostname,
     path,
+    access,
     answer,
     timeout,
     headers,
@@ -670,7 +728,8 @@ fn compile_site(i: usize, raw: &aperio_config::Site) -> Result<Site, String> {
     page_503,
     maintenance,
   };
-  let sets_something = site.answer.is_some()
+  let sets_something = site.access.is_some()
+    || site.answer.is_some()
     || site.timeout.is_some()
     || site.headers.is_some()
     || site.rate_limit.is_some()
@@ -682,9 +741,9 @@ fn compile_site(i: usize, raw: &aperio_config::Site) -> Result<Site, String> {
     || !site.maintenance.is_empty();
   if !sets_something {
     return Err(err(
-      "sets nothing; a site needs an answer (`redirect`, `respond`), policy (`timeout`, \
-       `headers`, `rate_limit`, `canary`, `waf`), or what its hostname says (`fallback`, \
-       `pages`, `maintenance`)"
+      "sets nothing; a site needs who may reach it (`access`), an answer (`redirect`, \
+       `respond`), policy (`timeout`, `headers`, `rate_limit`, `canary`, `waf`), or what its \
+       hostname says (`fallback`, `pages`, `maintenance`)"
         .to_string(),
     ));
   }

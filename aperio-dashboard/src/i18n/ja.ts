@@ -511,6 +511,10 @@ export const ja: Record<string, string> = {
   Variable: '変数',
   'Visitor Experience': '訪問者エクスペリエンス',
   'Visitor password': '訪問者パスワード',
+  'Default access':
+    '既定のアクセス',
+  'deny, public, or a gate in front of every route nothing else declares':
+    'deny、public、または他に何も宣言していないすべてのルートの前に置く関門',
   'Wait for a client to (re)connect before failing a request':
     'リクエストを失敗させる前にクライアントの（再）接続を待つ',
   'Wait for a client to answer a dispatched request': '送出済みリクエストへのクライアントの応答を待つ',
@@ -1090,10 +1094,14 @@ export const ja: Record<string, string> = {
     '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: 訪問者向けに OIDC が設定されています',
   'this hostname is served without a visitor gate':
     'この hostname は訪問者関門なしで配信されています',
+  "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare":
+    '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: site の access がこのルートを守っており、配信しているクライアントの宣言に優先します',
+  "a site's access opens this route to anyone, over what the clients serving it declare":
+    'site の access がこのルートを誰にでも開いており、配信しているクライアントの宣言に優先します',
   "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization":
     'これがクライアントに届く前に訪問者はサインインする（または共有リンクを持つ）必要があります: このルートは Aperio のサインイン、つまりこのホスト名の組織に到達できるダッシュボードセッションを求めます',
-  'nothing declares this route reachable and `access.default` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
-    'このルートを到達可能と宣言するものがなく、`access.default` が `deny` のため、公開されません。Aperio のセッションを持たない訪問者には、要求されていないホスト名と同じ応答が返り、サインイン済みの Aperio ユーザーは引き続き到達できます',
+  "nothing declares this route reachable and the server's `access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it":
+    'このルートを到達可能と宣言するものがなく、サーバーの `access` が `deny` のため、公開されません。Aperio のセッションを持たない訪問者には、要求されていないホスト名と同じ応答が返り、サインイン済みの Aperio ユーザーは引き続き到達できます',
   '{count} client(s) would take it: {clients}':
     '{count} 個のクライアントが受け取ります: {clients}',
   'no connected client serves this hostname and path':
@@ -1136,14 +1144,12 @@ export const ja: Record<string, string> = {
     'クライアントなし',
   'maintenance mode':
     'メンテナンスモード',
-  'auth: on the service':
-    'サービス側の auth:',
-  'access.gate / OIDC':
-    'access.gate / OIDC',
-  'access.default':
-    'access.default',
-  'access.gate':
-    'access.gate',
+  'access: on the service':
+    'サービス側の access:',
+  'access / OIDC':
+    'access / OIDC',
+  'access':
+    'access',
   'OIDC':
     'OIDC',
   'hostname/path binds':

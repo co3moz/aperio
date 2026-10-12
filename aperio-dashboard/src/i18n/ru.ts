@@ -513,6 +513,10 @@ export const ru: Record<string, string> = {
   Variable: 'Переменная',
   'Visitor Experience': 'Опыт посетителя',
   'Visitor password': 'Пароль посетителя',
+  'Default access':
+    'Доступ по умолчанию',
+  'deny, public, or a gate in front of every route nothing else declares':
+    'deny, public или дверь перед каждым маршрутом, который больше ничто не объявляет',
   'Wait for a client to (re)connect before failing a request':
     'Ждать (пере)подключения клиента, прежде чем провалить запрос',
   'Wait for a client to answer a dispatched request': 'Ждать ответа клиента на отправленный запрос',
@@ -1092,10 +1096,14 @@ export const ru: Record<string, string> = {
     'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: для посетителей настроен OIDC',
   'this hostname is served without a visitor gate':
     'этот hostname обслуживается без двери для посетителей',
+  "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare":
+    'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: access сайта закрывает этот маршрут, и это важнее того, что объявляют обслуживающие клиенты',
+  "a site's access opens this route to anyone, over what the clients serving it declare":
+    'access сайта открывает этот маршрут для всех, и это важнее того, что объявляют обслуживающие клиенты',
   "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization":
     'Посетители должны войти (или принести ссылку общего доступа), прежде чем это дойдёт до клиента: этот маршрут требует входа Aperio, сессии панели, достигающей организации этого имени хоста',
-  'nothing declares this route reachable and `access.default` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
-    'ничто не объявляет этот маршрут доступным, а `access.default` установлен в `deny`, поэтому он не публикуется: посетитель без сессии Aperio получает тот же ответ, что и для незанятого имени хоста, а вошедший пользователь Aperio по-прежнему до него доходит',
+  "nothing declares this route reachable and the server's `access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it":
+    'ничто не объявляет этот маршрут доступным, а `access` сервера установлен в `deny`, поэтому он не публикуется: посетитель без сессии Aperio получает тот же ответ, что и для незанятого имени хоста, а вошедший пользователь Aperio по-прежнему до него доходит',
   '{count} client(s) would take it: {clients}':
     'запрос взяли бы {count} клиент(ов): {clients}',
   'no connected client serves this hostname and path':
@@ -1138,14 +1146,12 @@ export const ru: Record<string, string> = {
     'Нет клиента',
   'maintenance mode':
     'режим обслуживания',
-  'auth: on the service':
-    'auth: у сервиса',
-  'access.gate / OIDC':
-    'access.gate / OIDC',
-  'access.default':
-    'access.default',
-  'access.gate':
-    'access.gate',
+  'access: on the service':
+    'access: у сервиса',
+  'access / OIDC':
+    'access / OIDC',
+  'access':
+    'access',
   'OIDC':
     'OIDC',
   'hostname/path binds':

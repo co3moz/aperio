@@ -15,7 +15,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::Site;
+use crate::{ServerAccess, Site};
 
 /// The environment variables the server still reads, all of them needed
 /// before its database exists. Everything else is a [`ServerSettings`] field.
@@ -67,8 +67,13 @@ pub struct ServerSettings {
   /// Taking a client out of routing when it keeps failing, while its health
   /// probe still reports green.
   pub outlier: Outlier,
-  /// Who may reach a proxied route when nothing more specific says.
-  pub access: Access,
+  /// Who may reach a proxied route when nothing more specific says: `deny`
+  /// (the default) refuses a route nothing declares, `public` serves it to
+  /// anyone, and a method block or a list of them gates it. A client's
+  /// `access:` speaks for its own service, and a site's `access` speaks for
+  /// its hostname over both.
+  #[schemars(extend("examples" = ["deny", "public", {"method": "aperio"}]))]
+  pub access: ServerAccess,
   /// The reverse proxy or CDN in front of this server, and whose
   /// `X-Forwarded-For` to believe. Security-relevant.
   pub proxy: Proxy,
@@ -140,9 +145,8 @@ pub use sections::*;
 /// on its own: each one decides who reaches what, or where the server may be
 /// steered. A path names a field or a whole section.
 pub const SECURITY_PATHS: &[&str] = &[
-  "access.default",
-  "access.gate",
-  "access.ignore_client_auth",
+  "access",
+  "sites.access",
   "routing.require_hostname_bind",
   "proxy",
   "security.admin_allowed_ips",
@@ -208,7 +212,8 @@ pub const SECRET_PATHS: &[&str] = &[
   "metrics.token",
   "edge.token",
   "otel.headers",
-  "access.gate",
+  "access",
+  "sites.access",
 ];
 
 /// Inside a visitor gate, the fields that carry a credential. The rest of a
@@ -249,11 +254,23 @@ impl ServerSettings {
   pub fn masked(&self) -> serde_json::Value {
     let mut value = self.to_value();
     for path in SECRET_PATHS {
-      if let Some(node) = value.pointer_mut(&pointer(path)) {
-        if *path == "access.gate" {
-          mask_gate(node);
-        } else {
-          mask_all(node);
+      match *path {
+        "access" => {
+          if let Some(node) = value.get_mut("access") {
+            mask_gate(node);
+          }
+        }
+        "sites.access" => {
+          for site in sites_of(&mut value) {
+            if let Some(node) = site.get_mut("access") {
+              mask_gate(node);
+            }
+          }
+        }
+        _ => {
+          if let Some(node) = value.pointer_mut(&pointer(path)) {
+            mask_all(node);
+          }
         }
       }
     }
@@ -262,9 +279,16 @@ impl ServerSettings {
 
   /// The dotted paths (`section.field`, or `section` for a list section)
   /// whose values differ between `self` and `other`.
+  ///
+  /// A change to who may reach a site is `sites.access` besides `sites`, so
+  /// it is held to the security rules while a changed header or page on the
+  /// same list is not.
   pub fn changed_paths(&self, other: &ServerSettings) -> Vec<String> {
     let mut out = Vec::new();
     diff_paths(&self.to_value(), &other.to_value(), String::new(), &mut out);
+    if out.iter().any(|p| p == "sites") && site_access(&self.sites) != site_access(&other.sites) {
+      out.push("sites.access".to_string());
+    }
     out
   }
 }
@@ -272,15 +296,75 @@ impl ServerSettings {
 /// Puts the stored credential back wherever `incoming`, a document read from
 /// [`ServerSettings::masked`] and edited, still carries [`MASKED`]. A mask
 /// with nothing stored behind it is refused rather than stored as the secret.
+///
+/// A site's credential is found by the site's hostname and path, never by its
+/// place in the list: a list reordered in the dashboard would otherwise hand
+/// one site's password to another.
 pub fn unmask(incoming: &mut serde_json::Value, current: &ServerSettings) -> Result<(), String> {
-  let current = current.to_value();
+  let current_value = current.to_value();
   for path in SECRET_PATHS {
+    if *path == "sites.access" {
+      for site in sites_of(incoming) {
+        let key = site_key(site);
+        let stored = current
+          .sites
+          .iter()
+          .find(|s| {
+            (s.hostname.trim(), s.path.as_deref().map(str::trim))
+              == (key.0.as_str(), key.1.as_deref())
+          })
+          .and_then(|s| s.access.as_ref())
+          .and_then(|a| serde_json::to_value(a).ok());
+        if let Some(node) = site.get_mut("access") {
+          restore(node, stored.as_ref(), path)?;
+        }
+      }
+      continue;
+    }
     let pointer = pointer(path);
     if let Some(node) = incoming.pointer_mut(&pointer) {
-      restore(node, current.pointer(&pointer), path)?;
+      restore(node, current_value.pointer(&pointer), path)?;
     }
   }
   Ok(())
+}
+
+/// The sites of a document tree, to walk.
+fn sites_of(value: &mut serde_json::Value) -> impl Iterator<Item = &mut serde_json::Value> {
+  value
+    .get_mut("sites")
+    .and_then(|s| s.as_array_mut())
+    .into_iter()
+    .flatten()
+}
+
+/// What identifies a site in a document tree: its hostname and its path.
+fn site_key(site: &serde_json::Value) -> (String, Option<String>) {
+  let text = |k: &str| {
+    site
+      .get(k)
+      .and_then(|v| v.as_str())
+      .map(|s| s.trim().to_string())
+  };
+  (text("hostname").unwrap_or_default(), text("path"))
+}
+
+/// Who may reach each site, by site, for telling an access change apart from
+/// any other change to the list.
+fn site_access(sites: &[Site]) -> Vec<(&str, Option<&str>, Option<&crate::Access>)> {
+  let mut out: Vec<_> = sites
+    .iter()
+    .map(|s| {
+      (
+        s.hostname.trim(),
+        s.path.as_deref().map(str::trim),
+        s.access.as_ref(),
+      )
+    })
+    .filter(|(_, _, a)| a.is_some())
+    .collect();
+  out.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+  out
 }
 
 fn pointer(path: &str) -> String {
@@ -298,8 +382,9 @@ fn mask_all(node: &mut serde_json::Value) {
 
 fn mask_gate(node: &mut serde_json::Value) {
   match node {
-    // `gate: "user:password"`, the scalar spelling.
-    serde_json::Value::String(s) => *s = MASKED.to_string(),
+    // A word (`deny`, `public`) carries no credential, and masking it would
+    // hide the one thing a reader needs to see.
+    serde_json::Value::String(_) => {}
     serde_json::Value::Array(methods) => methods.iter_mut().for_each(mask_gate),
     serde_json::Value::Object(method) => {
       for field in GATE_SECRET_FIELDS {

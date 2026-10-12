@@ -283,9 +283,9 @@ impl Policy {
   }
 }
 
-/// Validates the server's default gate (`access.gate` in the settings).
+/// Validates a gate the operator wrote: the server's `access`, or a site's.
 pub(crate) fn validate_gate(setting: &AuthSetting) -> Result<(), String> {
-  aperio_config::validate_auth_setting(setting).map_err(|e| format!("access.gate: {e}"))
+  aperio_config::validate_auth_setting(setting).map_err(|e| format!("access: {e}"))
 }
 
 #[cfg(test)]

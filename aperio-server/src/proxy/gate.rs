@@ -383,13 +383,15 @@ async fn apply_request_methods(
 /// 0. A request path containing a traversal segment never weakens the gate:
 ///    it is treated as covered by no public/override/share scope and, when any
 ///    gate could apply on the host, requires a full session.
-/// 1. When a client declared a per-service visitor password for this route
+/// 1. A site's `access` covering the route decides, whatever the clients
+///    serving it declare: the operator's word on a hostname is the last one.
+/// 2. When a client declared a per-service visitor password for this route
 ///    (`route_visitor_auth`), it supersedes the server's own gate: the visitor
 ///    must hold a session valid for this host (a host-scoped login, or any
 ///    global session), or a share cookie/link that covers the route. The login
 ///    always uses the password form (never OIDC), since the credentials are the
 ///    client's.
-/// 2. Otherwise the server's own gate applies: public routes skip it; a
+/// 3. Otherwise the server's own gate applies: public routes skip it; a
 ///    configured server password / OIDC requires a global session or a share,
 ///    and a `bearer` method may also be satisfied by the request itself.
 ///
@@ -415,11 +417,6 @@ pub(crate) async fn check_visitor_gate(
   caller_ip: std::net::IpAddr,
 ) -> VisitorGate {
   let path = uri.path();
-  // Used only where a `forward` method will send it on: the header is what
-  // tells the endpoint who is asking. Always present, because the socket's own
-  // peer is the fallback, so an endpoint that decides on the address is never
-  // asked about a visitor who appears to have none.
-  let visitor_ip = caller_ip.to_string();
   let navigation = is_navigation(method, headers);
 
   // 0. Traversal paths never weaken the gate. `/a/../b` matches an `/a` path
@@ -430,8 +427,12 @@ pub(crate) async fn check_visitor_gate(
   if crate::routing::request_path_has_traversal(path) {
     let gated = state.config().visitor_auth.gates()
       || state.oidc.is_some()
+      || state.config().sites.gates_on_host(host)
       || crate::routing::host_has_visitor_auth(state, host).await;
     if !gated {
+      if state.config().sites.public_on_host(host) {
+        return VisitorGate::Allow(None);
+      }
       // The closed posture is decided here too, not only in section 2 below.
       // Section 2 is where it used to be checked and a traversal path returns
       // before ever reaching it, so `deny` was the one posture a `.` in the
@@ -469,6 +470,23 @@ pub(crate) async fn check_visitor_gate(
       "/aperio/auth"
     };
     return VisitorGate::Deny(login_redirect(login_path, &uri.to_string()));
+  }
+
+  // 1. A site's `access`: the operator's word on this hostname, ahead of
+  // anything a client serving it declares for its own service.
+  {
+    let cfg = state.config();
+    if let Some(site) = cfg.sites.access_for(host, path) {
+      return match site {
+        crate::sites::SiteAccess::Public => VisitorGate::Allow(None),
+        crate::sites::SiteAccess::Gate(policy) => {
+          admit_by_policy(
+            state, policy, method, headers, uri, host, caller_ip, navigation,
+          )
+          .await
+        }
+      };
+    }
   }
 
   // 1a. A client-declared policy richer than a password: the same methods
@@ -567,7 +585,7 @@ pub(crate) async fn check_visitor_gate(
     };
   }
 
-  // 2. Server's own visitor gate.
+  // 3. The server's own visitor gate.
   let config = state.config();
   let policy = &config.visitor_auth;
   let auth_configured = policy.gates() || state.oidc.is_some();
@@ -611,6 +629,36 @@ pub(crate) async fn check_visitor_gate(
     }
     return VisitorGate::Allow(None);
   }
+  admit_by_policy(
+    state, policy, method, headers, uri, host, caller_ip, navigation,
+  )
+  .await
+}
+
+/// Lets a visitor through a gate the operator wrote, the server's own
+/// `access` or a site's, or says how they are refused.
+///
+/// A session that reaches the hostname, then the methods that live on the
+/// request itself, then a `forward` endpoint, then a share link, in that
+/// order; one function for both, because the same written policy must not
+/// behave two ways depending on which setting it was written in.
+#[allow(clippy::too_many_arguments)]
+async fn admit_by_policy(
+  state: &Arc<AppState>,
+  policy: &crate::visitor_auth::Policy,
+  method: &axum::http::Method,
+  headers: &HeaderMap,
+  uri: &axum::http::Uri,
+  host: Option<&str>,
+  caller_ip: std::net::IpAddr,
+  navigation: bool,
+) -> VisitorGate {
+  let path = uri.path();
+  // Used only where a `forward` method will send it on: the header is what
+  // tells the endpoint who is asking. Always present, because the socket's own
+  // peer is the fallback, so an endpoint that decides on the address is never
+  // asked about a visitor who appears to have none.
+  let visitor_ip = caller_ip.to_string();
   let session_ok = if policy.aperio_only() {
     crate::auth::admin_session_reaches(state, headers, host).await
   } else {

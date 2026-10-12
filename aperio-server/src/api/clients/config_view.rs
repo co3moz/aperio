@@ -136,7 +136,7 @@ fn client_config_view(
       "access",
       "a policy",
       "the server's gate",
-      "the token does not permit controlling the visitor gate, or the server sets access.ignore_client_auth",
+      "the token does not permit controlling the visitor gate",
     );
   }
   let declared_hostnames = declared_hostnames_of(service);

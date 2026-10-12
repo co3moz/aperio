@@ -80,8 +80,9 @@ proxy.trusted`). Moving a deployment over is four steps:
    | 0.12 | 0.13 |
    | --- | --- |
    | `trusted_proxies`, `trust_proxy`, `real_ip_header` | `proxy.trusted`, `proxy.trust`, `proxy.real_ip_header` |
-   | `server.auth` / `server_auth` | `access.gate` |
-   | `default_access`, `ignore_client_auth` | `access.default`, `access.ignore_client_auth` |
+   | `server.auth` / `server_auth` | `access`, a method block: `{method: basic, users: "user:password"}` |
+   | `default_access: deny` / `allow` | `access: deny` / `access: public` |
+   | `ignore_client_auth: true` | `access` on a site for each hostname it should decide, which wins over what clients declare |
    | `admin_allowed_ips`, `denied_ips`, `secure_cookies` | `security.admin_allowed_ips`, `security.denied_ips`, `security.secure_cookies` |
    | `max_body_size`, `max_concurrent_requests`, `max_tunnels` | `limits.request_body`, `limits.concurrent_requests`, `limits.tunnels` |
    | `gateway_timeout`, `gateway_response_timeout` | `gateway.timeout`, `gateway.response_timeout` |
@@ -234,7 +235,7 @@ about exactly this, once per connection, naming the line to write.
 password, or OIDC. Those were always reachable after a login and are untouched:
 the posture decides what an *unstated* route means, nothing else.
 
-**To postpone it**, set `access.default: allow`. That restores the previous
+**To postpone it**, set the server's `access` to `public`. That restores the previous
 behaviour exactly. It is a supported posture rather than
 a migration flag, so there is no deadline attached to it.
 

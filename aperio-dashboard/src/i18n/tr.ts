@@ -513,6 +513,10 @@ export const tr: Record<string, string> = {
   Variable: 'Değişken',
   'Visitor Experience': 'Ziyaretçi Deneyimi',
   'Visitor password': 'Ziyaretçi parolası',
+  'Default access':
+    'Varsayılan erişim',
+  'deny, public, or a gate in front of every route nothing else declares':
+    'deny, public ya da başka hiçbir şeyin bildirmediği her rotanın önündeki kapı',
   'Wait for a client to (re)connect before failing a request':
     'İsteği başarısız saymadan önce istemcinin (yeniden) bağlanması beklenir',
   'Wait for a client to answer a dispatched request': 'Gönderilen isteğe istemcinin yanıtı beklenir',
@@ -1096,10 +1100,14 @@ export const tr: Record<string, string> = {
     'ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): ziyaretçiler için OIDC yapılandırılmış',
   'this hostname is served without a visitor gate':
     'bu hostname ziyaretçi kapısı olmadan sunuluyor',
+  "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare":
+    "ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): bir site'ın access ayarı bu rotayı koruyor, hizmeti veren istemcilerin bildirdiklerinin önüne geçer",
+  "a site's access opens this route to anyone, over what the clients serving it declare":
+    "bir site'ın access ayarı bu rotayı herkese açıyor, hizmeti veren istemcilerin bildirdiklerinin önüne geçer",
   "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization":
     'Ziyaretçiler bu istek bir istemciye ulaşmadan önce giriş yapmalı (ya da bir paylaşım bağlantısı taşımalı): bu rota bir Aperio girişi istiyor, bu hostname’in organizasyonuna erişen bir panel oturumu',
-  'nothing declares this route reachable and `access.default` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
-    'hiçbir şey bu rotayı erişilebilir ilan etmiyor ve `access.default` `deny`, bu yüzden yayınlanmıyor: Aperio oturumu taşımayan bir ziyaretçi, sahipsiz bir hostname icin verilen cevabın aynısını alır, oturum açmış bir Aperio kullanıcısı ise yine erişir',
+  "nothing declares this route reachable and the server's `access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it":
+    'hiçbir şey bu rotayı erişilebilir ilan etmiyor ve sunucunun `access` ayarı `deny`, bu yüzden yayınlanmıyor: Aperio oturumu taşımayan bir ziyaretçi, sahipsiz bir hostname için verilen cevabın aynısını alır, oturum açmış bir Aperio kullanıcısı ise yine erişir',
   '{count} client(s) would take it: {clients}':
     '{count} istemci bunu alırdı: {clients}',
   'no connected client serves this hostname and path':
@@ -1142,14 +1150,12 @@ export const tr: Record<string, string> = {
     'İstemci yok',
   'maintenance mode':
     'bakım modu',
-  'auth: on the service':
-    'hizmetteki auth:',
-  'access.gate / OIDC':
-    'access.gate / OIDC',
-  'access.default':
-    'access.default',
-  'access.gate':
-    'access.gate',
+  'access: on the service':
+    'hizmetteki access:',
+  'access / OIDC':
+    'access / OIDC',
+  'access':
+    'access',
   'OIDC':
     'OIDC',
   'hostname/path binds':

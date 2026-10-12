@@ -976,3 +976,36 @@ async fn two_clients_may_share_a_name_and_stay_two_clients() {
     "a shared name must not merge two connections into one"
   );
 }
+
+#[tokio::test]
+async fn a_service_whose_hostname_a_site_gates_is_told_its_access_does_not_decide() {
+  let mut cfg = test_config();
+  cfg.sites =
+    crate::test_support::sites("- hostname: app.example.com\n  access: {method: aperio}\n");
+  let state = Arc::new(test_state_with(cfg));
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  wait_client_id(&state).await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    services[0].service = Some("web".into());
+    services[0].hostname_bind = Some("app.example.com".into());
+    services[0].public = true;
+  }
+  send(&mut ws, &ping).await;
+  let notices = notices_until_pong(&mut ws).await;
+  assert_eq!(notices.len(), 1, "{notices:?}");
+  assert!(
+    notices[0]
+      .1
+      .contains("is not what decides who reaches app.example.com"),
+    "{}",
+    notices[0].1
+  );
+  send(&mut ws, &ping).await;
+  assert!(notices_until_pong(&mut ws).await.is_empty(), "said once");
+}

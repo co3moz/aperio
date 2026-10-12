@@ -19,7 +19,7 @@ fn an_empty_document_is_the_defaults() {
   let d = ServerSettings::default();
   assert_eq!(d.limits.request_body, ByteSize::mb(10));
   assert_eq!(d.gateway.response_timeout, Span::secs(30));
-  assert_eq!(d.access.default, DefaultAccess::Deny);
+  assert_eq!(d.access, crate::ServerAccess::Deny);
   assert!(d.dashboard.enabled);
   assert!(d.inspector.enabled && d.inspector.redact);
   assert_eq!(d.shutdown.drain, Drain::For(Span::secs(0)));
@@ -103,6 +103,21 @@ fn every_special_path_is_a_setting_that_exists() {
       // what has to exist.
       match node.get(part) {
         Some(next) => node = next,
+        // A list section: the path names a field of its entries, which the
+        // schema has to know.
+        None if node.is_array() => {
+          let schema = serde_json::to_value(schemars::schema_for!(ServerSettings)).unwrap();
+          let section = path.split('.').next().unwrap();
+          let entry = schema["properties"][section]["items"]["$ref"]
+            .as_str()
+            .and_then(|r| r.rsplit('/').next())
+            .unwrap_or_else(|| panic!("{path}: `{section}` is not a list of entries"));
+          assert!(
+            schema["$defs"][entry]["properties"].get(part).is_some(),
+            "{path}: a `{section}` entry has no `{part}`"
+          );
+          break;
+        }
         None => {
           assert!(node.is_object(), "{path}: `{part}` is under a non-section");
           break;
@@ -115,7 +130,7 @@ fn every_special_path_is_a_setting_that_exists() {
 #[test]
 fn credentials_read_masked_and_a_mask_written_back_keeps_them() {
   let stored = ServerSettings::from_yaml(
-    "oidc:\n  issuer: https://id.example.com\n  client_secret: hunter2\nmetrics:\n  enabled: true\n  token: m-token\notel:\n  headers:\n    authorization: Bearer abc\naccess:\n  gate:\n    - method: basic\n      users: ['dan:pw']\n    - method: bearer\n      secret: 0123456789abcdef\n",
+    "oidc:\n  issuer: https://id.example.com\n  client_secret: hunter2\nmetrics:\n  enabled: true\n  token: m-token\notel:\n  headers:\n    authorization: Bearer abc\naccess:\n  - method: basic\n    users: ['dan:pw']\n  - method: bearer\n    secret: 0123456789abcdef\nsites:\n  - hostname: a.example.com\n    access: {method: basic, users: ['ada:site-pw']}\n  - hostname: b.example.com\n    access: public\n",
   )
   .unwrap();
   let masked = stored.masked();
@@ -126,12 +141,18 @@ fn credentials_read_masked_and_a_mask_written_back_keeps_them() {
     "Bearer abc",
     "dan:pw",
     "0123456789abcdef",
+    "ada:site-pw",
   ] {
     assert!(!text.contains(secret), "{secret} leaked: {text}");
   }
   // What is not a credential stays readable, and an unset one stays unset.
   assert_eq!(masked["oidc"]["issuer"], "https://id.example.com");
-  assert_eq!(masked["access"]["gate"][0]["method"], "basic");
+  assert_eq!(masked["access"][0]["method"], "basic");
+  assert_eq!(masked["sites"][0]["hostname"], "a.example.com");
+  assert_eq!(
+    masked["sites"][1]["access"], "public",
+    "a word is not a credential"
+  );
   assert!(masked["edge"]["token"].is_null());
 
   // Saving the masked document back changes nothing.
@@ -166,4 +187,75 @@ fn every_secret_path_is_also_security_relevant() {
       "{path} is a credential but not a security path"
     );
   }
+}
+
+#[test]
+fn a_site_credential_comes_back_to_its_own_site_whatever_the_order() {
+  let stored = ServerSettings::from_yaml(
+    "sites:\n  - hostname: a.example.com\n    access: {method: basic, users: ['ada:pw-a']}\n  - hostname: b.example.com\n    access: {method: basic, users: ['bob:pw-b']}\n",
+  )
+  .unwrap();
+  // The dashboard shows the list masked, and somebody reorders it.
+  let mut incoming = stored.masked();
+  incoming["sites"].as_array_mut().unwrap().reverse();
+  unmask(&mut incoming, &stored).unwrap();
+  let back: ServerSettings = serde_json::from_value(incoming).unwrap();
+  let users = |s: &crate::Site| serde_json::to_value(&s.access).unwrap()["users"].clone();
+  assert_eq!(back.sites[0].hostname, "b.example.com");
+  assert_eq!(users(&back.sites[0]), serde_json::json!(["bob:pw-b"]));
+  assert_eq!(users(&back.sites[1]), serde_json::json!(["ada:pw-a"]));
+
+  // A mask on a site that has no stored credential is refused, not stored.
+  let mut incoming = stored.masked();
+  incoming["sites"][0]["hostname"] = "c.example.com".into();
+  assert!(unmask(&mut incoming, &stored).is_err());
+}
+
+#[test]
+fn a_change_to_who_reaches_a_site_is_a_security_change_and_a_page_is_not() {
+  let before = ServerSettings::from_yaml(
+    "sites:\n  - hostname: a.example.com\n    access: public\n    pages: {unavailable: down}\n",
+  )
+  .unwrap();
+  let page = ServerSettings::from_yaml(
+    "sites:\n  - hostname: a.example.com\n    access: public\n    pages: {unavailable: still down}\n",
+  )
+  .unwrap();
+  let gate = ServerSettings::from_yaml(
+    "sites:\n  - hostname: a.example.com\n    access: {method: aperio}\n    pages: {unavailable: down}\n",
+  )
+  .unwrap();
+  assert_eq!(before.changed_paths(&page), ["sites"]);
+  let changed = before.changed_paths(&gate);
+  assert!(changed.contains(&"sites.access".to_string()), "{changed:?}");
+  assert!(changed.iter().any(|p| path_in(p, SECURITY_PATHS)));
+  assert!(
+    !before
+      .changed_paths(&page)
+      .iter()
+      .any(|p| path_in(p, SECURITY_PATHS))
+  );
+}
+
+#[test]
+fn the_access_block_of_before_is_told_what_it_became() {
+  for old in [
+    "access:\n  gate: 'u:p'\n",
+    "access:\n  default: allow\n",
+    "access:\n  ignore_client_auth: true\n",
+  ] {
+    let err = ServerSettings::from_yaml(old).unwrap_err();
+    assert!(err.contains("one value since 0.13.0"), "{old}: {err}");
+  }
+  assert!(
+    ServerSettings::from_yaml("access: open\n")
+      .unwrap_err()
+      .contains("`deny`, `public`")
+  );
+  assert_eq!(
+    ServerSettings::from_yaml("access: public\n")
+      .unwrap()
+      .access,
+    crate::ServerAccess::Declared(crate::Access::Public)
+  );
 }

@@ -133,9 +133,8 @@ export const GROUPS: GroupSpec[] = [
     description: 'What visitors see in front of and around the proxied services.',
     fields: [
       { key: 'dashboard.ui_language', label: 'Default UI language', hint: 'Dashboard/login language for visitors whose browser language is unsupported' },
-      { key: 'access.gate', label: 'Visitor password', hint: 'user:password gate in front of all proxied traffic; empty = disabled' },
-      { key: 'pages.unavailable', label: 'Custom 504 page (HTML)', hint: 'Shown when no client answers in time' },
-      { key: 'pages.maintenance', label: 'Custom 503 maintenance page (HTML)', hint: 'Shown for hostnames in maintenance mode' },
+      { key: 'access', label: 'Default access', hint: 'deny, public, or a gate in front of every route nothing else declares' },
+      { key: 'sites', label: 'Sites', hint: 'What the server does for a hostname by itself: answers, policy, fallbacks, pages and maintenance windows.' },
     ],
   },
 ]

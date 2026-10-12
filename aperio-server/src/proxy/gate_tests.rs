@@ -1509,3 +1509,115 @@ async fn a_client_declared_forward_is_asked_of_the_client_over_the_tunnel() {
   .await;
   assert!(matches!(gate, VisitorGate::Deny(_)));
 }
+
+// --- a site's access ------------------------------------------------------------
+
+/// A state with one client serving `app.example.com` and declaring `public`,
+/// under the given sites.
+fn site_state(sites: &str) -> Arc<AppState> {
+  let mut cfg = test_config();
+  cfg.sites = crate::test_support::sites(sites);
+  let state = Arc::new(test_state_with(cfg));
+  let mut c = mock_client(Some("app.example.com"), None, None, None);
+  c.sole_mut().public = true;
+  state
+    .clients
+    .try_write()
+    .expect("a fresh state is unlocked")
+    .insert("c1".to_string(), c);
+  state
+}
+
+async fn gate_for(state: &Arc<AppState>, path: &str, host: &str) -> VisitorGate {
+  let uri: axum::http::Uri = path.parse().unwrap();
+  check_visitor_gate(
+    state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    Some(host),
+  )
+  .await
+}
+
+#[tokio::test]
+async fn a_sites_gate_wins_over_a_client_that_declares_itself_public() {
+  let state =
+    site_state("- hostname: app.example.com\n  access: {method: basic, users: 'ops:pw'}\n");
+  assert!(
+    matches!(
+      gate_for(&state, "/", "app.example.com").await,
+      VisitorGate::Deny(_)
+    ),
+    "the operator's word on the hostname is the last one"
+  );
+  // Another hostname is the client's to declare.
+  let state =
+    site_state("- hostname: other.example.com\n  access: {method: basic, users: 'ops:pw'}\n");
+  assert!(matches!(
+    gate_for(&state, "/", "app.example.com").await,
+    VisitorGate::Allow(_)
+  ));
+}
+
+#[tokio::test]
+async fn a_public_site_opens_a_route_a_client_gates() {
+  let mut cfg = test_config();
+  cfg.sites = crate::test_support::sites("- hostname: app.example.com\n  access: public\n");
+  let state = Arc::new(test_state_with(cfg));
+  let mut c = mock_client(Some("app.example.com"), None, None, None);
+  c.sole_mut().visitor_auth = Some("client:pw".to_string());
+  state.clients.write().await.insert("c1".to_string(), c);
+  assert!(matches!(
+    gate_for(&state, "/", "app.example.com").await,
+    VisitorGate::Allow(None)
+  ));
+}
+
+#[tokio::test]
+async fn a_sites_access_on_a_path_covers_that_path_only() {
+  let state =
+    site_state("- hostname: app.example.com\n  path: /admin\n  access: {method: aperio}\n");
+  assert!(matches!(
+    gate_for(&state, "/admin/x", "app.example.com").await,
+    VisitorGate::Deny(_)
+  ));
+  assert!(matches!(
+    gate_for(&state, "/", "app.example.com").await,
+    VisitorGate::Allow(_)
+  ));
+}
+
+#[tokio::test]
+async fn a_traversal_path_cannot_step_around_a_sites_gate() {
+  // `/admin/..` matches no `/admin` scope, so the path cannot be trusted to
+  // be outside it either: a gate anywhere on the hostname asks for a session.
+  let state =
+    site_state("- hostname: app.example.com\n  path: /admin\n  access: {method: aperio}\n");
+  assert!(matches!(
+    gate_for(&state, "/public/../admin", "app.example.com").await,
+    VisitorGate::Deny(_)
+  ));
+}
+
+#[tokio::test]
+async fn a_sites_gate_admits_what_it_names() {
+  let state = site_state(
+    "- hostname: app.example.com\n  access: {method: bearer, secret: a-long-enough-secret}\n",
+  );
+  let mut headers = HeaderMap::new();
+  headers.insert(
+    "authorization",
+    HeaderValue::from_static("Bearer a-long-enough-secret"),
+  );
+  let uri: axum::http::Uri = "/".parse().unwrap();
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &headers,
+    &uri,
+    Some("app.example.com"),
+  )
+  .await;
+  assert!(matches!(gate, VisitorGate::Allow(Some(_))));
+}

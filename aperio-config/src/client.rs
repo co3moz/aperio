@@ -390,94 +390,6 @@ pub struct ServiceCache {
   pub offline: Option<bool>,
 }
 
-/// Who may reach a service: `public`, one method block, or a list of them.
-///
-/// The same method grammar as the server's own visitor gate
-/// (`access.gate`): `basic`, `bearer`, `jwt`, `forward` and `aperio`. A list
-/// admits a visitor when **any** of its methods does, which is what "a
-/// browser signs in, a script presents a key" needs. Unset, the server's own
-/// gate and `access.default` decide.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Access {
-  /// `public`: anyone, with no login (needs a token that allows it).
-  Public,
-  /// One method: `{method: basic, users: "admin:${PASS}"}`.
-  One(Box<AuthMethodSpec>),
-  /// Several methods, any one of which admits the visitor.
-  Any(Vec<AuthMethodSpec>),
-}
-
-impl JsonSchema for Access {
-  fn schema_name() -> std::borrow::Cow<'static, str> {
-    "Access".into()
-  }
-
-  fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-    let method = generator.subschema_for::<AuthMethodSpec>();
-    schemars::json_schema!({
-      "description": "`public`, one method block, or a list of them (any one admits).",
-      // Written whole in the environment (`APERIO_ACCESS=public`, or the
-      // block as yaml): a method's fields are not settings of their own.
-      "x-env": "whole",
-      "anyOf": [
-        { "type": "string", "const": "public", "description": "Anyone, with no login (needs a token that allows it)." },
-        method,
-        { "type": "array", "items": method }
-      ]
-    })
-  }
-}
-
-impl Serialize for Access {
-  fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-    match self {
-      Access::Public => s.serialize_str("public"),
-      Access::One(spec) => spec.serialize(s),
-      Access::Any(specs) => specs.serialize(s),
-    }
-  }
-}
-
-impl<'de> Deserialize<'de> for Access {
-  fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-    use serde::de::Error;
-    // Read loosely first and then strictly, so a mistake inside a method block
-    // is reported by the block's own fields ("unknown field `userz`") rather
-    // than as an untagged enum matching nothing.
-    match serde_json::Value::deserialize(d)? {
-      serde_json::Value::String(word) if word.trim() == "public" => Ok(Access::Public),
-      serde_json::Value::String(word) => Err(D::Error::custom(format!(
-        "`{word}` is not an access policy; write `public`, or a method block such as \
-         {{method: basic, users: \"user:password\"}}"
-      ))),
-      value @ serde_json::Value::Object(_) => serde_json::from_value(value)
-        .map(|spec| Access::One(Box::new(spec)))
-        .map_err(D::Error::custom),
-      value @ serde_json::Value::Array(_) => serde_json::from_value(value)
-        .map(Access::Any)
-        .map_err(D::Error::custom),
-      other => Err(D::Error::custom(format!(
-        "`{other}` is not an access policy; write `public`, a method block, or a list of them"
-      ))),
-    }
-  }
-}
-
-impl Access {
-  /// The policy in the method grammar the tunnel handshake carries:
-  /// `public` is the open gate, `method: none`.
-  pub fn auth_setting(&self) -> AuthSetting {
-    match self {
-      Access::Public => AuthSetting::One(Box::new(AuthMethodSpec {
-        method: "none".to_string(),
-        ..Default::default()
-      })),
-      Access::One(spec) => AuthSetting::One(spec.clone()),
-      Access::Any(specs) => AuthSetting::Any(specs.clone()),
-    }
-  }
-}
-
 /// Autoscaling declaration: the URL the *server* calls when this service needs
 /// capacity it does not have. Aperio never starts or stops anything itself, it
 /// only signals a desired capacity to an endpoint the operator controls.
@@ -677,8 +589,8 @@ impl Connections {
 #[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
 pub struct ServicePolicy {
   /// Who may reach the service: `public`, one method block, or a list of
-  /// them (any one admits). Unset, the server's own visitor gate and
-  /// `access.default` decide.
+  /// them (any one admits). Unset, the server's own `access` decides, and a
+  /// site's `access` on the server wins over this either way.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["public", {"method": "basic", "users": "admin:${ADMIN_PASSWORD}"}]))]
   pub access: Option<Access>,

@@ -8,9 +8,10 @@
 # with `GET /aperio/api/export?include=settings`.
 
 settings:
+  # Share links grant temporary, gate-free access to a site that is otherwise
+  # gated. Put a visitor login in front of every route nothing else declares,
+  # so there is a gate to bypass with a link (`{method: aperio}` works the
+  # same way, with this server's own sign-in).
   access:
-    # Share links grant temporary, gate-free access to a site that is
-    # otherwise gated. Put a visitor login in front of everything proxied so
-    # there is a gate to bypass with a link (OIDC works the same way, see the
-    # oidc example). Format is user:password.
-    gate: viewer:a-visitor-password
+    method: basic
+    users: viewer:a-visitor-password

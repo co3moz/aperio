@@ -19,9 +19,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::HeaderRules;
 use crate::server_settings::Pages;
 use crate::units::{ByteSize, Span};
+use crate::{Access, HeaderRules};
 
 /// One hostname, or a path under one, and what the server does for it.
 #[derive(Deserialize, Serialize, Clone, Debug, Default, JsonSchema, PartialEq)]
@@ -36,6 +36,13 @@ pub struct Site {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["/api"]))]
   pub path: Option<String>,
+  /// Who may reach this site: `public`, a method block, or a list of them,
+  /// the grammar a client's `access:` has. Written here it wins over what any
+  /// client serving the site declares, so the operator, not a tunnel, has the
+  /// last word on a hostname.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["public", {"method": "aperio"}]))]
+  pub access: Option<Access>,
   /// Answer every request here with a redirect, without a client.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [{"url": "https://new.example.com", "permanent": true}]))]

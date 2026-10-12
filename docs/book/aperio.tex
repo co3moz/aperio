@@ -1249,6 +1249,8 @@ escape the scanner blocks \code{*} put up for everybody; and so do the
 \textbf{Setting} & \textbf{Effect} \\
 \midrule
 \endhead
+\code{access} & Who may reach the site, the grammar of a client's \code{access:}. It wins over what any client serving the site declares. \\
+\rowsep
 \code{redirect} & Answer with a redirect, without a client: \code{url}, \code{permanent} (\code{301} rather than \code{302}), \code{preserve\_path}. \\
 \rowsep
 \code{respond} & Answer with a fixed response: \code{status} (default \code{200}), \code{content\_type}, \code{body}. A placeholder for a service not deployed yet, or a fixed \code{robots.txt}. \\
@@ -1763,27 +1765,30 @@ every later question in this chapter is "where does this fit in it".
         path contains \code{..} is never treated as public and never
         unlocks a client's credentials, since a backend that resolves it
         would serve a sibling path. Such a request needs a full session.
+  \item \textbf{A site's \code{access}}, when a site in the server's
+        settings covers the hostname (and the path, when it names one).
+        The operator's word on a hostname is the last one: whatever the
+        clients serving it declare, this decides, and a client overruled
+        this way is told so in its own log.
   \item \textbf{The gate the serving clients declared}, if the token
-        permits it and the server has not set
-        \code{access.ignore\_client\_auth}. This is a whole
-        \code{access:} policy, not only a password
-        (Section~\ref{sec:visitor-auth}).
+        permits it. This is a whole \code{access:} policy, not only a
+        password (Section~\ref{sec:visitor-auth}).
   \item \textbf{Declared open.} \code{access: public}, or its long spelling
         \code{method: none}, and only where the token allows it. This is
         the one sentence that opens a route under either posture, which
         is why it is asked before anything else about the server's own
         configuration.
-  \item \textbf{Nothing gates the route.} What that means is
-        \code{access.default} (Section~\ref{sec:default-access}):
-        refused, which is the default since 0.10.0, or served.
-  \item \textbf{The server's own \code{auth:}}, evaluated method by
-        method until one admits: a session, a credential presented on the
-        request itself, or an endpoint asked about it.
+  \item \textbf{The server's own \code{access}}
+        (Section~\ref{sec:default-access}): \code{deny}, the default,
+        refuses a route nothing declares; \code{public} serves it; a gate
+        is evaluated method by method until one admits: a session, a
+        credential presented on the request itself, or an endpoint asked
+        about it.
   \item \textbf{A share link}, which is checked last and can still admit
         a visitor a gate has just refused.
 \end{enumerate}
 
-\textbf{Unanimity decides steps 2 and 3.} A route is public only when
+\textbf{Unanimity decides steps 3 and 4.} A route is public only when
 \emph{every} client that could serve it says so, and a client-declared
 gate applies only when they all declare the same one; a mixed pool falls
 back to the server's. So a request can never be gated by, or slip past,
@@ -1801,9 +1806,10 @@ not hold: a visitor session opens no part of Aperio
 \section{How a gate is written}
 \label{sec:visitor-auth}
 
-One grammar gates visitors on both sides of the tunnel: the server's
-\code{access.gate} is the default for every route, and a client service's
-\code{access:} overrides that default for the traffic routed there.
+One grammar gates visitors wherever a route's access is written: the
+server's \code{access} answers for a route nothing else declares, a client
+service's \code{access:} speaks for the traffic routed there, and a site's
+\code{access} speaks for its hostname over both.
 
 \begin{codecard}[aperioyaml]{./aperio.yaml (client), on a service}
 access: public                                    # anyone, no login
@@ -1984,13 +1990,8 @@ naming the ones it does. An operator who wrote a gate should never be
 given no gate, which is exactly what accepting an unknown method and
 ignoring it would produce.
 
-The server's \code{access.gate} still takes the scalar
-\code{user:password}, and the dashboard's visitor-password field carries it;
-a client's \code{access:} does not, since \code{public} is its one scalar and
-a login is written as a method block. A policy the scalar cannot express
-shows as empty there, so \code{GET /aperio/api/settings} reports
-\code{visitor\_auth\_methods} beside it and what is in force stays
-readable. A client may declare \code{none}, \code{basic}, \code{bearer} and
+\code{public} is a keyword and never a password: a login is always written
+as a method block, wherever it is written. A client may declare \code{none}, \code{basic}, \code{bearer} and
 \code{jwt}, and \code{forward} with \code{via: client}: its URL is then
 asked over the tunnel, of the client that would serve the request, so a
 client writing \code{localhost:7070} means its own localhost. Without
@@ -2048,9 +2049,10 @@ site behind it. They share a store and a cookie, and what tells them
 apart is the credential that created the session. The master token, a
 named dashboard user, a passkey and OIDC create an \textbf{admin}
 session: the dashboard, its API, and, fenced by organisation, the
-visitor gate. \code{access.gate} creates a \textbf{visitor} session:
-every proxied hostname, and nothing administrative. A client's own
-\code{auth:} creates one too, on its hostname alone.
+visitor gate. A \code{basic} login in the server's \code{access}, or a
+site's, creates a \textbf{visitor} session: the hostnames that gate
+covers, and nothing administrative. A client's own \code{access:} creates
+one too, on its hostname alone.
 
 The distinction is worth stating because the scope of a session and the
 plane it belongs to are different questions, and until they were asked
@@ -2064,11 +2066,12 @@ never opens is Aperio.
 \subsection{Closed by default}
 \label{sec:default-access}
 
-\code{access.default} says what a route \textbf{nobody gated} means.
-\code{allow} is what the server did before 0.10.0: with no gate anywhere,
-every route serves everyone. \code{deny} inverts it, so a route is served
+The server's \code{access} says what a route \textbf{nothing declares}
+answers. \code{deny}, the default, refuses it, so a route is served
 because something said so, a policy that admits the visitor or an explicit
 \code{access: public}, and not because nothing said otherwise.
+\code{public} serves it to everyone, which is what the server did before
+0.10.0, and a method block or a list puts it behind that gate.
 
 This is the setting that makes a throwaway \code{auth: DUMMY:DUMMY}
 unnecessary. Writing one was the only way to say "not public" while
@@ -2077,15 +2080,10 @@ a configuration language admitting it cannot express \emph{closed}.
 
 An undeclared route under \code{deny} is refused with the same answer an
 unclaimed hostname gives, so the existence of something there never leaks
-to a caller who was not going to be let in. A route that \emph{is} gated
-is untouched: the posture decides what an unstated route means and
-nothing else.
-
-The default is \code{deny} from 0.10.0. Before that it was \code{allow},
-and a client connecting with a service nothing gated was warned once per
-connection, naming the line to write, so the flip was not the first anyone
-heard of it. Setting \code{allow} restores the previous behaviour exactly
-and is a supported posture, not a migration escape hatch.
+to a caller who was not going to be let in, and the client serving it is
+told why in its own log. A route that \emph{is} gated is untouched: the
+default decides what an unstated route means and nothing else.
+\code{public} here is a supported setting, not a migration escape hatch.
 
 \section{OIDC}
 
@@ -3313,11 +3311,7 @@ catalogue these tables are written from.
 \textbf{Setting} & \textbf{Description} & \textbf{Default} \\
 \midrule
 \endhead
-\code{access.default} & What a route nobody gated means: \code{deny}, the default since 0.10.0, where a route is served because something declared it reachable rather than because nothing declared otherwise, or \code{allow}, what the server did before 0.10.0. See Closed by default. & \code{deny} \\
-\rowsep
-\code{access.gate} & The default visitor gate in front of all proxied traffic: \code{user:password}, one method block, or a list of them. See Visitor authentication. &  \\
-\rowsep
-\code{access.ignore\_client\_auth} & \code{true} = ignore any client-declared per-service visitor password (see the client \code{auth} setting) and keep sole control of the visitor gate with \code{access.gate} / OIDC. & \code{false} \\
+\code{access} & What a route nothing else declares answers: \code{deny} refuses it, \code{public} serves it to anyone, and a method block or a list of them gates it. A client's \code{access:} speaks for its own service, and a site's \code{access} speaks for its hostname over both. See Visitor authentication. & \code{deny} \\
 \rowsep
 \bottomrule
 \end{longtable}
@@ -4045,7 +4039,7 @@ Written in a \code{services:} entry for that service, or under \code{defaults:} 
 \textbf{Env} & \textbf{CLI} & \textbf{yaml} & \textbf{Description} \\
 \midrule
 \endhead
-\code{APERIO\_ACCESS} & \code{--access} & \code{access} & Who may reach the service: \code{public}, one method block, or a list of them (any one admits). Unset, the server's own visitor gate and \code{access.default} decide. Default: the server's gate. \\
+\code{APERIO\_ACCESS} & \code{--access} & \code{access} & Who may reach the service: \code{public}, one method block, or a list of them (any one admits). Unset, the server's own \code{access} decides, and a site's \code{access} on the server wins over this either way. Default: the server's gate. \\
 \rowsep
 \code{APERIO\_ALLOWED\_IPS} & \code{--allowed-ips} & \code{allowed\_ips} & Visitor IPs/CIDRs allowed to reach this service (comma-separated on the CLI/env, a list in yaml; e.g. \code{203.0.113.7,10.0.0.0/8}). Enforced by the server \textbf{per candidate, before dispatch}, blocked traffic never enters the tunnel. When several clients serve one route, each candidate is filtered by its \emph{own} list and the request goes to any passing candidate (\textbf{union semantics}, deliberately fail-open: one unrestricted client joining a route opens it; use the token-level \code{allowed\_ips} for route-wide lockdown). A visitor every candidate rejects gets the \code{denied:} redirect of the most-primary declaring candidate, or, without one, a \textbf{stealth answer identical to an unclaimed route} (504), so the route's existence never leaks to blocked IPs. Purely restrictive, no token permission needed. Default: everyone. \\
 \rowsep

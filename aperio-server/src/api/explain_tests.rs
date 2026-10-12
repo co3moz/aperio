@@ -376,7 +376,7 @@ async fn the_visitor_gate_names_the_servers_password() {
       .contains("server's visitor password"),
     "{gate}"
   );
-  assert_eq!(gate["setting"], "access.gate");
+  assert_eq!(gate["setting"], "access");
 }
 
 #[tokio::test]
@@ -1080,4 +1080,28 @@ async fn declaring_the_service_open_restores_the_route() {
 
   assert_eq!(body["outcome"], "client", "{body}");
   assert_eq!(step(&body, "visitor_gate")["code"], "visitor_gate.open");
+}
+
+#[tokio::test]
+async fn a_sites_access_is_the_gate_reported_over_what_a_client_declares() {
+  let mut cfg = test_config();
+  cfg.sites = crate::test_support::sites(
+    "- hostname: app.example.com\n  access: {method: aperio}\n- hostname: open.example.com\n  access: public\n",
+  );
+  let state = Arc::new(test_state_with(cfg));
+  let mut c = mock_client(Some("app.example.com"), None, None, None);
+  c.sole_mut().public = true;
+  state.clients.write().await.insert("c1".to_string(), c);
+  let headers = admin_headers(&state).await;
+
+  let body = json_body(explain(&state, headers.clone(), q("app.example.com", None)).await).await;
+  let gate = step(&body, "visitor_gate");
+  assert_eq!(gate["code"], "visitor_gate.site");
+  assert_eq!(gate["setting"], "sites");
+
+  let body = json_body(explain(&state, headers, q("open.example.com", None)).await).await;
+  assert_eq!(
+    step(&body, "visitor_gate")["code"],
+    "visitor_gate.site_public"
+  );
 }

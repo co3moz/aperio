@@ -271,6 +271,13 @@ fn named_json(n: &Named) -> serde_json::Value {
   }
 }
 
+/// A site's `access` opens the route, over what the clients declare.
+const SITE_PUBLIC: &str =
+  "a site's access opens this route to anyone, over what the clients serving it declare";
+
+/// A site's `access` gates the route, over what the clients declare.
+const SITE_GATE: &str = "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare";
+
 /// Walks the proxy's decisions for a request nobody sends.
 #[utoipa::path(get, path = "/aperio/api/explain", tag = "dashboard",
   description = "Dry run: which rule would answer a request to this hostname and path, and what every other stage saw. Consumes no rate limit and wakes nothing.",
@@ -611,10 +618,11 @@ pub(crate) async fn explain_handler(
     .from(crate::limits::Limit::Ip.setting()),
   );
 
-  // 6. The visitor gate. Three things can raise it, and naming which one is
-  // the whole value: a client's own password is the service's, the server's
-  // password and OIDC are the operator's, and they are configured in
-  // different places.
+  // 6. The visitor gate. A site's `access` is the operator's word on the
+  // hostname and is asked first, as the gate itself asks it. After it, three
+  // things can raise the gate, and naming which one is the whole value: a
+  // client's own gate is the service's, the server's `access` and OIDC are
+  // the operator's, and they are configured in different places.
   let client_gate = crate::routing::host_has_visitor_auth(&state, Some(&hostname)).await;
   let server_gate = cfg.visitor_auth.gates();
   let oidc_gate = state.oidc.is_some();
@@ -625,40 +633,46 @@ pub(crate) async fn explain_handler(
     .await
     .is_some_and(|p| p.has_aperio());
   let server_aperio = cfg.visitor_auth.has_aperio();
-  if client_gate || server_gate || oidc_gate {
+  if let Some(site) = cfg.sites.access_for(Some(&hostname), &path) {
+    let (code, detail) = match site {
+      crate::sites::SiteAccess::Public => ("visitor_gate.site_public", SITE_PUBLIC),
+      crate::sites::SiteAccess::Gate(_) => ("visitor_gate.site", SITE_GATE),
+    };
+    steps.push(Step::new("visitor_gate", Verdict::Passes, code, detail).from("sites"));
+  } else if client_gate || server_gate || oidc_gate {
     let (why, code, setting, setting_code) = if client_aperio {
       (
         "the serving client declared this route behind an Aperio sign-in: a dashboard session reaching this hostname's organization",
         "visitor_gate.aperio_login",
-        "auth: {method: aperio} on the service",
+        "access: {method: aperio} on the service",
         "setting.service_auth",
       )
     } else if server_aperio && !client_gate {
       (
         "the server's gate asks for an Aperio sign-in: a dashboard session reaching this hostname's organization",
         "visitor_gate.aperio_login",
-        "access.gate",
+        "access",
         "setting.server_auth",
       )
     } else if client_gate {
       (
         "the serving client declared a visitor password for this route, which supersedes the server's own gate",
         "visitor_gate.client_password",
-        "auth: on the service",
+        "access: on the service",
         "setting.service_auth",
       )
     } else if server_gate && oidc_gate {
       (
         "the server's visitor gate is on, and OIDC is configured",
         "visitor_gate.server_password_and_oidc",
-        "access.gate / OIDC",
+        "access / OIDC",
         "setting.server_auth_oidc",
       )
     } else if server_gate {
       (
         "the server's visitor password is set",
         "visitor_gate.server_password",
-        "access.gate",
+        "access",
         "setting.server_auth",
       )
     } else {
@@ -700,7 +714,7 @@ pub(crate) async fn explain_handler(
     // unclaimed hostname does so that nothing leaks to a caller who was never
     // going to be let in. The report is for the operator, so here it says
     // plainly what the wire does not.
-    let detail = "nothing declares this route reachable and `access.default` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it".to_string();
+    let detail = "nothing declares this route reachable and the server's `access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it".to_string();
     decided(
       &mut outcome,
       "visitor_gate",
@@ -715,7 +729,7 @@ pub(crate) async fn explain_handler(
         "visitor_gate.undeclared",
         detail,
       )
-      .from_named("access.default", "setting.default_access"),
+      .from_named("access", "setting.default_access"),
     );
   } else {
     steps.push(Step::new(

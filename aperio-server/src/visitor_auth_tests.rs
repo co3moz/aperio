@@ -182,14 +182,14 @@ fn a_gate_in_the_settings_is_the_gate_in_force() {
   let none = build("{}").unwrap();
   assert!(!none.visitor_auth.gates(), "no gate written, no gate");
 
-  let gated = build("access:\n  gate:\n    method: basic\n    users: 'dan:hunter2'\n").unwrap();
+  let gated = build("access:\n  method: basic\n  users: 'dan:hunter2'\n").unwrap();
   assert!(gated.visitor_auth.gates());
   assert!(gated.visitor_auth.admits_credential("dan:hunter2"));
 
-  let err = build("access:\n  gate:\n    method: ldap\n")
+  let err = build("access:\n  method: ldap\n")
     .err()
     .expect("a method that does not exist is refused, not dropped");
-  assert!(err.starts_with("access.gate"), "{err}");
+  assert!(err.starts_with("access"), "{err}");
 }
 
 #[test]

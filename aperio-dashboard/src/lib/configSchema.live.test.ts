@@ -115,12 +115,13 @@ describe('every setting reaches an editor', () => {
   it('has only the same holes in the server schema', () => {
     // `sites.headers.*` is the header shape reached through a site,
     // `sites.waf.header` is a block two lists deep, which the builder leaves
-    // to the yaml view on purpose, `access.gate.claims` is the claim map a
-    // `jwt` method requires, and `otel.headers` is a map of header names to
-    // values.
+    // to the yaml view on purpose, `access.claims` and `sites.access.claims`
+    // are the claim map a `jwt` method requires, and `otel.headers` is a map
+    // of header names to values.
     expect(unsupported(serverFields).sort()).toEqual([
-      'access.gate.claims',
+      'access.claims',
       'otel.headers',
+      'sites.access.claims',
       'sites.headers.request',
       'sites.headers.response',
       'sites.waf.header',

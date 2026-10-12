@@ -72,7 +72,7 @@ const SIZE = /^\s*[0-9]+\s*([kmg](i?b)?|b)?\s*$/i
 /** Settings whose value is structured even where the schema has a shape for
  *  it: a gate is a credential, a method block or a list of them. Easier to
  *  read and to write as yaml. */
-const YAML_PATHS = new Set(['access.gate'])
+const YAML_PATHS = new Set(['access'])
 
 function deref(node: JsonSchema, root: JsonSchema): JsonSchema {
   if (!node.$ref) return node

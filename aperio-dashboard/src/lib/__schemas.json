@@ -1542,7 +1542,7 @@
         "type": "object",
         "properties": {
           "access": {
-            "description": "Who may reach the service: `public`, one method block, or a list of\nthem (any one admits). Unset, the server's own visitor gate and\n`access.default` decide.",
+            "description": "Who may reach the service: `public`, one method block, or a list of\nthem (any one admits). Unset, the server's own `access` decides, and a\nsite's `access` on the server wins over this either way.",
             "anyOf": [
               {
                 "$ref": "#/$defs/Access"
@@ -2157,7 +2157,7 @@
         "type": "object",
         "properties": {
           "access": {
-            "description": "Who may reach the service: `public`, one method block, or a list of\nthem (any one admits). Unset, the server's own visitor gate and\n`access.default` decide.",
+            "description": "Who may reach the service: `public`, one method block, or a list of\nthem (any one admits). Unset, the server's own `access` decides, and a\nsite's `access` on the server wins over this either way.",
             "anyOf": [
               {
                 "$ref": "#/$defs/Access"
@@ -2773,12 +2773,16 @@
     "type": "object",
     "properties": {
       "access": {
-        "description": "Who may reach a proxied route when nothing more specific says.",
-        "$ref": "#/$defs/Access",
-        "default": {
-          "default": "deny",
-          "ignore_client_auth": false
-        }
+        "description": "Who may reach a proxied route when nothing more specific says: `deny`\n(the default) refuses a route nothing declares, `public` serves it to\nanyone, and a method block or a list of them gates it. A client's\n`access:` speaks for its own service, and a site's `access` speaks for\nits hostname over both.",
+        "$ref": "#/$defs/ServerAccess",
+        "default": "deny",
+        "examples": [
+          "deny",
+          "public",
+          {
+            "method": "aperio"
+          }
+        ]
       },
       "alerts": {
         "description": "Built-in and operator-defined alerts.",
@@ -3105,48 +3109,24 @@
     "additionalProperties": false,
     "$defs": {
       "Access": {
-        "type": "object",
-        "properties": {
-          "default": {
-            "description": "What a route nobody gated means: `deny` (the default) or `allow`.\nSecurity-relevant.",
-            "default": "deny",
-            "oneOf": [
-              {
-                "description": "A route is served because something declared it reachable.",
-                "type": "string",
-                "const": "deny"
-              },
-              {
-                "description": "Every route serves everyone unless something gates it.",
-                "type": "string",
-                "const": "allow"
-              }
-            ]
+        "description": "`public`, one method block, or a list of them (any one admits).",
+        "anyOf": [
+          {
+            "description": "Anyone, with no login (needs a token that allows it).",
+            "type": "string",
+            "const": "public"
           },
-          "gate": {
-            "description": "The visitor gate in front of every proxied route that does not carry\nits own: a `user:password`, one method block, or a list of them.",
-            "anyOf": [
-              {
-                "$ref": "#/$defs/AuthSetting"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "examples": [
-              "visitor:a-strong-password",
-              {
-                "method": "aperio"
-              }
-            ]
+          {
+            "$ref": "#/$defs/AuthMethodSpec"
           },
-          "ignore_client_auth": {
-            "description": "Ignore the gates clients declare for their own services, and keep sole\ncontrol with `gate`. Security-relevant. Default `false`.",
-            "type": "boolean",
-            "default": false
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AuthMethodSpec"
+            }
           }
-        },
-        "additionalProperties": false
+        ],
+        "x-env": "whole"
       },
       "AlertRule": {
         "description": "One `alerts.rules` entry: a quantity the server measures, a bound, and how\nlong the condition must hold.",
@@ -3557,26 +3537,6 @@
         "additionalProperties": false,
         "required": [
           "method"
-        ]
-      },
-      "AuthSetting": {
-        "description": "How a visitor gate is written, on either side of the tunnel.\n\nThree spellings of one thing. The scalar `auth: \"user:password\"` predates\nthe grammar and keeps working, folding to a single `basic` method; one\nblock names a method with its settings; a list is admitted when **any** of\nits methods admits the visitor, which is what \"a browser signs in, a script\npresents a key\" needs and what a single choice cannot say.\n\nThe variants are ordered for `untagged`: a YAML scalar can only be the\nfirst, a mapping only the second, a sequence only the third, so a value is\nnever read as the wrong shape.",
-        "anyOf": [
-          {
-            "description": "`auth: \"user:password\"`, the spelling that predates the method grammar.",
-            "type": "string"
-          },
-          {
-            "description": "One method: `auth: {method: none}`. Boxed because a method entry grew\nfields as methods were added, and an unboxed variant makes every\n`AuthSetting`, including the one-word scalar, as large as the largest\nmethod's settings.",
-            "$ref": "#/$defs/AuthMethodSpec"
-          },
-          {
-            "description": "Several methods, any one of which admits the visitor.",
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/AuthMethodSpec"
-            }
-          }
         ]
       },
       "Backup": {
@@ -5075,6 +5035,27 @@
         },
         "additionalProperties": false
       },
+      "ServerAccess": {
+        "description": "`deny` (the default), `public`, one method block, or a list of them (any one admits).",
+        "anyOf": [
+          {
+            "type": "string",
+            "enum": [
+              "deny",
+              "public"
+            ]
+          },
+          {
+            "$ref": "#/$defs/AuthMethodSpec"
+          },
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AuthMethodSpec"
+            }
+          }
+        ]
+      },
       "Shutdown": {
         "type": "object",
         "properties": {
@@ -5135,6 +5116,23 @@
         "description": "One hostname, or a path under one, and what the server does for it.",
         "type": "object",
         "properties": {
+          "access": {
+            "description": "Who may reach this site: `public`, a method block, or a list of them,\nthe grammar a client's `access:` has. Written here it wins over what any\nclient serving the site declares, so the operator, not a tunnel, has the\nlast word on a hostname.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Access"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "public",
+              {
+                "method": "aperio"
+              }
+            ]
+          },
           "canary": {
             "description": "Split the traffic between two versions of a service.",
             "anyOf": [

@@ -1,7 +1,17 @@
 use std::net::IpAddr;
 use std::time::Duration;
 
-pub(crate) use aperio_config::server_settings::{DefaultAccess, FailoverMode, LbStrategy};
+pub(crate) use aperio_config::server_settings::{FailoverMode, LbStrategy};
+
+/// What a route nothing declares means, read off the server's `access`:
+/// `deny` refuses it, and `public` or a gate (`visitor_auth`) serves it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DefaultAccess {
+  /// A route is served because something declared it reachable.
+  Deny,
+  /// Every route serves everyone unless something gates it.
+  Allow,
+}
 
 /// Configuration settings for the Aperio server.
 #[derive(Clone)]
@@ -39,10 +49,6 @@ pub(crate) struct ServerConfig {
   /// client IP resolution. Only enable when running behind a trusted reverse
   /// proxy, otherwise clients can spoof these headers to bypass rate limiting.
   pub(crate) trust_proxy: bool,
-  /// When true, the server ignores any client-declared visitor password
-  /// override (Ping `visitor_auth`) and keeps full control of the visitor gate
-  /// with its own access.gate / OIDC. (`access.ignore_client_auth`).
-  pub(crate) ignore_client_auth: bool,
   /// Header consulted first for the real client IP when trust_proxy is on
   /// (proxy.real_ip_header, e.g. `CF-Connecting-IP` behind Cloudflare).
   pub(crate) real_ip_header: Option<String>,
@@ -85,14 +91,11 @@ pub(crate) struct ServerConfig {
   /// hostname bind participate in load balancing. Clients without a hostname
   /// bind never receive proxied traffic.
   pub(crate) require_hostname_bind: bool,
-  /// What a route nobody gated means (`planned_features.md` #108).
-  ///
-  /// `Allow` is what the server has always done and stays the default: with
-  /// no `auth:` anywhere, every route serves everyone. `Deny` inverts it, so
-  /// a route is reachable because something said so rather than because
-  /// nothing said otherwise, and `access: public` / `method: none` become the
-  /// sentence that opens one rather than an exemption from a gate that may
-  /// not exist.
+  /// What a route nobody gated means (`planned_features.md` #108): `Deny`
+  /// when the server's `access` is `deny`, so a route is reachable because
+  /// something said so rather than because nothing said otherwise, and
+  /// `access: public` becomes the sentence that opens one. `Allow` when it is
+  /// `public`; a gate in `visitor_auth` covers the rest either way.
   pub(crate) default_access: DefaultAccess,
   /// Optional bearer token required to scrape the `/aperio/metrics` endpoint.
   pub(crate) metrics_token: Option<String>,

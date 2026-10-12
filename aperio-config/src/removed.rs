@@ -615,15 +615,15 @@ pub const REMOVED_SERVER_ENV: &[Removed] = &[
   },
   Removed {
     key: "APERIO_DEFAULT_ACCESS",
-    hint: "moved into the settings as `access.default` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings as `access` in 0.13.0: `deny`, or `public` for what `allow` was. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_SERVER_AUTH",
-    hint: "moved into the settings as `access.gate` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings as `access` in 0.13.0, a method block such as `{method: basic, users: \"user:password\"}`. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_IGNORE_CLIENT_AUTH",
-    hint: "moved into the settings as `access.ignore_client_auth` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "removed in 0.13.0: write `access` on a site in the settings, which wins over what any client declares for that hostname. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_TRUST_PROXY",
