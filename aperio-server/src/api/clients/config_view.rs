@@ -299,7 +299,7 @@ fn client_config_view(
 
 /// Returns the effective configuration of one connected client.
 #[utoipa::path(get, path = "/aperio/api/clients/{id}/config", tag = "dashboard",
-  description = "Effective configuration of one connection as a YAML document, plus every setting whose effective value differs from what was configured (a bandwidth budget divided across parallel connections, a cache opt-in the server ignores, an active overrule).",
+  description = "Effective configuration of one connection as a YAML document, plus every setting whose effective value differs from what was configured (a bandwidth budget divided across parallel connections, a cache opt-in the server ignores, a setting the server did not apply).",
   params(("id" = String, Path, description = "Client connection id")),
   responses((status = 200, description = "Effective configuration", body = ClientConfigView),
     (status = 404, description = "No such client")))]

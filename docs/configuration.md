@@ -1242,7 +1242,7 @@ Three things hold for the whole `/aperio/api/` surface. The credential is a dash
 | --- | --- | --- |
 | `GET /aperio/api/activity` | Request volume per bucket (total and failed) for the activity chart: `range=15m` (5-second slices, the default), `2h` (2-minute) or `1d` (15-minute). | a dashboard session or admin key (viewer+) |
 | `GET /aperio/api/bandwidth` | Bytes in/out per token and hostname, bucketed per day or month (unit=day|month, count). | a dashboard session or admin key (viewer+) |
-| `GET /aperio/api/clients/{id}/config` | Effective configuration of one connection as a YAML document, plus every setting whose effective value differs from what was configured (a bandwidth budget divided across parallel connections, a cache opt-in the server ignores, an active overrule). | a dashboard session or admin key (viewer+) |
+| `GET /aperio/api/clients/{id}/config` | Effective configuration of one connection as a YAML document, plus every setting whose effective value differs from what was configured (a bandwidth budget divided across parallel connections, a cache opt-in the server ignores, a setting the server did not apply). | a dashboard session or admin key (viewer+) |
 | `POST /aperio/api/clients/{id}/enabled` | Kill switch: enable/disable routing to one client without dropping its tunnel. | a dashboard session or admin key (operator+) |
 | `GET /aperio/api/config/schema/{kind}` | JSON Schema of a configuration file, for editors and the dashboard's config builder. | a dashboard session or admin key (viewer+) |
 | `GET /aperio/api/explain` | Dry run: which rule would answer a request to this hostname and path, and what every other stage saw. | a dashboard session or admin key (operator+) |
