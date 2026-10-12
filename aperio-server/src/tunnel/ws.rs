@@ -155,6 +155,7 @@ type ScalingBindCtx = (
 // connection serves, and every field is admitted or refused against the token
 // before any of it takes effect; cutting it up would mean carrying the
 // half-applied state between the pieces.
+mod agree;
 mod declare;
 mod messaging;
 mod ping;
@@ -699,6 +700,7 @@ pub(crate) async fn handle_socket(
         services: vec![crate::state::ServiceState {
           server_side_target: None,
           server_side_refused: None,
+          policy_conflict: None,
           request_count: client_req_count.clone(),
           declared_path: None,
           assigned_path: perms.granted_path(),

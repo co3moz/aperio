@@ -1107,6 +1107,10 @@ export const zh: Record<string, string> = {
     '错过的心跳',
   'its path bind does not match':
     '它的 path 绑定不匹配',
+  'its access, allowed_ips or denied differs from what already serves this route':
+    '它的 access、allowed_ips 或 denied 与已在提供这条路由的服务不同',
+  'it asked to be served from the server, and was refused':
+    '它要求由服务器提供服务，但被拒绝了',
   'Static route':
     '静态路由',
   'Preview noindex':

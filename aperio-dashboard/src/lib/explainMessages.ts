@@ -136,6 +136,9 @@ export const EXPLAIN_INELIGIBLE: Record<string, string> = {
   'ineligible.backend_unhealthy': 'its backend health probe is failing',
   'ineligible.missed_heartbeats': 'missed heartbeats',
   'ineligible.path_mismatch': 'its path bind does not match',
+  'ineligible.policy_conflict':
+    'its access, allowed_ips or denied differs from what already serves this route',
+  'ineligible.server_side_refused': 'it asked to be served from the server, and was refused',
 }
 
 /** The stage names, which are identifiers on the wire and prose on screen. */

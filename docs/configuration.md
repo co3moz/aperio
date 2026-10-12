@@ -635,7 +635,7 @@ That is worth the machinery because of what the alternative does quietly: a serv
 Three places can say who reaches a route, and they are asked in this order:
 
 1. **A site's `access`**, in the server's settings, covering the hostname (and the path, when the site names one). The operator's word on a hostname is the last one: whatever the clients serving it declare, this decides. A client whose own `access:` is overruled this way is told so once per connection, in its own log, so its author does not go on editing a line that has no effect.
-2. **A client's `access:`** for its own service, when every client serving the route declares the same one.
+2. **A client's `access:`** for its own service. Every client serving a route declares the same one, since a client that says something else is kept out of the route and told why ([One route, one policy](tokens-and-auth.md#one-route-one-policy)).
 3. **The server's `access`**, for a route nothing above speaks for.
 
 `public` is a keyword, never a password: a login is always a method block, so a value cannot be read as a credential when it was meant as a word.

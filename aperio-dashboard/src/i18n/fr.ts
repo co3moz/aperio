@@ -1126,6 +1126,10 @@ export const fr: Record<string, string> = {
     'battements manqués',
   'its path bind does not match':
     'son lien de path ne correspond pas',
+  'its access, allowed_ips or denied differs from what already serves this route':
+    'son access, allowed_ips ou denied diffère de ce qui sert déjà cette route',
+  'it asked to be served from the server, and was refused':
+    'il a demandé à être servi depuis le serveur, et cela a été refusé',
   'Static route':
     'Route statique',
   'Preview noindex':

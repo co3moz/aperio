@@ -100,6 +100,8 @@ pub(crate) const SERVICE_SCOPED_DERIVED: &[&str] = &[
   // have been refused server-side serving while its neighbour serves. Held on
   // the connection it would let one service's refusal stop another.
   "server_side_refused",
+  // The service's agreement with its route, likewise its own.
+  "policy_conflict",
 ];
 
 /// What genuinely belongs to the connection, and stays one per socket.
@@ -249,6 +251,7 @@ impl ServiceState {
       request_count: Arc::new(AtomicU64::new(0)),
       server_side_target: None,
       server_side_refused: None,
+      policy_conflict: None,
       declared_path: None,
       assigned_path: None,
       declared_hostname: None,
@@ -471,6 +474,11 @@ pub(crate) struct ServiceState {
   /// relaying would produce broken requests rather than slow ones, and the
   /// operator would be reading a backend error instead of a permission one.
   pub(crate) server_side_refused: Option<String>,
+  /// Set while this service's policy for its route (`access`, `allowed_ips`,
+  /// `denied`) differs from one already serving the route, carrying the
+  /// sentence the client was told. Kept out of routing, and settled again on
+  /// every heartbeat (`tunnel/ws/agree.rs`).
+  pub(crate) policy_conflict: Option<String>,
   /// False when the service asked not to be recorded for the request
   /// inspector (`inspector: false` in its aperio.yaml), announced via Ping.
   pub(crate) capture: bool,

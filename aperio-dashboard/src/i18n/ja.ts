@@ -1124,6 +1124,10 @@ export const ja: Record<string, string> = {
     '取りこぼしたハートビート',
   'its path bind does not match':
     'その path バインドが一致しません',
+  'its access, allowed_ips or denied differs from what already serves this route':
+    'access、allowed_ips または denied が、すでにこのルートを配信しているものと異なります',
+  'it asked to be served from the server, and was refused':
+    'サーバー側からの配信を求めましたが、拒否されました',
   'Static route':
     '静的ルート',
   'Preview noindex':

@@ -1128,6 +1128,10 @@ export const de: Record<string, string> = {
     'verpasste Heartbeats',
   'its path bind does not match':
     'seine path-Bindung passt nicht',
+  'its access, allowed_ips or denied differs from what already serves this route':
+    'sein access, allowed_ips oder denied weicht von dem ab, was diese Route schon bedient',
+  'it asked to be served from the server, and was refused':
+    'es wollte vom Server aus bedient werden, und das wurde abgelehnt',
   'Static route':
     'Statische Route',
   'Preview noindex':

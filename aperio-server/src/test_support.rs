@@ -366,6 +366,7 @@ pub(crate) fn mock_client(
     services: vec![crate::state::ServiceState {
       server_side_target: None,
       server_side_refused: None,
+      policy_conflict: None,
       metrics_labels: Vec::new(),
       service_custom_name: None,
       request_count: Arc::new(AtomicU64::new(0)),

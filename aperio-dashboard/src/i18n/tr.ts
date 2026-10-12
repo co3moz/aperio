@@ -1130,6 +1130,10 @@ export const tr: Record<string, string> = {
     'kaçırılmış kalp atışları',
   'its path bind does not match':
     'path bağı eşleşmiyor',
+  'its access, allowed_ips or denied differs from what already serves this route':
+    'access, allowed_ips ya da denied ayarı bu rotayı zaten sunandan farklı',
+  'it asked to be served from the server, and was refused':
+    'sunucudan sunulmayı istedi ve bu reddedildi',
   'Static route':
     'Statik rota',
   'Preview noindex':

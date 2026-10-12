@@ -1126,6 +1126,10 @@ export const es: Record<string, string> = {
     'latidos perdidos',
   'its path bind does not match':
     'su enlace de path no coincide',
+  'its access, allowed_ips or denied differs from what already serves this route':
+    'su access, allowed_ips o denied difiere de lo que ya sirve esta ruta',
+  'it asked to be served from the server, and was refused':
+    'pidió ser servido desde el servidor, y se rechazó',
   'Static route':
     'Ruta estática',
   'Preview noindex':

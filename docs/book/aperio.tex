@@ -1788,11 +1788,14 @@ every later question in this chapter is "where does this fit in it".
         a visitor a gate has just refused.
 \end{enumerate}
 
-\textbf{Unanimity decides steps 3 and 4.} A route is public only when
-\emph{every} client that could serve it says so, and a client-declared
-gate applies only when they all declare the same one; a mixed pool falls
-back to the server's. So a request can never be gated by, or slip past,
-something only some members of its pool set.
+\textbf{One route has one policy.} Every client serving a route says the
+same thing about it, its \code{access}, \code{allowed\_ips} and
+\code{denied}, because a client that declares something different from one
+already serving the route is kept out of it: refused when it declares,
+told why in its own log, and asked again on every heartbeat, so it serves
+as soon as the two agree or the other one leaves. A request can therefore
+never be gated by, or slip past, something only some members of its pool
+set, and the answer no longer depends on who happens to be connected.
 
 A dashboard session also carries its holder past the gate, since the two
 planes share one session store, and that is fenced by organization: a

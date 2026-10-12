@@ -55,8 +55,14 @@ pub(crate) fn select_client_pool(
     })
     // A service refused server-side serving is excluded here rather than
     // relayed, so it answers as an unclaimed route does. See the refusal in
-    // `declare.rs` for why relaying would be the worse failure.
-    .filter(|(_, s)| s.backend_healthy && s.admin_enabled && s.server_side_refused.is_none())
+    // `declare.rs` for why relaying would be the worse failure. One whose
+    // policy disagrees with its route's is out too, see `agree.rs`.
+    .filter(|(_, s)| {
+      s.backend_healthy
+        && s.admin_enabled
+        && s.server_side_refused.is_none()
+        && s.policy_conflict.is_none()
+    })
     .collect();
 
   // --- Hostname stage ---

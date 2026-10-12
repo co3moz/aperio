@@ -40,6 +40,7 @@ pub(super) fn base_handle() -> ClientHandle {
     subscriptions: Vec::new(),
     services: vec![crate::state::ServiceState {
       server_side_refused: None,
+      policy_conflict: None,
       server_side_target: None,
       service_custom_name: None,
       request_count: Arc::new(AtomicU64::new(0)),

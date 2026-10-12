@@ -312,6 +312,11 @@ impl ConnCtx {
         over_ceiling =
           service_connection_over_ceiling(&clients, client_id, group.as_deref(), &cid, ceiling);
       }
+      // One route, one policy: settled after every declaration is in, so a
+      // service is compared with what its neighbours say now.
+      for refusal in super::agree::settle(state, &mut clients, client_id) {
+        self.notify(refusal.service.as_deref(), refusal.message);
+      }
     }
 
     // A route exists from this line, not from the upgrade. The connect

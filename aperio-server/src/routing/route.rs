@@ -20,7 +20,10 @@ pub(crate) fn valid_visitor_creds(creds: &str) -> bool {
 ///
 /// Returns `Some("user:password")` only when the serving pool is non-empty and
 /// *every* client in it declares the *same* override, mirroring the "all
-/// members must agree" rule of [`route_is_public`], so a request can never be
+/// members must agree" rule of [`route_is_public`]. A pool agrees by
+/// construction, since a service that disagrees with its route is refused
+/// when it declares (`tunnel/ws/agree.rs`); this stays as the backstop, so a
+/// request can never be
 /// gated by (or leak past) an override that only some pool members set. Returns
 /// `None` (use the server's own gate) when the pool is empty, mixed, or
 /// declares differing credentials. A site's `access` is checked before any of

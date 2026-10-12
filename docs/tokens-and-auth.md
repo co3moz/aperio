@@ -72,7 +72,7 @@ A gate is written as `access`, in one grammar wherever it appears: the server's 
 
   After login, the verified email (fetched from the issuer's `userinfo` endpoint over TLS) is checked against the allowlist, exact addresses, `*@domain`, or `*`. Sessions last 24 h. A misconfigured SSO setup is a **fatal error**: the server refuses to start rather than silently serving an unprotected proxy. Grants and denials are audit-logged.
 
-A client can opt its own service out of the gate by declaring itself **public** (`--access public`, yaml `access: public`, or `APERIO_ACCESS=public`), useful when one Aperio server fronts both protected internal tools and a public site. Two safety rules apply: the client's token must carry the *may publish public services* permission (off by default; master always may), and the gate is only skipped for routes served exclusively by public clients, if a protected and a public client share the same hostname, the gate stays.
+A client can opt its own service out of the gate by declaring itself **public** (`--access public`, yaml `access: public`, or `APERIO_ACCESS=public`), useful when one Aperio server fronts both protected internal tools and a public site. Two safety rules apply: the client's token must carry the *may publish public services* permission (off by default; master always may), and a route has one policy, so a client that declares something else for a route another client already serves is not routed there at all (see [One route, one policy](#one-route-one-policy)).
 
 ### Client-set visitor password (per service)
 
@@ -80,9 +80,15 @@ Instead of opting out, a client can supply its **own** gate for its service: `ac
 
 - It reuses the same *may publish public services* token permission (master always may); a client without it has its `access` ignored, logged on the server and told to the client.
 - When set, it **supersedes** the server's own `access` *for that service*: the server's credentials no longer work there, only the client's, plus the always-valid `aperio:<master token>`.
-- A successful login with client credentials yields a session **scoped to that hostname only**, it never unlocks the dashboard or another host. (If several path-bound services share one hostname with *different* `auth`, a login covers the whole hostname; give each its own hostname to isolate them. All clients serving one route must declare the same `auth`, mirroring the `public` rule.)
+- A successful login with client credentials yields a session **scoped to that hostname only**, it never unlocks the dashboard or another host. (If several path-bound services share one hostname with *different* `access`, a login covers the whole hostname; give each its own hostname to isolate them.)
 - The server operator keeps the last word per hostname with a **site's `access`**: written on a site in the server's settings, it decides for that hostname whatever the clients serving it declare, and a client overruled this way is told so in its own log. See [Sites](configuration.md#sites).
 - Anything beyond `basic` is **agreed with the server on the handshake** before it is declared. A server that does not accept the method means the client does not serve that service at all, saying which side is too old, rather than connecting under a gate the server was never told about.
+
+### One route, one policy
+
+Several clients may serve the same route, the same hostname and path, as replicas of one service do. They have to say the same thing about it: the same `access`, the same `allowed_ips` and the same `denied`. A client that declares something different from a client already serving the route is **not routed there**: the server keeps it out of the pool, logs why, and tells the client in its own log, naming the setting that differs and who already serves the route. It is asked again on every heartbeat, so it serves as soon as the two agree, or as soon as the other one leaves. Where a [site](configuration.md#sites) decides who reaches the route, its `access` is the answer and only `allowed_ips` and `denied` have to agree.
+
+This replaces three different rules that used to be resolved again on every request, `public` only when every client said so, a gate only when every client declared the same one, and each client filtering by its own `allowed_ips`, whose answer depended on who happened to be connected at that moment.
 
 To let specific people through a protected site *without* an account, use [Share Links](share-links.md).
 

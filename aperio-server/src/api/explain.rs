@@ -836,6 +836,16 @@ pub(crate) async fn explain_handler(
           )
         } else if !c.is_healthy(down_threshold) {
           ("missed heartbeats", "ineligible.missed_heartbeats")
+        } else if service.policy_conflict.is_some() {
+          (
+            "its access, allowed_ips or denied differs from what already serves this route",
+            "ineligible.policy_conflict",
+          )
+        } else if service.server_side_refused.is_some() {
+          (
+            "it asked to be served from the server, and was refused",
+            "ineligible.server_side_refused",
+          )
         } else {
           ("its path bind does not match", "ineligible.path_mismatch")
         };

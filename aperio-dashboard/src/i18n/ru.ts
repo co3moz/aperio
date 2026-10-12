@@ -1126,6 +1126,10 @@ export const ru: Record<string, string> = {
     'пропущенные heartbeat',
   'its path bind does not match':
     'его привязка path не совпадает',
+  'its access, allowed_ips or denied differs from what already serves this route':
+    'его access, allowed_ips или denied отличается от того, что уже обслуживает этот маршрут',
+  'it asked to be served from the server, and was refused':
+    'он попросил обслуживать его с сервера, и это было отклонено',
   'Static route':
     'Статический маршрут',
   'Preview noindex':
