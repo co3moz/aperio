@@ -4320,8 +4320,8 @@ the client produces; identity across heartbeats is by the name the
 client gives a service, so a multiplexed one needs a \code{name:}. v9 lets a service entry carry \code{server\_side\_target},
 asking the server to reach the target itself, and a Ping carry the client's
 \code{name}. Messages an older peer can ignore are added without a bump:
-\code{HostnameAssigned}, \code{Draining} and \code{ServerShutdown},
-the compression offer, \code{OtlpExport}, and the \code{AuthAsk} /
+\code{HostnameAssigned}, \code{Notice}, \code{Draining} and
+\code{ServerShutdown}, the compression offer, \code{OtlpExport}, and the \code{AuthAsk} /
 \code{AuthVerdict} pair that carries a \code{forward} gate asked over
 the tunnel. An
 empty list is refused, since a client that serves nothing is a
@@ -4373,6 +4373,10 @@ WebSocket, and its close. Since v7 a binary frame travels as
 \rowsep
 \code{HostnameAssigned} & server & The generated random subdomain for this
 client. \\
+\rowsep
+\code{Notice} & server & A sentence about the client's own configuration
+that the server acted on (a gate it did not apply, a route it refuses), so
+the client's log says why. \\
 \rowsep
 \code{Draining} & client & Graceful shutdown: stop routing new requests
 here, in-flight ones finish. \\

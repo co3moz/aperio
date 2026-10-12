@@ -597,6 +597,14 @@ impl Dispatch<'_> {
                                   TunnelMessage::HostnameAssigned { hostname } => {
                                       info!("[{}] Server assigned hostname to this client: {}", label, hostname);
                                   }
+                                  TunnelMessage::Notice { service, message } => {
+                                      // Said here as well as in the server's log, which is
+                                      // not where the person editing this file is looking.
+                                      match service {
+                                          Some(name) => warn!("[{}] The server says, about {}: {}", label, name, message),
+                                          None => warn!("[{}] The server says: {}", label, message),
+                                      }
+                                  }
                                   TunnelMessage::AuthAsk {
                                       id,
                                       url,

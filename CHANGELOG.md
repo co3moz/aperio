@@ -35,6 +35,8 @@ project follows semantic versioning per release tag.
 
 ### Added
 
+- **A client hears why its route is gated or refused.** When the server does not apply a service's `access: public` or `access:` because the token does not permit it, drops an `access:` method a client may not declare, or refuses a service that declares no gate on a closed server, it says so to the client as well as in its own log, so the person looking at the client sees the line to write next to the 504 they are getting. It travels as a new informational `Notice` message.
+
 - **A client reload names the settings it cannot apply.** How the client dials its server, its identity, the OTel bridge, the pid file and logging are set when it starts; a reload that changes one now warns with the keys that wait for the next start, instead of the reload reading as complete. The keys are marked `x-reload: restart` in the schema, which is where the list comes from.
 
 - **`aperio-client init` writes down a one-liner.** The service a command line describes, and every other setting given on it or in the environment, becomes the `aperio.yaml` that means the same thing, named after the hostname unless `--service` says otherwise. The token is written as `${APERIO_SERVER_TOKEN}` rather than into the file, an existing file is replaced only with `--force`, and `--stdout` prints it instead.

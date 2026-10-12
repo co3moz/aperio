@@ -500,7 +500,20 @@ struct ConnCtx {
   stream_cache: std::sync::Mutex<HashMap<String, StreamCacheEntry>>,
 }
 
-impl ConnCtx {}
+impl ConnCtx {
+  /// Tells the client something about its own configuration, for its log.
+  /// Best effort: it is informational, and a full write queue is a reason to
+  /// drop it rather than to wait under the `clients` lock this is called with.
+  fn notify(&self, service: Option<&str>, message: String) {
+    let notice = TunnelMessage::Notice {
+      service: service.map(str::to_string),
+      message,
+    };
+    if let Ok(json) = serde_json::to_string(&notice) {
+      let _ = self.tx_write.try_send(Message::Text(json.into()));
+    }
+  }
+}
 
 /// WebSocket processing logic. Listens for client frame inputs (Responses/Pings).
 pub(crate) async fn handle_socket(

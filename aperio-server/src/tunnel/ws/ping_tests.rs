@@ -172,6 +172,72 @@ async fn ping_dynamic_token_denies_public_and_visitor_auth() {
   assert_eq!(h.sole().allowed_ips, vec!["10.0.0.0/8".to_string()]);
 }
 
+/// Every `Notice` the server sends before the next `Pong`.
+async fn notices_until_pong(ws: &mut Client) -> Vec<(Option<String>, String)> {
+  let mut notices = Vec::new();
+  loop {
+    if let TMessage::Text(t) = next_frame(ws).await.expect("stream ended before pong") {
+      match serde_json::from_str::<TunnelMessage>(&t) {
+        Ok(TunnelMessage::Pong { .. }) => return notices,
+        Ok(TunnelMessage::Notice { service, message }) => notices.push((service, message)),
+        _ => {}
+      }
+    }
+  }
+}
+
+#[tokio::test]
+async fn a_gate_the_token_cannot_set_is_told_to_the_client_once() {
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let (secret, _id) = make_dynamic_token(&state, false).await;
+  let mut ws = connect(&url, &secret).await;
+  wait_client_id(&state).await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    services[0].service = Some("web".into());
+    services[0].public = true;
+  }
+  send(&mut ws, &ping).await;
+  let notices = notices_until_pong(&mut ws).await;
+  assert_eq!(notices.len(), 1, "{notices:?}");
+  assert_eq!(notices[0].0.as_deref(), Some("web"));
+  assert!(
+    notices[0].1.contains("`access: public` was not applied"),
+    "{}",
+    notices[0].1
+  );
+
+  // The log line is said once per connection; so is the notice.
+  send(&mut ws, &ping).await;
+  assert!(notices_until_pong(&mut ws).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_service_refused_by_the_closed_default_is_told_why() {
+  let mut cfg = test_config();
+  cfg.default_access = crate::settings::DefaultAccess::Deny;
+  let state = Arc::new(test_state_with(cfg));
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  wait_client_id(&state).await;
+
+  send(&mut ws, &base_ping()).await;
+  let notices = notices_until_pong(&mut ws).await;
+  assert_eq!(notices.len(), 1, "{notices:?}");
+  assert_eq!(notices[0].0, None, "an unnamed service is not named");
+  assert!(
+    notices[0].1.contains("visitors are refused"),
+    "{}",
+    notices[0].1
+  );
+  assert!(notices[0].1.contains("access: public"), "{}", notices[0].1);
+}
+
 // --- Token pinning ----------------------------------------------------------
 
 #[tokio::test]

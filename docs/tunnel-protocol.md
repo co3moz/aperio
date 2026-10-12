@@ -25,7 +25,7 @@ wire reached its present shape.
 | v8 | A Ping may describe the connection's work as a `services` list: several services on one connection. |
 | v9 | A service entry may carry `server_side_target`, and a Ping may carry the client's `name`. |
 | v10 | `TcpEof` half-closes a public TCP stream after queued input; `TcpClose` remains immediate. |
-| no bump | `HostnameAssigned`, `Draining` and `ServerShutdown` (informational), `CompressionStart` / `CompressionAck` (an offer a peer may never answer), `OtlpExport` (the OTel bridge), and `AuthAsk` / `AuthVerdict` (a `forward` gate asked over the tunnel with `via: client`). Each reaches only a peer that declared the feature behind it or can ignore it, which is what makes them safe without a bump. [The Embedded Profile](embedded-profile.md) classifies every message for a device that implements the protocol by hand. |
+| no bump | `HostnameAssigned`, `Notice`, `Draining` and `ServerShutdown` (informational), `CompressionStart` / `CompressionAck` (an offer a peer may never answer), `OtlpExport` (the OTel bridge), and `AuthAsk` / `AuthVerdict` (a `forward` gate asked over the tunnel with `via: client`). Each reaches only a peer that declared the feature behind it or can ignore it, which is what makes them safe without a bump. [The Embedded Profile](embedded-profile.md) classifies every message for a device that implements the protocol by hand. |
 
 ## Chunked body streaming
 

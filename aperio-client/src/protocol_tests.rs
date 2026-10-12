@@ -195,3 +195,22 @@ fn a_full_request_frame_is_read_the_way_the_server_writes_it() {
   assert_eq!(out_body, &form[..]);
   assert_eq!(FRAME_REQUEST_FULL_ZLIB, 6, "the tag the server sends");
 }
+
+#[test]
+fn a_notice_is_read_with_and_without_the_service_it_is_about() {
+  let named: TunnelMessage =
+    serde_json::from_str(r#"{"type":"Notice","service":"web","message":"m"}"#).unwrap();
+  match named {
+    TunnelMessage::Notice { service, message } => {
+      assert_eq!(service.as_deref(), Some("web"));
+      assert_eq!(message, "m");
+    }
+    other => panic!("expected Notice, got {other:?}"),
+  }
+  // The server leaves `service` out when the connection names none.
+  let unnamed: TunnelMessage = serde_json::from_str(r#"{"type":"Notice","message":"m"}"#).unwrap();
+  assert!(matches!(
+    unnamed,
+    TunnelMessage::Notice { service: None, .. }
+  ));
+}

@@ -52,6 +52,7 @@ Parse and discard, or do not parse at all.
 | `ResponseEnd` | client to server | the end of one |
 | `ResponseAbort` | both ways | a streamed response given up on; a device that does not stream neither sends nor receives it |
 | `HostnameAssigned` | server to client | the random subdomain the server picked, for logging |
+| `Notice` | server to client | a sentence about the client's own configuration the server acted on, for its log |
 | `Draining` | server to client | the server is going away; reconnecting on close covers it |
 | `ServerShutdown` | server to client | the same, at the end; the socket closing says it too |
 | `CompressionStart` | server to client | an offer, and a device that never answers it is never compressed to |

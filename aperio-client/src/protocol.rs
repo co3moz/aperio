@@ -577,6 +577,14 @@ pub(crate) enum TunnelMessage {
   /// Server → client: informs the client of a hostname automatically
   /// assigned to it (random subdomain feature).
   HostnameAssigned { hostname: String },
+  /// Server → client: a sentence about this client's own configuration that
+  /// the server acted on (a gate it did not apply, a route it refuses), so the
+  /// client's log says why rather than only the server's.
+  Notice {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    service: Option<String>,
+    message: String,
+  },
   /// Client → server: the client received a shutdown signal and is draining.
   Draining {},
   /// Server → client: ask the endpoint on the client's own network about a

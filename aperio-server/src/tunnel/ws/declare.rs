@@ -391,6 +391,12 @@ impl ConnCtx {
         "Client {} declared itself public but its token does not permit publishing public services; keeping the visitor auth gate",
         client_id
       );
+      self.notify(
+        declaration.service.as_deref(),
+        "`access: public` was not applied: this client's token does not permit publishing \
+         public services, so the server's visitor gate stays on"
+          .to_string(),
+      );
     }
     if handle.service_at(service_index).public != effective_public {
       handle.service_at_mut(service_index).public = effective_public;
@@ -473,6 +479,12 @@ impl ConnCtx {
             "Client {} declared a visitor password but its token does not permit controlling the visitor gate; ignoring it",
             client_id
           );
+          self.notify(
+            declaration.service.as_deref(),
+            "`access:` was not applied: this client's token does not permit controlling the \
+             visitor gate, so the server's own gate applies"
+              .to_string(),
+          );
         }
         None
       }
@@ -509,6 +521,12 @@ impl ConnCtx {
             "Client {} declared a visitor-auth policy but its token does not permit controlling the visitor gate; ignoring it",
             client_id
           );
+          self.notify(
+            declaration.service.as_deref(),
+            "`access:` was not applied: this client's token does not permit controlling the \
+             visitor gate, so the server's own gate applies"
+              .to_string(),
+          );
         }
         return None;
       }
@@ -524,6 +542,19 @@ impl ConnCtx {
         warn!(
           "Client {} declared a visitor-auth method this server does not accept from a client; ignoring it",
           client_id
+        );
+        let dropped: Vec<&str> = specs
+          .iter()
+          .map(|spec| spec.method.trim())
+          .filter(|m| !CLIENT_DECLARABLE_METHODS.contains(&m.to_ascii_lowercase().as_str()))
+          .collect();
+        self.notify(
+          declaration.service.as_deref(),
+          format!(
+            "`access:` method(s) not applied: {} cannot be declared by a client on this \
+             server; the other methods stay in force",
+            dropped.join(", ")
+          ),
         );
       }
       (!usable.is_empty())
@@ -583,6 +614,13 @@ impl ConnCtx {
         warn!(
           "Client {} declares no gate and is not declared open, so its traffic is refused (`access.default` is `deny`). Write `access: public` on the service if it is meant to be reachable by anyone, or give it an `access:` method.",
           client_id
+        );
+        self.notify(
+          declaration.service.as_deref(),
+          "visitors are refused: this service declares no `access:` and the server is closed \
+           by default (`access.default` is `deny`), so it answers as an unclaimed hostname does. \
+           Write `access: public` if it is meant to be reachable by anyone, or an `access:` method."
+            .to_string(),
         );
       } else {
         warn!(

@@ -601,6 +601,23 @@ async fn test_run_service_message_loop() {
     },
   )
   .await;
+  // A notice about this client's configuration, with and without a service.
+  srv_send(
+    &mut ws,
+    &TunnelMessage::Notice {
+      service: Some("web".to_string()),
+      message: "`access: public` was not applied".to_string(),
+    },
+  )
+  .await;
+  srv_send(
+    &mut ws,
+    &TunnelMessage::Notice {
+      service: None,
+      message: "visitors are refused".to_string(),
+    },
+  )
+  .await;
   srv_send(&mut ws, &TunnelMessage::ServerShutdown {}).await;
 
   // Let the client drain the frames, then close the socket so the read loop

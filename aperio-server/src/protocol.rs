@@ -638,6 +638,16 @@ pub enum TunnelMessage {
   /// Server → client: informs the client of a hostname automatically
   /// assigned to it (random subdomain feature).
   HostnameAssigned { hostname: String },
+  /// Server → client: a sentence about the client's own configuration that
+  /// the server acted on, for the client's log. The server's log already has
+  /// it; this is so the operator looking at the client sees why its route is
+  /// gated or refused, rather than a 504 with nothing next to it.
+  Notice {
+    /// The service it is about, by name, when the connection carries one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    service: Option<String>,
+    message: String,
+  },
   /// Client → server: the client received a shutdown signal and is draining.
   /// The server stops routing new requests to it; in-flight requests finish.
   Draining {},
