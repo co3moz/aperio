@@ -409,6 +409,10 @@ pub fn shape_hint(key: &str, value: &serde_yaml::Value) -> Option<&'static str> 
 /// silently ignored is a setting an operator believes is in force.
 pub const REMOVED_CLIENT_ENV: &[Removed] = &[
   Removed {
+    key: "APERIO_VERSION",
+    hint: "was removed in 0.13.0 with `version:`, and with the upgrade report it drove: delete it.",
+  },
+  Removed {
     key: "APERIO_PUBLIC",
     hint: "was replaced by APERIO_ACCESS=public in 0.13.0.",
   },
@@ -495,6 +499,10 @@ pub const REMOVED_CLIENT_ENV: &[Removed] = &[
 /// is set, naming the setting to use instead: a variable that is silently
 /// ignored is a fence an operator believes is up.
 pub const REMOVED_SERVER_ENV: &[Removed] = &[
+  Removed {
+    key: "APERIO_VERSION",
+    hint: "was removed in 0.13.0 with the configuration file it versioned: delete it.",
+  },
   Removed {
     key: "APERIO_GATEWAY_TIMEOUT",
     hint: "moved into the settings as `gateway.timeout` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
@@ -1049,6 +1057,514 @@ pub const REMOVED_SETTINGS: &[Removed] = &[
     key: "pages",
     hint: "moved into `sites` in 0.13.0: the `pages` of the `hostname: \"*\"` site.",
   },
+  // The flat keys of 0.12's aperio-server.yaml. Its first step to 0.13 is
+  // that file written as a settings document, and the likeliest first try
+  // is the old file pasted under `settings:`: each of its keys is refused
+  // naming the one to write.
+  Removed {
+    key: "503_page",
+    hint: "moved in 0.13.0 to the `*` site's `pages.maintenance`, the HTML itself rather than a path: `sites: [{hostname: \"*\", pages: {maintenance: ...}}]`.",
+  },
+  Removed {
+    key: "504_page",
+    hint: "moved in 0.13.0 to the `*` site's `pages.unavailable`, the HTML itself rather than a path: `sites: [{hostname: \"*\", pages: {unavailable: ...}}]`.",
+  },
+  Removed {
+    key: "access_events",
+    hint: "moved to `logging.access_events` in 0.13.0.",
+  },
+  Removed {
+    key: "access_log",
+    hint: "moved to `logging.access_log` in 0.13.0.",
+  },
+  Removed {
+    key: "access_log_sample_rate",
+    hint: "moved to `logging.sample_rate` in 0.13.0.",
+  },
+  Removed {
+    key: "admin_allowed_ips",
+    hint: "moved to `security.admin_allowed_ips` in 0.13.0.",
+  },
+  Removed {
+    key: "alert",
+    hint: "moved to `alerts` in 0.13.0, with the same thresholds: `alerts.error_rate` (a fraction, `0.05`), `alerts.window`, `alerts.min_requests`, `alerts.client_down`.",
+  },
+  Removed {
+    key: "alert_client_down",
+    hint: "moved to `alerts.client_down` in 0.13.0.",
+  },
+  Removed {
+    key: "alert_error_rate",
+    hint: "moved into the settings as `alerts.error_rate` (a fraction now: 5 is 0.05) in 0.13.0.",
+  },
+  Removed {
+    key: "alert_min_requests",
+    hint: "moved to `alerts.min_requests` in 0.13.0.",
+  },
+  Removed {
+    key: "alert_rules",
+    hint: "moved to `alerts.rules` in 0.13.0.",
+  },
+  Removed {
+    key: "alert_window",
+    hint: "moved to `alerts.window` in 0.13.0.",
+  },
+  Removed {
+    key: "alternate_servers",
+    hint: "moved to `routing.alternate_servers` in 0.13.0.",
+  },
+  Removed {
+    key: "audit_max_files",
+    hint: "moved to `audit.max_files` in 0.13.0.",
+  },
+  Removed {
+    key: "audit_max_size",
+    hint: "moved to `audit.max_size` in 0.13.0.",
+  },
+  Removed {
+    key: "backup_dir",
+    hint: "moved to `backup.dir` in 0.13.0.",
+  },
+  Removed {
+    key: "backup_interval",
+    hint: "moved to `backup.interval` in 0.13.0.",
+  },
+  Removed {
+    key: "backup_keep",
+    hint: "moved to `backup.keep` in 0.13.0.",
+  },
+  Removed {
+    key: "backup_key",
+    hint: "is a boot setting since 0.13.0, read before the database opens: set APERIO_BACKUP_KEY in the server's environment rather than in the settings.",
+  },
+  Removed {
+    key: "backup_key_file",
+    hint: "is a boot setting since 0.13.0, read before the database opens: set APERIO_BACKUP_KEY_FILE in the server's environment rather than in the settings.",
+  },
+  Removed {
+    key: "cache_max_bytes",
+    hint: "moved to `cache.size` in 0.13.0.",
+  },
+  Removed {
+    key: "cache_max_stale",
+    hint: "moved to `cache.max_stale` in 0.13.0.",
+  },
+  Removed {
+    key: "cache_negative_ttl",
+    hint: "moved to `cache.negative_ttl` in 0.13.0.",
+  },
+  Removed {
+    key: "client_down_threshold",
+    hint: "moved to `gateway.client_down_threshold` in 0.13.0.",
+  },
+  Removed {
+    key: "config_hot_reload",
+    hint: "removed in 0.13.0: there is no configuration file to watch; a settings change applies when it is made.",
+  },
+  Removed {
+    key: "dashboard_fenced_login",
+    hint: "moved to `dashboard.fenced_login` in 0.13.0.",
+  },
+  Removed {
+    key: "dashboard_hostname",
+    hint: "moved to `dashboard.hostname` in 0.13.0.",
+  },
+  Removed {
+    key: "data_dir",
+    hint: "is a boot setting since 0.13.0, read before the database opens: set APERIO_DATA_DIR in the server's environment rather than in the settings.",
+  },
+  Removed {
+    key: "db_max_bytes",
+    hint: "moved to `retention.db_max_size` in 0.13.0.",
+  },
+  Removed {
+    key: "default_access",
+    hint: "moved into the settings as `access` in 0.13.0: `deny`, or `public` for what `allow` was.",
+  },
+  Removed {
+    key: "denied_ips",
+    hint: "moved to `security.denied_ips` in 0.13.0.",
+  },
+  Removed {
+    key: "edge_cert_resolver",
+    hint: "moved to `edge.cert_resolver` in 0.13.0.",
+  },
+  Removed {
+    key: "edge_entrypoints",
+    hint: "moved to `edge.entrypoints` in 0.13.0.",
+  },
+  Removed {
+    key: "edge_include_offline",
+    hint: "moved to `edge.include_offline` in 0.13.0.",
+  },
+  Removed {
+    key: "edge_service_url",
+    hint: "moved to `edge.service_url` in 0.13.0.",
+  },
+  Removed {
+    key: "edge_token",
+    hint: "moved to `edge.token` in 0.13.0.",
+  },
+  Removed {
+    key: "expose",
+    hint: "was removed in 0.13.0 with the file it was written in: create each listener from the dashboard's Tunnels page or the API, or carry them in an export's `exposes` section.",
+  },
+  Removed {
+    key: "failover_all_methods",
+    hint: "moved to `resilience.failover.all_methods` in 0.13.0.",
+  },
+  Removed {
+    key: "failover_max_jumps",
+    hint: "moved to `resilience.failover.max_jumps` in 0.13.0.",
+  },
+  Removed {
+    key: "failover_window",
+    hint: "moved to `resilience.failover.window` in 0.13.0.",
+  },
+  Removed {
+    key: "gateway_response_timeout",
+    hint: "moved to `gateway.response_timeout` in 0.13.0.",
+  },
+  Removed {
+    key: "gateway_timeout",
+    hint: "moved to `gateway.timeout` in 0.13.0.",
+  },
+  Removed {
+    key: "host",
+    hint: "is a boot setting since 0.13.0, read before the database opens: set HOST in the server's environment rather than in the settings.",
+  },
+  Removed {
+    key: "ignore_client_auth",
+    hint: "removed in 0.13.0: write `access` on a site in the settings, which wins over what any client declares for that hostname.",
+  },
+  Removed {
+    key: "inspector_redact",
+    hint: "moved to `inspector.redact` in 0.13.0.",
+  },
+  Removed {
+    key: "ip_limit",
+    hint: "moved to `limits.ip_rate` in 0.13.0: `burst` and `per_second`.",
+  },
+  Removed {
+    key: "ip_limit_max",
+    hint: "moved to `limits.ip_rate.burst` in 0.13.0.",
+  },
+  Removed {
+    key: "ip_limit_refill",
+    hint: "moved to `limits.ip_rate.per_second` in 0.13.0.",
+  },
+  Removed {
+    key: "jwks",
+    hint: "moved to `security.jwks` in 0.13.0.",
+  },
+  Removed {
+    key: "jwks_allow_http",
+    hint: "moved to `security.jwks.allow_http` in 0.13.0.",
+  },
+  Removed {
+    key: "jwks_allow_private",
+    hint: "moved to `security.jwks.allow_private` in 0.13.0.",
+  },
+  Removed {
+    key: "lb_strategy",
+    hint: "moved to `routing.lb_strategy` in 0.13.0.",
+  },
+  Removed {
+    key: "log_level",
+    hint: "is a boot setting since 0.13.0, read before the database opens: set LOG_LEVEL in the server's environment rather than in the settings.",
+  },
+  Removed {
+    key: "login_lockout",
+    hint: "moved to `security.login_lockout` in 0.13.0.",
+  },
+  Removed {
+    key: "login_lockout_secs",
+    hint: "moved to `security.login_lockout.duration` in 0.13.0.",
+  },
+  Removed {
+    key: "login_lockout_threshold",
+    hint: "moved to `security.login_lockout.threshold` in 0.13.0.",
+  },
+  Removed {
+    key: "max_body_size",
+    hint: "moved to `limits.request_body` in 0.13.0.",
+  },
+  Removed {
+    key: "max_concurrent_requests",
+    hint: "moved to `limits.concurrent_requests` in 0.13.0.",
+  },
+  Removed {
+    key: "max_connections_per_service",
+    hint: "moved to `limits.connections_per_service` in 0.13.0.",
+  },
+  Removed {
+    key: "max_streams_per_ip",
+    hint: "moved to `limits.streams_per_ip` in 0.13.0.",
+  },
+  Removed {
+    key: "max_tunnels",
+    hint: "moved to `limits.tunnels` in 0.13.0.",
+  },
+  Removed {
+    key: "max_ws_connections",
+    hint: "moved to `limits.websockets` in 0.13.0.",
+  },
+  Removed {
+    key: "metrics_token",
+    hint: "moved to `metrics.token` in 0.13.0.",
+  },
+  Removed {
+    key: "oidc_allowed_emails",
+    hint: "moved to `oidc.allowed_emails` in 0.13.0.",
+  },
+  Removed {
+    key: "oidc_client_id",
+    hint: "moved to `oidc.client_id` in 0.13.0.",
+  },
+  Removed {
+    key: "oidc_client_secret",
+    hint: "moved to `oidc.client_secret` in 0.13.0.",
+  },
+  Removed {
+    key: "oidc_default_grants",
+    hint: "moved to `oidc.default_grants` in 0.13.0.",
+  },
+  Removed {
+    key: "oidc_group_grants",
+    hint: "moved to `oidc.group_grants` in 0.13.0.",
+  },
+  Removed {
+    key: "oidc_groups_claim",
+    hint: "moved to `oidc.groups_claim` in 0.13.0.",
+  },
+  Removed {
+    key: "oidc_issuer",
+    hint: "moved to `oidc.issuer` in 0.13.0.",
+  },
+  Removed {
+    key: "oidc_redirect_url",
+    hint: "moved to `oidc.redirect_url` in 0.13.0.",
+  },
+  Removed {
+    key: "oidc_scopes",
+    hint: "moved to `oidc.scopes` in 0.13.0.",
+  },
+  Removed {
+    key: "otel_bridge",
+    hint: "moved to `otel.bridge` in 0.13.0.",
+  },
+  Removed {
+    key: "otel_endpoint",
+    hint: "moved to `otel.endpoint` in 0.13.0.",
+  },
+  Removed {
+    key: "otel_headers",
+    hint: "moved to `otel.headers` in 0.13.0.",
+  },
+  Removed {
+    key: "otel_protocol",
+    hint: "moved to `otel.protocol` in 0.13.0.",
+  },
+  Removed {
+    key: "otel_sample_rate",
+    hint: "moved to `otel.sample_rate` in 0.13.0.",
+  },
+  Removed {
+    key: "otel_service_name",
+    hint: "moved to `otel.service_name` in 0.13.0.",
+  },
+  Removed {
+    key: "outbound_allowlist",
+    hint: "moved to `outbound.allowlist` in 0.13.0.",
+  },
+  Removed {
+    key: "outbound_block_private",
+    hint: "moved to `outbound.block_private` in 0.13.0.",
+  },
+  Removed {
+    key: "outbound_no_proxy",
+    hint: "moved to `outbound.no_proxy` in 0.13.0.",
+  },
+  Removed {
+    key: "outbound_proxy",
+    hint: "moved to `outbound.proxy` in 0.13.0.",
+  },
+  Removed {
+    key: "outlier_eject_secs",
+    hint: "moved to `resilience.outlier.eject_for` in 0.13.0.",
+  },
+  Removed {
+    key: "outlier_ejection",
+    hint: "moved to `resilience.outlier.enabled` in 0.13.0.",
+  },
+  Removed {
+    key: "outlier_max_failures",
+    hint: "moved to `resilience.outlier.max_failures` in 0.13.0.",
+  },
+  Removed {
+    key: "outlier_window",
+    hint: "moved to `resilience.outlier.window` in 0.13.0.",
+  },
+  Removed {
+    key: "port",
+    hint: "is a boot setting since 0.13.0, read before the database opens: set PORT in the server's environment rather than in the settings.",
+  },
+  Removed {
+    key: "preview_noindex",
+    hint: "moved to `routing.preview_noindex` in 0.13.0.",
+  },
+  Removed {
+    key: "random_subdomain",
+    hint: "moved to `routing.random_subdomain` in 0.13.0.",
+  },
+  Removed {
+    key: "real_ip_header",
+    hint: "moved to `proxy.real_ip_header` in 0.13.0.",
+  },
+  Removed {
+    key: "request_id_header",
+    hint: "moved to `request_id.header` in 0.13.0.",
+  },
+  Removed {
+    key: "request_id_trust_inbound",
+    hint: "moved to `request_id.trust_inbound` in 0.13.0.",
+  },
+  Removed {
+    key: "retention_access_log",
+    hint: "moved to `retention.access_log` in 0.13.0.",
+  },
+  Removed {
+    key: "retention_audit",
+    hint: "moved to `retention.audit` in 0.13.0.",
+  },
+  Removed {
+    key: "retention_captures",
+    hint: "moved to `retention.captures` in 0.13.0.",
+  },
+  Removed {
+    key: "retention_stats",
+    hint: "moved to `retention.stats` in 0.13.0.",
+  },
+  Removed {
+    key: "retry_on_5xx",
+    hint: "moved to `resilience.failover.retry_on_5xx` in 0.13.0.",
+  },
+  Removed {
+    key: "retry_statuses",
+    hint: "moved to `resilience.failover.retry_statuses` in 0.13.0.",
+  },
+  Removed {
+    key: "reuseport",
+    hint: "is a boot setting since 0.13.0, read before the database opens: set APERIO_REUSEPORT in the server's environment rather than in the settings.",
+  },
+  Removed {
+    key: "scaling_allow_http",
+    hint: "moved to `scaling.allow_http` in 0.13.0.",
+  },
+  Removed {
+    key: "scaling_allow_private",
+    hint: "moved to `scaling.allow_private` in 0.13.0.",
+  },
+  Removed {
+    key: "scaling_record_ttl",
+    hint: "moved to `scaling.record_ttl` in 0.13.0.",
+  },
+  Removed {
+    key: "secure_cookies",
+    hint: "moved to `security.secure_cookies` in 0.13.0.",
+  },
+  Removed {
+    key: "server",
+    hint: "held the server's own credentials until 0.13.0: the token is the boot variable APERIO_SERVER_TOKEN, and a password gate is `access: {method: basic, users: ...}`.",
+  },
+  Removed {
+    key: "server_auth",
+    hint: "moved into the settings as `access` in 0.13.0, a method block such as `{method: basic, users: \"user:password\"}`.",
+  },
+  Removed {
+    key: "server_side_targets",
+    hint: "moved to `security.server_side_targets` in 0.13.0.",
+  },
+  Removed {
+    key: "server_token",
+    hint: "is a boot setting since 0.13.0, read before the database opens: set APERIO_SERVER_TOKEN in the server's environment rather than in the settings.",
+  },
+  Removed {
+    key: "shutdown_drain",
+    hint: "moved to `shutdown.drain` in 0.13.0.",
+  },
+  Removed {
+    key: "shutdown_timeout",
+    hint: "moved to `shutdown.timeout` in 0.13.0.",
+  },
+  Removed {
+    key: "stream_backlog_limit",
+    hint: "moved to `advanced.stream.backlog_limit` in 0.13.0.",
+  },
+  Removed {
+    key: "stream_min_throughput",
+    hint: "moved to `advanced.stream.min_throughput` in 0.13.0.",
+  },
+  Removed {
+    key: "stream_pause_bytes",
+    hint: "moved to `advanced.stream.pause_at` in 0.13.0.",
+  },
+  Removed {
+    key: "stream_resume_bytes",
+    hint: "moved to `advanced.stream.resume_at` in 0.13.0.",
+  },
+  Removed {
+    key: "token_expiry_warning",
+    hint: "moved to `security.token_expiry_warning` in 0.13.0.",
+  },
+  Removed {
+    key: "token_pinning",
+    hint: "moved to `security.token_pinning` in 0.13.0.",
+  },
+  Removed {
+    key: "trust_cf_header",
+    hint: "moved into the settings as `proxy.real_ip_header` (write CF-Connecting-IP) in 0.13.0.",
+  },
+  Removed {
+    key: "trust_proxy",
+    hint: "moved to `proxy.trust` in 0.13.0.",
+  },
+  Removed {
+    key: "trusted_proxies",
+    hint: "moved to `proxy.trusted` in 0.13.0.",
+  },
+  Removed {
+    key: "tunnel_compression",
+    hint: "moved to `advanced.compression` in 0.13.0.",
+  },
+  Removed {
+    key: "ui_language",
+    hint: "moved to `dashboard.ui_language` in 0.13.0.",
+  },
+  Removed {
+    key: "uptime_tick_secs",
+    hint: "moved to `uptime.tick` in 0.13.0.",
+  },
+  Removed {
+    key: "version",
+    hint: "was removed in 0.13.0, with the upgrade report it drove: delete it.",
+  },
+  Removed {
+    key: "visitor_identity_headers",
+    hint: "moved to `identity_headers.visitor` in 0.13.0.",
+  },
+  Removed {
+    key: "webauthn_origin",
+    hint: "moved to `dashboard.webauthn.origin` in 0.13.0.",
+  },
+  Removed {
+    key: "webauthn_rp_id",
+    hint: "moved to `dashboard.webauthn.rp_id` in 0.13.0.",
+  },
+  Removed {
+    key: "webhook_retry_schedule",
+    hint: "moved to `webhooks.retry_schedule` in 0.13.0.",
+  },
 ];
 
 /// `error`, a refusal of a settings document, with where the key it names
@@ -1058,10 +1574,36 @@ pub fn with_settings_hint(error: String) -> String {
     return error;
   };
   let key = rest.split('`').next().unwrap_or_default();
+  // Only a key written at the top of the document is an old section or an
+  // old flat key; the same word inside a section (a `version` under `tls`)
+  // is a typo there, and a hint about the old file would send its reader
+  // the wrong way.
+  if !refused_at_the_top(rest) {
+    return error;
+  }
   match REMOVED_SETTINGS.iter().find(|r| r.key == key) {
     Some(r) => format!("{error}. `{key}` {}", r.hint),
     None => error,
   }
+}
+
+/// Whether an unknown-field refusal is of the document's top level. The
+/// error does not carry the key's path, but it lists the fields it expected,
+/// and at the top level those are the settings' sections.
+fn refused_at_the_top(rest: &str) -> bool {
+  static SECTIONS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+  let sections = SECTIONS.get_or_init(|| {
+    let schema = schemars::schema_for!(crate::server_settings::ServerSettings);
+    serde_json::to_value(schema).unwrap_or_default()["properties"]
+      .as_object()
+      .map(|o| o.keys().cloned().collect())
+      .unwrap_or_default()
+  });
+  let Some(expected) = rest.split("expected one of ").nth(1) else {
+    return false;
+  };
+  let names: Vec<&str> = expected.split('`').skip(1).step_by(2).collect();
+  !names.is_empty() && names.iter().all(|n| sections.iter().any(|s| s == n))
 }
 
 #[cfg(test)]
