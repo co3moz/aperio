@@ -1,173 +1,82 @@
-# Architecture Deep-Dive
+# Architecture
 
-How Aperio is put together: the tunnel protocol, the request lifecycle, the
-concurrency model, and where state lives. For the security view see the
-[Threat Model](threat-model.md).
-
-## The shape of a deployment
+How Aperio is built, what crosses the tunnel, and what each side trusts the other with.
 
 ```
-  visitor ──HTTP──▶ aperio-server ──WebSocket (outbound from client)──▶ aperio-client ──▶ backend
+visitor ──HTTP──▶ aperio-server ◀──WebSocket, dialled out by the client── aperio-client ──▶ backend
 ```
 
-The server is the only publicly-reachable component. The client dials **out** to
-the server over a single WebSocket and keeps it open; proxied requests travel
-back down that socket. Nothing on the client's network accepts inbound
-connections.
+The server is the only component anyone reaches from outside. The client dials out to it and keeps the connection open; requests travel back down that connection, so nothing on the client's network accepts inbound connections.
 
 ## The tunnel protocol
 
-The wire protocol is a tagged JSON message enum (`TunnelMessage`) with a small
-set of binary frames layered on top for bulk body data. `PROTOCOL_VERSION`
-(currently 9) is bumped when a frame changes shape, so version skew surfaces
-in logs and on the dashboard rather than failing obscurely; a message type an
-older peer can ignore is added without a bump. [Tunnel
-Protocol](tunnel-protocol.md#protocol-versions) lists every version.
+One WebSocket per connection carries everything, as tagged JSON messages (`TunnelMessage`) with binary frames for bulk data. A client and a server pair only on the same minor release, checked at the upgrade, so both always speak the whole current protocol (`PROTOCOL_VERSION` 10) and nothing is negotiated. [The Embedded Profile](embedded-profile.md) classifies every message for a device that implements the protocol by hand.
 
-Key messages:
+- **`Ping` / `Pong`**, every few seconds. A `Ping` carries the connection's whole configuration as a `services` list (one entry per service it carries, never empty): binds, limits, gate, flags, health. The server applies it idempotently, so a reconnect re-announces everything.
+- **Requests and responses.** A buffered body travels as bytes in the same binary frame as its envelope. Response bodies over 32 KB and uploads over 256 KB stream as `[tag][id_len][id][payload]` chunk frames, so memory stays bounded whatever the size. A response that grows past the service's `limits.response_body` is refused (`502`), or aborted if it was already streaming.
+- **WebSockets** (Socket.io, GraphQL subscriptions) are relayed end to end with no configuration. TCP, UDP and binary WebSocket payloads travel as raw binary frames; a visitor's half-close on a public TCP stream is `TcpEof`.
+- **Flow control.** When one stream's backlog on the server passes `advanced.stream.pause_at`, the server sends `StreamPause` and the client stops reading that stream's source, so TCP backpressure reaches the backend; `StreamResume` follows below `resume_at`. Other streams and the heartbeat are unaffected. A client ignoring a pause is cut off at `backlog_limit`; a paused client resumes by itself after 30 s if the resume is lost. The client's own read loop never waits more than 2 s on one slow consumer. UDP stays best effort.
+- **Compression.** With `advanced.compression`, JSON frames are zlib-compressed once the client acknowledges; inflation is bounded. Relay payloads are never compressed.
+- **Messages between clients**: `Subscribe`, `Unsubscribe`, `Publish`, `PublishAck`, `SubscribeRefused`, `PublishRefused`.
+- **A gate asked over the tunnel**: `AuthAsk` carries a `forward` check to the client that would serve the request, `AuthVerdict` brings back a status and the allowed headers.
+- **Informational**: `HostnameAssigned`, `Notice` (a setting the server did not apply), `Draining`, `ServerShutdown`, `OtlpExport`.
 
-- **`Ping` / `Pong`**, the heartbeat, sent every few seconds. The `Ping`
-  carries the client's *entire* live configuration for the connection: its
-  hostname/path binds, concurrency limit, priority, bandwidth cap, backend
-  health, and every opt-in flag (cache, resilience, public, visitor auth,
-  webhook inbox, per-service response timeout, device key, …). The server
-  applies changes idempotently on each heartbeat, so a client re-announces
-  its state on every reconnect.
-- **`Request` / `Response`**, a buffered request/response pair. Since
-  protocol v5 and v6 a buffered body travels as bytes in the same binary
-  frame as its JSON envelope; against an older peer it falls back to base64
-  inside the JSON.
-- **Streamed bodies (protocol v2)**, `RequestStart`/`Chunk`/`End` and raw
-  binary chunk frames (`[tag][id_len][id][payload]`) carry large bodies without
-  the base64+JSON overhead. The tag byte never collides with a zlib-compressed
-  JSON frame (which starts `0x78`), so the reader can tell them apart.
-- **Per-stream flow control (protocol v3)**, `StreamPause` / `StreamResume`
-  (server to client, keyed by request id or stream id). When one stream's
-  server-side backlog crosses a byte watermark, the producing client stops
-  reading that stream's source, so backpressure reaches the backend instead of
-  the server buffering or dropping a slow visitor's download. Nothing else on
-  the connection is affected; UDP relays keep their best-effort contract. See
-  [Tunnel Protocol](tunnel-protocol.md).
-- **Compression**, when both sides agree, JSON frames are zlib-compressed;
-  inflation is output-bounded to prevent a decompression bomb.
-- **`AuthAsk` / `AuthVerdict`**, a `forward` visitor gate with `via: client`
-  asked of the client that would serve the request, so the deciding endpoint
-  can live on the client's network. The server composes the question and
-  enforces the answer's header allowlist; the client only makes the call.
+The frame decoder and the JSON and zlib paths are fuzzed ([`tools/fuzz/`](../tools/fuzz)).
 
-The frame decoder and the JSON/zlib paths are the primary corruption surface
-and are exercised by the [`tools/fuzz/`](../tools/fuzz) targets.
+## A request, in order
 
-## Request lifecycle (server side)
+`GET /aperio/api/explain` walks the same chain without sending anything.
 
-A proxied request flows through, in this order. `GET /aperio/api/explain`
-walks the same chain on a request nobody sends, so it is the executable
-version of this list:
+1. **The visitor's address**, from `X-Forwarded-For` only behind a trusted proxy.
+2. **Maintenance**: a flag covering the hostname answers `503`.
+3. **A site that answers by itself** (`redirect`, `respond`), before the rate limit, so it costs the visitor nothing.
+4. **The visitor's rate limit.**
+5. **The gate**, before routing, so an unauthenticated visitor cannot influence which client is chosen.
+6. **Waiting for a client**, bounded by `gateway.timeout`, where a cold start begins.
+7. **Admission**: the server's concurrency slot.
+8. **The firewall and the route's rate limit**, after admission because a rule may read the body.
+9. **Routing**: eligibility, hostname, path, strategy, the visitor IP filter. With no client: serve-stale, the site's `fallback`, or `504`.
+10. **Quotas**: the token's and the organization's.
+11. **The cache**, after routing, because the opt-in is the serving client's.
+12. **The client's own concurrency limit.**
+13. **Dispatch**, and the wait for the answer.
+14. **Failover**, when the client vanished or answered a retryable `5xx`.
+15. **The response**: headers rewritten, cached, captured, counted, streamed back.
 
-1. **Client IP resolution** (`extract_client_ip`), honoring `proxy.trust` /
-   `proxy.trusted` when configured, otherwise the socket peer.
-2. **Maintenance mode**, a flag covering the hostname answers `503` before
-   anything else is looked at.
-3. **A site that answers by itself**, one with a `redirect` or a `respond`,
-   answers directly. Because this is above the rate limit, an
-   operator-authored answer costs a visitor nothing from their bucket. A site
-   with neither carries policy, not an answer, and does not end the request
-   here.
-4. **Per-IP rate limit**, the visitor's token bucket.
-5. **Visitor gate**, a site's, the server's or a client's, before
-   routing so an unauthenticated visitor never influences client selection.
-6. **Wait for a client**, bounded by the gateway timeout, and where a cold
-   start is triggered. Before the global slot is taken, so visitors waiting on
-   a sleeping service cannot starve healthy ones.
-7. **Admission**, the global concurrency slot.
-8. **WAF and the per-route rate limit**, after admission because a WAF rule may
-   match on the body, which is not read until a slot is held.
-9. **Routing** (`select_client_pool` → `apply_lb_strategy` → `pick_proxy_client`),
-   eligibility (healthy, not draining, not ejected) → hostname → path →
-   load-balancing strategy → per-visitor IP filter. No client → serve-stale, a
-   fallback URL redirect, or a `504`.
-10. **Quotas**, the token's rate and daily byte limits and the organization's
-    monthly byte quota, before anything is served or stored on the caller's
-    behalf.
-11. **Cache**, after routing rather than before it, because the opt-in is the
-    serving client's (`cache.enabled`) and the server has to know who would serve
-    the request to know whether it may be cached. A fresh hit, or a
-    stale-while-revalidate hit, short-circuits the tunnel; concurrent misses
-    coalesce behind a single-flight leader.
-12. **Per-client admission**, the chosen client's own concurrency limiter.
-13. **Dispatch**, the request is sent down the chosen client's socket and the
-    server awaits the response with the per-service (or global) response timeout.
-14. **Failover / retry**, a vanished client re-dispatches per `failover_mode`; a
-    buffered 5xx re-dispatches when `retry_on_5xx` is on; both are bounded by the
-    jump budget.
-15. **Response**, headers rewritten, cached when eligible, captured for the
-    inspector, accounted to stats/quota, and streamed or buffered back.
+## Inside the server
 
-## Concurrency model
+A [tokio](https://tokio.rs) runtime under [axum](https://github.com/tokio-rs/axum). Each tunnel connection has a reader task and a writer task (which applies bandwidth pacing); a proxied request waits on a oneshot for its answer to arrive on the reader. Background tasks prune retention, take backups, evaluate alerts and sample uptime.
 
-The server is a [tokio](https://tokio.rs) multi-threaded runtime built on
-[axum](https://github.com/tokio-rs/axum). Each tunnel connection owns a reader
-task (its message loop) and a writer task (draining an mpsc queue, applying
-bandwidth shaping). Proxied requests are ordinary async handler invocations that
-park on a `oneshot` until the matching response frame arrives on the client's
-reader task. Background tasks handle retention pruning, scheduled backups, alert
-evaluation, and uptime sampling. A global `AtomicUsize` bounds in-flight proxied
-requests so the limit can change at runtime without rebuilding a semaphore.
+**State.**
+- `aperio.db` (SQLite, WAL) holds the settings, tokens, admin keys, users, sessions, webhooks and deliveries, organizations, the inbox and the statistics.
+- `audit.jsonl` is the hash-chained audit log.
+- Everything else lives only in memory and starts clean after a restart: connected clients, pending requests, the cache, rate-limit buckets, inspector captures, latency windows, maintenance flags, ejection state.
+- The settings document is compiled into an immutable snapshot. A change builds a new snapshot first, so a value that cannot work is refused before anything moves, and is then swapped in atomically.
 
-## Outbound TLS, and what verifies it
+**Outbound TLS.** The client's tunnel dial trusts only the Mozilla roots compiled into the binary, so a CA added on the host cannot intercept the tunnel. Every other outbound HTTPS call (webhooks, OIDC, JWKS, autoscaling, OTLP, the client's calls to its backends) uses the host's certificate store, so an internal CA works once it is installed where the host keeps them; a container needs a CA bundle for that. Two exceptions use the compiled-in roots: `h2://` backends and the server's WebSocket dial for `server_side:`.
 
-Two different trust stores are in play, on purpose, and it is worth knowing
-which is which when a certificate is rejected.
+## Trust boundaries
 
-**The tunnel itself uses a bundled root set.** The client's `wss://` dial to
-the server builds its root store from `webpki-roots`, the Mozilla set compiled
-into the binary. That is deliberate: the tunnel is the one connection the
-client cannot afford to have quietly redirected, and a compiled-in set does
-not depend on the host being configured correctly, or on what a local
-administrator has since added.
+**The client does not trust the server, and the server does not trust the visitor.** The visitor is untrusted. The server routes and enforces policy, but the client treats it as a possibly hostile relay; it receives what a client chooses to declare (a visitor password, an autoscaling secret) and never the backend's own credentials. The client and its backend are trusted, and the client listens on nothing unless asked (the message faces, a `bind`).
 
-**Everything else uses the host's store.** Outbound HTTP made through
-`reqwest`, the server's webhook deliveries, OIDC and JWKS fetches, autoscaling
-callbacks, OTLP export, and the client's HTTP calls to your own backends, is
-verified against the platform's certificate store via
-`rustls-platform-verifier`. Two paths are deliberately narrower: the client's
-`h2://` backend connector and the server's `server_side:` WebSocket dial use
-the bundled Mozilla root set instead, so a private-CA `h2://` backend or a
-`wss://` server-side target is not reached by installing a CA on the box. This is what lets an operator running an internal
-CA, a private OIDC provider or a corporate egress proxy make the rest work
-by installing the CA where everything else on the box already reads it, rather
-than by rebuilding Aperio.
+**Visitor to server.** Per-address rate limits, a global concurrency cap and a body limit; `X-Forwarded-For` believed only from configured proxies; the gate in front of every route, closed by default; escalating login lockout.
 
-The practical consequences:
+**Anyone to the admin surface.** Sessions with roles and an optional second factor. A session made by a visitor credential opens sites, never Aperio; only the master token, a named user, a passkey, OIDC or an admin key open the dashboard and its API. `security.admin_allowed_ips` fences both while the login and visitor sign-in stay reachable. Metrics always need their token.
 
-- A container needs a CA bundle for outbound calls. The images published here
-  `apk add ca-certificates` for exactly this reason; a hand-rolled `scratch`
-  image with the static binary and nothing else will fail every outbound HTTPS
-  call while the tunnel keeps working, which is a confusing pair of symptoms
-  if you do not know the split above.
-- A CA installed on the host is trusted for outbound calls but **not** for the
-  tunnel dial. Adding a corporate MITM CA will not let anything intercept the
-  tunnel.
+**Server to client.** The server never connects to a client. Tokens are scoped to hostnames, paths, addresses, lifetimes and rates; `token_new_ip` and canary tokens surface a leaked one; pinning ties a token to one device. The client dials only the targets and tunnels it declared, caps frame sizes and bounds decompression, so a hostile server cannot use it to reach anything else.
 
-## Where state lives
+**Client to backend.** The client forwards to exactly the address it was given.
 
-- **`aperio.db` (SQLite, WAL mode)**, the durable store: dynamic tokens, admin
-  keys, dashboard users, sessions, webhooks + deliveries, organizations, the
-  inbox, and restart-surviving traffic statistics. Each store keeps its own
-  connection; WAL + a busy timeout make concurrent access safe.
-- **`audit.jsonl`**, an append-only, hash-chained audit log (tamper-evident;
-  `aperio-server audit verify`), size-rotated across generations.
-- **In-memory only**, the live client table, pending requests, the response
-  cache, rate-limit buckets, captured requests (bounded ring), per-route latency
-  windows, maintenance flags, and the token-seen-IP / outlier-ejection tracking.
-  These are deliberately not persisted; a restart starts them clean.
+**Server to callback destinations.** Webhook and autoscaling URLs are chosen by lower-trust callers, and the delivery log reports how a destination answered, which would make a blind network probe. `outbound.allowlist` (or `outbound.block_private`) fences webhooks, autoscaling, JWKS, `forward` endpoints and OIDC alike; no redirect is followed on any of them; autoscaling URLs are also limited to `https` and public addresses unless allowed. Both fences are off by default, so a multi-tenant server should set one.
 
-Configuration is one settings document, stored in the database and built
-into an immutable `ServerConfig` snapshot behind an `RwLock`. Only the boot
-settings (the master token, the listener, the data directory) come from the
-environment. A change, from the dashboard or the API, is checked by building a
-new snapshot first, so a value the server cannot honour is refused with its
-path before anything moves; then it is stored, swapped in atomically, and
-audited with the paths it changed. A few modules read their own section of the
-document directly (backups, retention, the OTLP bridge), from the copy held in
-`live`.
+### Server to a client's target
+
+`server_side:` is a request and response channel a tenant steers, so it is fenced harder: the operator names the destinations (`security.server_side_targets`, unset permits nothing), the token must carry `allow_server_side`, the list is judged on the target as written rather than what a name resolves to, nothing a visitor sends can change the host, and a target outside the list is refused rather than relayed.
+
+**Not defended:** a compromised client host or backend, a leaked master token (keep it out of clients), bugs in the backend, and network-layer floods, which belong to the CDN or proxy in front.
+
+**Tamper evidence.** Each audit line commits to the one before it, so a deleted or altered event breaks the chain: `aperio-server audit verify`. Ship the log off the box.
+
+## Examples
+
+[`grpc`](examples/grpc/), [`encrypted_tunnels`](examples/encrypted_tunnels/), [`behind_proxy`](examples/behind_proxy/).
