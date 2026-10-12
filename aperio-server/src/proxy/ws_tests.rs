@@ -99,6 +99,42 @@ async fn ws_no_client_returns_504() {
   assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
 }
 
+/// An upgrade that reaches nothing gets the HTTP path's answer, word for
+/// word, whether nothing serves it, its client did not come back in time, or
+/// every candidate fences the visitor out.
+#[tokio::test]
+async fn ws_reaching_nothing_is_the_http_answer() {
+  async fn body(resp: axum::response::Response) -> String {
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+      .await
+      .unwrap();
+    String::from_utf8_lossy(&bytes).into_owned()
+  }
+
+  let unclaimed = connected(test_config());
+  mark_connected(&unclaimed).await;
+
+  let mut cfg = test_config();
+  cfg.gateway_timeout = std::time::Duration::from_millis(50);
+  let gone = connected(cfg);
+
+  let fenced = connected(test_config());
+  mark_connected(&fenced).await;
+  let mut c = mock_client(None, None);
+  c.sole_mut().allowed_ips = vec!["10.0.0.0/8".to_string()];
+  fenced.clients.write().await.insert("c1".to_string(), c);
+
+  for (what, state) in [
+    ("nothing serves it", unclaimed),
+    ("its client did not come back", gone),
+    ("every candidate fences the visitor out", fenced),
+  ] {
+    let resp = run(state, ws_request("/ws", false)).await;
+    assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT, "{what}");
+    assert_eq!(body(resp).await, crate::proxy::NOT_PUBLISHED, "{what}");
+  }
+}
+
 #[tokio::test]
 async fn ws_offline_reconnect_wait_times_out() {
   let mut cfg = test_config();

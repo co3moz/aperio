@@ -470,7 +470,7 @@ pub(crate) async fn check_visitor_gate(
         return VisitorGate::Undeclared(gateway_timeout_response(
           state,
           host,
-          "504 Gateway Timeout - No client connected in time",
+          crate::proxy::NOT_PUBLISHED,
         ));
       }
       return VisitorGate::Allow(None);
@@ -633,7 +633,7 @@ pub(crate) async fn check_visitor_gate(
       return VisitorGate::Undeclared(gateway_timeout_response(
         state,
         host,
-        "504 Gateway Timeout - No client connected in time",
+        crate::proxy::NOT_PUBLISHED,
       ));
     }
     return VisitorGate::Allow(None);

@@ -142,6 +142,16 @@ fn worth_waiting_for_route(
   last_disconnect.is_some_and(|t| now.saturating_duration_since(t) <= recent)
 }
 
+/// What a visitor is told when nothing is published at the address asked
+/// for: a hostname nobody serves, a route the closed posture refuses, a
+/// visitor every candidate's `allowed_ips` turns away, a route whose client
+/// did not come back in time. One sentence for all of them, so a stranger
+/// cannot tell a closed or fenced route from a hostname nobody serves, and
+/// one that is true of each: they used to say "no client connected" or
+/// "client disconnected", which a connected client whose route is closed
+/// made false, and three different texts told the cases apart.
+pub(crate) const NOT_PUBLISHED: &str = "504 Gateway Timeout - Nothing is published at this address";
+
 /// Builds a 504 response: the `pages.unavailable` of the most specific site
 /// covering the hostname that sets one, then the given plain-text message.
 pub(crate) fn gateway_timeout_response(
