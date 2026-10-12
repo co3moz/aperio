@@ -1648,12 +1648,12 @@ on it, so the server must never block waiting on a single consumer; but it
 cannot buffer without bound either, and cutting the stream would kill a
 download that is perfectly healthy, merely slow. So the server pushes back
 on the producer instead. It counts the bytes queued for each stream, and
-past \code{stream.pause\_at} (2\,MB by default) it sends
+past \code{advanced.stream.pause\_at} (2\,MB by default) it sends
 \code{StreamPause} for that stream id. The client stops reading that one
 stream's source, the backend response body, the backend WebSocket or the
 TCP socket, so ordinary TCP backpressure reaches the backend, which is
 where it belongs. When the backlog falls below
-\code{stream.resume\_at} (512\,KB) a \code{StreamResume}
+\code{advanced.stream.resume\_at} (512\,KB) a \code{StreamResume}
 follows. The two marks sit far apart on purpose, so the pair cannot flap
 chunk by chunk.
 
@@ -1663,7 +1663,7 @@ deliberately excluded and keep their drop-when-congested contract.
 
 Two bounds keep the mechanism honest. A producer that cannot be paused,
 an older client, or one that ignores the pause, is cut off at
-\code{stream.backlog\_limit} (16\,MB) of buffered bytes; and a
+\code{advanced.stream.backlog\_limit} (16\,MB) of buffered bytes; and a
 consumer that accepts nothing at all for the whole response timeout still
 ends its own stream, exactly as before. On the client side a stream that
 has been paused for more than thirty seconds resumes by itself, so a
@@ -3332,6 +3332,31 @@ catalogue these tables are written from.
 \bottomrule
 \end{longtable}
 
+\section{Advanced (\code{advanced})}
+What the defaults are chosen for and almost nobody needs to touch. Read past it unless a measurement points here: a slow visitor holding memory on the server, or a slow link carrying text.
+
+\begin{longtable}{@{}R{0.28}R{0.49}R{0.17}@{}}
+\toprule
+\textbf{Setting} & \textbf{Description} & \textbf{Default} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Setting} & \textbf{Description} & \textbf{Default} \\
+\midrule
+\endhead
+\code{advanced.compression} & \code{true} = offer per-message zlib compression to clients (enabled per connection once acknowledged). Worth it on a slow or metered link carrying text; it costs CPU on both ends. & \code{false} \\
+\rowsep
+\code{advanced.stream.backlog\_limit} & Hard per-stream backlog cap: a stream whose producer cannot be paused (one ignoring the pause) is dropped past this much buffered data. A value below twice the pause mark is raised to it, so there is always room to pause before the cap bites. & \code{16MB} \\
+\rowsep
+\code{advanced.stream.min\_throughput} & Bytes per second a streamed response's consumer must take \textbf{while data is waiting for it}, or the stream is ended. The pump already ends a stream whose consumer cannot take a single chunk within the gateway timeout, so a reader taking \emph{nothing} was covered; this closes the gap in between, a reader that accepts one chunk just inside the timeout forever, holding a client concurrency slot and megabytes of buffer for as long as it likes. Only the time the consumer kept data waiting counts, so a stream that is quiet because the \textbf{backend} has nothing to send (server-sent events, long polling) is never ended for it. Measured over 30-second windows. & \code{0} \\
+\rowsep
+\code{advanced.stream.pause\_at} & Per-stream flow control: the server-side backlog of one streamed response / WebSocket / TCP relay at which the producing client is asked to pause that stream, so a visitor reading slower than the backend sends throttles the backend through ordinary TCP backpressure instead of piling data up on the server. Values under 64 KB are raised to 64 KB. Each stream snapshots the three watermarks when it starts, so a live edit applies to streams opened after it. & \code{2MB} \\
+\rowsep
+\code{advanced.stream.resume\_at} & Backlog under which a paused producer is asked to resume. Kept well below the pause mark so the pair does not flap; a value at or above \code{advanced.stream.pause\_at} is repaired to a quarter of it. & \code{512KB} \\
+\rowsep
+\bottomrule
+\end{longtable}
+
 \section{Alerts (\code{alerts})}
 \begin{longtable}{@{}R{0.28}R{0.49}R{0.17}@{}}
 \toprule
@@ -3837,42 +3862,6 @@ catalogue these tables are written from.
 \code{shutdown.drain} & How long to let in-flight proxied requests finish (or \code{auto}) before shutdown ends the connections carrying them. Behind a load balancer this is the number that decides whether a deploy is invisible or shows up as a handful of 502s: the balancer needs long enough to take the instance out of rotation, and the requests it already sent need long enough to answer. \code{auto} sizes it from the drain budgets connected clients announce (the longest of them, since the drain is over when the slowest client has finished), capped at 30s, so a client cannot hold the process past a typical orchestrator grace period. & \code{0s} \\
 \rowsep
 \code{shutdown.timeout} & Time after which shutdown stops waiting for anything still holding a connection open (a proxied WebSocket, a TCP relay, a stalled peer) and exits. & \code{10s} \\
-\rowsep
-\bottomrule
-\end{longtable}
-
-\section{Streaming flow control (\code{stream})}
-\begin{longtable}{@{}R{0.28}R{0.49}R{0.17}@{}}
-\toprule
-\textbf{Setting} & \textbf{Description} & \textbf{Default} \\
-\midrule
-\endfirsthead
-\toprule
-\textbf{Setting} & \textbf{Description} & \textbf{Default} \\
-\midrule
-\endhead
-\code{stream.backlog\_limit} & Hard per-stream backlog cap: a stream whose producer cannot be paused (one ignoring the pause) is dropped past this much buffered data. A value below twice the pause mark is raised to it, so there is always room to pause before the cap bites. & \code{16MB} \\
-\rowsep
-\code{stream.min\_throughput} & Bytes per second a streamed response's consumer must take \textbf{while data is waiting for it}, or the stream is ended. The pump already ends a stream whose consumer cannot take a single chunk within the gateway timeout, so a reader taking \emph{nothing} was covered; this closes the gap in between, a reader that accepts one chunk just inside the timeout forever, holding a client concurrency slot and megabytes of buffer for as long as it likes. Only the time the consumer kept data waiting counts, so a stream that is quiet because the \textbf{backend} has nothing to send (server-sent events, long polling) is never ended for it. Measured over 30-second windows. & \code{0} \\
-\rowsep
-\code{stream.pause\_at} & Per-stream flow control: the server-side backlog of one streamed response / WebSocket / TCP relay at which the producing client is asked to pause that stream, so a visitor reading slower than the backend sends throttles the backend through ordinary TCP backpressure instead of piling data up on the server. Values under 64 KB are raised to 64 KB. Each stream snapshots the three watermarks when it starts, so a live edit applies to streams opened after it. & \code{2MB} \\
-\rowsep
-\code{stream.resume\_at} & Backlog under which a paused producer is asked to resume. Kept well below the pause mark so the pair does not flap; a value at or above \code{stream.pause\_at} is repaired to a quarter of it. & \code{512KB} \\
-\rowsep
-\bottomrule
-\end{longtable}
-
-\section{Tunnel (\code{tunnel})}
-\begin{longtable}{@{}R{0.28}R{0.49}R{0.17}@{}}
-\toprule
-\textbf{Setting} & \textbf{Description} & \textbf{Default} \\
-\midrule
-\endfirsthead
-\toprule
-\textbf{Setting} & \textbf{Description} & \textbf{Default} \\
-\midrule
-\endhead
-\code{tunnel.compression} & \code{true} = offer per-message zlib compression to clients (enabled per connection once acknowledged). & \code{false} \\
 \rowsep
 \bottomrule
 \end{longtable}

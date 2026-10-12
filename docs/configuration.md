@@ -831,6 +831,18 @@ Every setting, by section, with its default. A blank default is unset. The `site
 | --- | --- | --- |
 | `access` | What a route nothing else declares answers: `deny` refuses it, `public` serves it to anyone, and a method block or a list of them gates it. A client's `access:` speaks for its own service, and a site's `access` speaks for its hostname over both. See [Visitor authentication](#visitor-authentication). | `deny` |
 
+#### Advanced (`advanced`)
+
+What the defaults are chosen for and almost nobody needs to touch. Read past it unless a measurement points here: a slow visitor holding memory on the server, or a slow link carrying text.
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `advanced.compression` | `true` = offer per-message zlib compression to clients (enabled per connection once acknowledged). Worth it on a slow or metered link carrying text; it costs CPU on both ends. | `false` |
+| `advanced.stream.backlog_limit` | Hard per-stream backlog cap: a stream whose producer cannot be paused (one ignoring the pause) is dropped past this much buffered data. A value below twice the pause mark is raised to it, so there is always room to pause before the cap bites. | `16MB` |
+| `advanced.stream.min_throughput` | Bytes per second a streamed response's consumer must take **while data is waiting for it**, or the stream is ended. The pump already ends a stream whose consumer cannot take a single chunk within the gateway timeout, so a reader taking *nothing* was covered; this closes the gap in between, a reader that accepts one chunk just inside the timeout forever, holding a client concurrency slot and megabytes of buffer for as long as it likes. Only the time the consumer kept data waiting counts, so a stream that is quiet because the **backend** has nothing to send (server-sent events, long polling) is never ended for it. Measured over 30-second windows. | `0` |
+| `advanced.stream.pause_at` | Per-stream flow control: the server-side backlog of one streamed response / WebSocket / TCP relay at which the producing client is asked to pause that stream, so a visitor reading slower than the backend sends throttles the backend through ordinary TCP backpressure instead of piling data up on the server. Values under 64 KB are raised to 64 KB. Each stream snapshots the three watermarks when it starts, so a live edit applies to streams opened after it. | `2MB` |
+| `advanced.stream.resume_at` | Backlog under which a paused producer is asked to resume. Kept well below the pause mark so the pair does not flap; a value at or above `advanced.stream.pause_at` is repaired to a quarter of it. | `512KB` |
+
 #### Alerts (`alerts`)
 
 | Setting | Description | Default |
@@ -1050,21 +1062,6 @@ Every setting, by section, with its default. A blank default is unset. The `site
 | --- | --- | --- |
 | `shutdown.drain` | How long to let in-flight proxied requests finish (or `auto`) before shutdown ends the connections carrying them. Behind a load balancer this is the number that decides whether a deploy is invisible or shows up as a handful of 502s: the balancer needs long enough to take the instance out of rotation, and the requests it already sent need long enough to answer. `auto` sizes it from the drain budgets connected clients announce (the longest of them, since the drain is over when the slowest client has finished), capped at 30s, so a client cannot hold the process past a typical orchestrator grace period. | `0s` |
 | `shutdown.timeout` | Time after which shutdown stops waiting for anything still holding a connection open (a proxied WebSocket, a TCP relay, a stalled peer) and exits. | `10s` |
-
-#### Streaming flow control (`stream`)
-
-| Setting | Description | Default |
-| --- | --- | --- |
-| `stream.backlog_limit` | Hard per-stream backlog cap: a stream whose producer cannot be paused (one ignoring the pause) is dropped past this much buffered data. A value below twice the pause mark is raised to it, so there is always room to pause before the cap bites. | `16MB` |
-| `stream.min_throughput` | Bytes per second a streamed response's consumer must take **while data is waiting for it**, or the stream is ended. The pump already ends a stream whose consumer cannot take a single chunk within the gateway timeout, so a reader taking *nothing* was covered; this closes the gap in between, a reader that accepts one chunk just inside the timeout forever, holding a client concurrency slot and megabytes of buffer for as long as it likes. Only the time the consumer kept data waiting counts, so a stream that is quiet because the **backend** has nothing to send (server-sent events, long polling) is never ended for it. Measured over 30-second windows. | `0` |
-| `stream.pause_at` | Per-stream flow control: the server-side backlog of one streamed response / WebSocket / TCP relay at which the producing client is asked to pause that stream, so a visitor reading slower than the backend sends throttles the backend through ordinary TCP backpressure instead of piling data up on the server. Values under 64 KB are raised to 64 KB. Each stream snapshots the three watermarks when it starts, so a live edit applies to streams opened after it. | `2MB` |
-| `stream.resume_at` | Backlog under which a paused producer is asked to resume. Kept well below the pause mark so the pair does not flap; a value at or above `stream.pause_at` is repaired to a quarter of it. | `512KB` |
-
-#### Tunnel (`tunnel`)
-
-| Setting | Description | Default |
-| --- | --- | --- |
-| `tunnel.compression` | `true` = offer per-message zlib compression to clients (enabled per connection once acknowledged). | `false` |
 
 #### Uptime history (`uptime`)
 

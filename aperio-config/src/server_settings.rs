@@ -91,10 +91,9 @@ pub struct ServerSettings {
   pub oidc: Oidc,
   /// The server-side GET response cache for services that opt in.
   pub cache: Cache,
-  /// Per-stream flow control for streamed responses, WebSockets and TCP.
-  pub stream: Stream,
-  /// The tunnel connections themselves.
-  pub tunnel: Tunnel,
+  /// What the defaults are chosen for and almost nobody needs to touch:
+  /// per-stream flow control, and compressing tunnel frames.
+  pub advanced: Advanced,
   /// The dashboard's request inspector.
   pub inspector: Inspector,
   /// The per-request access log.

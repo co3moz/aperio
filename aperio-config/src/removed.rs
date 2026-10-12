@@ -761,23 +761,23 @@ pub const REMOVED_SERVER_ENV: &[Removed] = &[
   },
   Removed {
     key: "APERIO_STREAM_PAUSE_BYTES",
-    hint: "moved into the settings as `stream.pause_at` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings as `advanced.stream.pause_at` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_STREAM_RESUME_BYTES",
-    hint: "moved into the settings as `stream.resume_at` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings as `advanced.stream.resume_at` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_STREAM_BACKLOG_LIMIT",
-    hint: "moved into the settings as `stream.backlog_limit` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings as `advanced.stream.backlog_limit` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_STREAM_MIN_THROUGHPUT",
-    hint: "moved into the settings as `stream.min_throughput` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings as `advanced.stream.min_throughput` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_TUNNEL_COMPRESSION",
-    hint: "moved into the settings as `tunnel.compression` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings as `advanced.compression` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_INSPECTOR",
@@ -1032,6 +1032,14 @@ pub const REMOVED_SETTINGS: &[Removed] = &[
   Removed {
     key: "outlier",
     hint: "moved under `resilience` in 0.13.0: `resilience.outlier`, each of whose fields defaults to the profile's (`resilience.profile`, `safe` unless written).",
+  },
+  Removed {
+    key: "stream",
+    hint: "moved under `advanced` in 0.13.0: `advanced.stream`, with the same fields.",
+  },
+  Removed {
+    key: "tunnel",
+    hint: "moved under `advanced` in 0.13.0: `tunnel.compression` is `advanced.compression`.",
   },
   Removed {
     key: "require_hostname_bind",

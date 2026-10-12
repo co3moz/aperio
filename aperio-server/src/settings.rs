@@ -189,16 +189,16 @@ pub(crate) struct ServerConfig {
   /// 0 disables serve-stale entirely).
   pub(crate) cache_max_stale: u64,
   /// Streamed-data backlog at which the producing client is asked to pause
-  /// a stream (stream.pause_at, default 2 MiB). Protocol v3 flow
+  /// a stream (advanced.stream.pause_at, default 2 MiB). Protocol v3 flow
   /// control; see `state::StreamLimits`.
   /// Bytes per second a streamed response's consumer must take while data is
   /// waiting for it (`0` = no floor).
   pub(crate) stream_min_throughput: u64,
   pub(crate) stream_pause_bytes: usize,
   /// Backlog under which a paused producer is asked to resume
-  /// (stream.resume_at, default 512 KiB).
+  /// (advanced.stream.resume_at, default 512 KiB).
   pub(crate) stream_resume_bytes: usize,
-  /// Hard per-stream backlog cap in bytes (stream.backlog_limit,
+  /// Hard per-stream backlog cap in bytes (advanced.stream.backlog_limit,
   /// default 16 MiB); drops producers that cannot be paused.
   pub(crate) stream_backlog_limit: usize,
   /// Destinations a client may ask this server to reach itself

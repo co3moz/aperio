@@ -2874,6 +2874,19 @@
           }
         ]
       },
+      "advanced": {
+        "description": "What the defaults are chosen for and almost nobody needs to touch:\nper-stream flow control, and compressing tunnel frames.",
+        "$ref": "#/$defs/Advanced",
+        "default": {
+          "compression": false,
+          "stream": {
+            "backlog_limit": "16MB",
+            "min_throughput": "0",
+            "pause_at": "2MB",
+            "resume_at": "512KB"
+          }
+        }
+      },
       "alerts": {
         "description": "Built-in and operator-defined alerts.",
         "$ref": "#/$defs/Alerts",
@@ -3156,23 +3169,6 @@
           "$ref": "#/$defs/Site"
         }
       },
-      "stream": {
-        "description": "Per-stream flow control for streamed responses, WebSockets and TCP.",
-        "$ref": "#/$defs/Stream",
-        "default": {
-          "backlog_limit": "16MB",
-          "min_throughput": "0",
-          "pause_at": "2MB",
-          "resume_at": "512KB"
-        }
-      },
-      "tunnel": {
-        "description": "The tunnel connections themselves.",
-        "$ref": "#/$defs/Tunnel",
-        "default": {
-          "compression": false
-        }
-      },
       "uptime": {
         "description": "The availability history behind the dashboard's Uptime panel.",
         "$ref": "#/$defs/Uptime",
@@ -3214,6 +3210,28 @@
           }
         ],
         "x-env": "whole"
+      },
+      "Advanced": {
+        "description": "What the defaults are chosen for and almost nobody needs to touch: how a\nstreamed response is paced, and how tunnel frames are encoded. Kept apart\nso the settings an operator does decide are not read past these.",
+        "type": "object",
+        "properties": {
+          "compression": {
+            "description": "Offer per-message zlib compression to clients. Worth it on a slow or\nmetered link carrying text; it costs CPU on both ends. Default `false`.",
+            "type": "boolean",
+            "default": false
+          },
+          "stream": {
+            "description": "Per-stream flow control for streamed responses, WebSockets and TCP.",
+            "$ref": "#/$defs/Stream",
+            "default": {
+              "backlog_limit": "16MB",
+              "min_throughput": "0",
+              "pause_at": "2MB",
+              "resume_at": "512KB"
+            }
+          }
+        },
+        "additionalProperties": false
       },
       "AlertRule": {
         "description": "One `alerts.rules` entry: a quantity the server measures, a bound, and how\nlong the condition must hold.",
@@ -5757,17 +5775,6 @@
               "10MB",
               "1GB"
             ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "Tunnel": {
-        "type": "object",
-        "properties": {
-          "compression": {
-            "description": "Offer per-message zlib compression to clients. Default `false`.",
-            "type": "boolean",
-            "default": false
           }
         },
         "additionalProperties": false

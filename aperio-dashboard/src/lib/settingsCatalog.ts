@@ -93,7 +93,7 @@ export const GROUPS: GroupSpec[] = [
     title: 'Tunnels & Domains',
     description: 'Behavior of the tunnel links and automatic hostnames.',
     fields: [
-      { key: 'tunnel.compression', label: 'Tunnel compression', hint: 'Enabling is offered to connected clients immediately; disabling applies to new connections' },
+      { key: 'advanced.compression', label: 'Tunnel compression', hint: 'Enabling is offered to connected clients immediately; disabling applies to new connections' },
       { key: 'routing.random_subdomain', label: 'Random subdomain pattern', hint: 'e.g. example.com, *.example.com or *-test.example.com, * becomes a random label; empty = disabled' },
       { key: 'routing.preview_noindex', label: 'Noindex preview hosts', hint: 'Random-subdomain services answer with X-Robots-Tag: noindex and a disallow-all robots.txt' },
     ],
@@ -112,9 +112,9 @@ export const GROUPS: GroupSpec[] = [
     description:
       'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.',
     fields: [
-      { key: 'stream.pause_at', label: 'Pause above', hint: 'Backlog at which the producing client is told to stop reading that stream’s source' },
-      { key: 'stream.resume_at', label: 'Resume below', hint: 'Backlog at which a paused producer carries on; kept well under the pause mark so the pair cannot flap' },
-      { key: 'stream.backlog_limit', label: 'Hard backlog cap', hint: 'A stream whose producer cannot be paused (an older client) is dropped past this' },
+      { key: 'advanced.stream.pause_at', label: 'Pause above', hint: 'Backlog at which the producing client is told to stop reading that stream’s source' },
+      { key: 'advanced.stream.resume_at', label: 'Resume below', hint: 'Backlog at which a paused producer carries on; kept well under the pause mark so the pair cannot flap' },
+      { key: 'advanced.stream.backlog_limit', label: 'Hard backlog cap', hint: 'A stream whose producer cannot be paused (an older client) is dropped past this' },
     ],
   },
   {

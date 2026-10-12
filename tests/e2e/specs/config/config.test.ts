@@ -233,7 +233,7 @@ export class ServerCliSpec extends Test({ timeout: 90_000 }) {
 /** Binary frames bypass the tunnel's text compression, so the frame deflates
  *  its own payload; what has to hold is that the bytes still come back. */
 export class CompressedTunnelServer extends AperioServerBase({
-  settings: { tunnel: { compression: true } },
+  settings: { advanced: { compression: true } },
 }) {}
 
 export class CompressedBackend extends StandardBackendBase() {}

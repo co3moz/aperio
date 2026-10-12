@@ -6,7 +6,7 @@
 The knobs that shape how much traffic flows and how fast, on both sides:
 
 - **Client**, `limits.concurrent_requests` announces a per-connection cap the server queues against instead of flooding the backend; `connections` opens parallel tunnel connections the server load-balances across (so one service isn't serialized behind a single WebSocket); `bandwidth` caps what the server pushes at the client, as a budget divided across every service and connection; `timeout`, `limits.response_body`, `limits.request_body` and `limits.redirects` bound individual requests, with `response_timeout` asking the server to wait as long as the client will; `inspector: false` keeps a high-volume service out of the request inspector without touching its traffic or statistics. What every service shares is written once under `defaults:`.
-- **Server**, global ceilings (`limits.concurrent_requests`, `limits.tunnels`, `limits.request_body`), per-IP rate limiting (`limits.ip_rate`: a `burst` and a `per_second` refill), gateway timeouts (`gateway`), and optional `tunnel.compression` for text-heavy traffic on slow links.
+- **Server**, global ceilings (`limits.concurrent_requests`, `limits.tunnels`, `limits.request_body`), per-IP rate limiting (`limits.ip_rate`: a `burst` and a `per_second` refill), gateway timeouts (`gateway`), and optional `advanced.compression` for text-heavy traffic on slow links.
 
 The values below are illustrative, measure before copying.
 

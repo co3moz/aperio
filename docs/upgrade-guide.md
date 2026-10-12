@@ -140,6 +140,11 @@ the client's `defaults:`, to keep 0.12's behaviour exactly. A client file's
 `resilience: true` from 0.12 is refused with what it became,
 `cache.offline`.
 
+**Flow control and tunnel compression are under `advanced`.** The server's
+`stream` section is `advanced.stream`, with the same fields, and
+`tunnel.compression` is `advanced.compression`. A document still writing
+`stream:` or `tunnel:` is refused with where they went.
+
 **A service that names no hostname no longer serves every unclaimed one.**
 Write `hostname: "*"` on the service that should; until it does, a request
 for a hostname nothing claims answers `504`, and the client is told in its

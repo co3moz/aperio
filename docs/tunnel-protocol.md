@@ -48,7 +48,7 @@ JSON shape rather than being dropped.
 These have **no compressed sibling**, and that is a deliberate trade. A relay
 payload is an opaque byte stream, often already TLS or an end-to-end-sealed
 tunnel, so deflating it usually costs more than it saves. On a server with
-`tunnel_compression` on, tunnelling a *compressible* protocol over TCP or a raw
+`advanced.compression` on, tunnelling a *compressible* protocol over TCP or a raw
 expose port therefore sends more bytes than a deflated text frame would, while
 spending less CPU per byte; if wire size matters more for that tunnel, compress
 inside the tunnelled protocol itself.
@@ -98,13 +98,13 @@ Everything that streams is flow-controlled: response bodies, proxied WebSockets 
 
 The problem it solves is a visitor who reads slower than the backend produces. A tunnel connection has a single read loop shared by every request and stream on it, so the server must never block on one consumer, but it also cannot buffer without bound, and dropping the stream would cut a perfectly healthy download. So the server pushes back on the *producer* instead:
 
-- Each stream's server-side backlog is measured in bytes. Past `stream.pause_at` (default 2 MB) the server sends `StreamPause { id }`, and the client stops reading that one stream's source, the backend response body, the backend WebSocket, or the TCP socket. Ordinary TCP backpressure then reaches the backend, which is exactly where it belongs.
-- Once the backlog drains below `stream.resume_at` (default 512 KB) the server sends `StreamResume { id }` and the client carries on. The two marks are deliberately far apart so the pair cannot flap on every chunk.
+- Each stream's server-side backlog is measured in bytes. Past `advanced.stream.pause_at` (default 2 MB) the server sends `StreamPause { id }`, and the client stops reading that one stream's source, the backend response body, the backend WebSocket, or the TCP socket. Ordinary TCP backpressure then reaches the backend, which is exactly where it belongs.
+- Once the backlog drains below `advanced.stream.resume_at` (default 512 KB) the server sends `StreamResume { id }` and the client carries on. The two marks are deliberately far apart so the pair cannot flap on every chunk.
 - Nothing else on the tunnel is affected: other visitors' responses, other streams and the heartbeat keep flowing while one stream is paused.
 
 `id` is a request id for a streamed response and a stream id for a WebSocket or TCP relay. UDP relays are excluded on purpose: they keep their best-effort, drop-when-congested contract.
 
-Two safety nets bound the mechanism. A client ignoring the pause is cut off at `stream.backlog_limit` (default 16 MB) of buffered bytes, and a consumer that accepts nothing at all for the whole `gateway.response_timeout` still ends its own stream as it always did. On the client side, a producer that has been paused for more than 30 seconds resumes on its own, so a `StreamResume` lost with a torn-down stream cannot wedge it.
+Two safety nets bound the mechanism. A client ignoring the pause is cut off at `advanced.stream.backlog_limit` (default 16 MB) of buffered bytes, and a consumer that accepts nothing at all for the whole `gateway.response_timeout` still ends its own stream as it always did. On the client side, a producer that has been paused for more than 30 seconds resumes on its own, so a `StreamResume` lost with a torn-down stream cannot wedge it.
 
 The watermarks are server settings ([Configuration](configuration.md)); an inconsistent trio is repaired rather than obeyed, so the mechanism cannot be configured into dropping every stream.
 
@@ -112,7 +112,7 @@ The client side has the mirror of the same rule. Its read loop is shared by ever
 
 ## Tunnel compression
 
-With `tunnel.compression: true` (yaml `tunnel_compression`) the server offers per-message zlib compression for JSON frames. The client acknowledges, and both directions switch to compressed frames. The client bounds decompression output as a memory-protection measure.
+With `advanced.compression: true` the server offers per-message zlib compression for JSON frames. The client acknowledges, and both directions switch to compressed frames. The client bounds decompression output as a memory-protection measure.
 
 ## Emergency tunnels
 

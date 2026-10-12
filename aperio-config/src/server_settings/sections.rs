@@ -582,10 +582,16 @@ impl Default for Stream {
   }
 }
 
+/// What the defaults are chosen for and almost nobody needs to touch: how a
+/// streamed response is paced, and how tunnel frames are encoded. Kept apart
+/// so the settings an operator does decide are not read past these.
 #[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
-pub struct Tunnel {
-  /// Offer per-message zlib compression to clients. Default `false`.
+pub struct Advanced {
+  /// Per-stream flow control for streamed responses, WebSockets and TCP.
+  pub stream: Stream,
+  /// Offer per-message zlib compression to clients. Worth it on a slow or
+  /// metered link carrying text; it costs CPU on both ends. Default `false`.
   pub compression: bool,
 }
 

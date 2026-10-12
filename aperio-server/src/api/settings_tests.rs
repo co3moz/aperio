@@ -407,7 +407,7 @@ async fn enabling_compression_offers_it_to_connected_clients() {
     .await
     .insert("c1".to_string(), mock_client(None, None, None, None));
 
-  apply_settings(&state, doc("tunnel:\n  compression: true\n"))
+  apply_settings(&state, doc("advanced:\n  compression: true\n"))
     .await
     .unwrap();
   assert!(state.config().tunnel_compression);

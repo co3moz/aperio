@@ -110,17 +110,17 @@ awkward case: the server cannot block its shared read loop on one consumer, and
 buffering without limit is not an option either. Since tunnel protocol v3 it
 pushes back on the producer instead, and three watermarks control that.
 
-- **`stream.pause_at`** (2 MB). Per-stream backlog at which the
+- **`advanced.stream.pause_at`** (2 MB). Per-stream backlog at which the
   producing client is told to stop reading that stream's source. This is the
   knob that costs memory: budget roughly `pause_bytes` × concurrently-slow
   streams. Raise it for high bandwidth-delay-product links or large media, where
   a bigger in-flight window keeps throughput up; lower it to bound memory on a
   server with many slow consumers.
-- **`stream.resume_at`** (512 KB). Where a paused producer restarts.
+- **`advanced.stream.resume_at`** (512 KB). Where a paused producer restarts.
   Keep it well under the pause mark, the gap is what stops the pair from
   flapping chunk by chunk. Too small and a fast producer stalls waiting for the
   queue to drain almost empty.
-- **`stream.backlog_limit`** (16 MB). Only bites for a producer that
+- **`advanced.stream.backlog_limit`** (16 MB). Only bites for a producer that
   ignores a pause.
 
 Note that this is the *server's* side of a slow link. The client-side
@@ -151,7 +151,7 @@ Only enable the cache for services whose responses are genuinely shared and
 
 ## Compression
 
-`tunnel.compression` zlib-compresses tunnel JSON frames once the client
+`advanced.compression` zlib-compresses tunnel JSON frames once the client
 acknowledges. It trades CPU for bandwidth: a clear win on a bandwidth-constrained
 or metered client link, a slight loss on a fast LAN where the CPU cost outweighs
 the saving. Body data over the streamed threshold uses raw binary frames

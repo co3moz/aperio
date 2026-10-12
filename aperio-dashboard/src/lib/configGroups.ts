@@ -95,9 +95,9 @@ export const SERVER_GROUPS: GroupSpec[] = [
     keys: ['cache'],
   },
   {
-    title: 'Stream flow control',
-    description: 'How much of a slow visitor’s download is buffered before the client pauses.',
-    keys: ['stream', 'tunnel'],
+    title: 'Advanced',
+    description: 'Stream flow control and tunnel compression. The defaults suit almost every deployment.',
+    keys: ['advanced'],
   },
   {
     title: 'Authentication & dashboard',
