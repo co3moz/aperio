@@ -185,7 +185,7 @@ async fn the_layer_moves_a_panel_request_under_aperio_and_nothing_else() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn under_the_fence_a_hostname_admits_its_organization_master_and_the_unfenced() {
+async fn under_the_fence_a_hostname_admits_its_organization_star_and_the_unfenced() {
   let mut cfg = test_config();
   cfg.fenced_login = true;
   let state = test_state_with(cfg);
@@ -213,15 +213,16 @@ async fn under_the_fence_a_hostname_admits_its_organization_master_and_the_unfen
   let g = |org: &str, role: Role| vec![Grant::new(GrantOrg::Child(org.to_string()), role)];
   let master_viewer = vec![Grant::new(GrantOrg::Master, Role::Viewer)];
 
-  // Acme's hostname: Acme's people, anyone reaching master, and the users of
-  // an organization with no fence; not Beta's.
+  // Acme's hostname: Acme's people, a `*` grant, and the users of an
+  // organization with no fence; not Beta's, and not master's, master being
+  // an organization like the others.
   assert!(
     state
       .login_admits(Some("www.acme.test"), &g(&acme, Role::Viewer))
       .await
   );
   assert!(
-    state
+    !state
       .login_admits(Some("www.acme.test"), &master_viewer)
       .await
   );

@@ -19,6 +19,8 @@ curl -s -X POST -b jar.txt https://tunnel.example.com/aperio/api/admin-keys \
   -H 'Content-Type: application/json' -d '{"name":"ci","role":"operator"}'
 ```
 
+A key acts in one organization with one role: `"org_id": "acme"` for Acme, none for master, `"*"` for every organization. Server-wide commands (`org`, `admin-key`, `settings`, `export`, `import`, port allocations) take the **server admin**, a `*` key with the `admin` role; an Admin key of master administers master and nothing about the server. Only the server admin mints keys.
+
 The secret is returned exactly once. Hand it to the client the same way as any other setting:
 
 | Surface | Name |
@@ -304,8 +306,9 @@ Because a failed call exits non-zero, `set -e` scripts stop on an API error rath
 
 ## Public TCP/UDP listeners
 
-`aperio-client api expose` manages server-owned public listeners through the
-same delegated permissions as the dashboard. It supports list/show, create and
+`aperio-client api expose` manages server-owned public listeners with the
+same permissions as the dashboard: the key's role in the listener's
+organization, within the port allocation the server admin gave it. It supports list/show, create and
 update from a specification file, enable/disable/retry/drain/delete, session
 inspection/disconnect, policy configuration, and scoped backup/restore with a
 preview and revision check. See [public expose commands and examples](public-exposes.md#cli-and-api).

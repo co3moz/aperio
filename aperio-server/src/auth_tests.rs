@@ -919,8 +919,8 @@ async fn under_the_fence_a_tenants_hostname_admits_the_tenant_and_binds_the_sess
   let state = Arc::new(state);
   let on = |creds: &str, host: &str| basic_headers(creds, Some(host));
 
-  // Acme's hostname: Carol and master's Viewer in, Dave out with the
-  // wrong-password answer.
+  // Acme's hostname: Carol in; master's Viewer and Dave out with the
+  // wrong-password answer, acme's hostname being neither's.
   let res = call_login(
     state.clone(),
     on("carol:password1", "www.acme.test"),
@@ -944,9 +944,8 @@ async fn under_the_fence_a_tenants_hostname_admits_the_tenant_and_binds_the_sess
       login_query(Some("/"))
     )
     .await
-    .unwrap()
-    .status(),
-    StatusCode::OK
+    .err(),
+    Some(StatusCode::UNAUTHORIZED)
   );
   assert_eq!(
     call_login(

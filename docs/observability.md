@@ -271,7 +271,7 @@ The same hourly cycle also runs the **disk-usage guard** when `retention.db_max_
 
 ## Right-to-erasure selective purge
 
-`POST /aperio/api/purge` (master super-admin only) deletes traffic records matching a selector without wiping the whole store, the GDPR-style "erase what you hold about X" operation:
+`POST /aperio/api/purge` (server admin only) deletes traffic records matching a selector without wiping the whole store, the GDPR-style "erase what you hold about X" operation:
 
 ```bash
 # from anywhere, against the server's admin API

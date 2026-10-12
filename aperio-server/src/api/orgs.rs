@@ -1,4 +1,4 @@
-//! Organization management API (master super-admin only). The master
+//! Organization management API (server admin only). The master
 //! organization is implicit (`org_id: None`) and is surfaced here as a
 //! synthetic entry with id `master`; only child organizations are stored.
 
@@ -56,13 +56,13 @@ fn org_error(e: crate::store::orgs::OrgError) -> axum::response::Response {
 }
 
 #[utoipa::path(get, path = "/aperio/api/orgs", tag = "orgs",
-  description = "Lists organizations (master super-admin only): the implicit master org plus child orgs, with user/token counts.",
+  description = "Lists organizations (server admin only): the implicit master org plus child orgs, with user/token counts.",
   responses((status = 200, description = "Organizations", body = serde_json::Value)))]
 pub(crate) async fn orgs_list_handler(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
 ) -> Response {
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
   let counts = org_member_counts(&state).await;
@@ -214,7 +214,7 @@ async fn check_panel_hostname(
 }
 
 /// Sets or clears an organization's panel hostname. Open to an Admin of that
-/// organization, which the master super-admin is through `*`: a tenant
+/// organization, which the server admin is through `*`: a tenant
 /// picks a subdomain it owns and gets its own dashboard at the root of it.
 /// A bind currently serving the name is dropped, as when a fence changes.
 #[utoipa::path(put, path = "/aperio/api/orgs/{id}/panel", tag = "orgs",
@@ -397,7 +397,7 @@ pub(crate) async fn orgs_select_handler(
 
 /// Creates a child organization.
 #[utoipa::path(post, path = "/aperio/api/orgs", tag = "orgs",
-  description = "Creates a child organization (master super-admin only).",
+  description = "Creates a child organization (server admin only).",
   request_body = OrgCreateRequest,
   responses((status = 200, description = "Created", body = serde_json::Value), (status = 400, description = "Invalid name"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn orgs_create_handler(
@@ -406,7 +406,7 @@ pub(crate) async fn orgs_create_handler(
   headers: HeaderMap,
   Json(payload): Json<OrgCreateRequest>,
 ) -> Response {
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
   let hostnames = match normalize_allowlist(&payload.hostnames) {
@@ -463,7 +463,7 @@ pub(crate) async fn orgs_create_handler(
   }
 }
 
-/// Replaces a child organization's hostname allowlist (master super-admin
+/// Replaces a child organization's hostname allowlist (server admin
 /// only). Existing tokens keep their records, but a hostname that falls
 /// outside the new fence stops being bindable immediately: the fence is
 /// re-checked on every client connect, not only at token creation.
@@ -484,7 +484,7 @@ pub(crate) struct OrgCustomNameRequest {
 /// why a display name exists, so the thing people read can change without
 /// the thing machines read moving underneath them.
 #[utoipa::path(put, path = "/aperio/api/orgs/{id}/custom-name", tag = "dashboard",
-  description = "Sets an organization's display name; the handle it is addressed by never changes (master admin).",
+  description = "Sets an organization's display name; the handle it is addressed by never changes (server admin).",
   request_body = OrgCustomNameRequest,
   responses((status = 200, description = "Updated"), (status = 404, description = "No such organization"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn orgs_custom_name_handler(
@@ -494,7 +494,7 @@ pub(crate) async fn orgs_custom_name_handler(
   Path(id): Path<String>,
   Json(payload): Json<OrgCustomNameRequest>,
 ) -> Response {
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
   if id == MASTER_ID {
@@ -538,7 +538,7 @@ pub(crate) async fn orgs_hostnames_handler(
   Path(id): Path<String>,
   Json(payload): Json<OrgHostnamesRequest>,
 ) -> Response {
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
   if id == MASTER_ID {
@@ -620,7 +620,7 @@ pub(crate) async fn orgs_hostnames_handler(
 /// Deletes a child organization. Rejected while it still has users or tokens
 /// (move or delete them first), so nothing is silently orphaned.
 #[utoipa::path(delete, path = "/aperio/api/orgs/{id}", tag = "orgs",
-  description = "Deletes an empty child organization (master super-admin only); rejected while it still has users or tokens.",
+  description = "Deletes an empty child organization (server admin only); rejected while it still has users or tokens.",
   responses((status = 200, description = "Deleted"), (status = 404, description = "Unknown org"), (status = 409, description = "Organization not empty"), (status = 500, description = "The change could not be saved and was rolled back")))]
 pub(crate) async fn orgs_delete_handler(
   State(state): State<Arc<AppState>>,
@@ -628,7 +628,7 @@ pub(crate) async fn orgs_delete_handler(
   headers: HeaderMap,
   Path(id): Path<String>,
 ) -> Response {
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
   if id == MASTER_ID {
@@ -714,7 +714,7 @@ pub(crate) struct OrgQuotaRequest {
   pub(crate) max_bytes_month: Option<u64>,
 }
 
-/// Sets a child organization's quotas (master super-admin only).
+/// Sets a child organization's quotas (server admin only).
 #[utoipa::path(put, path = "/aperio/api/orgs/{id}/quota", tag = "orgs",
   description = "Sets a child org's quotas (max clients/tokens/users, monthly bytes).",
   request_body = OrgQuotaRequest,
@@ -726,7 +726,7 @@ pub(crate) async fn orgs_quota_handler(
   Path(id): Path<String>,
   Json(payload): Json<OrgQuotaRequest>,
 ) -> Response {
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
   if id == MASTER_ID {
@@ -794,7 +794,7 @@ pub(crate) struct OrgOidcRequest {
   pub(crate) group_grants: Vec<String>,
 }
 
-/// Sets or clears a child org's OIDC SSO override (master super-admin only).
+/// Sets or clears a child org's OIDC SSO override (server admin only).
 /// The client secret is write-only; the response never echoes it.
 #[utoipa::path(put, path = "/aperio/api/orgs/{id}/oidc", tag = "orgs",
   description = "Sets or clears a child org's OIDC override (empty issuer clears).",
@@ -807,7 +807,7 @@ pub(crate) async fn orgs_oidc_handler(
   Path(id): Path<String>,
   Json(payload): Json<OrgOidcRequest>,
 ) -> Response {
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
   if id == MASTER_ID {
@@ -874,17 +874,16 @@ pub(crate) async fn orgs_oidc_handler(
       if entry.is_empty() {
         continue;
       }
-      let ok = entry.split_once('=').is_some_and(|(g, r)| {
-        !g.trim().is_empty() && crate::store::grants::Grant::parse_in_org(&id, r).is_ok()
-      });
-      if !ok {
-        return (
-          StatusCode::BAD_REQUEST,
-          format!(
-            "group_grants entries are written <group>=<role>[+expose.<action>...], got {entry:?}"
-          ),
-        )
-          .into_response();
+      let parsed = match entry.split_once('=') {
+        Some((g, r)) if !g.trim().is_empty() => {
+          crate::store::grants::Grant::parse_in_org(&id, r).map(|_| ())
+        }
+        _ => Err(format!(
+          "group_grants entries are written <group>=<role>, got {entry:?}"
+        )),
+      };
+      if let Err(e) = parsed {
+        return (StatusCode::BAD_REQUEST, e).into_response();
       }
       group_grants.push(entry.to_string());
     }
@@ -929,7 +928,7 @@ pub(crate) async fn orgs_usage_handler(
   headers: HeaderMap,
   Path(id): Path<String>,
 ) -> Response {
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
   let org_key: Option<&str> = if id == MASTER_ID {

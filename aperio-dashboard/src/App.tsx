@@ -302,14 +302,14 @@ export default function App() {
   // Until the session loads, assume the least privilege so admin-only pages
   // never flash; the server is the real gate regardless.
   const role = session?.role ?? 'viewer'
-  const masterAdmin = session?.master_admin ?? false
+  const serverAdmin = session?.server_admin ?? false
   const selectedOrg = session?.selected_org ?? 'master'
-  const allowedPages = useMemo(() => pagesForRole(role, masterAdmin), [role, masterAdmin])
+  const allowedPages = useMemo(() => pagesForRole(role, serverAdmin), [role, serverAdmin])
   // The dialog panes this session may open, in the order the dialogs list them.
   const mayOpen = useCallback(
     (p: { minRole: Role; masterOnly?: boolean }) =>
-      ROLE_ORDER[role] >= ROLE_ORDER[p.minRole] && (!p.masterOnly || masterAdmin),
-    [role, masterAdmin],
+      ROLE_ORDER[role] >= ROLE_ORDER[p.minRole] && (!p.masterOnly || serverAdmin),
+    [role, serverAdmin],
   )
   const settingsPanes = useMemo(() => SETTINGS_PANES.filter(mayOpen), [mayOpen])
   const toolsPanes = useMemo(() => TOOLS_PANES.filter(mayOpen), [mayOpen])
@@ -324,7 +324,7 @@ export default function App() {
   // opening rather than a poll because that is the only moment it matters.
   const [settingsPayload, setSettingsPayload] = useState<SettingsPayload | null>(null)
   useEffect(() => {
-    if (!paletteOpen || !masterAdmin || role !== 'admin') return
+    if (!paletteOpen || !serverAdmin || role !== 'admin') return
     let live = true
     api
       .settings()
@@ -333,7 +333,7 @@ export default function App() {
     return () => {
       live = false
     }
-  }, [paletteOpen, masterAdmin, role])
+  }, [paletteOpen, serverAdmin, role])
 
   // A role that can't see the current page (e.g. a viewer landing on a
   // bookmarked ?tab=settings) is bounced to the overview.
@@ -370,7 +370,7 @@ export default function App() {
         group: t('Settings & Tools'),
         run: () => openPane(p.id),
       })),
-      ...ACTIONS.filter((a) => ROLE_ORDER[role] >= ROLE_ORDER[a.minRole] && (!a.masterOnly || masterAdmin)).map(
+      ...ACTIONS.filter((a) => ROLE_ORDER[role] >= ROLE_ORDER[a.minRole] && (!a.masterOnly || serverAdmin)).map(
         (a) => ({
           id: `do-${a.target}`,
           label: t(a.label),
@@ -405,7 +405,7 @@ export default function App() {
       openPane,
       panes,
       role,
-      masterAdmin,
+      serverAdmin,
       settingsPayload,
       signOut,
       t,
@@ -421,8 +421,7 @@ export default function App() {
       username={session?.username ?? 'aperio'}
       role={role}
       selectedOrg={selectedOrg}
-      masterAdmin={masterAdmin}
-      allOrgs={session?.all_orgs ?? false}
+      serverAdmin={serverAdmin}
       orgs={session?.orgs ?? []}
     >
     <SidebarProvider>
@@ -437,7 +436,7 @@ export default function App() {
         <SettingsDialog
           page={overlay}
           role={role}
-          masterAdmin={masterAdmin}
+          serverAdmin={serverAdmin}
           focus={focus}
           onNavigate={openPane}
           onClose={() => setOverlay(null)}
@@ -447,7 +446,7 @@ export default function App() {
         <ToolsDialog
           page={overlay}
           role={role}
-          masterAdmin={masterAdmin}
+          serverAdmin={serverAdmin}
           focus={focus}
           onNavigate={openPane}
           onClose={() => setOverlay(null)}
@@ -465,7 +464,7 @@ export default function App() {
         sessionSeconds={session?.expires_in_seconds ?? null}
         version={health?.version ?? null}
         role={role}
-        masterAdmin={masterAdmin}
+        serverAdmin={serverAdmin}
         selectedOrg={selectedOrg}
         reachableOrgs={session?.orgs.length ?? 0}
         onSignOut={() => void signOut()}

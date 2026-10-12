@@ -46,7 +46,7 @@ pub(crate) async fn self_health_handler(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
 ) -> Response {
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
   let data_dir = std::path::PathBuf::from(&state.data_dir);

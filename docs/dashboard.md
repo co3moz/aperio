@@ -57,7 +57,7 @@ The *Topology* page (Traffic group) draws the reverse-tunnel mesh as a live thre
 
 ## Route trends
 
-The *Breakdown* page has two tabs, *Traffic* (the history chart, the per-token and per-hostname breakdown, and bandwidth) and *Routes & latency* (route trends, the slowest endpoints, stage latencies). The server's own figures, the self-health card and the cache statistics, are the *Server Health* page under *System*, for the master super-admin.
+The *Breakdown* page has two tabs, *Traffic* (the history chart, the per-token and per-hostname breakdown, and bandwidth) and *Routes & latency* (route trends, the slowest endpoints, stage latencies). The server's own figures, the self-health card and the cache statistics, are the *Server Health* page under *System*, for the server admin (`*: admin`).
 
 The *Routes & latency* tab opens with **route trends**: for every hostname, one bar per minute over the last 30 minutes, height by request volume, color by the worst status class seen in that minute (green 2xx/3xx, amber 4xx, red 5xx), plus the window's request count and 5xx error rate. The glanceable "which route started erroring, and when". In-memory (last 60 minutes tracked, up to 100 routes); raw data at `GET /aperio/api/route-trends`.
 
@@ -136,13 +136,13 @@ A subdomain wildcard is the answer to "take everything under this domain down": 
 
 ## Organizations
 
-When a session's grants reach more than one organization, the built-in `aperio` super-admin's always do, an **organization picker** appears at the top of the sidebar listing exactly those, and an Admin of the master organization also gets the **Organizations** page (create / delete child organizations, with live user and token counts). Switching organizations re-scopes every page, clients, tokens, users, traffic, stats, webhooks, audit, to the selected tenant, and the role enforced is the one granted there. A named user granted one organization sees no picker. The dashboard can also be the root of a hostname of its own, `panel.example.com` for the server and `aperio.<tenant-domain>` for an organization, with `/aperio` staying everywhere, see [Panel hostname](organizations.md#panel-hostname). See [Organizations](organizations.md).
+When a session's grants reach more than one organization, the built-in `aperio` server admin's always do, an **organization picker** appears at the top of the sidebar listing exactly those, and the server admin also gets the **Organizations** page (create / delete child organizations, with live user and token counts). Switching organizations re-scopes every page, clients, tokens, users, traffic, stats, webhooks, audit, to the selected tenant, and the role enforced is the one granted there. A named user granted one organization sees no picker. The dashboard can also be the root of a hostname of its own, `panel.example.com` for the server and `aperio.<tenant-domain>` for an organization, with `/aperio` staying everywhere, see [Panel hostname](organizations.md#panel-hostname). See [Organizations](organizations.md).
 
 ## Settings dialog
 
 ![The settings dialog, open over the page underneath rather than replacing it](images/dashboard-settings.png)
 
-The configuration screens open as a **dialog over whatever page you were on**, not as pages of their own: you open a setting, change it, and leave, and the traffic table you were watching is still there when you close it. Each pane has a row of its own in the sidebar, under *Settings* and *Tools*, so Organizations or the Audit Log are one click from anywhere rather than a dialog and a guess away. Nothing about the dialog is in the URL, so a reload returns to the page underneath with the dialog shut, which is why a settings form holding unsaved edits asks before it is discarded, whether you close the dialog, switch panes, or reload the browser. Its panes are **Server Settings**, **Organizations**, **Users** (with the admin keys and the active sessions), **Webhooks**, **Webhook Inbox**, **Messages** and **Export & Import**; each is still reachable by role: a viewer sees the webhook and inbox panes, the messages pane and the three Tools panes, while organizations and server settings are the master super-admin's, and export and import take Admin in every organization (`*`).
+The configuration screens open as a **dialog over whatever page you were on**, not as pages of their own: you open a setting, change it, and leave, and the traffic table you were watching is still there when you close it. Each pane has a row of its own in the sidebar, under *Settings* and *Tools*, so Organizations or the Audit Log are one click from anywhere rather than a dialog and a guess away. Nothing about the dialog is in the URL, so a reload returns to the page underneath with the dialog shut, which is why a settings form holding unsaved edits asks before it is discarded, whether you close the dialog, switch panes, or reload the browser. Its panes are **Server Settings**, **Organizations**, **Users** (with the admin keys and the active sessions), **Webhooks**, **Webhook Inbox**, **Messages** and **Export & Import**; each is still reachable by role: a viewer sees the webhook and inbox panes, the messages pane and the three Tools panes, while organizations, server settings, export and import are the server admin's (`*: admin`).
 
 ## Server settings
 
@@ -170,7 +170,7 @@ The settings sit in one accordion, grouped by what they govern; **Export & Impor
 
 The live stream re-checks the session on every tick, so signing out (or being signed out) closes it within a couple of seconds rather than when the tab does. The session's own document travels on the stream too (`session`), re-sent when the users or sessions of its organization change, so a grant taken away is on screen at once.
 
-Server settings are a whole-server concern, so this pane is reserved for the master super-admin, and its export/import, which read and replace every organization, for `*` Admin; a named organization admin manages their own organization, not the server.
+Server settings are a whole-server concern, so this pane, its export and its import are reserved for the server admin (`*: admin`); an organization's admin, master's included, manages their own organization, not the server.
 
 ## Live request activity
 
@@ -213,7 +213,7 @@ It also publishes. Type a topic and a message and the reply says how many client
 
 ## Finding a setting
 
-`Ctrl`/`⌘`+`K` searches the settings as well as the pages. Every server setting the catalogue names is listed, matching its English name, its translated one, its path (`limits.request_body`) and its group, **with its current value on the right**. Half the reason to look a setting up is to check it, and that costs nothing here. Picking one opens the settings pane, expands the group holding it and scrolls to it. The palette also carries the dialog panes themselves and shortcuts that land on a form rather than a page (*Add User*, *New Organization*). Values are shown only to the master super-admin, since only they may read them.
+`Ctrl`/`⌘`+`K` searches the settings as well as the pages. Every server setting the catalogue names is listed, matching its English name, its translated one, its path (`limits.request_body`) and its group, **with its current value on the right**. Half the reason to look a setting up is to check it, and that costs nothing here. Picking one opens the settings pane, expands the group holding it and scrolls to it. The palette also carries the dialog panes themselves and shortcuts that land on a form rather than a page (*Add User*, *New Organization*). Values are shown only to the server admin, since only they may read them.
 
 ## Also here
 

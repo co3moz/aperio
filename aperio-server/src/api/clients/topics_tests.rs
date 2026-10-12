@@ -31,8 +31,8 @@ fn the_role_floor_is_the_endpoints_own() {
   assert_eq!(Topic::Sessions.required_role(), Role::Admin);
   assert_eq!(Topic::AdminKeys.required_role(), Role::Admin);
   assert_eq!(Topic::Orgs.required_role(), Role::Admin);
-  assert!(Topic::Orgs.master_only());
-  assert!(!Topic::Tokens.master_only());
+  assert!(Topic::Orgs.server_admin_only());
+  assert!(!Topic::Tokens.server_admin_only());
 }
 
 #[test]
@@ -142,7 +142,7 @@ async fn a_topics_document_is_the_endpoints_own_answer() {
     .await
     .expect("the session");
   assert_eq!(session["username"], "aperio");
-  assert!(session["master_admin"].as_bool().unwrap());
+  assert!(session["server_admin"].as_bool().unwrap());
 
   // A refusal is no document, not an error document.
   let token = seed_session(&state, Role::Viewer, Some("bob"), None).await;

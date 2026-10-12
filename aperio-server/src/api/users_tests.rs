@@ -787,10 +787,10 @@ async fn session_org_maps_unnamed_session_to_master() {
 
 fn grant(org: &str, role: &str) -> GrantRequest {
   GrantRequest {
-    expose_bounds: None,
-    expose: Default::default(),
     org: org.to_string(),
     role: role.to_string(),
+    source: None,
+    source_org: None,
   }
 }
 
@@ -841,95 +841,31 @@ async fn grants_of(state: &Arc<AppState>, username: &str) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn expose_rights_require_delegation_and_protect_account_control() {
-  use crate::store::grants::ExposeAction;
+async fn an_organizations_admin_runs_its_accounts_and_a_grant_has_no_capabilities_of_its_own() {
   let state = Arc::new(test_state());
   let org = make_org(&state, "acme").await;
-  let admin_id = make_user(&state, "org-admin", Role::Admin, Some(&org)).await;
+  make_user(&state, "org-admin", Role::Admin, Some(&org)).await;
   let headers = session_for(&state, "org-admin").await;
-  let mut requested = grant(&org, "viewer");
-  requested.expose.insert(ExposeAction::Create);
   let resp = users_create_handler(
     State(state.clone()),
     ConnectInfo(test_peer()),
     headers.clone(),
-    create_with_grants("publisher", vec![requested]),
+    create_with_grants("publisher", vec![grant(&org, "operator")]),
   )
   .await;
-  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
-
-  let mut rights = Grant::new(GrantOrg::Child(org.clone()), Role::Viewer);
-  rights.expose.insert(ExposeAction::Create);
-  let publisher_id = state
-    .users
-    .lock()
-    .await
-    .create_with_grants(
-      "publisher",
-      "long-password",
-      Some(org.clone()),
-      vec![rights],
-    )
-    .unwrap()
-    .id;
-  let password_change = || {
-    Json(UserUpdateRequest {
-      role: None,
-      enabled: None,
-      password: Some("different-password".into()),
-      grants: None,
-    })
-  };
-  let resp = users_update_handler(
-    State(state.clone()),
-    ConnectInfo(test_peer()),
-    headers.clone(),
-    Path(publisher_id.clone()),
-    password_change(),
-  )
-  .await;
-  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
-  let resp = totp_admin_reset_handler(
-    State(state.clone()),
-    Path(publisher_id.clone()),
-    ConnectInfo(test_peer()),
-    headers.clone(),
-  )
-  .await;
-  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
-  let resp = users_delete_handler(
-    State(state.clone()),
-    ConnectInfo(test_peer()),
-    headers.clone(),
-    Path(publisher_id.clone()),
-  )
-  .await;
-  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
-  assert!(
-    state
-      .users
-      .lock()
-      .await
-      .verify("publisher", "long-password")
-      .is_some()
-  );
-
-  let mut delegated = Grant::new(GrantOrg::Child(org), Role::Admin);
-  delegated
-    .expose
-    .extend([ExposeAction::Create, ExposeAction::Delegate]);
-  state
-    .users
-    .lock()
-    .await
-    .set_grants(&admin_id, vec![delegated])
-    .unwrap();
+  assert_eq!(resp.status(), StatusCode::OK);
+  let publisher_id = json_body(resp).await["id"].as_str().unwrap().to_string();
   let resp = users_update_handler(
     State(state.clone()),
     ConnectInfo(test_peer()),
     headers,
     Path(publisher_id),
-    password_change(),
+    Json(UserUpdateRequest {
+      role: None,
+      enabled: None,
+      password: Some("different-password".into()),
+      grants: None,
+    }),
   )
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
@@ -941,6 +877,22 @@ async fn expose_rights_require_delegation_and_protect_account_control() {
       .verify("publisher", "different-password")
       .is_some()
   );
+  // A grant written the way it was before 0.13.0 is refused, not read as the
+  // whole of its role.
+  let old = serde_json::from_value::<GrantRequest>(serde_json::json!({
+    "org": org,
+    "role": "viewer",
+    "expose": ["create"],
+  }));
+  assert!(old.is_err());
+  // What this API reads out goes back in unchanged.
+  let read_back = serde_json::from_value::<GrantRequest>(serde_json::json!({
+    "org": org,
+    "role": "viewer",
+    "source": "ops",
+    "source_org": null,
+  }));
+  assert!(read_back.is_ok());
 }
 
 #[tokio::test]
@@ -974,7 +926,7 @@ async fn master_creates_a_user_reaching_two_organizations() {
       beta.clone()
     })
   );
-  assert!(!crate::auth::is_master_admin(&state, &headers).await);
+  assert!(!crate::auth::is_server_admin(&state, &headers).await);
 }
 
 #[tokio::test]
@@ -1020,11 +972,12 @@ async fn a_child_admin_grants_its_own_organization_and_nothing_past_it() {
 #[tokio::test]
 async fn star_is_granted_only_by_a_star_admin() {
   let state = Arc::new(test_state());
-  // A named Admin of master runs the server and is still not `*`.
+  // A named Admin of master administers master, not the server, and is not
+  // `*`.
   make_user(&state, "root", Role::Admin, None).await;
   assert_eq!(grants_of(&state, "root").await, vec!["master:admin"]);
   let headers = session_for(&state, "root").await;
-  assert!(crate::auth::is_master_admin(&state, &headers).await);
+  assert!(!crate::auth::is_server_admin(&state, &headers).await);
   let resp = users_create_handler(
     State(state.clone()),
     ConnectInfo(test_peer()),

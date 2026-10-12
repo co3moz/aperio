@@ -170,7 +170,7 @@ async fn select_unknown_org_is_404() {
 #[tokio::test]
 async fn select_without_session_cookie_is_401() {
   // Authenticated as a master-admin via a programmatic admin key (Bearer) so
-  // require_master_admin passes but there is no session cookie to mutate.
+  // require_server_admin passes but there is no session cookie to mutate.
   let state = Arc::new(test_state());
   let (_key, secret) = state
     .admin_key_store
@@ -1045,7 +1045,10 @@ async fn a_master_admin_without_star_reaches_no_child() {
   let state = Arc::new(test_state());
   let acme = make_org(&state, "acme").await;
   let token = granted_user(&state, "root", vec![(MASTER_ID, Role::Admin)]).await;
-  assert!(crate::auth::is_master_admin(&state, &cookie_headers(&token)).await);
+  assert!(
+    !crate::auth::is_server_admin(&state, &cookie_headers(&token)).await,
+    "master's Admin administers master, not the server"
+  );
   assert_eq!(
     select_status(&state, &token, MASTER_ID).await,
     StatusCode::OK
@@ -1054,9 +1057,10 @@ async fn a_master_admin_without_star_reaches_no_child() {
     select_status(&state, &token, &acme).await,
     StatusCode::FORBIDDEN
   );
-  // The listing is master's, so it answers; the child is simply not theirs
-  // to act in.
+  // Managing organizations is the server admin's.
   let resp = orgs_list_handler(State(state.clone()), cookie_headers(&token)).await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  let resp = orgs_list_handler(State(state.clone()), admin_headers(&state).await).await;
   assert_eq!(resp.status(), StatusCode::OK);
 }
 

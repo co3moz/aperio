@@ -14,24 +14,37 @@ and may use the same port number. An encrypted tunnel cannot be exposed.
 
 ## Authority and ownership
 
-Expose actions are explicit organization grants: `read`, `create`, `update`,
-`enable`, `disable`, `delete`, `disconnect` and `delegate`. Every action implies
-read access. Existing tenant roles do not acquire these rights automatically.
-Master administrators retain control. A user's account, session or key is an
-actor, not the resource owner: revoking its control rights does not delete the
-organization's rules.
+What a caller may do with a listener comes with its role in the listener's
+organization:
 
-Server administrators allocate exact listener addresses, protocol/port ranges,
-reserved sockets and aggregate rule/session/bandwidth ceilings. An allocation
-permits creating rules; it opens no ports itself. Child organizations require
-an allocation. Broad wildcard binding is a different allocation from binding
-a particular interface. Invalidated policies suspend affected rules. Only
-server administrators change these top-level allocations.
+| Role | Public listeners |
+| --- | --- |
+| `viewer` | read them, and their sessions |
+| `operator` | also enable, disable, drain, retry and disconnect them |
+| `admin` | also create, change and delete them |
+
+A user's account, session or key is an actor, not the resource owner: taking
+its role away does not delete the organization's rules.
+
+The server admin (`*: admin`) allocates each organization exact listener
+addresses, protocol/port ranges, reserved sockets and aggregate
+rule/session/bandwidth ceilings. That **port allocation** is the one bound on
+what an organization's people may open: a create, a change or an enable that
+leaves it is refused with `outside_allocation`. An allocation permits creating
+rules; it opens no ports itself. An organization with no allocation has
+nothing to open, master included; the server admin is the only caller not
+bound by one. Broad wildcard binding is a different allocation from binding a
+particular interface. Invalidated policies suspend affected rules. Only the
+server admin changes allocations.
 
 The dashboard's Tunnels page combines declarations and server exposures.
-Actions are derived from the current caller's capabilities and checked again
-on each API request. Grant editing is available in Users and Admin keys.
-A user who can delegate may give only the expose actions they hold.
+Actions are derived from the current caller's role and checked again on each
+API request.
+
+Before 0.13.0 a grant or admin key carried its own expose actions,
+`expose_bounds` and a `delegate` right. A record written that way still loads,
+its extra fields ignored; an API request or `--grant` still writing them is
+refused with what to write instead.
 
 ## Resource shape
 
@@ -113,9 +126,8 @@ aperio-client api expose set-policy --file policy.json
 Revisions above are illustrative: use the latest response for every mutation.
 The optional create UUID is an idempotency key: an identical retry returns the
 existing resource; reusing it for a different spec is a conflict. List commands
-accept `--offset` and `--limit` (maximum 500). Grant syntax also accepts
-`--grant 'ORG:viewer+expose.create+expose.update+expose.enable'`.
-Admin-key creation accepts repeated/comma-separated `--expose` actions.
+accept `--offset` and `--limit` (maximum 500). The key's role in the
+organization decides which of these it may run.
 
 API endpoints are under `/aperio/api/exposes`: collection GET/POST, `/{id}`
 GET/PUT/DELETE, `/{id}/actions` POST, `/{id}/sessions` GET, `/policies` GET and
@@ -127,8 +139,8 @@ a conflicting edit as a draft for explicit review.
 ## Backup, preview and recovery
 
 The full server dump includes an `exposes` configuration section with API rules
-and port policies. Existing user and admin-key sections retain capability
-grants. File rules, active sockets and session history are not imported.
+and port policies. Users and admin keys travel in their own sections with
+their roles. File rules, active sockets and session history are not imported.
 Without the `organizations` section, only master-owned configurations travel.
 Full server restore preflights exposed sockets before changing any section;
 its existing section-by-section transaction model still applies, and a later

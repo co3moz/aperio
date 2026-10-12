@@ -382,7 +382,7 @@ pub(crate) async fn stats_history_handler(
 
 /// Restricts a stats snapshot to the caller's effective organization: only
 /// clients whose token belongs to that org remain visible, and the connected
-/// count follows. Aggregate counters stay global. The master super-admin sees
+/// count follows. Aggregate counters stay global. The server admin sees
 /// the org currently selected on their session.
 pub(crate) fn filter_stats_for_org(stats: &mut EnhancedServerStats, org: &Option<String>) {
   stats.active_clients.retain(|c| &c.org_id == org);

@@ -8,7 +8,7 @@ There is always exactly one implicit **master** organization. Everything created
 
 ## Child organizations
 
-Child organizations are created from master by the super-admin. Once a child organization is selected, everything you create, tokens, users, and (through those tokens) tunnel clients, belongs to it. Its members see only its resources; a token minted under a child organization only appears there, and the clients that authenticate with it are attributed to it everywhere (traffic log, live view, stats, uptime, topology).
+Child organizations are created by the server admin. Once a child organization is selected, everything you create, tokens, users, and (through those tokens) tunnel clients, belongs to it. Its members see only its resources; a token minted under a child organization only appears there, and the clients that authenticate with it are attributed to it everywhere (traffic log, live view, stats, uptime, topology).
 
 Child organizations are managed through the dashboard's **Organizations** page or the API. For the commands below, set `APERIO_SERVER_TOKEN` to your server's master token and save a session cookie first (see [Admin API authentication](cli-api.md#authentication)):
 
@@ -29,15 +29,15 @@ curl -b cookies.txt -X POST -H 'Content-Type: application/json' \
 curl -b cookies.txt -X DELETE https://tunnel.example.com/aperio/api/orgs/<id>
 ```
 
-An organization's `name` is a handle, `a-z`, `0-9` and `_`, unique and with `master` reserved; anything a person should read goes in `custom_name`, which can be changed at any time (see [Names](configuration.md#names)). A child organization can only be deleted once all of its users and tokens are removed, so nothing is silently orphaned. All of these endpoints require Admin in the master organization (below).
+An organization's `name` is a handle, `a-z`, `0-9` and `_`, unique and with `master` reserved; anything a person should read goes in `custom_name`, which can be changed at any time (see [Names](configuration.md#names)). A child organization can only be deleted once all of its users and tokens are removed, so nothing is silently orphaned. All of these endpoints take the server admin (below).
 
-## The super-admin and switching organizations
+## The server admin and switching organizations
 
-The built-in `aperio` admin holds every organization at Admin, `*` in the grant spelling below. Managing organizations and reaching the server-global surfaces takes **Admin in the master organization**, which the built-in account has and a named user can be granted:
+The **server admin** is whoever holds Admin in every organization, `*: admin` in the grant spelling below. The built-in `aperio` admin always does, and a named user or an admin key can be granted it. Master is an organization like the others: its Admin administers master's own tokens, users, sites and public listeners, and nothing about the server. The server admin alone may:
 
 - create, list, and delete child organizations,
 - **switch** which organization the session is acting in, from the organization picker in the dashboard sidebar (or `POST /aperio/api/orgs/select` with `{"id": "<org-id>"}`; `master` or `null` selects master). The picker is not master's alone: any session whose grants reach more than one organization gets it, for exactly those organizations,
-- reach the **server-global** surfaces (see below).
+- reach the **server-global** surfaces (see below): settings, organizations, admin keys, port allocations, export and import.
 
 The selection is stored on the session, so every subsequent listing, action, and statistic is scoped to the organization currently selected. Switching to Acme and creating a token puts that token in Acme; switching back to master hides it again.
 
@@ -48,12 +48,12 @@ A **named user** (one created through the *Users* page) holds a list of **grants
 Every dashboard user carries `grants`, a list of `{org, role}` pairs where `org` is a child organization id, `master`, or `*` for every organization present and future. The role the dashboard enforces is the role in the organization the session is acting in, read from the record on every request, so a grant taken away is gone at the next request, the way a disabled account's sessions grant nothing.
 
 - **A specific entry beats `*`.** `{*: viewer, acme: operator}` reads the way it looks: Operator in Acme, Viewer everywhere else. `*: viewer` on its own is an auditor, reading the whole server and changing nothing.
-- **A grant is bounded by the granter's.** Giving or taking away a role in an organization takes Admin there; giving or taking away `*` takes `*` Admin. An organization's admin cannot grant themselves a second organization, and an Admin of master runs the server without being able to mint a credential wider than their own reach.
-- **Server-global surfaces take Admin in master**: settings, organization create, delete, quota and fence. What Admin in master does *not* give is the children, and so import and export, which read and replace every organization's rows and grants, take `*` Admin. `master: admin` is the server; `*: admin` is the server and every tenant, the nearest thing to the built-in account. It may create other `*` users, and it never touches the built-in account or the master token.
+- **`*: admin` is the server admin, and nothing else is.** Server-global surfaces take it: settings, organization create, delete, quota and fence, admin keys, port allocations, export and import. `master: admin` administers master the way `acme: admin` administers Acme. The server admin may create other `*` users, and never touches the built-in account or the master token.
+- **A grant is bounded by the granter's.** Giving or taking away a role in an organization takes Admin there; giving or taking away `*` takes the server admin. An organization's admin cannot grant themselves a second organization.
 - **A user reaching several organizations lives in master.** It is created from master, with the grant editor on the Users page or `grants` on `POST /aperio/api/users`, and only master manages it: an Acme admin resetting such a user's password or TOTP would be resetting their Beta login too. Inside a child organization the form offers the role alone, and a user created there is granted that organization only.
-- **The picker opens to everyone with more than one grant.** `GET /aperio/api/session` lists the organizations a session reaches (`orgs`) with the role in each, and `POST /aperio/api/orgs/select` accepts any of them. A user granted one child organization sees no picker, but a user holding Admin in master does, one grant or not: master is the server-wide view rather than another tenant.
-- **The visitor gate admits on any granted organization's hostnames**, not only the selected one's, and Viewer is enough.
-- **Admin keys follow the same reading.** A key keeps one scope, since it is minted for one purpose: a child id, `master`, or `*`, which only a holder of `*` Admin may mint (`"org_id": "*"` on `POST /aperio/api/admin-keys`, `--org '*'` on the CLI).
+- **The picker opens to everyone with more than one grant.** `GET /aperio/api/session` lists the organizations a session reaches (`orgs`) with the role in each, and `POST /aperio/api/orgs/select` accepts any of them. A user granted one organization sees no picker, master included.
+- **The visitor gate admits on any granted organization's hostnames**, not only the selected one's, and Viewer is enough. Master's hostnames are the ones no other organization claims; `*` reaches every hostname.
+- **Admin keys follow the same reading.** A key keeps one scope, since it is minted for one purpose: a child id, `master`, or `*` (`"org_id": "*"` on `POST /aperio/api/admin-keys`, `--org '*'` on the CLI). Only the server admin mints keys, and a key for automation that walks the server-wide surfaces is a `*` Admin key.
 
 ```bash
 # From master: one user, Admin in Acme and read-only in Beta
@@ -74,42 +74,17 @@ aperio-client api user update <id> --grant <acme-id>:admin
 
 **Upgrading.** A user record from before grants existed is read as one grant in its home organization, except an Admin of master, which is read as `*: admin`: that is exactly what the record could do before, and narrowing it on an upgrade would lock out whoever runs the server. The same goes for an Admin key of master. Each one is written down in the audit log at the first start (`grants_widened_on_upgrade`), and the Users page shows a notice while any user still carries `*`, so the operator narrows them by hand and knows when they are done.
 
-### Public expose capabilities
+### Public listeners come with the role
 
-User grants now accept an optional `expose` list. The actions are `read`,
-`create`, `update`, `enable`, `disable`, `delete`, `disconnect` and `delegate`.
-Any action implies read access; it does not imply another mutation. For example:
+What a grant may do with an organization's [public TCP/UDP listeners](public-exposes.md) is part of its role, not a list of its own:
 
-```json
-{"org":"<acme-id>","role":"viewer","expose":["create","update","disable"]}
-```
+| Role | Public listeners |
+| --- | --- |
+| `viewer` | read them, and their sessions |
+| `operator` | also enable, disable, drain and disconnect them |
+| `admin` | also create, change and delete them |
 
-These capabilities authorize the [public TCP/UDP expose API and dashboard](public-exposes.md).
-Server administrators first allocate listener addresses, port ranges and resource
-ceilings to the organization. A grant may further narrow that allocation with
-`expose_bounds`. Capabilities alone do not allocate or open a port. Both the
-server allocation and the user's bounds are enforced on every mutation.
-
-An existing tenant Admin gets no expose capabilities automatically. A specific
-organization's grant replaces its wildcard grant, including an empty action
-list. Master Admin retains server-global control. To delegate actions within a
-tenant, an administrator needs `delegate` and every action being assigned.
-An administrator who cannot delegate a user's expose rights also cannot reset
-that user's password/TOTP, disable or delete their account: those operations
-would otherwise provide an indirect way to take over the rights.
-
-`POST /aperio/api/admin-keys` accepts the same optional `expose` list, bounded
-by the key's organization scope. Its existing master-admin creation gate is
-unchanged. Session organization entries return `expose_actions` so future UI
-controls can reflect current authorization; the server must still check each
-operation. Revoked grants apply to the next request, not the next login.
-
-OIDC grant mappings can append actions to a role, for example
-`publishers=acme:viewer+expose.create+expose.disable`. Multiple matching groups
-combine actions inside an organization; removing a group removes its actions
-on the next login. The role-only mapping spelling remains valid. Full API grant
-replacement must include the actions to keep; a role-only user update preserves
-the existing actions.
+The one bound is the organization's **port allocation**: the addresses, port ranges and resource ceilings the server admin gives it. An organization with no allocation has nothing to open, master included; the server admin is the only caller not bound by one. Before 0.13.0 a grant carried its own `expose` actions, `expose_bounds` and a `delegate` right on top of its role; a grant or admin key written that way still loads, its extra fields ignored, and an API request or `--grant` still writing them is refused with what to write instead.
 
 ## What is isolated
 
@@ -126,17 +101,17 @@ Per **effective organization**, the one selected on the session out of those the
 - **Maintenance mode**, a hostname can be put into maintenance only by the organization it belongs to, never one another organization's client is serving, and each flag is visible and clearable only within that org.
 - **Share links**, can only be minted for a hostname the caller's own organization serves.
 - **Audit log**, each event records the organization it belongs to; the log shows only the caller's org's events.
-- **The visitor gate**, a dashboard session gets its holder past the visitor login only on hostnames their own organization serves, by the same rule as maintenance and share links: covered by the fence *and* not currently served by another organization's client. Master sessions are unfenced here as everywhere else.
+- **The visitor gate**, a dashboard session gets its holder past the visitor login only on hostnames their own organization serves, by the same rule as maintenance and share links: covered by the fence *and* not currently served by another organization's client. Master's sessions are fenced the same way, by every other organization's claims; a `*` grant reaches every hostname.
 
-## What stays server-global (master-only)
+## What stays server-global (the server admin's)
 
-A few things are properties of the *server*, not of any one tenant, and are reserved for the master super-admin:
+A few things are properties of the *server*, not of any one tenant, and are reserved for the server admin (`*: admin`):
 
 - **Server settings** (`/aperio/api/settings`), one runtime configuration for the whole process.
 - **Export / import** (`/aperio/api/export`, `/aperio/api/import`), a whole-server backup that spans every organization. Exporting *without* the `organizations` section keeps only master's rows, since a token, user or statistics slice whose organization does not exist on the target server would be an orphan.
 - **Prometheus metrics** (`/aperio/metrics`), the server-wide grand totals for operators (guarded by its own metrics token).
 
-Where a server-global feature's data *can* be attributed to an organization, the request counters, for instance, each organization still sees its own slice; only the cross-organization grand total is master-only.
+Where a server-global feature's data *can* be attributed to an organization, the request counters, for instance, each organization still sees its own slice; only the cross-organization grand total is the server admin's.
 
 ## How a client joins an organization
 
@@ -178,7 +153,7 @@ The fence is enforced everywhere a hostname can be claimed, not just once:
 - **Client connect** re-checks every declared and token-granted bind, so a token minted *before* the fence existed cannot bind past it either. Rejected binds are logged and dropped, exactly like a bind the token never permitted.
 - **Ephemeral tunnels** (`POST /api/tunnels`) refuse an out-of-fence hostname.
 - **Dashboard bind overrides** refuse one too, the one place a bind is set with no token behind it.
-- **Maintenance mode and share links** are limited to hostnames the fence admits *and* that nobody else is currently serving, so one tenant cannot 503 another's site or hand out access to it. Both halves are needed. The fence alone is not enough, because the master token is never fenced, so a master client can be serving a name inside an organization's fence; and a live client of the caller's own is not required, because putting up a maintenance page is most wanted precisely when nothing is up. So: inside your fence, and not somebody else's right now. An organization with **no** fence has no allowlist to read, so those two fall back to the older rule, one of its own clients must currently serve the hostname. The master organization is fenced by the other organizations and by nothing else: whatever no tenant claims is master's, so the super-admin can put up a maintenance page for a hostname whose client is down, and still cannot 503 a tenant's site.
+- **Maintenance mode and share links** are limited to hostnames the fence admits *and* that nobody else is currently serving, so one tenant cannot 503 another's site or hand out access to it. Both halves are needed. The fence alone is not enough, because the master token is never fenced, so a master client can be serving a name inside an organization's fence; and a live client of the caller's own is not required, because putting up a maintenance page is most wanted precisely when nothing is up. So: inside your fence, and not somebody else's right now. An organization with **no** fence has no allowlist to read, so those two fall back to the older rule, one of its own clients must currently serve the hostname. The master organization is fenced by the other organizations and by nothing else: whatever no tenant claims is master's, so master's operators can put up a maintenance page for a hostname whose client is down, and still cannot 503 a tenant's site.
 
 A server-assigned **random subdomain** is exempt: the tenant cannot influence which name it gets, so it can never collide with another organization's hostname. The master organization is never fenced.
 
@@ -186,10 +161,10 @@ Set it from the dashboard in Organizations → the gauge icon → *Allowed hostn
 
 ## Panel hostname
 
-`/aperio` answers on every hostname the server serves, and stays that way. A **panel hostname** is a second door: a name whose root *is* the dashboard, so nobody types `/aperio`. The server's own is `dashboard.hostname` (`dashboard.hostname`), `panel.example.com` for the super-admin. An organization picks its own, a name **inside its hostname allowlist**, and gets its own dashboard at the root of it:
+`/aperio` answers on every hostname the server serves, and stays that way. A **panel hostname** is a second door: a name whose root *is* the dashboard, so nobody types `/aperio`. The server's own is `dashboard.hostname` (`dashboard.hostname`), `panel.example.com` for the server admin. An organization picks its own, a name **inside its hostname allowlist**, and gets its own dashboard at the root of it:
 
 ```bash
-# An Admin of the organization (the super-admin reaches it through `*`)
+# An Admin of the organization (the server admin reaches it through `*`)
 curl -b cookies.txt -X PUT -H 'Content-Type: application/json' \
   --data '{"hostname":"aperio.acme.example.com"}' \
   https://tunnel.example.com/aperio/api/orgs/<id>/panel
@@ -200,7 +175,7 @@ aperio-client api org create --name acme --hostname '*.acme.example.com' --panel
 
 - **It is fenced like a bind.** A panel is a name the tenant claims, so it has to be inside the organization's allowlist, and an unfenced organization cannot set one: there is nothing to check it against. A fence that stops covering the panel takes it away.
 - **It serves the panel and nothing else.** No token, client declaration or dashboard override may bind a panel hostname, whoever asks, master included; the organization's own client serving the name when it becomes a panel is dropped, as when a fence changes. A name a connection outside the organization is serving cannot be claimed at all (`409`), since a fence covering it does not make that traffic the organization's. Two organizations cannot share one, and none can take the server's own.
-- **Its login is the organization's.** On an organization's panel the login form, a passkey and an OIDC login admit an account whose grants reach that organization, and the master super-admin, nobody else. The refusal is byte for byte the wrong-password answer, so the panel does not say which names exist elsewhere. The login page shows the organization's display name. The server's own panel admits everyone, like any other hostname.
+- **Its login is the organization's.** On an organization's panel the login form, a passkey and an OIDC login admit an account whose grants reach that organization, the server admin among them, nobody else. The refusal is byte for byte the wrong-password answer, so the panel does not say which names exist elsewhere. The login page shows the organization's display name. The server's own panel admits everyone, like any other hostname.
 - **`/aperio/...` keeps resolving on the panel too**, which is what `aperio-client api` needs, and the browser lands on `/` after signing in.
 - **`aperio.<domain>` is a suggestion, not a rule.** When the fence holds exactly one `*.<domain>` entry, the Organizations page offers `aperio.<domain>` for the panel, one click to accept and editable; the server routes only on the stored value, so a fence edit never opens a login door nobody wrote down.
 
@@ -210,7 +185,7 @@ What an operator hits in the first ten minutes: the panel name needs a certifica
 
 `/aperio` answers on every hostname, and by default so does its login: Beta's user can sign in at `acme.com/aperio`. Nothing leaks, the session is Beta's, but Acme's hostname is accepting another tenant's credentials, and a password list can be run against every organization's users from any hostname. `dashboard.fenced_login: true` (`dashboard.fenced_login: true`) closes that:
 
-- **On a hostname inside an organization's allowlist**, the login form, a passkey and an OIDC login admit an account whose grants reach that organization, and anyone reaching master, since master is unfenced everywhere and `*` reaches it. Everyone else gets the wrong-password answer, byte for byte, so the hostname does not say which names exist elsewhere.
+- **On a hostname inside an organization's allowlist**, the login form, a passkey and an OIDC login admit an account whose grants reach that organization, and a `*` grant, which reaches every organization. Master is an organization like the others and its people are not admitted there. Everyone else gets the wrong-password answer, byte for byte, so the hostname does not say which names exist elsewhere.
 - **A hostname no fence claims is master's**: it admits master's people and the users of organizations that have no fence, who have no hostname to be sent to. An unfenced organization keeps today's behaviour everywhere.
 - **A random subdomain** is in no fence, so it follows the organization currently serving it.
 - **A session is good only on the hostname it was minted on.** The browser already keeps sessions apart per host through the `__Host-` cookie; this is the server doing the same, so a cookie value lifted from one hostname opens nothing elsewhere. A person who administers two tenants signs in on each, or on a [panel](#panel-hostname).
@@ -229,7 +204,7 @@ An OIDC login is matched to a **dashboard user record by email**. The identity p
 
 ### Per-organization OIDC (SSO)
 
-An organization can bring its own identity provider. Configure its issuer, client id/secret, and allowed emails (`PUT /aperio/api/orgs/{id}/oidc`, or the OIDC panel in the org's quota dialog), then its members sign in at `/aperio/oidc/login?org=<id>`. The record such a login matches or creates **lives in that organization**, so the organization's own admins manage it, and the session is **bound to that organization**: whatever else the record holds, it acts there and nowhere else, never as the master super-admin, and cannot switch. Two more fields say what the tenant's people get:
+An organization can bring its own identity provider. Configure its issuer, client id/secret, and allowed emails (`PUT /aperio/api/orgs/{id}/oidc`, or the OIDC panel in the org's quota dialog), then its members sign in at `/aperio/oidc/login?org=<id>`. The record such a login matches or creates **lives in that organization**, so the organization's own admins manage it, and the session is **bound to that organization**: whatever else the record holds, it acts there and nowhere else, never as the server admin, and cannot switch. Two more fields say what the tenant's people get:
 
 - `default_role`: what an email with no record is granted in the organization at its first login, `admin` (the default, what such a login always was), `operator`, `viewer`, or `none` for nothing until an admin grants it;
 - `group_grants`: `<group>=<role>` entries, the same map as above with the organization fixed, so a tenant's directory hands out roles inside the tenant and nothing beyond.

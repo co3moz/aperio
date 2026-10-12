@@ -7,8 +7,10 @@ use std::net::IpAddr;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-/// Explicit actions; tenant roles alone never grant public listener control.
-/// Every non-read action implies read, but never another mutation or delegation.
+/// What may be done to a public listener. Which of these a caller holds is
+/// decided by its role in the listener's organization: every role reads, an
+/// operator also enables, disables and disconnects, an admin also creates,
+/// changes and deletes.
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[derive(
   Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, JsonSchema,
@@ -22,11 +24,10 @@ pub enum ExposeAction {
   Disable,
   Delete,
   Disconnect,
-  Delegate,
 }
 
 impl ExposeAction {
-  pub const ALL: [Self; 8] = [
+  pub const ALL: [Self; 7] = [
     Self::Read,
     Self::Create,
     Self::Update,
@@ -34,7 +35,6 @@ impl ExposeAction {
     Self::Disable,
     Self::Delete,
     Self::Disconnect,
-    Self::Delegate,
   ];
 
   pub fn as_str(self) -> &'static str {
@@ -46,7 +46,6 @@ impl ExposeAction {
       Self::Disable => "disable",
       Self::Delete => "delete",
       Self::Disconnect => "disconnect",
-      Self::Delegate => "delegate",
     }
   }
 }

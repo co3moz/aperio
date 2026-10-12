@@ -170,10 +170,10 @@ impl Topic {
     }
   }
 
-  /// Topics whose endpoint is the master super-admin's, over and above the
-  /// role floor (the handlers check it too; this refuses at the upgrade with
-  /// the topic named rather than sending nothing).
-  pub(crate) fn master_only(self) -> bool {
+  /// Topics whose endpoint is the server admin's, over and above the role
+  /// floor (the handlers check it too; this refuses at the upgrade with the
+  /// topic named rather than sending nothing).
+  pub(crate) fn server_admin_only(self) -> bool {
     matches!(
       self,
       Topic::Orgs | Topic::AdminKeys | Topic::CacheStats | Topic::SelfHealth

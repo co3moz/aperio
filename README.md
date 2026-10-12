@@ -92,7 +92,7 @@ Dashboard at `/aperio` (user `aperio`, password = your token). Full walkthrough:
 | ---------------------| --------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Routing**         | hostname and path binds, round-robin, primary-standby tiers, sticky sessions, random subdomains, in-flight failover                                    |
 | **Access**          | scoped dynamic tokens (rate limits, quotas, IP pinning, expiry), visitor passwords, OIDC/SSO, share links, TOTP and passkeys for operators             |
-| **Tenancy**         | organizations with their own clients, tokens, users, hostname fences and quotas, and a super-admin who moves between them                              |
+| **Tenancy**         | organizations with their own clients, tokens, users, hostname fences and quotas, and a server admin who moves between them                             |
 | **Traffic control** | response caching with serve-stale, per-site rate limits, a small request firewall (`waf`), maintenance mode, redirects and fixed answers               |
 | **Operations**      | live dashboard, request inspector with replay and cURL/HAR export, kill switch, config hot-reload, graceful drain, autoscaling hooks                   |
 | **Observability**   | Prometheus metrics, OpenTelemetry traces, structured access log, tamper-evident audit trail, webhooks with retries and an inbox                        |

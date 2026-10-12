@@ -148,14 +148,14 @@ pub(crate) async fn live_stream_handler(
         )
           .into_response();
       }
-      if t.master_only()
-        && crate::auth::require_master_admin(&state, &headers)
+      if t.server_admin_only()
+        && crate::auth::require_server_admin(&state, &headers)
           .await
           .is_err()
       {
         return (
           StatusCode::FORBIDDEN,
-          format!("stream topic `{}` is the master super-admin's", t.name()),
+          format!("stream topic `{}` is the server admin's", t.name()),
         )
           .into_response();
       }
@@ -195,7 +195,7 @@ pub(crate) async fn live_stream_handler(
       && !live
         .topics
         .iter()
-        .any(|t| role < t.required_role() || (t.master_only() && !caller.is_master_admin()))
+        .any(|t| role < t.required_role() || (t.server_admin_only() && !caller.is_server_admin()))
   }
 
   /// The coalescing window: a burst of changes (an import touching every

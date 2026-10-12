@@ -83,41 +83,42 @@ fn authorized(
     return Err(failure(
       StatusCode::FORBIDDEN,
       "forbidden",
-      "This expose action is not granted",
-    ));
-  }
-  if action != ExposeAction::Read
-    && caller
-      .expose_bounds(&resource.spec.org_id)
-      .is_some_and(|b| !b.allows(&resource.spec))
-  {
-    return Err(failure(
-      StatusCode::FORBIDDEN,
-      "delegation_bounds",
-      "Listener is outside your delegated allocation",
+      "Your role in this organization does not allow this expose action",
     ));
   }
   Ok(())
 }
+/// What anyone but the server admin may open is bounded by the
+/// organization's port allocation, which the server admin sets: the one
+/// bound on public listeners, master's included. An organization with no
+/// allocation has nothing to open.
 fn bounded_change(
   caller: &Caller,
   spec: &ExposeSpec,
   document: &crate::store::exposes::ExposeDocument,
   manager: &crate::expose_manager::ExposeManager,
 ) -> Result<(), Response> {
-  if let Some(bounds) = caller.expose_bounds(&spec.org_id)
-    && (!bounds.allows(spec)
-      || !bounds.fits(
-        manager
-          .quota_specs(&document.resources)
-          .iter()
-          .filter(|s| s.org_id == spec.org_id && bounds.allows(s)),
-      ))
-  {
+  if caller.is_server_admin() {
+    return Ok(());
+  }
+  let within = document
+    .policies
+    .iter()
+    .find(|p| p.org_id == spec.org_id)
+    .is_some_and(|policy| {
+      policy.allows(spec)
+        && policy.fits(
+          manager
+            .quota_specs(&document.resources)
+            .iter()
+            .filter(|s| s.org_id == spec.org_id && policy.allows(s)),
+        )
+    });
+  if !within {
     return Err(failure(
       StatusCode::FORBIDDEN,
-      "delegation_bounds",
-      "Change exceeds your delegated address, port or resource bounds",
+      "outside_allocation",
+      "Change is outside the organization's port allocation or exceeds its resource ceilings",
     ));
   }
   Ok(())
@@ -226,19 +227,48 @@ pub(crate) async fn list(
     Err(r) => return r,
   };
   let mut manager = state.exposes.lock().await;
-  let mut filtered: Vec<_> = manager.views(&state).await.into_iter().filter(|v|
-    permits(&caller, &v.resource.spec.org_id, ExposeAction::Read)
-      && page.client.as_ref().is_none_or(|client| v.served_by.as_ref() == Some(client))
-      && page.org.as_ref().is_none_or(|org| *org == v.resource.spec.org_id)
-      && page.protocol.as_ref().is_none_or(|p| p == v.resource.spec.listener.protocol.as_str())
-      && page.search.as_ref().is_none_or(|q| v.resource.spec.tunnel.to_lowercase().contains(&q.to_lowercase()) || v.resource.id.contains(q)))
+  let mut filtered: Vec<_> = manager
+    .views(&state)
+    .await
+    .into_iter()
+    .filter(|v| {
+      permits(&caller, &v.resource.spec.org_id, ExposeAction::Read)
+        && page
+          .client
+          .as_ref()
+          .is_none_or(|client| v.served_by.as_ref() == Some(client))
+        && page
+          .org
+          .as_ref()
+          .is_none_or(|org| *org == v.resource.spec.org_id)
+        && page
+          .protocol
+          .as_ref()
+          .is_none_or(|p| p == v.resource.spec.listener.protocol.as_str())
+        && page.search.as_ref().is_none_or(|q| {
+          v.resource
+            .spec
+            .tunnel
+            .to_lowercase()
+            .contains(&q.to_lowercase())
+            || v.resource.id.contains(q)
+        })
+    })
     .map(|view| {
-      let actions: Vec<_> = caller.expose_actions(if view.resource.spec.org_id == "master" { None } else { Some(&view.resource.spec.org_id) })
-        .into_iter().filter(|a| *a == ExposeAction::Read || (view.resource.source == ExposeSource::Api
-          && caller.expose_bounds(&view.resource.spec.org_id).is_none_or(|b| b.allows(&view.resource.spec)))).collect();
+      // A rule from the file is the file's to change.
+      let actions: Vec<_> = caller
+        .expose_actions(if view.resource.spec.org_id == "master" {
+          None
+        } else {
+          Some(&view.resource.spec.org_id)
+        })
+        .into_iter()
+        .filter(|a| *a == ExposeAction::Read || view.resource.source == ExposeSource::Api)
+        .collect();
       let policy = manager.policy(&view.resource.spec.org_id);
-      serde_json::json!({"bounds": caller.expose_bounds(&view.resource.spec.org_id), "resource": view, "actions": actions, "policy": policy})
-    }).collect();
+      serde_json::json!({"resource": view, "actions": actions, "policy": policy})
+    })
+    .collect();
   let sort = page.sort.as_deref().unwrap_or("tunnel");
   if !matches!(
     sort,
@@ -287,7 +317,7 @@ pub(crate) async fn list(
   Json(serde_json::json!({"items": filtered.into_iter().skip(page.offset.unwrap_or(0)).take(page.limit.unwrap_or(100).min(500)).collect::<Vec<_>>(),
     "total": total, "volatile": manager.store.volatile,
     "history_error": manager.store.history_error.as_ref().map(|_| "Recent session history could not be persisted"),
-    "store_error": if caller.is_master_admin() { manager.store.load_error.clone() } else { None }})).into_response()
+    "store_error": if caller.is_server_admin() { manager.store.load_error.clone() } else { None }})).into_response()
 }
 
 #[utoipa::path(get, path = "/aperio/api/exposes/{id}", params(("id" = String, Path)), description = "Inspect one authorized public listener.", tag = "exposes", responses((status = 200, description = "Current result", body = serde_json::Value), (status = 403, description = "Not authorized"), (status = 409, description = "Revision, port or quota conflict")))]
@@ -672,7 +702,7 @@ pub(crate) async fn set_policy(
     Ok(c) => c,
     Err(r) => return r,
   };
-  if !caller.is_master_admin() {
+  if !caller.is_server_admin() {
     return failure(
       StatusCode::FORBIDDEN,
       "forbidden",
@@ -826,7 +856,7 @@ pub(crate) async fn import(
     if let Some(org) = request.org_map.get(&policy.org_id) {
       policy.org_id = org.clone();
     }
-    if !caller.is_master_admin() {
+    if !caller.is_server_admin() {
       return failure(
         StatusCode::FORBIDDEN,
         "forbidden",

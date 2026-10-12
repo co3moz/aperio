@@ -882,7 +882,7 @@ What the defaults are chosen for and almost nobody needs to touch. Read past it 
 | Setting | Description | Default |
 | --- | --- | --- |
 | `dashboard.enabled` | `false` = disable the admin dashboard entirely. | `true` |
-| `dashboard.fenced_login` | `true` = fence the dashboard login to the hostname's organization. On a hostname inside an organization's allowlist, the login form, a passkey and an OIDC login admit that organization's people and anyone reaching master, with the wrong-password answer for everyone else; a hostname no fence claims admits master's people and the users of organizations without a fence; a random subdomain follows the organization serving it; and a session is good only on the hostname it was minted on, so a cookie value lifted from one hostname opens nothing elsewhere. Off by default, since a deployment whose tenants sign in at the server's own name would be locked out. See [Organizations](organizations.md#fenced-login). | `false` |
+| `dashboard.fenced_login` | `true` = fence the dashboard login to the hostname's organization. On a hostname inside an organization's allowlist, the login form, a passkey and an OIDC login admit that organization's people and a `*` grant, with the wrong-password answer for everyone else; a hostname no fence claims admits master's people and the users of organizations without a fence; a random subdomain follows the organization serving it; and a session is good only on the hostname it was minted on, so a cookie value lifted from one hostname opens nothing elsewhere. Off by default, since a deployment whose tenants sign in at the server's own name would be locked out. See [Organizations](organizations.md#fenced-login). | `false` |
 | `dashboard.hostname` | A hostname whose root is the dashboard: `panel.example.com` opens the panel the way `panel.example.com/aperio` does, and `/aperio` stays on every hostname regardless. One exact name, no pattern. It serves the panel and nothing else, so no token, client or override may bind it. Needs a certificate like any other name, and a passkey registered on another host does not sign in here unless `dashboard.webauthn.rp_id` covers both. An organization picks its own the same way, inside its fence, see [Organizations](organizations.md#panel-hostname). |  |
 | `dashboard.ui_language` | Default dashboard/login UI language (`en`, `de`, `es`, `fr`, `tr`, `ru`, `zh`, `ja`) used when the visitor's browser language is unsupported. | `en` |
 | `dashboard.webauthn` | Passkey sign-in. |  |
@@ -1147,7 +1147,7 @@ tunnels:
 
 Every endpoint the server answers, grouped by what it is for. The same list, with request and response schemas, is the OpenAPI document at `GET /aperio/api/openapi.json` (a dashboard session or admin key), which the dashboard's *API Explorer* renders and `aperio-client api openapi` prints; `aperio-client api ...` wraps most of these as commands, see [Admin API from the CLI](cli-api.md). A test in `aperio-server` checks that every annotated endpoint appears here, so a row missing from this table fails the build rather than the reader.
 
-Three things hold for the whole `/aperio/api/` surface. The credential is a dashboard session cookie or a programmatic admin key (`Authorization: Bearer`), and the role floor is the one the dashboard enforces: reads need `viewer`, mutations `operator`, and users, sessions, settings, organizations and admin keys `admin`, with a few endpoints reserved for **Admin in master**, the server-global ones. A caller's organization fence applies before anything else, so a child organization's session only ever sees its own rows. And `security.admin_allowed_ips` fences the dashboard and the API to operator addresses, while the login, the probes, the OIDC flow and the visitor-auth endpoints stay reachable from anywhere.
+Three things hold for the whole `/aperio/api/` surface. The credential is a dashboard session cookie or a programmatic admin key (`Authorization: Bearer`), and the role floor is the one the dashboard enforces: reads need `viewer`, mutations `operator`, and users, sessions, settings, organizations and admin keys `admin`, with a few endpoints reserved for **the server admin** (`*: admin`), the server-global ones. A caller's organization fence applies before anything else, so a child organization's session only ever sees its own rows. And `security.admin_allowed_ips` fences the dashboard and the API to operator addresses, while the login, the probes, the OIDC flow and the visitor-auth endpoints stay reachable from anywhere.
 
 | Endpoint | What it does | Credential |
 | --- | --- | --- |
@@ -1175,7 +1175,7 @@ Three things hold for the whole `/aperio/api/` surface. The credential is a dash
 
 | Endpoint | What it does | Credential |
 | --- | --- | --- |
-| `GET /aperio/api/session` | The presented dashboard session: remaining lifetime (`expires_in_seconds`), `username`, `role`, `totp`, `master_admin`, `all_orgs`, `selected_org` and the `orgs` the session may act in. | a dashboard session or admin key |
+| `GET /aperio/api/session` | The presented dashboard session: remaining lifetime (`expires_in_seconds`), `username`, `role`, `totp`, `server_admin`, `selected_org` and the `orgs` the session may act in. | a dashboard session or admin key |
 | `POST /aperio/auth` | Login form submission (form-encoded username/password). On success sets the aperio_session cookie and redirects. | none (this is how a session is made) |
 | `POST /aperio/auth/logout` | Drops the server-side session and expires the session cookie. | the session being ended |
 | `GET /aperio/auth/passkey` | True when passkey sign-in is configured (dashboard.webauthn.origin set). | none |
@@ -1200,7 +1200,7 @@ Three things hold for the whole `/aperio/api/` surface. The credential is a dash
 | `GET /aperio/api/requests/{id}` | Full captured transaction (headers and possibly-truncated bodies) for the request inspector. | a dashboard session or admin key (viewer+) |
 | `POST /aperio/api/requests/{id}/replay` | Re-dispatches a captured request through the tunnel and returns the fresh response. | a dashboard session or admin key (operator+) |
 | `GET /aperio/api/route-trends` | Per-route status-code trend: one-minute buckets (2xx/3xx/4xx/5xx counts) over the last 30 minutes. | a dashboard session or admin key (viewer+) |
-| `GET /aperio/api/self-health` | Server process/memory/store/cache self-health snapshot. | a dashboard session or admin key, **Admin in master** |
+| `GET /aperio/api/self-health` | Server process/memory/store/cache self-health snapshot. | a dashboard session or admin key, **the server admin** (`*: admin`) |
 | `GET /aperio/api/slow-endpoints` | Slowest endpoints by recent-window p95 latency (host|path, avg/p50/p95/max, request and 5xx counts). | a dashboard session or admin key (viewer+) |
 | `GET /aperio/api/stage-stats` | Rolling per-stage latency statistics (mean/stddev/last, µs) per route, with anomaly verdicts. | a dashboard session or admin key (viewer+) |
 | `GET /aperio/api/stats` | Live statistics snapshot: counters, persistent stats, and the active client connections. | a dashboard session or admin key (viewer+) |
@@ -1230,29 +1230,29 @@ Three things hold for the whole `/aperio/api/` surface. The credential is a dash
 
 #### Managed public TCP/UDP listeners
 
-See [public expose configuration, delegation and deployment](public-exposes.md).
+See [public expose configuration and deployment](public-exposes.md). What a caller may do with a listener comes with its role in the listener's organization, and the organization's port allocation bounds everyone but the server admin.
 
 | Endpoint | What it does | Credential |
 | --- | --- | --- |
-| `GET /aperio/api/exposes` | List scoped listeners. | dashboard session or admin key with the applicable expose capability |
-| `POST /aperio/api/exposes` | Create a listener. | dashboard session or admin key with the applicable expose capability |
-| `GET /aperio/api/exposes/export` | Export scoped configuration. | dashboard session or admin key with the applicable expose capability |
-| `POST /aperio/api/exposes/import` | Preview or commit configuration import. | dashboard session or admin key with the applicable expose capability |
-| `GET /aperio/api/exposes/policies` | List visible port allocations. | dashboard session or admin key with the applicable expose capability |
-| `PUT /aperio/api/exposes/policies/{org}` | Set an organization allocation (master admin). | dashboard session or admin key with the applicable expose capability |
-| `GET /aperio/api/exposes/{id}` | Inspect a listener. | dashboard session or admin key with the applicable expose capability |
-| `PUT /aperio/api/exposes/{id}` | Update with revision check. | dashboard session or admin key with the applicable expose capability |
-| `DELETE /aperio/api/exposes/{id}` | Remove listener and sessions. | dashboard session or admin key with the applicable expose capability |
-| `POST /aperio/api/exposes/{id}/actions` | Enable, disable, retry, drain or disconnect. | dashboard session or admin key with the applicable expose capability |
-| `GET /aperio/api/exposes/{id}/events` | Read scoped listener audit history. | dashboard session or admin key with the applicable expose capability |
-| `GET /aperio/api/exposes/{id}/sessions` | Read active or retained session metadata. | dashboard session or admin key with the applicable expose capability |
+| `GET /aperio/api/exposes` | List scoped listeners. | a dashboard session or admin key, any role in the listener's organization |
+| `POST /aperio/api/exposes` | Create a listener. | a dashboard session or admin key, Admin in the organization, within its port allocation |
+| `GET /aperio/api/exposes/export` | Export scoped configuration. | a dashboard session or admin key, any role in the listener's organization |
+| `POST /aperio/api/exposes/import` | Preview or commit configuration import. | a dashboard session or admin key, Admin in the organization, within its port allocation; port allocations take the server admin |
+| `GET /aperio/api/exposes/policies` | List visible port allocations. | a dashboard session or admin key, any role in the organization |
+| `PUT /aperio/api/exposes/policies/{org}` | Set an organization's port allocation. | a dashboard session or admin key, **the server admin** (`*: admin`) |
+| `GET /aperio/api/exposes/{id}` | Inspect a listener. | a dashboard session or admin key, any role in the listener's organization |
+| `PUT /aperio/api/exposes/{id}` | Update with revision check. | a dashboard session or admin key, Admin in the organization, within its port allocation |
+| `DELETE /aperio/api/exposes/{id}` | Remove listener and sessions. | a dashboard session or admin key, Admin in the organization |
+| `POST /aperio/api/exposes/{id}/actions` | Enable, disable, retry, drain or disconnect. | a dashboard session or admin key, Operator in the organization (enabling stays within its port allocation) |
+| `GET /aperio/api/exposes/{id}/events` | Read scoped listener audit history. | a dashboard session or admin key, any role in the listener's organization |
+| `GET /aperio/api/exposes/{id}/sessions` | Read active or retained session metadata. | a dashboard session or admin key, any role in the listener's organization |
 
 #### Maintenance, share links and the cache
 
 | Endpoint | What it does | Credential |
 | --- | --- | --- |
-| `POST /aperio/api/cache/purge` | Drops response-cache entries matching a `hostname`, a URI `path_prefix`, and/or a `surrogate_key`; an empty object clears the whole cache (admin only). | a dashboard session or admin key, **Admin in master** |
-| `GET /aperio/api/cache/stats` | Response-cache entry count, byte size, and hit/miss rate. | a dashboard session or admin key, **Admin in master** |
+| `POST /aperio/api/cache/purge` | Drops response-cache entries matching a `hostname`, a URI `path_prefix`, and/or a `surrogate_key`; an empty object clears the whole cache (admin only). | a dashboard session or admin key, **the server admin** (`*: admin`) |
+| `GET /aperio/api/cache/stats` | Response-cache entry count, byte size, and hit/miss rate. | a dashboard session or admin key, **the server admin** (`*: admin`) |
 | `GET /aperio/api/maintenance` | Hostnames and patterns currently in maintenance mode (`*` = every hostname, `*.example.com` = every subdomain of it, `*-pi.example.com` = one label's shape). | a dashboard session or admin key (viewer+) |
 | `POST /aperio/api/maintenance` | Turns maintenance mode on/off for a hostname, a `*.example.com` subdomain wildcard, a partial label like `*-pi.example.com`, or `*` (503 page while on). The `*` wildcard is reserved for the master organization, and a named hostname has to be one the caller's organization serves. | a dashboard session or admin key (operator+) |
 
@@ -1271,7 +1271,7 @@ sites:
 ```
 
 A window whose `to:` is earlier than its `from:` wraps midnight, and then `days:` names the day it starts. The windows of every site matching a hostname apply, the most specific site's first.
-| `POST /aperio/api/purge` | Right-to-erasure: deletes traffic records (logs, inspector captures, stats aggregates, cache, access-log lines) matching a hostname, token label, or visitor IP (admin only). | a dashboard session or admin key, **Admin in master** |
+| `POST /aperio/api/purge` | Right-to-erasure: deletes traffic records (logs, inspector captures, stats aggregates, cache, access-log lines) matching a hostname, token label, or visitor IP (admin only). | a dashboard session or admin key, **the server admin** (`*: admin`) |
 | `POST /aperio/api/share` | Mints a signed, expiring share link that grants visitors gate-free access to a host/path scope. | a dashboard session or admin key (operator+) |
 
 #### Webhooks and the inbox
@@ -1328,31 +1328,31 @@ A window whose `to:` is earlier than its `from:` wraps midnight, and then `days:
 
 | Endpoint | What it does | Credential |
 | --- | --- | --- |
-| `GET /aperio/api/orgs` | Lists organizations (master super-admin only): the implicit master org plus child orgs, with user/token counts. | a dashboard session or admin key, **Admin in master** |
-| `POST /aperio/api/orgs` | Creates a child organization (master super-admin only). | a dashboard session or admin key, **Admin in master** |
+| `GET /aperio/api/orgs` | Lists organizations (server admin only): the implicit master org plus child orgs, with user/token counts. | a dashboard session or admin key, **the server admin** (`*: admin`) |
+| `POST /aperio/api/orgs` | Creates a child organization (server admin only). | a dashboard session or admin key, **the server admin** (`*: admin`) |
 | `POST /aperio/api/orgs/select` | Switches the session's active organization (stored on the session). | a dashboard session or admin key whose grants reach the target (viewer+) |
-| `DELETE /aperio/api/orgs/{id}` | Deletes an empty child organization (master super-admin only); rejected while it still has users or tokens. | a dashboard session or admin key, **Admin in master** |
-| `PUT /aperio/api/orgs/{id}/custom-name` | Sets an organization's display name; the handle it is addressed by never changes (master admin). | a dashboard session or admin key, **Admin in master** |
-| `PUT /aperio/api/orgs/{id}/hostnames` | Replaces a child org's hostname allowlist (empty list = unrestricted). | a dashboard session or admin key, **Admin in master** |
-| `PUT /aperio/api/orgs/{id}/oidc` | Sets or clears a child org's OIDC override (empty issuer clears). | a dashboard session or admin key, **Admin in master** |
+| `DELETE /aperio/api/orgs/{id}` | Deletes an empty child organization (server admin only); rejected while it still has users or tokens. | a dashboard session or admin key, **the server admin** (`*: admin`) |
+| `PUT /aperio/api/orgs/{id}/custom-name` | Sets an organization's display name; the handle it is addressed by never changes (server admin). | a dashboard session or admin key, **the server admin** (`*: admin`) |
+| `PUT /aperio/api/orgs/{id}/hostnames` | Replaces a child org's hostname allowlist (empty list = unrestricted). | a dashboard session or admin key, **the server admin** (`*: admin`) |
+| `PUT /aperio/api/orgs/{id}/oidc` | Sets or clears a child org's OIDC override (empty issuer clears). | a dashboard session or admin key, **the server admin** (`*: admin`) |
 | `PUT /aperio/api/orgs/{id}/panel` | Sets or clears an organization's panel hostname, a name inside its allowlist whose root is its dashboard (Admin of that organization). | a dashboard session or admin key, Admin of that organization |
-| `PUT /aperio/api/orgs/{id}/quota` | Sets a child org's quotas (max clients/tokens/users, monthly bytes). | a dashboard session or admin key, **Admin in master** |
-| `GET /aperio/api/orgs/{id}/usage` | Current-month usage vs quota for an organization; also emits an org_usage webhook. | a dashboard session or admin key, **Admin in master** |
+| `PUT /aperio/api/orgs/{id}/quota` | Sets a child org's quotas (max clients/tokens/users, monthly bytes). | a dashboard session or admin key, **the server admin** (`*: admin`) |
+| `GET /aperio/api/orgs/{id}/usage` | Current-month usage vs quota for an organization; also emits an org_usage webhook. | a dashboard session or admin key, **the server admin** (`*: admin`) |
 
 #### Admin keys
 
 | Endpoint | What it does | Credential |
 | --- | --- | --- |
-| `GET /aperio/api/admin-keys` | Lists programmatic admin keys (hashes stripped). | a dashboard session or admin key, **Admin in master** |
-| `POST /aperio/api/admin-keys` | Creates a scoped admin key; the secret is returned once. | a dashboard session or admin key, **Admin in master** |
-| `DELETE /aperio/api/admin-keys/{id}` | Revokes an admin key. | a dashboard session or admin key, **Admin in master** |
+| `GET /aperio/api/admin-keys` | Lists programmatic admin keys (hashes stripped). | a dashboard session or admin key, **the server admin** (`*: admin`) |
+| `POST /aperio/api/admin-keys` | Creates a scoped admin key; the secret is returned once. | a dashboard session or admin key, **the server admin** (`*: admin`) |
+| `DELETE /aperio/api/admin-keys/{id}` | Revokes an admin key. | a dashboard session or admin key, **the server admin** (`*: admin`) |
 
 #### Audit log
 
 | Endpoint | What it does | Credential |
 | --- | --- | --- |
 | `GET /aperio/api/audit` | Audit events for the caller's organization. Unfiltered: the recent ring. | a dashboard session or admin key (viewer+) |
-| `GET /aperio/api/audit/verify` | Verifies the audit log hash chain across all files; reports any broken line (master admin only). | a dashboard session or admin key, **Admin in master** |
+| `GET /aperio/api/audit/verify` | Verifies the audit log hash chain across all files; reports any broken line (server admin only). | a dashboard session or admin key, **the server admin** (`*: admin`) |
 | `GET /aperio/api/export/audit.csv` | Audit events matching the same filters as /aperio/api/audit, as CSV, from the durable log. | a dashboard session or admin key (viewer+) |
 
 #### Server settings, backup and import
@@ -1361,8 +1361,8 @@ A window whose `to:` is earlier than its `from:` wraps midnight, and then `days:
 | --- | --- | --- |
 | `GET /aperio/api/export` | Downloads a logical dump. ?include= names the sections (tokens, webhooks, users, organizations, scaling, settings_overrides, statistics, uptime, activity, inbox, admin_keys); omitted, the six configuration sections. | a dashboard session or admin key, **`*` Admin** (every organization) |
 | `POST /aperio/api/import` | Applies a dump created by /aperio/api/export; every section present in the document replaces its store, a missing one leaves it untouched (admin only). | a dashboard session or admin key, **`*` Admin** (every organization) |
-| `GET /aperio/api/settings` | Effective server settings plus which keys are overridden from the dashboard. | a dashboard session or admin key, **Admin in master** |
-| `PUT /aperio/api/settings` | Applies dashboard settings overrides live and persists them (missing keys keep env defaults). | a dashboard session or admin key, **Admin in master** |
+| `GET /aperio/api/settings` | Effective server settings plus which keys are overridden from the dashboard. | a dashboard session or admin key, **the server admin** (`*: admin`) |
+| `PUT /aperio/api/settings` | Applies dashboard settings overrides live and persists them (missing keys keep env defaults). | a dashboard session or admin key, **the server admin** (`*: admin`) |
 
 #### Edge proxy and telemetry
 

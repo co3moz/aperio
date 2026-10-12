@@ -77,7 +77,7 @@ time you do not have.
 
 **A logical restore** (`GET /aperio/api/export` to `POST /aperio/api/import`)
 runs against a server that is up. Each section present in the dump replaces
-the corresponding store, it is master super-admin only, and it carries a
+the corresponding store, it is server admin only, and it carries a
 format version, so a dump taken by a different release is either applied or
 refused rather than half-read. This is the one for undoing a bad change, and
 the one that crosses a version boundary safely.

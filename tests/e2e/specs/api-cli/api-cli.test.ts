@@ -38,9 +38,11 @@ export class ApiCliSpec extends Test({
   _key = ''
 
   async before() {
+    // `*` Admin: the CLI walks the server-wide surfaces too, which are the
+    // server admin's, and master's Admin is only master's.
     const minted = await this.server._api<{ key: string }>('/aperio/api/admin-keys', {
       method: 'POST',
-      body: JSON.stringify({ name: 'e2e-cli', role: 'admin' }),
+      body: JSON.stringify({ name: 'e2e-cli', role: 'admin', org_id: '*' }),
     })
     this._key = minted.key
   }

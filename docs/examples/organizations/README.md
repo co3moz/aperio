@@ -4,7 +4,7 @@
 
 One Aperio server, several isolated tenants. Each organization has its own tunnel clients, API tokens, dashboard users, traffic, statistics, and audit trail, and one tenant never sees another's. A tunnel client belongs to the organization of the **token** it authenticates with, so making a client "belong to Acme" is entirely a matter of which token it uses.
 
-Nothing tenant-specific lives in the config files: organizations are created at runtime by the built-in `aperio` super-admin. The server is a normal master setup, started with nothing but its token; the client file simply uses a token that was minted under a child organization.
+Nothing tenant-specific lives in the config files: organizations are created at runtime by the built-in `aperio` server admin. The server is a normal master setup, started with nothing but its token; the client file simply uses a token that was minted under a child organization.
 
 ## Set it up
 

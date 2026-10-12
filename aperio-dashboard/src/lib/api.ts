@@ -241,8 +241,6 @@ export interface AdminKeyView {
   created_at: number
   expires_at: number | null
   expired: boolean
-  expose_bounds?: ExposePolicy | null
-  expose?: ExposeAction[]
 }
 
 export interface AdminKeyCreatePayload {
@@ -250,8 +248,6 @@ export interface AdminKeyCreatePayload {
   role: string
   org_id?: string
   ttl_seconds?: number
-  expose_bounds?: ExposePolicy | null
-  expose?: ExposeAction[]
 }
 
 export interface TokenCreatePayload {
@@ -517,12 +513,11 @@ export interface SessionInfo {
   role: Role
   /** True when the session's user has TOTP two-factor auth enabled. */
   totp: boolean
-  /** True when the caller holds Admin in the master organization, directly
-   *  or through `*`: the built-in `aperio` account, or a named user granted
-   *  it. Gates the organization-management and server-global screens. */
-  master_admin: boolean
-  /** True when the caller holds `*` Admin, the only one who may grant `*`. */
-  all_orgs: boolean
+  /** True when the caller is the server admin (`*` Admin): the built-in
+   *  `aperio` account, or a named user granted it. Gates the
+   *  organization-management and server-global screens, and is the only one
+   *  who may grant `*`. */
+  server_admin: boolean
   /** The organization the session currently views (`master` or a child id). */
   selected_org: string
   /** Every organization a grant on this account reaches, with the role held
@@ -537,8 +532,8 @@ export interface ReachableOrg {
   name: string
   custom_name: string | null
   role: Role
-  /** Effective listener capabilities; these do not bypass server port policy. */
-  expose_bounds?: ExposePolicy | null
+  /** What the role held there may do with the organization's public
+   *  listeners, within the ports the server admin allocated to it. */
   expose_actions?: ExposeAction[]
 }
 
@@ -550,15 +545,12 @@ export type ExposeAction =
   | 'disable'
   | 'delete'
   | 'disconnect'
-  | 'delegate'
 
 /** One `(organization, role)` pair on a dashboard user. `org` is `master`,
  *  `*` for every organization, or a child id. */
 export interface UserGrant {
   org: string
   role: Role
-  expose_bounds?: ExposePolicy | null
-  expose?: ExposeAction[]
   /** The identity provider's group this grant was mapped from, when it was
    *  not written by hand; the map takes it back when the group is gone. */
   source?: string | null
@@ -866,7 +858,7 @@ export interface ExposePolicy {
   max_rules: number; max_tcp_connections: number; max_udp_sessions: number
   ingress_bytes_per_second: number; egress_bytes_per_second: number
 }
-export interface ExposeItem { bounds: ExposePolicy | null; resource: ExposeView; actions: ExposeAction[]; policy: ExposePolicy | null }
+export interface ExposeItem { resource: ExposeView; actions: ExposeAction[]; policy: ExposePolicy | null }
 export interface ExposePage {
   items: ExposeItem[]; total: number; volatile: boolean; history_error: string | null; store_error: string | null
 }

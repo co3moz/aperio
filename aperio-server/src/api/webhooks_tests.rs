@@ -89,7 +89,7 @@ async fn audit_verify_reports_ok_chain() {
 }
 
 #[tokio::test]
-async fn audit_verify_is_master_admin_only() {
+async fn audit_verify_is_server_admin_only() {
   let state = Arc::new(test_state());
   // The audit files cover every organization, so a tenant viewer must not be
   // able to ask whether the server-wide log is intact.

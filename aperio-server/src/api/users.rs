@@ -39,8 +39,6 @@ fn grants_view(grants: &[Grant]) -> Vec<serde_json::Value> {
         "role": g.role.as_str(),
         "source": g.source,
         "source_org": g.source_org,
-        "expose": g.expose,
-        "expose_bounds": g.expose_bounds,
       })
     })
     .collect()
@@ -56,17 +54,26 @@ fn grants_label(grants: &[Grant]) -> String {
 }
 
 /// One grant as the API spells it: an organization (`master`, `*`, or a
-/// child id) and a role.
+/// child id) and a role. Unknown fields are refused, so a grant still naming
+/// the `expose` capabilities of before 0.13.0 is told so rather than given
+/// the whole of its role.
 #[derive(Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct GrantRequest {
   pub(crate) org: String,
-  /// One of `viewer`, `operator`, `admin`.
+  /// One of `viewer`, `operator`, `admin`. What the role may do with the
+  /// organization's public listeners comes with it.
   pub(crate) role: String,
+  /// Read-only: where a mapped grant came from. Accepted so a grant list
+  /// read from this API can be sent back as it is, and ignored.
   #[serde(default)]
-  #[schema(value_type = Vec<String>)]
-  pub(crate) expose: std::collections::BTreeSet<grants::ExposeAction>,
+  #[allow(dead_code)]
+  // accepted on the way in so `deny_unknown_fields` lets it through, never read
+  pub(crate) source: Option<String>,
+  /// Read-only, like `source`.
   #[serde(default)]
-  pub(crate) expose_bounds: Option<aperio_config::expose_policy::ExposePolicy>,
+  #[allow(dead_code)] // as `source`
+  pub(crate) source_org: Option<String>,
 }
 
 /// Turns a request's grant list into grants: every role must parse, every
@@ -114,10 +121,7 @@ async fn parse_grants(
           .into_response(),
       );
     }
-    let mut grant = Grant::new(org, role);
-    grant.expose = entry.expose.clone();
-    grant.expose_bounds = entry.expose_bounds.clone();
-    out.push(grant);
+    out.push(Grant::new(org, role));
   }
   grants::normalize(out).map_err(|m| (StatusCode::BAD_REQUEST, m).into_response())
 }
@@ -133,7 +137,7 @@ fn check_granter(caller: &Caller, changed: &[Grant]) -> Result<(), Response> {
         (
           StatusCode::FORBIDDEN,
           format!(
-            "you cannot grant or revoke {}: this requires Admin in scope and authority to delegate the requested expose capabilities",
+            "you cannot grant or revoke {}: this requires Admin in that organization, and `*` takes the server admin",
             g.label()
           ),
         )
@@ -161,12 +165,10 @@ async fn audit_grant_changes(
         headers,
         ip,
         &format!(
-          "username={} org={} role={} expose={:?} expose_bounds={:?}",
+          "username={} org={} role={}",
           username,
           g.org.as_str(),
-          g.role.as_str(),
-          g.expose,
-          g.expose_bounds
+          g.role.as_str()
         ),
       )
       .await;
@@ -178,12 +180,10 @@ async fn audit_grant_changes(
         headers,
         ip,
         &format!(
-          "username={} org={} role={} expose={:?} expose_bounds={:?}",
+          "username={} org={} role={}",
           username,
           g.org.as_str(),
-          g.role.as_str(),
-          g.expose,
-          g.expose_bounds
+          g.role.as_str()
         ),
       )
       .await;
@@ -197,9 +197,8 @@ async fn audit_grant_changes(
 /// The second half is the whole of it for account control. Resetting a
 /// password, clearing a second factor, disabling or deleting an account is
 /// taking over or taking away everything the account holds, so it is bounded
-/// the way granting is: a master Admin who may not hand out `*` may not set
-/// the password of a `*` Admin and sign in as one, and a tenant admin may not
-/// reset an expose delegate above them.
+/// the way granting is: a master Admin, who may not hand out `*`, may not set
+/// the password of the server admin and sign in as one.
 #[allow(clippy::result_large_err)] // see api/tokens.rs
 async fn manageable_user(
   state: &Arc<AppState>,

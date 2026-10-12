@@ -61,6 +61,10 @@ pub(crate) async fn resolve_org_oidc(
     .iter()
     .filter_map(|entry| {
       let (group, role) = entry.split_once('=')?;
+      // A row saved before 0.13.0 may still carry `+expose.<action>`
+      // suffixes; the role alone is what they mean now, and dropping the
+      // whole entry would take the role away at the next login.
+      let role = role.split('+').next().unwrap_or_default();
       let grant = crate::store::grants::Grant::parse_in_org(org_id, role).ok()?;
       Some((group.trim().to_string(), grant))
     })

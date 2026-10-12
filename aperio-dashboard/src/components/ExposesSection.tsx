@@ -52,7 +52,7 @@ function ExposeSessions({ item, onClose, onOperate }: { item: ExposeItem; onClos
 
 export function ExposesSection({ initial, clearInitial, focus }: { initial?: Partial<ExposeSpec>; clearInitial: () => void; focus: { expose?: string; client?: string } | null }) {
   const { t } = useI18n()
-  const { orgs, masterAdmin } = useSession()
+  const { orgs, serverAdmin } = useSession()
   const orgLabel = useOrgLabel()
   const [search, setSearch] = useState(focus?.expose ?? '')
   const [protocol, setProtocol] = useState('')
@@ -70,7 +70,7 @@ export function ExposesSection({ initial, clearInitial, focus }: { initial?: Par
   const unfiltered = !focus?.client && !search && !protocol && !org && offset === 0 && sort === 'tunnel' && !descending
   const { data, error: failed, refresh, updatedAt } = useStream(unfiltered ? 'exposes' : null, () => exposeApi.list(query), 3000, JSON.stringify(query))
   const policies = useStream(null, exposeApi.policies, 10000)
-  const canCreate = masterAdmin || orgs.some((o) => o.expose_actions?.includes('create'))
+  const canCreate = serverAdmin || orgs.some((o) => o.expose_actions?.includes('create'))
   const stateLabels = { disabled: t('Disabled'), binding: t('Binding'), listening: t('Listening'), draining: t('Draining'), suspended: t('Suspended'), failed: t('Failed') }
   const targetLabels = { waiting: t('Waiting for target'), ready: t('Ready'), unavailable: t('Unavailable'), incompatible: t('Incompatible target') }
   const actionLabels: Record<string, string> = { enable: t('Enable'), disable: t('Disable'), retry: t('Retry'), drain: t('Drain'), delete: t('Delete'), disconnect: t('Disconnect') }

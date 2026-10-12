@@ -511,31 +511,12 @@ fn failure(status: StatusCode, body: serde_json::Value) -> ApplyFailure {
   ApplyFailure { status, body }
 }
 
-/// The gate on a whole-server dump, either direction: `*` Admin, not merely
-/// Admin in master.
-///
-/// Since 0.12.0 a named master Admin runs the server without reaching the
-/// child organizations, and may not grant `*`. A dump reads every
-/// organization's tokens, users and keys, and an import writes them back,
-/// grants included, so with master Admin as the gate an import was a way to
-/// hand oneself `*` and an export a way to read tenants one may not open.
+/// A dump reads every organization's tokens, users and keys, and an import
+/// writes them back, grants included, so both are the server admin's alone:
+/// anyone less could read tenants they may not open, or hand themselves `*`.
 #[allow(clippy::result_large_err)] // see api/tokens.rs
 async fn require_every_organization(state: &AppState, headers: &HeaderMap) -> Result<(), Response> {
-  crate::auth::require_master_admin(state, headers).await?;
-  let holds_all = crate::auth::resolve_caller(state, headers)
-    .await
-    .is_some_and(|c| c.holds_all_admin());
-  if !holds_all {
-    return Err(
-      (
-        StatusCode::FORBIDDEN,
-        "a whole-server dump reads and replaces every organization, which takes Admin in every \
-         organization (*)",
-      )
-        .into_response(),
-    );
-  }
-  Ok(())
+  crate::auth::require_server_admin(state, headers).await
 }
 
 /// Applies a dump: each present section *replaces* the corresponding store.

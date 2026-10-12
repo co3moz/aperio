@@ -128,13 +128,11 @@ pub(crate) struct SessionStatus {
   /// True when the session's user has TOTP two-factor auth enabled (always
   /// false for the built-in admin, which has no user row).
   pub(crate) totp: bool,
-  /// True when the caller holds Admin in the master organization, directly
-  /// or through `*`: the built-in `aperio` account, or a named user granted
-  /// it. What the organization-management and server-global screens need.
-  pub(crate) master_admin: bool,
-  /// True when the caller holds `*` Admin: the only caller that may grant
-  /// `*` to somebody else, so the only one the grant editor offers it to.
-  pub(crate) all_orgs: bool,
+  /// True when the caller is the server admin (`*` Admin): the built-in
+  /// `aperio` account, or a named user granted it. What the
+  /// organization-management and server-global screens need, and the only
+  /// caller the grant editor offers `*` to.
+  pub(crate) server_admin: bool,
   /// The organization the session is currently viewing: `master` for the
   /// implicit master org, or a child org id.
   pub(crate) selected_org: String,
@@ -147,7 +145,8 @@ pub(crate) struct SessionStatus {
 /// One organization the session may switch into.
 #[derive(serde::Serialize)]
 pub(crate) struct ReachableOrg {
-  pub(crate) expose_bounds: Option<aperio_config::expose_policy::ExposePolicy>,
+  /// What the role held there may do with the organization's public
+  /// listeners.
   pub(crate) expose_actions: Vec<crate::store::grants::ExposeAction>,
   /// `master`, or the child id.
   pub(crate) id: String,
@@ -164,7 +163,6 @@ async fn reachable_orgs(state: &AppState, caller: &crate::auth::Caller) -> Vec<R
   if let Some(role) = caller.role_in(None) {
     out.push(ReachableOrg {
       expose_actions: caller.expose_actions(None),
-      expose_bounds: caller.expose_bounds("master"),
       id: crate::store::orgs::MASTER_ID.to_string(),
       name: "master".to_string(),
       custom_name: None,
@@ -175,7 +173,6 @@ async fn reachable_orgs(state: &AppState, caller: &crate::auth::Caller) -> Vec<R
     if let Some(role) = caller.role_in(Some(&org.id)) {
       out.push(ReachableOrg {
         expose_actions: caller.expose_actions(Some(&org.id)),
-        expose_bounds: caller.expose_bounds(&org.id),
         id: org.id.clone(),
         name: org.name.clone(),
         custom_name: org.custom_name.clone(),
@@ -222,22 +219,20 @@ pub(crate) async fn auth_session_handler(
   // acted in, read from the grants, not the flat role the session recorded
   // at login.
   let caller = crate::auth::resolve_caller(&state, &headers).await;
-  let (role, master_admin, all_orgs, selected_org, orgs) = match &caller {
+  let (role, server_admin, selected_org, orgs) = match &caller {
     Some(c) => {
       let selected = c.effective_org();
       (
         c.role_in(selected.as_deref())
           .unwrap_or(Role::Viewer)
           .as_str(),
-        c.is_master_admin(),
-        c.holds_all_admin(),
+        c.is_server_admin(),
         selected.unwrap_or_else(|| crate::store::orgs::MASTER_ID.to_string()),
         reachable_orgs(&state, c).await,
       )
     }
     None => (
       role,
-      false,
       false,
       crate::store::orgs::MASTER_ID.to_string(),
       Vec::new(),
@@ -248,8 +243,7 @@ pub(crate) async fn auth_session_handler(
     username,
     role,
     totp,
-    master_admin,
-    all_orgs,
+    server_admin,
     selected_org,
     orgs,
   })

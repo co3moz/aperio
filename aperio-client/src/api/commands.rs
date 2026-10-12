@@ -18,7 +18,7 @@ pub(crate) enum ApiCommand {
   /// Ephemeral tunnels (short-lived token + hostname)
   #[command(subcommand)]
   Tunnel(TunnelCmd),
-  /// Public TCP/UDP listeners (requires explicit expose capabilities)
+  /// Public TCP/UDP listeners, within the ports the server admin allocated to the organization
   #[command(subcommand)]
   Expose(ExposeCmd),
   /// Maintenance mode per hostname
@@ -39,7 +39,7 @@ pub(crate) enum ApiCommand {
   /// Dashboard users
   #[command(subcommand)]
   User(UserCmd),
-  /// Organizations (master super-admin only)
+  /// Organizations (server admin only)
   #[command(subcommand)]
   Org(OrgCmd),
   /// Programmatic admin API keys
@@ -495,7 +495,7 @@ pub(crate) struct UserCreateArgs {
   /// Role: viewer, operator, or admin, in the organization you are acting in
   #[arg(long, value_name = "ROLE", required_unless_present = "grants")]
   pub(crate) role: Option<String>,
-  /// A grant, `<org>:<role>[+expose.<action>...]`, repeatable; `<org>` is a child id, `master`, or `*`.
+  /// A grant, `<org>:<role>`, repeatable; `<org>` is a child id, `master`, or `*`.
   /// A user reaching several organizations is created from master
   #[arg(long = "grant", value_name = "ORG:ROLE")]
   pub(crate) grants: Vec<String>,
@@ -508,7 +508,7 @@ pub(crate) struct UserUpdateArgs {
   /// New role: viewer, operator, or admin, in the organization you are acting in
   #[arg(long, value_name = "ROLE")]
   pub(crate) role: Option<String>,
-  /// Replace grants: `<org>:<role>[+expose.<action>...]`, repeatable
+  /// Replace grants: `<org>:<role>`, repeatable
   #[arg(long = "grant", value_name = "ORG:ROLE")]
   pub(crate) grants: Vec<String>,
   /// Enable the account
@@ -573,7 +573,7 @@ pub(crate) enum OrgCmd {
     /// Organization id
     id: String,
   },
-  /// Switch the master super-admin's active organization
+  /// Switch the server admin's active organization
   Select {
     /// Organization id; omit for the master organization
     id: Option<String>,
@@ -652,9 +652,6 @@ pub(crate) struct AdminKeyCreateArgs {
   /// Lifetime: 30m, 2h, 1d, or never (default)
   #[arg(long, value_name = "DURATION")]
   pub(crate) expire: Option<String>,
-  /// Explicit public-listener actions, repeatable or comma-separated
-  #[arg(long = "expose", value_delimiter = ',', value_parser = ["read", "create", "update", "enable", "disable", "delete", "disconnect", "delegate"])]
-  pub(crate) expose: Vec<String>,
 }
 
 #[derive(Subcommand)]

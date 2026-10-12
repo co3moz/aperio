@@ -12,22 +12,17 @@ use axum::routing::get;
 use tokio::net::TcpListener;
 
 #[test]
-fn group_mapping_preserves_explicit_expose_rights() {
-  use crate::store::grants::ExposeAction;
+fn group_mapping_maps_a_group_to_its_role() {
   let policy = OidcGrantPolicy {
-    group_grants: grants::parse_group_map("publishers=acme:viewer+expose.create+expose.disable")
-      .unwrap(),
+    group_grants: grants::parse_group_map("publishers=acme:operator").unwrap(),
     ..Default::default()
   };
   let mapped = policy.mapped(&["publishers".into()]);
   assert_eq!(mapped[0].source.as_deref(), Some("publishers"));
-  assert_eq!(
-    mapped[0].expose,
-    [ExposeAction::Create, ExposeAction::Disable]
-      .into_iter()
-      .collect()
-  );
+  assert_eq!(mapped[0].role, crate::store::users::Role::Operator);
   assert!(policy.mapped(&["unrelated".into()]).is_empty());
+  let refused = grants::parse_group_map("publishers=acme:viewer+expose.create").unwrap_err();
+  assert!(refused.contains("part of the role"), "{refused}");
 }
 
 /// The default outbound policy: no restriction, which is what a deployment

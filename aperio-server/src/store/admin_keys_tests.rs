@@ -6,32 +6,41 @@ use super::*;
 use crate::store::grants::GrantOrg;
 
 #[test]
-fn expose_capabilities_survive_key_store_reload() {
-  use crate::store::grants::ExposeAction;
+fn a_key_keeps_its_role_and_scope_across_a_reload() {
   let dir = temp_dir();
   let mut store = AdminKeyStore::load(&dir);
-  let actions = [ExposeAction::Create, ExposeAction::Disable]
-    .into_iter()
-    .collect();
   let (_, secret) = store
-    .create_with_expose(
+    .create(
       "publisher".into(),
-      Role::Viewer,
+      Role::Operator,
       GrantOrg::Child("acme".into()),
       None,
-      actions,
     )
     .unwrap();
   drop(store);
   let store = AdminKeyStore::load(&dir);
   let record = store.verify(&secret).unwrap();
-  assert_eq!(
-    record.expose,
-    [ExposeAction::Create, ExposeAction::Disable]
-      .into_iter()
-      .collect()
-  );
+  assert_eq!(record.role, Role::Operator);
   assert_eq!(record.scope(), GrantOrg::Child("acme".into()));
+}
+
+#[test]
+fn a_key_written_with_expose_capabilities_before_0_13_still_reads() {
+  let row = serde_json::json!({
+    "id": "k1",
+    "name": "old",
+    "key_hash": "00",
+    "key_prefix": "apk_",
+    "role": "viewer",
+    "expose": ["read", "create", "delegate"],
+    "expose_bounds": null,
+    "scope": "acme",
+    "created_at": 1,
+  });
+  let key: AdminKey = serde_json::from_value(row).unwrap();
+  assert_eq!(key.role, Role::Viewer);
+  assert_eq!(key.scope(), GrantOrg::Child("acme".into()));
+  assert!(!serde_json::to_string(&key).unwrap().contains("expose"));
 }
 
 fn temp_dir() -> String {

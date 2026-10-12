@@ -1,5 +1,3 @@
-import { ExposeActionsEditor } from './ExposeEditor'
-import type { ExposeAction } from '@/lib/api'
 import {
   Building2Icon,
   GlobeIcon,
@@ -525,7 +523,6 @@ function OidcForm({ org }: { org: Organization }) {
   })
   const [group, setGroup] = useState('')
   const [groupRole, setGroupRole] = useState('viewer')
-  const [groupActions, setGroupActions] = useState<ExposeAction[]>([])
   const [busy, setBusy] = useState(false)
 
   const save = async () => {
@@ -609,11 +606,10 @@ function OidcForm({ org }: { org: Organization }) {
         <div className="mt-2 grid gap-2">
           <Input aria-label={t('Group')} value={group} onChange={(e) => setGroup(e.target.value)} />
           <select className="rounded-md border bg-background p-2 text-sm" aria-label={t('Role')} value={groupRole} onChange={(e) => setGroupRole(e.target.value)}><option value="viewer">{t('Viewer')}</option><option value="operator">{t('Operator')}</option><option value="admin">{t('Admin')}</option></select>
-          <ExposeActionsEditor org={org.id} value={groupActions} onChange={setGroupActions} />
           <Button type="button" size="sm" variant="outline" disabled={!group.trim() || /[,=]/.test(group)} onClick={() => {
-            const entry = `${group.trim()}=${groupRole}${groupActions.map((action) => `+expose.${action}`).join('')}`
+            const entry = `${group.trim()}=${groupRole}`
             setF((f) => ({ ...f, groupGrants: [...f.groupGrants.split(',').map((v) => v.trim()).filter((v) => v && v.split('=')[0] !== group.trim()), entry].join(', ') }))
-            setGroup(''); setGroupActions([])
+            setGroup('')
           }}>{t('Add')}</Button>
         </div>
       </details>

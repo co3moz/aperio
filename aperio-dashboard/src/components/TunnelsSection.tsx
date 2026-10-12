@@ -58,12 +58,12 @@ function localPortHint(tunnel: DeclaredTunnel): number {
 
 export function TunnelsSection({ focus, clearFocus }: { focus: { expose?: string; client?: string } | null; clearFocus: () => void }) {
   const { t } = useI18n()
-  const { orgs, masterAdmin } = useSession()
+  const { orgs, serverAdmin } = useSession()
   const [exposeDraft, setExposeDraft] = useState<Partial<ExposeSpec> | undefined>()
   const exposeOrg = (tunnel: DeclaredTunnel) => tunnel.org ? orgs.find((o) => o.name === tunnel.org)?.id : 'master'
   const canExpose = (tunnel: DeclaredTunnel) => {
     const org = exposeOrg(tunnel)
-    return !!org && !tunnel.encrypt && (masterAdmin || !!orgs.find((o) => o.id === org)?.expose_actions?.includes('create'))
+    return !!org && !tunnel.encrypt && (serverAdmin || !!orgs.find((o) => o.id === org)?.expose_actions?.includes('create'))
   }
   const {
     data: declarations,

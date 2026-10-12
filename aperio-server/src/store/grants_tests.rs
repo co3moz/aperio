@@ -1,136 +1,106 @@
-//! The grant rules: a specific entry beats `*`, a grant is bounded by the
-//! granter's, and a record written before grants existed keeps exactly the
-//! reach it had.
+//! The grant rules: a specific entry beats `*`, `*` Admin is the server
+//! admin and nothing else is, a grant is bounded by the granter's, what a
+//! role may do with public listeners comes with it, and a record written
+//! before grants existed keeps exactly the reach it had.
 
 use super::*;
 
-fn exposed(org: GrantOrg, role: Role, actions: &[ExposeAction]) -> Grant {
-  let mut grant = Grant::new(org, role);
-  grant.expose.extend(actions.iter().copied());
-  grant
-}
-
 #[test]
-fn expose_is_explicit_for_tenants_and_master_keeps_server_authority() {
-  for role in [Role::Viewer, Role::Operator, Role::Admin] {
+fn what_a_role_may_do_with_public_listeners_comes_with_it() {
+  let operator_may = [
+    ExposeAction::Read,
+    ExposeAction::Enable,
+    ExposeAction::Disable,
+    ExposeAction::Disconnect,
+  ];
+  for action in ExposeAction::ALL {
+    let viewer = may_expose(&[child("acme", Role::Viewer)], Some("acme"), action);
+    let operator = may_expose(&[child("acme", Role::Operator)], Some("acme"), action);
+    let admin = may_expose(&[child("acme", Role::Admin)], Some("acme"), action);
+    assert_eq!(viewer, action == ExposeAction::Read, "viewer {action:?}");
+    assert_eq!(
+      operator,
+      operator_may.contains(&action),
+      "operator {action:?}"
+    );
+    assert!(admin, "admin {action:?}");
+    // A role in one organization says nothing about another.
     assert!(!may_expose(
-      &[child("acme", role)],
-      Some("acme"),
-      ExposeAction::Create
+      &[child("acme", Role::Admin)],
+      Some("beta"),
+      action
     ));
   }
-  for action in ExposeAction::ALL {
-    assert!(may_expose(&all_admin(), Some("acme"), action));
-  }
-  let grant = exposed(
-    GrantOrg::Child("acme".into()),
-    Role::Viewer,
-    &[ExposeAction::Create],
-  );
-  assert!(may_expose(
-    std::slice::from_ref(&grant),
-    Some("acme"),
-    ExposeAction::Read
-  ));
-  assert!(may_expose(
-    std::slice::from_ref(&grant),
-    Some("acme"),
-    ExposeAction::Create
-  ));
-  assert!(!may_expose(
-    std::slice::from_ref(&grant),
-    Some("acme"),
-    ExposeAction::Delete
-  ));
-  assert!(!may_expose(&[grant], Some("beta"), ExposeAction::Create));
 }
 
 #[test]
-fn explicit_empty_expose_capabilities_override_the_wildcard() {
+fn a_specific_entry_beats_the_wildcard_for_listeners_too() {
   let grants = [
-    exposed(GrantOrg::All, Role::Operator, &[ExposeAction::Create]),
-    child("acme", Role::Admin),
+    Grant::new(GrantOrg::All, Role::Admin),
+    child("acme", Role::Viewer),
   ];
-  assert!(!may_expose(&grants, Some("acme"), ExposeAction::Read));
+  assert!(may_expose(&grants, Some("acme"), ExposeAction::Read));
+  assert!(!may_expose(&grants, Some("acme"), ExposeAction::Create));
   assert!(may_expose(&grants, Some("beta"), ExposeAction::Create));
 }
 
 #[test]
-fn expose_delegation_cannot_widen_or_create_itself() {
-  let org = GrantOrg::Child("acme".into());
-  let wanted = exposed(org.clone(), Role::Viewer, &[ExposeAction::Create]);
-  let mut granter = exposed(org.clone(), Role::Admin, &[ExposeAction::Create]);
-  assert!(!may_grant(std::slice::from_ref(&granter), &wanted));
-  granter.expose.insert(ExposeAction::Delegate);
-  assert!(may_grant(std::slice::from_ref(&granter), &wanted));
-  assert!(!may_grant(
-    std::slice::from_ref(&granter),
-    &exposed(org.clone(), Role::Admin, &[ExposeAction::Delete])
+fn only_the_wildcard_admin_is_the_server_admin() {
+  assert!(is_server_admin(&all_admin()));
+  let master_admin = [Grant::new(GrantOrg::Master, Role::Admin)];
+  assert!(!is_server_admin(&master_admin));
+  assert!(!is_server_admin(&[Grant::new(
+    GrantOrg::All,
+    Role::Operator
+  )]));
+  // Master's admin administers master, like any organization's admin.
+  assert!(may_grant(
+    &master_admin,
+    &Grant::new(GrantOrg::Master, Role::Viewer)
   ));
+  assert!(!may_grant(&master_admin, &child("acme", Role::Viewer)));
   assert!(!may_grant(
-    &[child("acme", Role::Admin)],
-    &exposed(org, Role::Admin, &[ExposeAction::Delegate])
+    &master_admin,
+    &Grant::new(GrantOrg::All, Role::Viewer)
   ));
-  assert!(!may_grant(
-    &[granter],
-    &exposed(GrantOrg::All, Role::Viewer, &[ExposeAction::Create])
-  ));
+  for grant in [
+    Grant::new(GrantOrg::All, Role::Admin),
+    Grant::new(GrantOrg::Master, Role::Admin),
+    child("acme", Role::Operator),
+  ] {
+    assert!(may_grant(&all_admin(), &grant), "{}", grant.label());
+  }
 }
 
 #[test]
-fn expose_capabilities_round_trip_and_old_rows_default_to_none() {
-  let old: Grant = serde_json::from_str(r#"{"org":"acme","role":"admin"}"#).unwrap();
-  assert!(old.expose.is_empty());
-  let grant = exposed(
-    GrantOrg::Child("acme".into()),
-    Role::Operator,
-    &[
-      ExposeAction::Read,
-      ExposeAction::Create,
-      ExposeAction::Delegate,
-    ],
-  );
+fn a_row_from_before_0_13_still_reads_and_its_capabilities_are_gone() {
+  let old: Grant = serde_json::from_str(
+    r#"{"org":"acme","role":"viewer","expose":["read","create","delegate"],"expose_bounds":null}"#,
+  )
+  .unwrap();
+  assert_eq!(old, child("acme", Role::Viewer));
+  assert!(!serde_json::to_string(&old).unwrap().contains("expose"));
+  let refused = Grant::parse("acme:viewer+expose.create").unwrap_err();
+  assert!(refused.contains("part of the role"), "{refused}");
+  assert!(refused.contains("write acme:viewer"), "{refused}");
+  let grant = child("acme", Role::Operator);
   assert_eq!(Grant::parse(&grant.label()).unwrap(), grant);
-  assert_eq!(
-    parse_list(&format!("{},beta:viewer", grant.label()))
-      .unwrap()
-      .len(),
-    2
-  );
-  assert_eq!(
-    serde_json::from_value::<Grant>(serde_json::to_value(&grant).unwrap()).unwrap(),
-    grant
-  );
-  assert!(Grant::parse("acme:admin+expose.everything").is_err());
-  assert!(
-    serde_json::from_str::<Grant>(r#"{"org":"acme","role":"admin","expose":["everything"]}"#)
-      .is_err()
-  );
+  assert_eq!(parse_list("acme:operator,beta:viewer").unwrap().len(), 2);
 }
 
 #[test]
-fn oidc_capability_changes_are_recomputed_not_accumulated() {
-  let mut first = exposed(
-    GrantOrg::Child("acme".into()),
-    Role::Operator,
-    &[ExposeAction::Create],
-  );
-  first.source = Some("ops".into());
-  let mut second = exposed(
-    GrantOrg::Child("acme".into()),
-    Role::Admin,
-    &[ExposeAction::Delete],
-  );
-  second.source = Some("admins".into());
-  let (both, _, _) = apply_group_map(&[], vec![first.clone(), second.clone()], None);
-  assert!(may_expose(&both, Some("acme"), ExposeAction::Delete));
-  assert!(may_expose(&both, Some("acme"), ExposeAction::Create));
-  let (same, added, removed) = apply_group_map(&both, vec![first.clone(), second], None);
+fn two_groups_naming_one_organization_give_the_higher_role() {
+  let mut ops = child("acme", Role::Operator);
+  ops.source = Some("ops".into());
+  let mut admins = child("acme", Role::Admin);
+  admins.source = Some("admins".into());
+  let (both, _, _) = apply_group_map(&[], vec![ops.clone(), admins.clone()], None);
+  assert_eq!(role_in(&both, Some("acme")), Some(Role::Admin));
+  let (same, added, removed) = apply_group_map(&both, vec![ops.clone(), admins], None);
   assert_eq!(same, both);
   assert!(added.is_empty() && removed.is_empty());
-  let (next, added, removed) = apply_group_map(&both, vec![first.clone()], None);
-  assert_eq!(next, vec![first]);
-  assert!(!may_expose(&next, Some("acme"), ExposeAction::Delete));
+  let (next, added, removed) = apply_group_map(&both, vec![ops.clone()], None);
+  assert_eq!(next, vec![ops]);
   assert_eq!(added.len(), 1);
   assert_eq!(removed.len(), 1);
 }

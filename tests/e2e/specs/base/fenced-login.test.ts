@@ -17,7 +17,8 @@ interface Org {
 }
 
 /** Under `dashboard.fenced_login`, a tenant's hostname admits the tenant's
- *  own people and anyone reaching master; a session is good on the hostname
+ *  own people and a `*` grant, and master's people sign in on master's own
+ *  hostnames, the ones no tenant claims; a session is good on the hostname
  *  it was minted on and nowhere else. */
 export class FencedLoginSpec extends Test({
   timeout: 120_000,
@@ -36,7 +37,7 @@ export class FencedLoginSpec extends Test({
     return raw ? { status: 200, cookie: raw.split(';')[0] } : { status: 401 }
   }
 
-  async aTenantsHostnameAdmitsTheTenantMasterAndTheUnfencedAndNobodyElse() {
+  async aTenantsHostnameAdmitsTheTenantAndTheUnfencedAndNobodyElse() {
     const acme = await this.server._api<Org>('/aperio/api/orgs', {
       method: 'POST',
       body: JSON.stringify({ name: 'acme', hostnames: ['*.acme.e2e.local'] }),
@@ -63,7 +64,8 @@ export class FencedLoginSpec extends Test({
 
     const acmeHost = 'www.acme.e2e.local'
     assert.equal((await this._signInOn(acmeHost, 'acme-user', 'fence-password')).status, 200)
-    assert.equal((await this._signInOn(acmeHost, 'master-user', 'fence-password')).status, 200)
+    // Master is an organization like the others: acme's hostname is not its own.
+    assert.equal((await this._signInOn(acmeHost, 'master-user', 'fence-password')).status, 401)
     assert.equal((await this._signInOn(acmeHost, 'open-user', 'fence-password')).status, 200)
     assert.equal((await this._signInOn(acmeHost, 'beta-user', 'fence-password')).status, 401)
     assert.equal((await this._signInOn(acmeHost, 'beta-user', 'wrong-password')).status, 401)

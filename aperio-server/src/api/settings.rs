@@ -42,7 +42,7 @@ pub(crate) async fn settings_get_handler(
   headers: HeaderMap,
 ) -> Response {
   // Server settings are global; only an Admin of master may read them.
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
   let current = crate::live::current();
@@ -82,7 +82,7 @@ pub(crate) async fn settings_put_handler(
   headers: HeaderMap,
   Json(mut payload): Json<serde_json::Value>,
 ) -> Response {
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
   if let Err(e) = unmask(&mut payload, &crate::live::current()) {
@@ -173,13 +173,11 @@ pub(crate) async fn authorize_change(
     return Ok(());
   };
   let caller = crate::auth::resolve_caller(state, headers).await;
-  if !caller.as_ref().is_some_and(|c| c.holds_all_admin()) {
+  if !caller.as_ref().is_some_and(|c| c.is_server_admin()) {
     return Err(
       (
         StatusCode::FORBIDDEN,
-        format!(
-          "{first} is security-relevant, and changing it takes Admin in every organization (*)"
-        ),
+        format!("{first} is security-relevant, and changing it takes the server admin (`*` Admin)"),
       )
         .into_response(),
     );

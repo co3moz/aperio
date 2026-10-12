@@ -481,11 +481,11 @@ export class GrantsSpec extends Test({
     const cookie = await this._signIn('two-orgs', 'twoorgs123')
 
     const session = await this.server._json<{
-      master_admin: boolean
+      server_admin: boolean
       selected_org: string
       orgs: { id: string; role: string }[]
     }>('/aperio/api/session', { headers: { cookie } })
-    assert.equal(session.master_admin, false)
+    assert.equal(session.server_admin, false)
     assert.deepEqual(
       session.orgs.map((o) => o.id).sort(),
       [acmeId, beta.id].sort(),
@@ -514,14 +514,16 @@ export class GrantsSpec extends Test({
     assert.equal((await this.server._fetch('/aperio/api/orgs', { headers: { cookie } })).status, 403)
   }
 
-  async anAdminOfMasterIsNotEveryOrganizationAndCannotMintStar() {
+  async anAdminOfMasterAdministersMasterAndNotTheServer() {
     await this.server._api('/aperio/api/users', {
       method: 'POST',
       body: JSON.stringify({ username: 'master-admin', password: 'masteradmin1', role: 'admin' }),
     })
     const cookie = await this._signIn('master-admin', 'masteradmin1')
-    // The server-global surface answers.
-    assert.equal((await this.server._fetch('/aperio/api/orgs', { headers: { cookie } })).status, 200)
+    // Master's own surface answers: its tokens are theirs.
+    assert.equal((await this.server._fetch('/aperio/api/tokens', { headers: { cookie } })).status, 200)
+    // The server-global surface is the server admin's (`*` Admin).
+    assert.equal((await this.server._fetch('/aperio/api/orgs', { headers: { cookie } })).status, 403)
     // A child is not theirs to act in.
     assert.equal(await this._selectAs(cookie, GrantsSpec.betaId), 403)
     // And `*` is given only by a holder of `*`.

@@ -745,7 +745,7 @@ pub(crate) async fn explain_handler(
   // goes only to a caller who is not scoped to an organization, and everybody
   // else is told the rule, which is the same line this report already walks
   // for the checks it will not run.
-  if crate::auth::is_master_admin(&state, &headers).await {
+  if crate::auth::is_server_admin(&state, &headers).await {
     let in_flight = state
       .active_proxied_requests
       .load(std::sync::atomic::Ordering::Relaxed);

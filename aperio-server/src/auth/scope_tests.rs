@@ -134,7 +134,7 @@ async fn session_scope_gc_prunes_expired() {
   assert!(state.sessions.lock().await.get(&live).is_some());
 }
 
-// --- caller_org / is_master_admin / effective_org ---------------------------
+// --- caller_org / is_server_admin / effective_org ---------------------------
 
 /// The organization a caller lands in: a one-grant user's own, a bound OIDC
 /// login's organization, an admin key's own, master for the built-in.
@@ -206,14 +206,14 @@ async fn caller_org_from_admin_key() {
 }
 
 #[tokio::test]
-async fn is_master_admin_cases() {
+async fn is_server_admin_cases() {
   let state = test_state();
   let master = seed_session(&state, Role::Admin, None, None).await;
-  assert!(is_master_admin(&state, &cookie_headers(&master)).await);
+  assert!(is_server_admin(&state, &cookie_headers(&master)).await);
 
   // Non-admin role is never master.
   let viewer = seed_session(&state, Role::Viewer, None, None).await;
-  assert!(!is_master_admin(&state, &cookie_headers(&viewer)).await);
+  assert!(!is_server_admin(&state, &cookie_headers(&viewer)).await);
 
   // Admin but pinned to a child org is not the master super-admin.
   let org = state
@@ -229,7 +229,7 @@ async fn is_master_admin_cases() {
     .create("cara", "password1", Role::Admin, Some(org.id.clone()))
     .unwrap();
   let child_admin = seed_session(&state, Role::Admin, Some("cara"), None).await;
-  assert!(!is_master_admin(&state, &cookie_headers(&child_admin)).await);
+  assert!(!is_server_admin(&state, &cookie_headers(&child_admin)).await);
 }
 
 #[tokio::test]
@@ -249,7 +249,7 @@ async fn disabled_user_session_grants_nothing() {
     .unwrap();
   let token = seed_session(&state, Role::Admin, Some("cara"), None).await;
   let headers = cookie_headers(&token);
-  assert!(!is_master_admin(&state, &headers).await);
+  assert!(!is_server_admin(&state, &headers).await);
 
   // Disabling the account must revoke its live session outright. Before this
   // guard the user's org lookup started failing, which read as "master org"
@@ -263,7 +263,7 @@ async fn disabled_user_session_grants_nothing() {
   assert_eq!(dashboard_role(&state, &headers).await, None);
   assert_eq!(dashboard_username(&state, &headers).await, None);
   assert!(!validate_session(&state, &headers).await);
-  assert!(!is_master_admin(&state, &headers).await);
+  assert!(!is_server_admin(&state, &headers).await);
 }
 
 #[tokio::test]
@@ -305,7 +305,7 @@ async fn effective_org_selection() {
   );
 }
 
-// --- dashboard_role / dashboard_username / require_master_admin --------------
+// --- dashboard_role / dashboard_username / require_server_admin --------------
 
 #[tokio::test]
 async fn dashboard_role_and_username() {
@@ -391,10 +391,10 @@ async fn dashboard_role_from_admin_key() {
 }
 
 #[tokio::test]
-async fn require_master_admin_gate() {
+async fn require_server_admin_gate() {
   let state = test_state();
   // No session -> 401.
-  let err = require_master_admin(&state, &HeaderMap::new())
+  let err = require_server_admin(&state, &HeaderMap::new())
     .await
     .unwrap_err();
   assert_eq!(err.status(), StatusCode::UNAUTHORIZED);
@@ -413,7 +413,7 @@ async fn require_master_admin_gate() {
     .create("fred", "password1", Role::Admin, Some(org.id))
     .unwrap();
   let child = seed_session(&state, Role::Admin, Some("fred"), None).await;
-  let err = require_master_admin(&state, &cookie_headers(&child))
+  let err = require_server_admin(&state, &cookie_headers(&child))
     .await
     .unwrap_err();
   assert_eq!(err.status(), StatusCode::FORBIDDEN);
@@ -421,7 +421,7 @@ async fn require_master_admin_gate() {
   // Master admin -> Ok.
   let master = seed_session(&state, Role::Admin, None, None).await;
   assert!(
-    require_master_admin(&state, &cookie_headers(&master))
+    require_server_admin(&state, &cookie_headers(&master))
       .await
       .is_ok()
   );
@@ -446,4 +446,45 @@ async fn session_token_reads_cookie() {
     session_token(&secure, &prefixed),
     Some("tok-123".to_string())
   );
+}
+
+#[tokio::test]
+async fn masters_people_reach_masters_hostnames_and_star_reaches_every_one() {
+  // Master is an organization like the others: its hostnames are the ones no
+  // tenant claims, and a master grant does not open a tenant's site. `*`
+  // reaches every organization, and so every hostname.
+  use crate::store::grants::{Grant, GrantOrg};
+  let state = test_state();
+  state
+    .org_store
+    .lock()
+    .await
+    .create("acme", vec!["*.acme.example".to_string()], None)
+    .unwrap();
+  {
+    let mut users = state.users.lock().await;
+    users
+      .create_with_grants(
+        "mia",
+        "password1",
+        None,
+        vec![Grant::new(GrantOrg::Master, Role::Viewer)],
+      )
+      .unwrap();
+    users
+      .create_with_grants(
+        "sam",
+        "password1",
+        None,
+        vec![Grant::new(GrantOrg::All, Role::Viewer)],
+      )
+      .unwrap();
+  }
+  let mia = cookie_headers(&seed_session(&state, Role::Viewer, Some("mia"), None).await);
+  let sam = cookie_headers(&seed_session(&state, Role::Viewer, Some("sam"), None).await);
+  assert!(admin_session_reaches(&state, &mia, Some("tunnel.example")).await);
+  assert!(!admin_session_reaches(&state, &mia, Some("www.acme.example")).await);
+  assert!(admin_session_reaches(&state, &mia, None).await);
+  assert!(admin_session_reaches(&state, &sam, Some("www.acme.example")).await);
+  assert!(admin_session_reaches(&state, &sam, Some("tunnel.example")).await);
 }

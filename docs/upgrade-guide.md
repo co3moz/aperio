@@ -140,6 +140,27 @@ the client's `defaults:`, to keep 0.12's behaviour exactly. A client file's
 `resilience: true` from 0.12 is refused with what it became,
 `cache.offline`.
 
+**`*: admin` is the server admin, and master's Admin administers master.**
+A named user or admin key holding `master: admin` used to reach the server
+settings, organizations, admin keys, port allocations and the server-wide
+pages; it now administers master's own tokens, users, sites and listeners,
+like any organization's Admin. Grant `*: admin` to whoever runs the server
+(`aperio-client api user update <id> --grant '*:admin'`, or a new admin key
+with `--org '*'`); the built-in account already holds it. A master grant also
+reaches master's hostnames only, the ones no other organization claims, at
+the visitor gate and under `dashboard.fenced_login`.
+
+**Public listeners come with the role.** A grant's `expose` actions,
+`expose_bounds` and `delegate` right are gone: a Viewer reads an
+organization's listeners, an Operator also enables, disables and disconnects
+them, an Admin manages them, all within the organization's port allocation,
+which bounds everyone but the server admin, master included. A tenant Admin
+who held no expose actions can now manage listeners inside the allocation the
+server admin gave the organization, so review the allocations before
+upgrading. Stored grants and keys still load with the extra fields ignored;
+`--grant 'acme:viewer+expose.create'`, `--expose` on `admin-key create` and an
+API grant naming `expose` are refused with what to write instead.
+
 **Flow control and tunnel compression are under `advanced`.** The server's
 `stream` section is `advanced.stream`, with the same fields, and
 `tunnel.compression` is `advanced.compression`. A document still writing

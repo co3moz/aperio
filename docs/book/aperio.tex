@@ -2171,15 +2171,22 @@ master with a grant in each, switches between them from the picker, and
 is what each grant says there, read from the record on every request. A
 grant is bounded by the granter's: giving a role in an organisation takes
 Admin there, and giving \code{*}, every organisation present and future,
-takes \code{*} at Admin, which the built-in account holds. Admin in the
-master organisation is what manages organisations and reaches the global
-surfaces; it does not by itself reach the children.
+takes the \textbf{server admin}: \code{*} at Admin, which the built-in
+account holds. The server admin alone manages organisations, admin keys
+and port allocations and reaches the global surfaces. Master is an
+organisation like the others, and its Admin administers master.
+
+What a role may do with the organisation's public listeners comes with it:
+a Viewer reads them, an Operator also enables, disables and disconnects
+them, an Admin creates, changes and deletes them. The organisation's port
+allocation, which the server admin sets, bounds everyone but the server
+admin, master included.
 
 \section{What stays global}
 
 Server settings, the response cache (keyed by host and URI, not by
-tenant), the expose ports, and organisation management itself. These are
-master-only by design.
+tenant), the port allocations, and organisation management itself. These
+are the server admin's by design.
 
 \section{Quotas}
 
@@ -2447,8 +2454,8 @@ anything else.
 \code{Ctrl+K} (\code{Cmd+K} on macOS) searches the settings as well as
 the pages. A setting matches on its name in either language, its path and
 its group, and carries its current value; picking one opens the pane,
-expands the group and scrolls to it. Values are shown to the master
-super-admin alone, since only they may read them.
+expands the group and scrolls to it. Values are shown to the server
+admin alone, since only they may read them.
 
 \screenshot{dashboard-settings.png}{The settings dialog: server settings,
 organisations, users and webhooks, opened over the page underneath rather
@@ -4194,7 +4201,7 @@ complete list, it is authoritative, and it always matches the running build.
 \rowsep
 \code{POST /aperio/api/share} & Generate a signed share link (see \emph{Share Links}). & dashboard session \\
 \rowsep
-\code{GET/PUT /aperio/api/settings} & Read / edit runtime server settings (persisted overrides on top of env defaults). & master super-admin \\
+\code{GET/PUT /aperio/api/settings} & Read / edit runtime server settings (persisted overrides on top of env defaults). & server admin \\
 \rowsep
 \code{GET /aperio/api/tunnels} & Lists the tunnels declared by the connected clients of the caller's organization (name, target, client, token, protocol, availability), the dashboard's Tunnels view. & master token (Bearer) or dashboard session \\
 \rowsep
@@ -4224,7 +4231,7 @@ complete list, it is authoritative, and it always matches the running build.
 \rowsep
 \code{GET /aperio/api/edge/ask?domain=}, \code{GET /aperio/api/edge/traefik} & Live hostname inventory for a reverse proxy in front of Aperio (Caddy on-demand TLS, Traefik HTTP provider), see \emph{Behind a Dynamic Edge Proxy}. & \code{edge.token} \\
 \rowsep
-\code{GET/POST /aperio/api/orgs}, \code{DELETE /aperio/api/orgs/:id}, \code{PUT /aperio/api/orgs/:id/hostnames}, \code{POST /aperio/api/orgs/select} & Organization management, hostname allowlist, and switching, see \emph{Organizations}. & master super-admin \\
+\code{GET/POST /aperio/api/orgs}, \code{DELETE /aperio/api/orgs/:id}, \code{PUT /aperio/api/orgs/:id/hostnames}, \code{POST /aperio/api/orgs/select} & Organization management, hostname allowlist, and switching, see \emph{Organizations}. & server admin \\
 \rowsep
 \bottomrule
 \end{longtable}

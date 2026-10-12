@@ -659,7 +659,7 @@ async fn an_email_with_a_record_is_what_the_record_says() {
   // Viewer in master, as the record says, and not the super-admin the login
   // used to mint.
   assert_eq!(dashboard_role(&state, &headers).await, Some(Role::Viewer));
-  assert!(!is_master_admin(&state, &headers).await);
+  assert!(!is_server_admin(&state, &headers).await);
 }
 
 #[tokio::test]

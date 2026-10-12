@@ -769,9 +769,8 @@ async fn import_write_failure_is_not_reported_as_applied_and_preserves_tokens() 
 
 #[tokio::test]
 async fn a_dump_either_way_takes_every_organization() {
-  // A named master Admin runs the server without reaching the children and
-  // may not grant `*`; an import would write a `*` grant for it and an
-  // export would read tenants it cannot open.
+  // A named master Admin administers master: an import would write a `*`
+  // grant for it and an export would read tenants it cannot open.
   let state = Arc::new(test_state());
   state
     .users
@@ -780,7 +779,7 @@ async fn a_dump_either_way_takes_every_organization() {
     .create("root", "long-password", Role::Admin, None)
     .unwrap();
   let token = seed_session(&state, Role::Viewer, Some("root"), None).await;
-  assert!(crate::auth::is_master_admin(&state, &cookie_headers(&token)).await);
+  assert!(!crate::auth::is_server_admin(&state, &cookie_headers(&token)).await);
   let resp = export_handler(
     State(state.clone()),
     ConnectInfo(test_peer()),

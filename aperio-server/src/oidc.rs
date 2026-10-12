@@ -33,12 +33,7 @@ impl OidcGrantPolicy {
       .group_grants
       .iter()
       .filter(|(group, _)| groups.iter().any(|g| g == group))
-      .map(|(group, grant)| {
-        let mut mapped = Grant::mapped(grant.org.clone(), grant.role, group);
-        mapped.expose = grant.expose.clone();
-        mapped.expose_bounds = grant.expose_bounds.clone();
-        mapped
-      })
+      .map(|(group, grant)| Grant::mapped(grant.org.clone(), grant.role, group))
       .collect()
   }
 }

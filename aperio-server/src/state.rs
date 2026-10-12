@@ -898,12 +898,13 @@ impl AppState {
   ///
   /// An organization's panel admits a grant reaching that organization and
   /// nothing else, always (`planned_features.md` #152). Every other hostname
-  /// admits everyone unless `fenced_login` is on (#151), and then: anyone
-  /// reaching master, master being unfenced everywhere and `*` reaching it;
-  /// the users of an organization with no fence, who have no hostname to be
-  /// sent to; and on a hostname an organization may act on, or is serving
-  /// right now (a random subdomain is in no fence), that organization's
-  /// people. A request naming no hostname is master's.
+  /// admits everyone unless `fenced_login` is on (#151), and then: a `*`
+  /// grant, which reaches every organization; the users of an organization
+  /// with no fence, who have no hostname to be sent to; and on a hostname an
+  /// organization may act on, or is serving right now (a random subdomain is
+  /// in no fence), that organization's people. Master is one of those
+  /// organizations, and every hostname no tenant claims is its own. A
+  /// request naming no hostname is master's.
   pub(crate) async fn login_admits(
     &self,
     host: Option<&str>,
@@ -913,12 +914,17 @@ impl AppState {
     if let Some(Some(org)) = self.panel_org(host).await {
       return role_in(grants, Some(&org)).is_some();
     }
-    if !self.config().fenced_login || role_in(grants, None).is_some() {
+    if !self.config().fenced_login || grants.iter().any(|g| g.org == GrantOrg::All) {
       return true;
     }
     let Some(host) = host else {
-      return false;
+      return role_in(grants, None).is_some();
     };
+    if grants.iter().any(|g| g.org == GrantOrg::Master)
+      && self.org_may_act_on_hostname(None, host).await
+    {
+      return true;
+    }
     let fences: Vec<(String, Vec<String>)> = self
       .org_store
       .lock()

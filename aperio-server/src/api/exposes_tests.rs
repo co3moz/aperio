@@ -1,5 +1,8 @@
 //! Handler-level authorization/revision acceptance; runtime sockets are tested
 //! by expose_manager::tests and router guards by the dashboard integration suite.
+//! What is pinned: a caller's role in the listener's organization decides what
+//! it may do, and the organization's port allocation is the one bound on what
+//! anyone but the server admin opens.
 use super::*;
 use crate::store::{
   grants::{Grant, GrantOrg},
@@ -55,24 +58,30 @@ async fn tenant(state: &Arc<AppState>, name: &str) -> String {
   manager.replace(state, doc, false).await.unwrap();
   org
 }
-async fn user(
-  state: &Arc<AppState>,
-  name: &str,
-  org: &str,
-  actions: &[ExposeAction],
-  bounds: Option<ExposePolicy>,
-) -> (String, HeaderMap) {
-  let mut grant = Grant::new(GrantOrg::Child(org.into()), Role::Viewer);
-  grant.expose = actions.iter().copied().collect();
-  grant.expose_bounds = bounds;
+/// Replaces every organization's allocation with `allocations`.
+async fn allocate(state: &Arc<AppState>, allocations: Vec<ExposePolicy>) {
+  let mut manager = state.exposes.lock().await;
+  let mut document = manager.store.document.clone();
+  document.policies = allocations;
+  manager.replace(state, document, false).await.unwrap();
+}
+/// A named user holding `role` in organization `org` (`master` for master),
+/// signed in.
+async fn user(state: &Arc<AppState>, name: &str, org: &str, role: Role) -> (String, HeaderMap) {
+  let home = (org != "master").then(|| org.to_string());
   let id = state
     .users
     .lock()
     .await
-    .create_with_grants(name, "long-password", Some(org.into()), vec![grant])
+    .create_with_grants(
+      name,
+      "long-password",
+      home.clone(),
+      vec![Grant::new(GrantOrg::parse(org), role)],
+    )
     .unwrap()
     .id;
-  let session = seed_session(state, Role::Viewer, Some(name), Some(org.into())).await;
+  let session = seed_session(state, Role::Viewer, Some(name), home).await;
   (id, cookie_headers(&session))
 }
 async fn make(
@@ -91,30 +100,13 @@ async fn make(
 }
 
 #[tokio::test]
-async fn delegated_bounds_keep_a_draining_listeners_reservation() {
+async fn the_allocation_keeps_a_draining_listeners_reservation() {
   let state = Arc::new(test_state());
   let org = tenant(&state, "draining").await;
-  let allocation = policy(&org, 1, u16::MAX);
-  {
-    let mut manager = state.exposes.lock().await;
-    let mut document = manager.store.document.clone();
-    document.policies = vec![allocation.clone()];
-    manager.replace(&state, document, false).await.unwrap();
-  }
-  let mut bounds = allocation;
-  bounds.max_tcp_connections = 256;
-  let (_, headers) = user(
-    &state,
-    "publisher",
-    &org,
-    &[
-      ExposeAction::Create,
-      ExposeAction::Disable,
-      ExposeAction::Disconnect,
-    ],
-    Some(bounds),
-  )
-  .await;
+  let mut allocation = policy(&org, 1, u16::MAX);
+  allocation.max_tcp_connections = 256;
+  allocate(&state, vec![allocation]).await;
+  let (_, headers) = user(&state, "publisher", &org, Role::Admin).await;
   let (tx, mut rx) = tokio::sync::mpsc::channel(16);
   let mut client = crate::test_support::mock_client(None, None, None, None);
   client.tx = tx;
@@ -165,7 +157,7 @@ async fn delegated_bounds_keep_a_draining_listeners_reservation() {
   second.enabled = true;
   let denied = make(&state, &headers, second, None).await;
   assert_eq!(denied.status(), StatusCode::FORBIDDEN);
-  assert_eq!(json_body(denied).await["code"], "delegation_bounds");
+  assert_eq!(json_body(denied).await["code"], "outside_allocation");
   state.exposes.lock().await.shutdown().await;
   drop(visitor);
 }
@@ -175,23 +167,9 @@ async fn reused_identity_does_not_disclose_another_organizations_session_history
   let state = Arc::new(test_state());
   let original = tenant(&state, "original").await;
   let recipient = tenant(&state, "recipient").await;
-  let (_, owner) = user(
-    &state,
-    "owner",
-    &original,
-    &[ExposeAction::Create, ExposeAction::Delete],
-    None,
-  )
-  .await;
-  let (_, publisher) = user(
-    &state,
-    "publisher",
-    &recipient,
-    &[ExposeAction::Create],
-    None,
-  )
-  .await;
-  let (_, viewer) = user(&state, "reader", &recipient, &[ExposeAction::Read], None).await;
+  let (_, owner) = user(&state, "owner", &original, Role::Admin).await;
+  let (_, publisher) = user(&state, "publisher", &recipient, Role::Admin).await;
+  let (_, viewer) = user(&state, "reader", &recipient, Role::Viewer).await;
   let id = uuid::Uuid::new_v4().to_string();
   assert_eq!(
     make(&state, &owner, spec(&original, 20000), Some(id.clone()))
@@ -279,47 +257,52 @@ async fn reused_identity_does_not_disclose_another_organizations_session_history
 }
 
 #[tokio::test]
-async fn delegated_viewer_creates_but_plain_viewer_and_other_tenant_cannot_access() {
+async fn a_viewer_reads_an_admin_creates_and_another_tenant_sees_nothing() {
   let state = Arc::new(test_state());
   let org = tenant(&state, "acme").await;
   let other = tenant(&state, "beta").await;
-  let (_, publisher) = user(&state, "publisher", &org, &[ExposeAction::Create], None).await;
-  let (_, plain) = user(&state, "plain", &org, &[], None).await;
-  let (_, foreign) = user(
-    &state,
-    "foreign",
-    &other,
-    &[ExposeAction::Read, ExposeAction::Update],
-    None,
-  )
-  .await;
+  let (_, publisher) = user(&state, "publisher", &org, Role::Admin).await;
+  let (_, operator) = user(&state, "operator", &org, Role::Operator).await;
+  let (_, reader) = user(&state, "reader", &org, Role::Viewer).await;
+  let (_, foreign) = user(&state, "foreign", &other, Role::Admin).await;
   let response = make(&state, &publisher, spec(&org, 20000), None).await;
   assert_eq!(response.status(), StatusCode::CREATED);
   let body = json_body(response).await;
   let id = body["id"].as_str().unwrap().to_string();
-  for headers in [plain.clone(), foreign.clone()] {
+  let page = || {
+    Query(Page {
+      offset: Some(0),
+      limit: Some(1),
+      ..Default::default()
+    })
+  };
+  assert_eq!(
+    detail(State(state.clone()), foreign.clone(), Path(id.clone()))
+      .await
+      .status(),
+    StatusCode::NOT_FOUND
+  );
+  let response = list(State(state.clone()), foreign.clone(), page()).await;
+  assert_eq!(json_body(response).await["total"], 0);
+  // Every role in the organization reads its listeners.
+  assert_eq!(
+    detail(State(state.clone()), reader.clone(), Path(id.clone()))
+      .await
+      .status(),
+    StatusCode::OK
+  );
+  let listed = json_body(list(State(state.clone()), reader.clone(), page()).await).await;
+  assert_eq!(listed["total"], 1);
+  assert_eq!(listed["items"][0]["actions"], serde_json::json!(["read"]));
+  // Creating one is administering the organization.
+  for headers in [&reader, &operator] {
     assert_eq!(
-      detail(State(state.clone()), headers.clone(), Path(id.clone()))
+      make(&state, headers, spec(&org, 20001), None)
         .await
         .status(),
-      StatusCode::NOT_FOUND
+      StatusCode::FORBIDDEN
     );
-    let response = list(
-      State(state.clone()),
-      headers,
-      Query(Page {
-        offset: Some(0),
-        limit: Some(1),
-        ..Default::default()
-      }),
-    )
-    .await;
-    assert_eq!(json_body(response).await["total"], 0);
   }
-  assert_eq!(
-    make(&state, &plain, spec(&org, 20001), None).await.status(),
-    StatusCode::FORBIDDEN
-  );
   assert_eq!(
     make(&state, &publisher, spec(&other, 20001), None)
       .await
@@ -349,14 +332,7 @@ async fn delegated_viewer_creates_but_plain_viewer_and_other_tenant_cannot_acces
 async fn idempotency_revision_and_live_revocation_are_enforced() {
   let state = Arc::new(test_state());
   let org = tenant(&state, "acme").await;
-  let (user_id, headers) = user(
-    &state,
-    "publisher",
-    &org,
-    &[ExposeAction::Create, ExposeAction::Update],
-    None,
-  )
-  .await;
+  let (user_id, headers) = user(&state, "publisher", &org, Role::Admin).await;
   let id = uuid::Uuid::new_v4().to_string();
   for expected in [StatusCode::CREATED, StatusCode::OK] {
     assert_eq!(
@@ -398,14 +374,40 @@ async fn idempotency_revision_and_live_revocation_are_enforced() {
   .await;
   assert_eq!(stale.status(), StatusCode::CONFLICT);
   assert_eq!(json_body(stale).await["code"], "revision_conflict");
+  // Demoted to Viewer: still reads, no longer changes, at the next request.
   state
     .users
     .lock()
     .await
     .set_grants(
       &user_id,
-      vec![Grant::new(GrantOrg::Child(org), Role::Viewer)],
+      vec![Grant::new(GrantOrg::Child(org.clone()), Role::Viewer)],
     )
+    .unwrap();
+  assert_eq!(
+    detail(State(state.clone()), headers.clone(), Path(id.clone()))
+      .await
+      .status(),
+    StatusCode::OK
+  );
+  let refused = update(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    headers.clone(),
+    Path(id.clone()),
+    ExposeJson(Update {
+      revision: 2,
+      spec: spec(&org, 20003),
+    }),
+  )
+  .await;
+  assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+  // Granted elsewhere only: the organization's listeners are not theirs.
+  state
+    .users
+    .lock()
+    .await
+    .set_grants(&user_id, vec![Grant::new(GrantOrg::Master, Role::Viewer)])
     .unwrap();
   assert_eq!(
     detail(State(state.clone()), headers, Path(id.clone()))
@@ -420,29 +422,20 @@ async fn idempotency_revision_and_live_revocation_are_enforced() {
 }
 
 #[tokio::test]
-async fn user_and_scoped_key_obey_identical_delegated_port_bounds() {
+async fn the_organizations_allocation_bounds_a_user_and_a_key_alike() {
   let state = Arc::new(test_state());
   let org = tenant(&state, "acme").await;
-  let bounds = policy(&org, 20000, 20000);
-  let (_, session) = user(
-    &state,
-    "bounded",
-    &org,
-    &[ExposeAction::Create],
-    Some(bounds.clone()),
-  )
-  .await;
+  allocate(&state, vec![policy(&org, 20000, 20000)]).await;
+  let (_, session) = user(&state, "bounded", &org, Role::Admin).await;
   let (_, secret) = state
     .admin_key_store
     .lock()
     .await
-    .create_with_bounds(
+    .create(
       "bounded-key".into(),
-      Role::Viewer,
+      Role::Admin,
       GrantOrg::Child(org.clone()),
       None,
-      [ExposeAction::Create].into_iter().collect(),
-      Some(bounds),
     )
     .unwrap();
   let mut key = HeaderMap::new();
@@ -450,7 +443,7 @@ async fn user_and_scoped_key_obey_identical_delegated_port_bounds() {
   for headers in [session, key] {
     let denied = make(&state, &headers, spec(&org, 20001), None).await;
     assert_eq!(denied.status(), StatusCode::FORBIDDEN);
-    assert_eq!(json_body(denied).await["code"], "delegation_bounds");
+    assert_eq!(json_body(denied).await["code"], "outside_allocation");
     let mut alternate = spec(&org, 20000);
     alternate.listener.address = "0.0.0.0".parse().unwrap();
     assert_eq!(
@@ -464,4 +457,20 @@ async fn user_and_scoped_key_obey_identical_delegated_port_bounds() {
       StatusCode::CREATED
     );
   }
+}
+
+#[tokio::test]
+async fn masters_admin_is_bound_by_masters_allocation_and_the_server_admin_is_not() {
+  let state = Arc::new(test_state());
+  let (_, master_admin) = user(&state, "mara", "master", Role::Admin).await;
+  let denied = make(&state, &master_admin, spec("master", 20000), None).await;
+  assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+  assert_eq!(json_body(denied).await["code"], "outside_allocation");
+  let server_admin = crate::test_support::admin_headers(&state).await;
+  assert_eq!(
+    make(&state, &server_admin, spec("master", 20000), None)
+      .await
+      .status(),
+    StatusCode::CREATED
+  );
 }

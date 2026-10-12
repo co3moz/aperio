@@ -135,9 +135,9 @@ export const ROLE_ORDER: Record<Role, number> = { viewer: 0, operator: 1, admin:
 
 /** Pages the given role may access. Master-only pages (organization
  *  management) are visible solely to the built-in `aperio` super-admin. */
-export function pagesForRole(role: Role, masterAdmin = false): PageSpec[] {
+export function pagesForRole(role: Role, serverAdmin = false): PageSpec[] {
   return PAGES.filter(
-    (p) => ROLE_ORDER[role] >= ROLE_ORDER[p.minRole ?? 'viewer'] && (!p.masterOnly || masterAdmin),
+    (p) => ROLE_ORDER[role] >= ROLE_ORDER[p.minRole ?? 'viewer'] && (!p.masterOnly || serverAdmin),
   )
 }
 
@@ -151,7 +151,7 @@ export function AppSidebar({
   sessionSeconds,
   version,
   role,
-  masterAdmin,
+  serverAdmin,
   selectedOrg,
   reachableOrgs,
   onSignOut,
@@ -171,7 +171,7 @@ export function AppSidebar({
   sessionSeconds: number | null
   version: string | null
   role: Role
-  masterAdmin: boolean
+  serverAdmin: boolean
   selectedOrg: string
   /** How many organizations a grant reaches; the picker appears past one. */
   reachableOrgs: number
@@ -206,12 +206,12 @@ export function AppSidebar({
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-        {(masterAdmin || reachableOrgs > 1) && <OrgSwitcher selectedOrg={selectedOrg} />}
+        {(serverAdmin || reachableOrgs > 1) && <OrgSwitcher selectedOrg={selectedOrg} />}
       </SidebarHeader>
       <SidebarContent>
         {PAGE_GROUPS.map((group) => {
           const pages = group.pages.filter(
-            (p) => order >= ROLE_ORDER[p.minRole ?? 'viewer'] && (!p.masterOnly || masterAdmin),
+            (p) => order >= ROLE_ORDER[p.minRole ?? 'viewer'] && (!p.masterOnly || serverAdmin),
           )
           if (pages.length === 0) return null
           return (

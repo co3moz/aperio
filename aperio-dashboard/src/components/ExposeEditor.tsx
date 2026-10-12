@@ -3,26 +3,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { useI18n } from '@/i18n'
-import { ApiError, exposeApi, type ExposeAction, type ExposeItem, type ExposeLimits, type ExposePolicy, type ExposeProtocol, type ExposeSpec } from '@/lib/api'
+import { ApiError, exposeApi, type ExposeItem, type ExposeLimits, type ExposePolicy, type ExposeProtocol, type ExposeSpec } from '@/lib/api'
 import { useOrgLabel, useSession } from '@/lib/session'
-
-export const EXPOSE_ACTIONS: ExposeAction[] = ['read', 'create', 'update', 'enable', 'disable', 'delete', 'disconnect', 'delegate']
-
-export function ExposeActionsEditor({ org, value, onChange }: { org: string; value: ExposeAction[]; onChange: (value: ExposeAction[]) => void }) {
-  const { t } = useI18n()
-  const { masterAdmin, orgs } = useSession()
-  const held = orgs.find((o) => o.id === org)?.expose_actions ?? []
-  const labels: Record<ExposeAction, string> = { read: t('Read'), create: t('Create'), update: t('Edit'), enable: t('Enable'), disable: t('Disable'), delete: t('Delete'), disconnect: t('Disconnect'), delegate: t('Delegate') }
-  return <fieldset className="grid gap-2 rounded-lg border p-3">
-    <legend className="px-1 text-sm font-medium">{t('Public expose permissions')}</legend>
-    <p className="text-xs text-muted-foreground">{t('These permissions control server listeners independently of the dashboard role.')}</p>
-    <div className="flex flex-wrap gap-x-4 gap-y-2">{EXPOSE_ACTIONS.map((action) => <label key={action} className="flex items-center gap-2 text-sm">
-      <input type="checkbox" checked={value.includes(action)} disabled={!masterAdmin && !(held.includes('delegate') && held.includes(action))}
-        onChange={(e) => onChange(e.target.checked ? [...value, action] : value.filter((a) => a !== action))} />
-      {labels[action]}
-    </label>)}</div>
-  </fieldset>
-}
 
 export function ExposeField({ label, children, error }: { label: string; children: ReactNode; error?: string }) {
   const controlId = useId()
@@ -56,9 +38,9 @@ export function ExposeEditor({ item, initial, policies, onClose, onSaved }: {
   item?: ExposeItem; initial?: Partial<ExposeSpec>; policies: ExposePolicy[]; onClose: () => void; onSaved: () => void
 }) {
   const { t } = useI18n()
-  const { orgs, selectedOrg, masterAdmin } = useSession()
+  const { orgs, selectedOrg, serverAdmin } = useSession()
   const orgLabel = useOrgLabel()
-  const targets = orgs.filter((o) => o.id !== '*' && (masterAdmin || o.expose_actions?.includes('create')))
+  const targets = orgs.filter((o) => o.id !== '*' && (serverAdmin || o.expose_actions?.includes('create')))
   const [spec, setSpec] = useState<ExposeSpec>(() => structuredClone(item?.resource.spec ?? {
     org_id: initial?.org_id ?? targets.find((o) => o.id === selectedOrg)?.id ?? targets[0]?.id ?? 'master',
     tunnel: initial?.tunnel ?? '', listener: initial?.listener ?? { address: '0.0.0.0', port: 20000, protocol: 'tcp' },
@@ -72,7 +54,6 @@ export function ExposeEditor({ item, initial, policies, onClose, onSaved }: {
   const [ack, setAck] = useState(false)
   const fieldId = useId()
   const policy = policies.find((p) => p.org_id === spec.org_id) ?? item?.policy
-  const bounds = orgs.find((o) => o.id === spec.org_id)?.expose_bounds ?? item?.bounds
   const setLimit = (field: string, value: number) => setSpec((s) => ({ ...s, limits: { ...s.limits, [field]: value } }))
   const limitLabels: Record<string, string> = {
     max_connections: t('Maximum TCP connections'), open_timeout_secs: t('Open timeout (seconds)'), drain_timeout_secs: t('Drain timeout (seconds)'),
@@ -116,12 +97,7 @@ export function ExposeEditor({ item, initial, policies, onClose, onSaved }: {
         <p className="text-xs text-muted-foreground">{t('Offline tunnels can be saved. Encrypted tunnels cannot be exposed publicly.')}</p>
         {policy ? <div className="rounded-lg border p-3 text-sm"><p>{t('Allocated listeners')}</p><ul className="list-inside list-disc">{policy.allocations.map((a, i) => <li key={i} className="font-mono text-xs">{a.protocol} {a.address} : {a.first_port}–{a.last_port}</li>)}</ul>
           <p>{t('Rule quota')}: {policy.max_rules}</p></div>
-          : spec.org_id !== 'master' && <p role="alert" className="text-sm text-destructive">{t('This organization needs a server port allocation before an expose can be created.')}</p>}
-        {bounds && <div className="rounded-lg border p-3 text-sm"><p>{t('Delegated expose limits')}</p>
-          {bounds.allocations.map((a, i) => <p key={i} className="font-mono text-xs">{a.protocol} {a.address} : {a.first_port}–{a.last_port}</p>)}
-          <p>{t('Rule quota')}: {bounds.max_rules} · TCP: {bounds.max_tcp_connections} · UDP: {bounds.max_udp_sessions}</p>
-          <p>{t('Ingress limit (bytes/s)')}: {bounds.ingress_bytes_per_second} · {t('Egress limit (bytes/s)')}: {bounds.egress_bytes_per_second}</p>
-        </div>}
+          : !serverAdmin && <p role="alert" className="text-sm text-destructive">{t('This organization needs a server port allocation before an expose can be created.')}</p>}
         <ExposeField label={t('Allowed source IPs or CIDRs (one per line; empty allows all)')}><textarea className={`${exposeSelectClass} min-h-20 font-mono`} value={spec.allowed_ips.join('\n')} onChange={(e) => setSpec({ ...spec, allowed_ips: e.target.value.split('\n') })} onBlur={() => setSpec({ ...spec, allowed_ips: spec.allowed_ips.map((s) => s.trim()).filter(Boolean) })} /></ExposeField>
         <fieldset className="grid gap-3 rounded-lg border p-3 sm:grid-cols-2"><legend className="px-1 text-sm font-medium">{t('Limits')}</legend>
           {Object.entries(spec.limits).filter(([key]) => key !== 'protocol').map(([key, value]) => <ExposeField key={key} error={fieldError(`limits.${key}`)} label={limitLabels[key]}><Input required type="number" min={key === 'drain_timeout_secs' ? 0 : 1} max={key === 'max_datagram_bytes' ? 65507 : Number.MAX_SAFE_INTEGER} step={1} value={value} onChange={(e) => setLimit(key, Number(e.target.value))} /></ExposeField>)}
