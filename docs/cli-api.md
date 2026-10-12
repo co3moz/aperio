@@ -10,6 +10,28 @@ Each command performs exactly one call, prints the server's JSON answer (pretty-
 
 ## Authentication
 
+`admin` is another name for `api`: `aperio-client admin token list` is `aperio-client api token list`.
+
+### Signing in
+
+The quickest way to a working command line is to sign in once, the way `gh auth login` does:
+
+```bash
+# the built-in account, whose password is the master token
+printf '%s' "$APERIO_SERVER_TOKEN" | aperio-client login --server-url https://tunnel.example.com --password -
+
+aperio-client admin token list          # no key on the command line, none in a file
+aperio-client profile list              # the servers signed in to, the one in use marked *
+aperio-client profile use staging       # switch
+aperio-client logout                    # forget it here, and revoke its key on the server
+```
+
+`login` signs in, mints an admin key for this machine (`--role admin --org '*'` by default, the server admin; narrow it with `--role` and `--org`, give it a lifetime with `--expire 90d`), closes the session again and keeps the key in `~/.aperio/profiles.yaml`, a file only you may read. `--user alice --password -` signs in as a named user and `--totp <code>` adds a second factor. Only the server admin mints keys, so anyone else is handed one and keeps it with `aperio-client login --server-url <url> --key -` instead. Signing in again to the same profile replaces its key and revokes the old one.
+
+A profile is the fallback, not an override: an admin key given with `--server-api-key`, `APERIO_SERVER_API_KEY` or `server.api_key` wins, and the profile in use is sent only to its own server. A project whose `aperio.yaml` names another server never sends it that profile's key.
+
+### Admin keys
+
 The admin API is authenticated with a **programmatic admin key**, a credential that carries a role (`viewer` / `operator` / `admin`) and an organization, presented as `Authorization: Bearer`. The first one takes a single step on the server's host, no session or cookie involved:
 
 ```bash
@@ -46,7 +68,7 @@ server:
 
 The server URL comes from the usual `--server-url` / `APERIO_SERVER_URL` / `server.url` layers.
 
-When no admin key is configured the tunnel token is sent instead. The server accepts it only where the master token is a valid credential (`api tunnel create` / `delete`), so CI jobs that only provision ephemeral tunnels need no admin key at all. Everything else answers with an authentication error.
+When no admin key is configured and no profile is in use for that server, the tunnel token is sent instead. The server accepts it only where the master token is a valid credential (`api tunnel create` / `delete`), so CI jobs that only provision ephemeral tunnels need no admin key at all. Everything else answers with an authentication error.
 
 A key's role gates what it can do, exactly as it does for a dashboard user: reads need `viewer`, mutations need `operator`, and users, settings, organizations, and admin keys themselves need `admin`. The export, import and session routes are `admin` reads rather than `viewer` ones, and `api explain` is refused below `operator`. Organization scoping applies too, a key bound to an org only ever sees that org's clients, tokens, and traffic.
 

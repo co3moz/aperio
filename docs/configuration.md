@@ -46,7 +46,10 @@ aperio-client bind [NAME...]           Bind tunnels a peer client declares, loca
 aperio-client init 3000 --hostname app.example.com
                                        Write the aperio.yaml that command line describes
 aperio-client check                    Diagnose configuration and connectivity
-aperio-client api <group> <action>     Call the server's admin API (see below)
+aperio-client api <group> <action>     Call the server's admin API (see below); `admin` is the same
+aperio-client login --server-url <url> Sign in to a server's admin API and keep a key for `api`/`admin`
+aperio-client logout [profile]         Forget a profile, revoking the key `login` minted
+aperio-client profile list|use <name>  The servers signed in to, and which one is in use
 aperio-client completions <shell>      Print a shell completion script
 aperio-client --version
 aperio-client --help

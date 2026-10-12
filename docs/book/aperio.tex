@@ -3258,6 +3258,10 @@ aperio-server check server-init.yaml
 # on the aperio-server host, running or not: the first admin key
 aperio-server admin create-key --name ci
 
+# or sign in once from anywhere, and keep a key for `admin` calls
+aperio-client login --server-url https://tunnel.example.com --password -
+aperio-client admin token list
+
 # from anywhere, with an admin key
 aperio-client api self-health
 aperio-client api topology

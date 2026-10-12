@@ -70,9 +70,23 @@ pub(crate) enum Command {
   },
   /// Call the server's admin API: share links, tokens, tunnels, maintenance,
   /// users, orgs, webhooks, cache, and the read-only reports
+  #[command(visible_alias = "admin")]
   Api {
     #[command(subcommand)]
     command: crate::api::ApiCommand,
+  },
+  /// Sign in to a server's admin API and keep a key for `api`/`admin`:
+  /// `aperio-client login --server-url https://tunnel.example.com`
+  Login(crate::api::LoginArgs),
+  /// Forget a profile here, revoking its key when this machine minted it
+  Logout {
+    /// The profile (default: the one in use)
+    profile: Option<String>,
+  },
+  /// The servers this machine is signed in to
+  Profile {
+    #[command(subcommand)]
+    command: crate::api::ProfileCmd,
   },
 }
 
@@ -167,8 +181,14 @@ pub(crate) enum CliMode {
   },
   /// `aperio-client completions <shell>`: print the script and exit.
   Completions(clap_complete::Shell),
-  /// `aperio-client api ...`: one admin API call, then exit.
+  /// `aperio-client api ...` (or `admin ...`): one admin API call, then exit.
   Api(crate::api::ApiCommand),
+  /// `aperio-client login`: sign in and keep a key in a profile.
+  Login(crate::api::LoginArgs),
+  /// `aperio-client logout [profile]`.
+  Logout(Option<String>),
+  /// `aperio-client profile ...`.
+  Profile(crate::api::ProfileCmd),
   /// `aperio-client bind [name...]`: bind tunnels a peer client declares as
   /// local listeners. Empty when no name was given (the `binds:` section
   /// drives it).
@@ -237,6 +257,9 @@ pub(crate) fn cli_to_args(cli: Cli) -> CliArgs {
     ),
     Some(Command::Completions { shell }) => (CliMode::Completions(shell), None),
     Some(Command::Api { command }) => (CliMode::Api(command), None),
+    Some(Command::Login(args)) => (CliMode::Login(args), None),
+    Some(Command::Logout { profile }) => (CliMode::Logout(profile), None),
+    Some(Command::Profile { command }) => (CliMode::Profile(command), None),
   };
   CliArgs {
     mode,

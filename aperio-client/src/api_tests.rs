@@ -786,3 +786,120 @@ fn every_admin_route_is_reachable_from_the_cli() {
       .join("\n  ")
   );
 }
+
+// ---------------------------------------------------------------------------
+// login, profiles and the `admin` spelling
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_call_carries_the_configured_key_then_the_profiles_then_the_tunnel_token() {
+  let mut profiles = profiles::Profiles::default();
+  profiles.insert(
+    "prod",
+    profiles::Profile {
+      server: "https://t.example.com".into(),
+      api_key: "apk_profile".into(),
+      key_id: None,
+    },
+  );
+  let mut s = settings();
+  s.token = Some("apr_tunnel".into());
+
+  // A key configured here wins, on the server configured here.
+  s.server = Some("https://t.example.com".into());
+  s.api_key = Some("apk_configured".into());
+  assert_eq!(
+    endpoint(&s, &profiles),
+    Some((
+      "https://t.example.com".to_string(),
+      Some("apk_configured".to_string())
+    ))
+  );
+  // None configured: the profile's key, for its own server.
+  s.api_key = None;
+  assert_eq!(
+    endpoint(&s, &profiles).and_then(|(_, key)| key).as_deref(),
+    Some("apk_profile")
+  );
+  // No server configured either: the profile names it.
+  s.server = None;
+  assert_eq!(
+    endpoint(&s, &profiles),
+    Some((
+      "https://t.example.com".to_string(),
+      Some("apk_profile".to_string())
+    ))
+  );
+  // A project pointed at another server never sends the profile's key.
+  s.server = Some("https://other.example.com".into());
+  assert_eq!(
+    endpoint(&s, &profiles).and_then(|(_, key)| key).as_deref(),
+    Some("apr_tunnel")
+  );
+  // Nothing at all: no call to make.
+  s.server = None;
+  assert!(endpoint(&s, &profiles::Profiles::default()).is_none());
+}
+
+#[test]
+fn admin_is_api_and_login_logout_profile_parse() {
+  use crate::config::{Cli, CliMode, cli_to_args};
+  let mode = |argv: &[&str]| cli_to_args(Cli::try_parse_from(argv).unwrap()).mode;
+  assert!(matches!(
+    mode(&["aperio-client", "admin", "token", "list"]),
+    CliMode::Api(ApiCommand::Token(_))
+  ));
+  match mode(&[
+    "aperio-client",
+    "login",
+    "--server-url",
+    "https://t.example.com",
+    "--password",
+    "-",
+    "--org",
+    "master",
+  ]) {
+    CliMode::Login(args) => {
+      assert_eq!(args.user, "aperio");
+      assert_eq!(args.org, "master");
+      assert_eq!(args.role, "admin");
+    }
+    _ => panic!("login"),
+  }
+  assert!(
+    Cli::try_parse_from(["aperio-client", "login", "--key", "-", "--password", "x"]).is_err(),
+    "a key and a password are two ways in, not one"
+  );
+  assert!(matches!(
+    mode(&["aperio-client", "logout", "prod"]),
+    CliMode::Logout(Some(name)) if name == "prod"
+  ));
+  assert!(matches!(
+    mode(&["aperio-client", "profile", "use", "prod"]),
+    CliMode::Profile(ProfileCmd::Use { .. })
+  ));
+}
+
+#[test]
+fn every_set_cookie_comes_back_as_one_cookie_header() {
+  let mut headers = reqwest::header::HeaderMap::new();
+  headers.append(
+    reqwest::header::SET_COOKIE,
+    "__Host-aperio_session=abc; Path=/; Secure; HttpOnly"
+      .parse()
+      .unwrap(),
+  );
+  headers.append(
+    reqwest::header::SET_COOKIE,
+    "other=1; Path=/".parse().unwrap(),
+  );
+  // A cookie being cleared is no session.
+  headers.append(
+    reqwest::header::SET_COOKIE,
+    "gone=; Max-Age=0".parse().unwrap(),
+  );
+  assert_eq!(
+    session_cookies(&headers),
+    "__Host-aperio_session=abc; other=1"
+  );
+}

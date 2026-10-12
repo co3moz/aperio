@@ -204,7 +204,10 @@ pub async fn run() {
   // One-shot admin API calls print their JSON answer on stdout, so their logs
   // stay quiet (warnings and above) and go to stderr: a piped `api` call must
   // emit nothing but the response document.
-  let api_mode = matches!(cli.mode, CliMode::Api(_));
+  let api_mode = matches!(
+    cli.mode,
+    CliMode::Api(_) | CliMode::Login(_) | CliMode::Logout(_) | CliMode::Profile(_)
+  );
   // Logging has to be up before the config files are loaded (their own load
   // messages go through it), so the two logging keys are read from the files
   // separately and cheaply here. `RUST_LOG` still wins over everything.
@@ -293,6 +296,13 @@ pub async fn run() {
   // Admin API mode: perform one call, print the JSON answer, exit.
   if let CliMode::Api(ref command) = cli.mode {
     api::run_api(&settings, &cli.opts, command).await;
+  }
+  // Signing in and out of a server's admin API, and choosing among them.
+  match cli.mode {
+    CliMode::Login(ref args) => std::process::exit(api::run_login(&settings, args).await),
+    CliMode::Logout(ref profile) => std::process::exit(api::run_logout(profile.as_deref()).await),
+    CliMode::Profile(ref command) => std::process::exit(api::run_profile(command)),
+    _ => {}
   }
 
   // Diagnostics mode reports missing config instead of exiting on it.
