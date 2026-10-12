@@ -551,7 +551,7 @@ pub struct ServerSection {
   /// IP family used to dial the server: `auto` (tries both), `ipv4`, or
   /// `ipv6`. Set `ipv4` when the server hostname resolves to an IPv6 address
   /// this host cannot reach. Default: `auto`.
-  #[schemars(extend("examples" = ["auto", "ipv4"]))]
+  #[schemars(extend("x-reload" = "restart", "examples" = ["auto", "ipv4"]))]
   pub ip_family: Option<String>,
   /// HTTP proxy to dial the server through, for a network that allows no
   /// direct outbound connection: `host:port`, or `http://host:port`, with an
@@ -559,18 +559,18 @@ pub struct ServerSection {
   /// runs TLS inside the tunnel the proxy opens, so the proxy sees the
   /// server's hostname and nothing else. Your own backends are never reached
   /// through it. Unset: dial the server directly.
-  #[schemars(extend("examples" = ["proxy.corp:3128", "http://user:password@proxy.corp:3128"]))]
+  #[schemars(extend("x-reload" = "restart", "examples" = ["proxy.corp:3128", "http://user:password@proxy.corp:3128"]))]
   pub proxy: Option<String>,
   /// Lowest TLS version offered when dialing the server over `wss://`: `1.2`
   /// or `1.3`. Unset leaves rustls' own set (1.2 and 1.3) in place, which is
   /// the right default; pin it when a policy has to name the floor rather
   /// than inherit it. A value this client cannot offer is refused at startup.
-  #[schemars(extend("examples" = ["1.3"]))]
+  #[schemars(extend("x-reload" = "restart", "examples" = ["1.3"]))]
   pub min_tls_version: Option<String>,
   /// Exact cipher suites offered when dialing the server, by their IANA
   /// names, comma-separated. Unset leaves rustls' preference order alone,
   /// which is almost always better. An unknown name is refused at startup.
-  #[schemars(extend("examples" = ["TLS13_AES_256_GCM_SHA384,TLS13_CHACHA20_POLY1305_SHA256"]))]
+  #[schemars(extend("x-reload" = "restart", "examples" = ["TLS13_AES_256_GCM_SHA384,TLS13_CHACHA20_POLY1305_SHA256"]))]
   pub tls_cipher_suites: Option<String>,
 }
 

@@ -343,3 +343,53 @@ fn every_mistake_in_a_file_is_reported_at_once() {
   let err = refusal("servr: {}\ntoken: t");
   assert_eq!(err.lines().count(), 2, "{err}");
 }
+
+// ---------------------------------------------------------------------------
+// What a reload cannot apply
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_keys_applied_at_startup_come_from_the_schema() {
+  let paths = restart_paths();
+  for key in [
+    "server.proxy",
+    "server.ip_family",
+    "otel_bridge",
+    "log_level",
+    "client_id",
+  ] {
+    assert!(paths.iter().any(|p| p == key), "{key} in {paths:?}");
+  }
+  // A service setting applies on a reload: the services are rebuilt.
+  assert!(
+    !paths
+      .iter()
+      .any(|p| p.starts_with("defaults") || p.starts_with("services"))
+  );
+}
+
+#[test]
+fn a_reload_names_the_startup_keys_it_changed() {
+  let before = assemble(
+    vec![(
+      Layer::Local,
+      yaml("server: {proxy: 'a:1'}\nlog_level: info"),
+    )],
+    Vec::new(),
+  )
+  .unwrap()
+  .config;
+  let after = assemble(
+    vec![(
+      Layer::Local,
+      yaml("server: {proxy: 'b:1'}\nlog_level: info\ndefaults: {timeout: 5s}"),
+    )],
+    Vec::new(),
+  )
+  .unwrap()
+  .config;
+  assert_eq!(
+    restart_changes(&restart_values(&before), &restart_values(&after)),
+    vec!["server.proxy".to_string()]
+  );
+}

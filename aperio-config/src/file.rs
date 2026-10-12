@@ -40,7 +40,7 @@ pub struct FileConfig {
   /// recognize the process when it comes back. Unset, one is generated on
   /// the first run and kept in `client_id_file`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["3f2504e0-4f89-41d3-9a0c-0305e82c3301"]))]
+  #[schemars(extend("x-reload" = "restart", "examples" = ["3f2504e0-4f89-41d3-9a0c-0305e82c3301"]))]
   pub client_id: Option<String>,
   /// Where a generated `client_id` is kept. Default: a file under
   /// `~/.aperio/clients/` named after the config file this client reads, so
@@ -48,7 +48,7 @@ pub struct FileConfig {
   /// in a repository. A client with no config file, or one that cannot
   /// write here, runs with a fresh id each time.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["/var/lib/aperio-client/myapp/client-id"]))]
+  #[schemars(extend("x-reload" = "restart", "examples" = ["/var/lib/aperio-client/myapp/client-id"]))]
   pub client_id_file: Option<String>,
   /// Other config files to read before this one, each path relative to the
   /// file that names it. Mappings merge key by key and anything else is
@@ -109,7 +109,7 @@ pub struct FileConfig {
   /// outbound connection, the tunnel: no new firewall rule, no collector
   /// credential at the edge. Applied at startup; a change needs a restart.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = [{"listen": "127.0.0.1:4318", "transport": "tunnel"}]))]
+  #[schemars(extend("x-reload" = "restart", "examples" = [{"listen": "127.0.0.1:4318", "transport": "tunnel"}]))]
   pub otel_bridge: Option<OtelBridge>,
   /// Autoscaling: the endpoint the server calls when this client's services
   /// need capacity. Applies to every service this client exposes; each
@@ -174,27 +174,27 @@ pub struct FileConfig {
   /// Trust-on-first-use device key announced with the tunnel token, so a
   /// server with token pinning on can bind that token to this machine.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["9f8c1d2e3a4b5c6d7e8f9a0b1c2d3e4f9f8c1d2e3a4b5c6d7e8f9a0b1c2d3e4f"]))]
+  #[schemars(extend("x-reload" = "restart", "examples" = ["9f8c1d2e3a4b5c6d7e8f9a0b1c2d3e4f9f8c1d2e3a4b5c6d7e8f9a0b1c2d3e4f"]))]
   pub device_key: Option<String>,
   /// File holding the device key; a random one is generated and kept there
   /// on the first run. Ignored when `device_key` is set directly.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["/var/lib/aperio/device.key"]))]
+  #[schemars(extend("x-reload" = "restart", "examples" = ["/var/lib/aperio/device.key"]))]
   pub device_key_file: Option<String>,
   /// Path to write this process's pid to at startup, removed on a clean exit.
   /// For an init system that wants one; a process supervisor usually knows the
   /// pid without being told.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["/run/aperio-client.pid"]))]
+  #[schemars(extend("x-reload" = "restart", "examples" = ["/run/aperio-client.pid"]))]
   pub pid_file: Option<String>,
   /// Log verbosity of this client (`RUST_LOG` overrides it). Default: `info`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["info", "debug"]))]
+  #[schemars(extend("x-reload" = "restart", "examples" = ["info", "debug"]))]
   pub log_level: Option<String>,
   /// Log output format: `json`, or `pretty`/`text` for the human-readable
   /// form. Unset auto-detects, a TTY gets `pretty` and a pipe gets `json`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["json", "pretty"]))]
+  #[schemars(extend("x-reload" = "restart", "examples" = ["json", "pretty"]))]
   pub log_format: Option<String>,
 }
 

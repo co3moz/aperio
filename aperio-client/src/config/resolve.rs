@@ -33,6 +33,7 @@ pub(crate) fn settings_from(assembled: layers::Assembled) -> Result<ClientSettin
     sources,
   } = assembled;
   let server = config.server();
+  let restart_values = layers::restart_values(&config);
   let nonempty = |s: Option<String>| s.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
 
   // One service on the command line or in the environment runs on its own,
@@ -123,5 +124,6 @@ pub(crate) fn settings_from(assembled: layers::Assembled) -> Result<ClientSettin
     device_key_file: nonempty(config.device_key_file.clone()),
     pid_file: nonempty(config.pid_file.clone()),
     sources,
+    restart_values,
   })
 }

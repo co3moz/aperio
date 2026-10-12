@@ -54,7 +54,8 @@
         ],
         "examples": [
           "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
-        ]
+        ],
+        "x-reload": "restart"
       },
       "client_id_file": {
         "description": "Where a generated `client_id` is kept. Default: a file under\n`~/.aperio/clients/` named after the config file this client reads, so\ntwo projects on one machine never share an id and the file never lands\nin a repository. A client with no config file, or one that cannot\nwrite here, runs with a fresh id each time.",
@@ -64,7 +65,8 @@
         ],
         "examples": [
           "/var/lib/aperio-client/myapp/client-id"
-        ]
+        ],
+        "x-reload": "restart"
       },
       "defaults": {
         "description": "What every service gets unless its own entry says otherwise: the same\nkeys a `services:` entry takes, apart from where its traffic comes from\nand goes to. The environment and the command line write here too, so\n`APERIO_TIMEOUT=60s` is `defaults.timeout`.",
@@ -94,7 +96,8 @@
         ],
         "examples": [
           "9f8c1d2e3a4b5c6d7e8f9a0b1c2d3e4f9f8c1d2e3a4b5c6d7e8f9a0b1c2d3e4f"
-        ]
+        ],
+        "x-reload": "restart"
       },
       "device_key_file": {
         "description": "File holding the device key; a random one is generated and kept there\non the first run. Ignored when `device_key` is set directly.",
@@ -104,7 +107,8 @@
         ],
         "examples": [
           "/var/lib/aperio/device.key"
-        ]
+        ],
+        "x-reload": "restart"
       },
       "idle_timeout": {
         "description": "Shut this client down after it has served no request for this long\n(unset = never). The scale-in half of `scaling`: the server never stops\nanything, an idle client retires itself. The shutdown is graceful (the\nserver stops routing to it first, in-flight requests finish), and the\ntimer only starts once the client has served its first request, so a\nslow cold start cannot make it exit before it is ever used.",
@@ -160,7 +164,8 @@
         "examples": [
           "json",
           "pretty"
-        ]
+        ],
+        "x-reload": "restart"
       },
       "log_level": {
         "description": "Log verbosity of this client (`RUST_LOG` overrides it). Default: `info`.",
@@ -171,7 +176,8 @@
         "examples": [
           "info",
           "debug"
-        ]
+        ],
+        "x-reload": "restart"
       },
       "max_message_size": {
         "description": "Largest single tunnel frame this client accepts. Default: `32MB`.",
@@ -243,7 +249,8 @@
             "listen": "127.0.0.1:4318",
             "transport": "tunnel"
           }
-        ]
+        ],
+        "x-reload": "restart"
       },
       "pid_file": {
         "description": "Path to write this process's pid to at startup, removed on a clean exit.\nFor an init system that wants one; a process supervisor usually knows the\npid without being told.",
@@ -253,7 +260,8 @@
         ],
         "examples": [
           "/run/aperio-client.pid"
-        ]
+        ],
+        "x-reload": "restart"
       },
       "reload_drain": {
         "description": "How long in-flight requests may finish when a configuration reload\nstops a service, before its tunnel connection is dropped. The client\nannounces `Draining` first, so the server sends it nothing new while it\nfinishes. `0s` drops the connection immediately. Default: `10s`.",
@@ -1427,7 +1435,8 @@
             "examples": [
               "auto",
               "ipv4"
-            ]
+            ],
+            "x-reload": "restart"
           },
           "min_tls_version": {
             "description": "Lowest TLS version offered when dialing the server over `wss://`: `1.2`\nor `1.3`. Unset leaves rustls' own set (1.2 and 1.3) in place, which is\nthe right default; pin it when a policy has to name the floor rather\nthan inherit it. A value this client cannot offer is refused at startup.",
@@ -1437,7 +1446,8 @@
             ],
             "examples": [
               "1.3"
-            ]
+            ],
+            "x-reload": "restart"
           },
           "proxy": {
             "description": "HTTP proxy to dial the server through, for a network that allows no\ndirect outbound connection: `host:port`, or `http://host:port`, with an\noptional `user:password@` in front. The client sends `CONNECT` and then\nruns TLS inside the tunnel the proxy opens, so the proxy sees the\nserver's hostname and nothing else. Your own backends are never reached\nthrough it. Unset: dial the server directly.",
@@ -1448,7 +1458,8 @@
             "examples": [
               "proxy.corp:3128",
               "http://user:password@proxy.corp:3128"
-            ]
+            ],
+            "x-reload": "restart"
           },
           "tls_cipher_suites": {
             "description": "Exact cipher suites offered when dialing the server, by their IANA\nnames, comma-separated. Unset leaves rustls' preference order alone,\nwhich is almost always better. An unknown name is refused at startup.",
@@ -1458,7 +1469,8 @@
             ],
             "examples": [
               "TLS13_AES_256_GCM_SHA384,TLS13_CHACHA20_POLY1305_SHA256"
-            ]
+            ],
+            "x-reload": "restart"
           },
           "token": {
             "description": "Tunnel token (master or a scoped dynamic token) that authorizes this\nclient.",

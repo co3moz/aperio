@@ -139,6 +139,9 @@ pub(crate) struct ClientSettings {
   pub(crate) pid_file: Option<String>,
   /// Which layer each value came from, for `check`.
   pub(crate) sources: std::collections::BTreeMap<String, aperio_config::layers::Layer>,
+  /// The values of the keys a running client applies only at startup, so a
+  /// reload can say which of them it did not apply.
+  pub(crate) restart_values: std::collections::BTreeMap<String, serde_json::Value>,
   // `log_level` / `log_format` are deliberately absent: the subscriber has to
   // be installed before the config files are loaded, so they are resolved by
   // `log_settings` instead (same layering, just earlier).

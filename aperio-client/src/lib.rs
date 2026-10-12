@@ -616,6 +616,19 @@ pub async fn run() {
               warn!("Config reload from {}: {}", config_path, e);
             }
             idle_timeout.store(s.idle_timeout.unwrap_or(0), Ordering::SeqCst);
+            // What dials the server, the process's identity, the OTel bridge
+            // and logging are set once, at startup. Saying so is the
+            // difference between a change that is pending and a change the
+            // log claims was applied.
+            let pending =
+              aperio_config::layers::restart_changes(&settings.restart_values, &s.restart_values);
+            if !pending.is_empty() {
+              warn!(
+                "Config reload from {}: `{}` changed and apply at the next start",
+                config_path,
+                pending.join("`, `")
+              );
+            }
             // Make before break (`planned_features.md` #156). The old order,
             // cancel everything, wait for it to drain, then start the new,
             // put a window with no connection at all between the two, by

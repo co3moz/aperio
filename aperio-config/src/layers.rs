@@ -158,6 +158,72 @@ pub fn client_env() -> &'static [EnvSetting] {
   })
 }
 
+/// The keys a running client applies only when it starts, marked in the schema
+/// with `x-reload: restart`: what dials the server, the process's identity,
+/// the OTel bridge, logging. A reload that changes one says so rather than
+/// reporting a change it did not make.
+pub fn restart_paths() -> &'static [String] {
+  static PATHS: OnceLock<Vec<String>> = OnceLock::new();
+  PATHS.get_or_init(|| {
+    let root = client_schema();
+    let mut out = Vec::new();
+    fn walk(root: &Json, node: &Json, path: &str, out: &mut Vec<String>) {
+      if node.get("x-reload").and_then(Json::as_str) == Some("restart") {
+        out.push(path.to_string());
+        return;
+      }
+      for block in variants(root, node) {
+        for (key, child) in block
+          .get("properties")
+          .and_then(Json::as_object)
+          .into_iter()
+          .flatten()
+        {
+          walk(root, child, &format!("{path}.{key}"), out);
+        }
+      }
+    }
+    for (key, node) in root
+      .get("properties")
+      .and_then(Json::as_object)
+      .into_iter()
+      .flatten()
+    {
+      walk(root, node, key, &mut out);
+    }
+    out
+  })
+}
+
+/// The values of the [`restart_paths`] in `config`, to compare across a
+/// reload.
+pub fn restart_values(config: &FileConfig) -> BTreeMap<String, Json> {
+  let doc = serde_json::to_value(config).unwrap_or(Json::Null);
+  restart_paths()
+    .iter()
+    .map(|path| {
+      let value = path
+        .split('.')
+        .try_fold(&doc, |node, part| node.get(part))
+        .cloned()
+        .unwrap_or(Json::Null);
+      (path.clone(), value)
+    })
+    .collect()
+}
+
+/// The restart-only keys whose value differs between two configurations.
+pub fn restart_changes(
+  before: &BTreeMap<String, Json>,
+  after: &BTreeMap<String, Json>,
+) -> Vec<String> {
+  restart_paths()
+    .iter()
+    .filter(|path| before.get(*path) != after.get(*path))
+    .cloned()
+    .collect()
+}
+
 /// The variable for a key: `server.url` is `APERIO_SERVER_URL`. `log_level`
 /// is the bare `LOG_LEVEL`, the one name every program already reads.
 pub fn env_var(path: &str) -> String {
