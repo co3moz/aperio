@@ -12,11 +12,13 @@ own port.
 - `mock-h2/`, the HTTP/2 (`h2c`) echo backend and client used by the h2 phase.
   Built on demand; it is not a workspace default.
 - `conformance/`, external suites run *against* Aperio rather than written
-  for it, starting with [Autobahn](conformance/README.md) over the WebSocket
-  relay. Needs Docker, runs weekly in CI, not part of the e2e suite.
+  for it: [Autobahn](conformance/README.md) over the WebSocket relay, which
+  needs Docker and runs locally before a release, and h2spec over HTTP/2,
+  which the Chore workflow runs on demand. Neither is part of the e2e suite.
 - `soak/`, the memory soak: `k6.js` is the load profile, `run.mjs` brings a
   stack up and watches RSS over the plateau, and `trend.mjs` decides whether a
-  curve grew. Weekly in CI, and not part of the e2e suite.
+  curve grew. The Chore workflow runs it on demand; it is load, so it is not
+  run on a shared machine unasked, and it is not part of the e2e suite.
 
 ## Phases
 
