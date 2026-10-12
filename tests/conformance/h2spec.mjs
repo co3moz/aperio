@@ -239,13 +239,15 @@ async function main() {
   })
   await waitFor(async () => (await get(serverPort, '/aperio/health')) === 200, 'aperio-server')
 
-  // Bound on a path rather than a hostname, for the reason the Autobahn run
-  // records: h2spec's authority is whatever it dialled, so a hostname bind
-  // would make this depend on what the machine is called.
+  // Every hostname nobody claims (`*`) rather than one of its own, for the
+  // reason the Autobahn run records: h2spec's authority is whatever it
+  // dialled, so a hostname bind would make this depend on what the machine is
+  // called. Since 0.13 a path alone names no hostname and routes nowhere.
   start('client', binary('aperio-client'), [], {
     APERIO_SERVER_URL: `http://127.0.0.1:${serverPort}`,
     APERIO_SERVER_TOKEN: token,
     APERIO_TARGET: `http://127.0.0.1:${backendPort}`,
+    APERIO_HOSTNAME: '*',
     APERIO_PATH: '/',
     // Declared open, because these runs grade the *protocol*, not the visitor
     // gate. The server has been closed by default since 0.10.0, so a route

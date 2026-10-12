@@ -146,8 +146,8 @@ async function stopAll() {
  *
  * The returned host also ends up as the authority of the URL Autobahn dials,
  * and therefore as the `Host` header the server sees. That is why the tunnel
- * is bound on a *path* rather than a hostname: nothing then has to agree
- * about what this machine is called.
+ * serves every hostname (`*`) on the path `/` rather than a hostname of its
+ * own: nothing then has to agree about what this machine is called.
  */
 function dockerHostAccess() {
   return process.platform === 'linux'
@@ -207,11 +207,14 @@ async function main() {
     APERIO_SERVER_URL: `http://127.0.0.1:${serverPort}`,
     APERIO_SERVER_TOKEN: token,
     APERIO_TARGET: `http://127.0.0.1:${backendPort}`,
-    // A *path* bind, not a hostname one, and that is the whole reason this
+    // Every hostname nobody claims, on `/`, and that is the whole reason this
     // runs at all. Autobahn dials a URL and the authority of that URL is the
-    // `Host` header the server routes on, so a hostname bind would mean
-    // teaching the container to resolve a name that exists nowhere. Bound on
-    // `/`, the address Autobahn happens to dial stops mattering.
+    // `Host` header the server routes on, so a hostname of its own would mean
+    // teaching the container to resolve a name that exists nowhere. With `*`,
+    // the address Autobahn happens to dial stops mattering. A path alone is
+    // not enough: since 0.13 a service naming no hostname is routed nowhere,
+    // and this run then timed out waiting for a route it would never get.
+    APERIO_HOSTNAME: '*',
     APERIO_PATH: '/',
     // Declared open, because these runs grade the *protocol*, not the visitor
     // gate. The server has been closed by default since 0.10.0, so a route

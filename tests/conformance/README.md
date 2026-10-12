@@ -56,11 +56,12 @@ than tolerated in the results, so the report says what was actually run.
 host's network namespace and dials `127.0.0.1`; on Docker Desktop it reaches
 the host as `host.docker.internal`.
 
-That difference is why the tunnel is bound on a **path** here rather than a
-hostname. Autobahn dials a URL, and the authority of that URL is the `Host`
-header the server routes on, so a hostname bind would mean teaching the
-container to resolve a name that exists nowhere and getting the answer right
-on two platforms. Bound on `/`, what the machine is called stops mattering.
+That difference is why the tunnel serves **every hostname** (`*`) on `/`
+here rather than a hostname of its own. Autobahn dials a URL, and the
+authority of that URL is the `Host` header the server routes on, so a
+hostname bind would mean teaching the container to resolve a name that exists
+nowhere and getting the answer right on two platforms. With `*`, what the
+machine is called stops mattering.
 
 The HTML report lands in `reports/`.
 
