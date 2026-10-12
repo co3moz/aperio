@@ -205,7 +205,10 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
         this._configPath = path
         args.push('--config', path)
       }
-      const target = this._backendUrl()
+      // A file that names its own services is what runs: a target in the
+      // environment would be a service of its own, run in their place.
+      const fileNamesServices = /(^|\n)\s*(services|target):/.test(yaml ?? '')
+      const target = fileNamesServices ? null : this._backendUrl()
       const declared = {
         ...(target ? { APERIO_TARGET: target } : {}),
         ...this._env(),

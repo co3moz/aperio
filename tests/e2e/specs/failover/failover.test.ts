@@ -9,7 +9,7 @@ import { sleep } from '../../lib/env.js'
 const HOST = 'app.e2e.local'
 
 export class FailoverServer extends AperioServerBase({
-  settings: { failover: { mode: 'retry-wait', window: '20s' } },
+  settings: { resilience: { failover: { mode: 'retry-wait', window: '20s' } } },
 }) {}
 
 export class FailoverBackend extends StandardBackendBase() {}
