@@ -349,6 +349,10 @@ mod names_tests;
 #[path = "topics_tests.rs"]
 mod topics_tests;
 
+#[cfg(test)]
+#[path = "docs_tests.rs"]
+mod docs_tests;
+
 /// JSON Schema of a dynamic public listener specification.
 pub fn expose_schema_json() -> String {
   serde_json::to_string_pretty(&schemars::schema_for!(expose::ExposeSpec))
