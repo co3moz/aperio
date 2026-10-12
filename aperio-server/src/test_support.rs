@@ -167,6 +167,7 @@ pub(crate) fn test_config() -> ServerConfig {
     trusted_proxies: Vec::new(),
     admin_allowed_ips: Vec::new(),
     secure_cookies: false,
+    tls: None,
     default_access: crate::settings::DefaultAccess::Allow,
     metrics_token: None,
     scaling_enabled: false,

@@ -798,6 +798,8 @@ export const tr: Record<string, string> = {
   'Who may log in, how, and what the dashboard offers.': 'Kimin, nasıl giriş yapabileceği ve panelin neler sunduğu.',
   'Proxy trust': 'Proxy güveni',
   'How the real client IP is resolved behind a proxy or CDN.': 'Bir proxy ya da CDN arkasında gerçek istemci IP’sinin nasıl çözüldüğü.',
+  'HTTPS & certificates': 'HTTPS ve sertifikalar',
+  'Serving HTTPS directly, with certificates from files or from an ACME authority such as Let’s Encrypt.': 'HTTPS’i doğrudan sunmak; sertifikalar dosyalardan ya da Let’s Encrypt gibi bir ACME otoritesinden.',
   'Observability': 'Gözlemlenebilirlik',
   'Metrics, tracing, logs, alerting, and how long records are kept.': 'Metrikler, izleme, günlükler, uyarılar ve kayıtların ne kadar saklandığı.',
   'Outbound & autoscaling': 'Giden çağrılar ve otomatik ölçekleme',

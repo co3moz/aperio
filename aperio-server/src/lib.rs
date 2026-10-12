@@ -37,6 +37,7 @@ mod state;
 mod store;
 mod supervise;
 mod telemetry;
+mod tls;
 mod totp;
 mod tunnel;
 mod visitor_auth;

@@ -31,6 +31,31 @@ pub(crate) async fn serve_until_shutdown(state: Arc<AppState>, app: Router) {
   let reuseport = std::env::var("APERIO_REUSEPORT")
     .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
     .unwrap_or(false);
+  // The built-in HTTPS listener runs beside this one, on the same router.
+  // With `redirect_http`, this one answers everything but the probes with a
+  // redirect to it.
+  let tls = state.config().tls.clone();
+  let app = match tls {
+    Some(plan) => {
+      let redirect_port = plan.redirect_http.then_some(plan.port);
+      tokio::spawn(crate::tls::serve(
+        state.clone(),
+        app.clone(),
+        host.clone(),
+        plan,
+        reuseport,
+      ));
+      match redirect_port {
+        Some(port) => app.layer(axum::middleware::from_fn_with_state(
+          port,
+          crate::tls::redirect_to_https,
+        )),
+        None => app,
+      }
+    }
+    None => app,
+  };
+
   let listener = match bind_listener(&host, port, reuseport).await {
     Ok(l) => l,
     Err(e) => {

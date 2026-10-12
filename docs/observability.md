@@ -101,7 +101,7 @@ The dashboard's **Audit Log** shows the latest 200 of the caller's organization.
 | Clients and tunnels | `client_connected`, `client_disconnected`, `client_draining`, `client_enabled`, `client_disabled`, `tunnel_created`, `tunnel_deleted`, `tunnel_denied`, `tcp_stream_opened`, `udp_stream_opened`, `expose_stream_opened` |
 | Public listeners | `expose_changed`, `expose_failed`, `expose_runtime`, `expose_policy_changed` |
 | Users and organizations | `user_created`, `user_updated`, `user_deleted`, `user_grant_added`, `user_grant_removed`, `grants_widened_on_upgrade`, `org_created`, `org_renamed`, `org_deleted`, `org_hostnames_set`, `org_panel_set`, `org_quota_updated`, `org_oidc_updated` |
-| Configuration | `settings_updated`, `settings_security_changed`, `maintenance_on`, `maintenance_off`, `cache_purged` |
+| Configuration | `settings_updated`, `settings_security_changed`, `maintenance_on`, `maintenance_off`, `cache_purged`, `tls_certificate_issued`, `tls_certificate_failed` |
 | Data | `export_created`, `import_applied`, `db_backup`, `data_purged`, `retention_pruned`, `disk_pruned`, `request_replayed` |
 | Alerts and scaling | `alert_triggered`, `alert_resolved`, `disk_usage_warning`, `scaling_requested`, `scaling_failed`, `scaling_disarmed` |
 | Webhooks and messages | `webhook_created`, `webhook_deleted`, `webhook_tested`, `webhook_refired`, `webhook_redelivered`, `message_published` |

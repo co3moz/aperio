@@ -796,6 +796,8 @@ export const de: Record<string, string> = {
   'Who may log in, how, and what the dashboard offers.': 'Wer sich anmelden darf, wie, und was das Dashboard bietet.',
   'Proxy trust': 'Proxy-Vertrauen',
   'How the real client IP is resolved behind a proxy or CDN.': 'Wie die echte Client-IP hinter einem Proxy oder CDN ermittelt wird.',
+  'HTTPS & certificates': 'HTTPS & Zertifikate',
+  'Serving HTTPS directly, with certificates from files or from an ACME authority such as Let’s Encrypt.': 'HTTPS direkt ausliefern, mit Zertifikaten aus Dateien oder von einer ACME-Stelle wie Let’s Encrypt.',
   'Observability': 'Observability',
   'Metrics, tracing, logs, alerting, and how long records are kept.': 'Metriken, Tracing, Logs, Alarmierung und wie lange Aufzeichnungen aufbewahrt werden.',
   'Outbound & autoscaling': 'Ausgehend & Autoskalierung',

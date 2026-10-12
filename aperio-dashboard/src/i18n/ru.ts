@@ -794,6 +794,8 @@ export const ru: Record<string, string> = {
   'Who may log in, how, and what the dashboard offers.': 'Кто может входить, каким образом и что предлагает панель.',
   'Proxy trust': 'Доверие к proxy',
   'How the real client IP is resolved behind a proxy or CDN.': 'Как определяется настоящий IP клиента за proxy или CDN.',
+  'HTTPS & certificates': 'HTTPS и сертификаты',
+  'Serving HTTPS directly, with certificates from files or from an ACME authority such as Let’s Encrypt.': 'Обслуживание HTTPS напрямую, с сертификатами из файлов или от центра ACME, например Let’s Encrypt.',
   'Observability': 'Наблюдаемость',
   'Metrics, tracing, logs, alerting, and how long records are kept.': 'Метрики, трассировка, логи, оповещения и срок хранения записей.',
   'Outbound & autoscaling': 'Исходящие и автомасштабирование',

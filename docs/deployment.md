@@ -72,12 +72,33 @@ The client belongs in your workload's pod as a sidecar, where `localhost` is the
 
 ## In front of the server
 
-The server speaks plain HTTP. Put a TLS-terminating proxy or a CDN in front of it, never the bare port on the internet, and tell the server which proxies to believe: `proxy.trusted` lists their addresses and the visitor's is found by walking `X-Forwarded-For` back past them; `proxy.real_ip_header` reads a CDN's header (`CF-Connecting-IP`) instead. Trusting a header without a proxy lets anyone choose their address. For hostnames that appear at runtime, see [Behind a dynamic edge proxy](integrations.md#behind-a-dynamic-edge-proxy).
+The server speaks plain HTTP on `PORT`. Never put that port bare on the internet: either serve HTTPS from the server itself, or put a TLS-terminating proxy or a CDN in front of it.
+
+**HTTPS from the server.** `tls.enabled` opens a second listener on `tls.port` (443), with certificates from PEM files, from an ACME authority (Let's Encrypt unless `tls.acme.directory` names another), or both:
+
+```yaml
+settings:
+  tls:
+    enabled: true
+    redirect_http: true
+    acme:
+      enabled: true
+      email: ops@example.com
+      hostnames: [tunnel.example.com]
+```
+
+- **The proof is TLS-ALPN-01, on 443 itself.** The authority connects to the hostname on port 443, so the listener has to be reachable there, directly or through a plain TCP forward; no port 80 and no DNS provider are involved. A wildcard needs a DNS-01 proof and comes from `tls.certificates` instead.
+- **Which names get one.** Those in `tls.acme.hostnames` and `dashboard.hostname` are obtained at start. A panel's hostname, and with `tls.acme.on_demand` (on) a hostname a connected client serves, gets one the first time it is reached over HTTPS: that handshake waits for the certificate, up to a minute. Random subdomains are left out, and at most 20 are obtained on demand an hour. A name whose order fails is tried again after an hour, and both outcomes are audited (`tls_certificate_issued`, `tls_certificate_failed`).
+- **Try the staging directory first** (`https://acme-staging-v02.api.letsencrypt.org/directory`): a mistake there costs nothing against the production rate limits. The account and the issued certificates are kept in `APERIO_DATA_DIR/tls/` and renewed 30 days before they end.
+- **Your own files** in `tls.certificates` serve the names written in them, wildcards included, and are read again when they change, so a renewal by another tool needs no restart.
+- **`tls.redirect_http`** answers plain HTTP with a redirect to HTTPS, except the health probes. Point clients at `https://`, since a WebSocket upgrade does not follow a redirect. With HTTPS on, `security.secure_cookies` defaults to on.
+
+**Behind a proxy**, tell the server which proxies to believe: `proxy.trusted` lists their addresses and the visitor's is found by walking `X-Forwarded-For` back past them; `proxy.real_ip_header` reads a CDN's header (`CF-Connecting-IP`) instead. Trusting a header without a proxy lets anyone choose their address. For hostnames that appear at runtime, see [Behind a dynamic edge proxy](integrations.md#behind-a-dynamic-edge-proxy).
 
 ## Before going live
 
 - **Credentials.** A master token of 32 random bytes (`openssl rand -hex 32`); scoped tokens for every client; a named user per operator with the least role, and a second factor for admins. Set `oidc.redirect_url` if you use OIDC. Seed a few canary tokens where a leak would expose them; using one raises `canary_tripped`.
-- **The admin surface.** `security.admin_allowed_ips` fences the dashboard and the API to your operator network; `security.secure_cookies` is on behind a trusted proxy.
+- **The admin surface.** `security.admin_allowed_ips` fences the dashboard and the API to your operator network; `security.secure_cookies` is on behind a trusted proxy or with `tls.enabled`.
 - **Limits.** Size `limits.ip_rate`, `limits.concurrent_requests` and `limits.request_body` to your traffic; keep `security.login_lockout` on.
 - **Outbound calls.** Where webhook or autoscaling owners are not fully trusted, set `outbound.allowlist`, or at least `outbound.block_private`, so the server cannot be pointed at your internal network.
 - **Data.** Set the `retention` periods and `retention.db_max_size`, schedule `backup` snapshots to somewhere off the box, and keep `inspector.redact` on.

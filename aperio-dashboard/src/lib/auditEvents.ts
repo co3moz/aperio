@@ -107,6 +107,8 @@ export const AUDIT_EVENT_GROUPS: AuditEventGroup[] = [
       'maintenance_on',
       'maintenance_off',
       'cache_purged',
+      'tls_certificate_issued',
+      'tls_certificate_failed',
     ],
   },
   {

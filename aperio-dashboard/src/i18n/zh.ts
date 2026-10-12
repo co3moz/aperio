@@ -779,6 +779,8 @@ export const zh: Record<string, string> = {
   'Who may log in, how, and what the dashboard offers.': '谁可以登录、如何登录，以及仪表板提供什么。',
   'Proxy trust': 'Proxy 信任',
   'How the real client IP is resolved behind a proxy or CDN.': '在 Proxy 或 CDN 之后如何解析真实的客户端 IP。',
+  'HTTPS & certificates': 'HTTPS 与证书',
+  'Serving HTTPS directly, with certificates from files or from an ACME authority such as Let’s Encrypt.': '直接提供 HTTPS，证书来自文件或 Let’s Encrypt 等 ACME 证书颁发机构。',
   'Observability': '可观测性',
   'Metrics, tracing, logs, alerting, and how long records are kept.': '指标、追踪、日志、告警，以及记录保留多久。',
   'Outbound & autoscaling': '出站与自动伸缩',

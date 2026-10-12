@@ -77,6 +77,9 @@ pub struct ServerSettings {
   /// The reverse proxy or CDN in front of this server, and whose
   /// `X-Forwarded-For` to believe. Security-relevant.
   pub proxy: Proxy,
+  /// Serving HTTPS directly, with no proxy in front: certificates from files,
+  /// from an ACME authority, or both. Security-relevant, and read at start.
+  pub tls: Tls,
   /// Fences around the server itself. Security-relevant.
   pub security: Security,
   /// Where the server may send callbacks it makes on its own initiative
@@ -140,6 +143,8 @@ pub struct ServerSettings {
 #[path = "server_settings/sections.rs"]
 mod sections;
 pub use sections::*;
+mod tls;
+pub use tls::*;
 
 // --- Which settings are special --------------------------------------------
 
@@ -150,6 +155,7 @@ pub const SECURITY_PATHS: &[&str] = &[
   "access",
   "sites.access",
   "proxy",
+  "tls",
   "security.admin_allowed_ips",
   "security.secure_cookies",
   "security.token_pinning",
@@ -184,6 +190,7 @@ pub const RESTART_PATHS: &[&str] = &[
   "outbound.no_proxy",
   "edge.token",
   "backup",
+  "tls",
 ];
 
 /// The sections a settings document (an export, `APERIO_INIT_FILE`, or

@@ -300,6 +300,7 @@ async fn call_oidc_login(
     State(state),
     axum::extract::Query(query),
     ConnectInfo(test_peer()),
+    None,
     headers,
   )
   .await

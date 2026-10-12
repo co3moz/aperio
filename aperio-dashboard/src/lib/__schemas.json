@@ -3169,6 +3169,22 @@
           "$ref": "#/$defs/Site"
         }
       },
+      "tls": {
+        "description": "Serving HTTPS directly, with no proxy in front: certificates from files,\nfrom an ACME authority, or both. Security-relevant, and read at start.",
+        "$ref": "#/$defs/Tls",
+        "default": {
+          "acme": {
+            "directory": "https://acme-v02.api.letsencrypt.org/directory",
+            "enabled": false,
+            "hostnames": [],
+            "on_demand": true
+          },
+          "certificates": [],
+          "enabled": false,
+          "port": 443,
+          "redirect_http": false
+        }
+      },
       "uptime": {
         "description": "The availability history behind the dashboard's Uptime panel.",
         "$ref": "#/$defs/Uptime",
@@ -3210,6 +3226,53 @@
           }
         ],
         "x-env": "whole"
+      },
+      "Acme": {
+        "type": "object",
+        "properties": {
+          "directory": {
+            "description": "The authority's ACME directory. Default Let's Encrypt; its staging\ndirectory, `https://acme-staging-v02.api.letsencrypt.org/directory`,\nis the one to try a setup against without spending its rate limits.",
+            "type": "string",
+            "default": "https://acme-v02.api.letsencrypt.org/directory",
+            "examples": [
+              "https://acme-staging-v02.api.letsencrypt.org/directory"
+            ]
+          },
+          "email": {
+            "description": "Where the authority sends notices about the certificates, such as one\nabout to expire that could not be renewed.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "ops@example.com"
+            ]
+          },
+          "enabled": {
+            "description": "Obtain and renew certificates automatically. Turning it on agrees to\nthe authority's subscriber agreement. Default `false`.",
+            "type": "boolean",
+            "default": false
+          },
+          "hostnames": {
+            "description": "Hostnames to hold a certificate for from the start, such as the\ndashboard's own. A wildcard needs a DNS-01 proof, which this server\ndoes not make.",
+            "type": "array",
+            "default": [],
+            "examples": [
+              [
+                "tunnel.example.com"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "on_demand": {
+            "description": "Also obtain a certificate the first time a hostname a client serves is\nreached over HTTPS, holding that handshake until it is issued. Random\nsubdomains are left out: each would be a certificate of its own, and an\nauthority limits how many one domain may have. Default `true`.",
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "additionalProperties": false
       },
       "Advanced": {
         "description": "What the defaults are chosen for and almost nobody needs to touch: how a\nstreamed response is paced, and how tunnel frames are encoded. Kept apart\nso the settings an operator does decide are not read past these.",
@@ -3816,6 +3879,31 @@
           }
         },
         "additionalProperties": false
+      },
+      "CertificateFiles": {
+        "description": "One certificate and its key, as files on the server.",
+        "type": "object",
+        "properties": {
+          "cert": {
+            "description": "The certificate chain, PEM, leaf first.",
+            "type": "string",
+            "examples": [
+              "/etc/aperio/tls/example.com.pem"
+            ]
+          },
+          "key": {
+            "description": "Its private key, PEM.",
+            "type": "string",
+            "examples": [
+              "/etc/aperio/tls/example.com.key"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "cert",
+          "key"
+        ]
       },
       "Credentials": {
         "description": "A `basic` method's credentials: one `user:password` or a list of them.",
@@ -5235,7 +5323,7 @@
             }
           },
           "secure_cookies": {
-            "description": "Mark session cookies `Secure`. Unset follows `proxy.trust`.",
+            "description": "Mark session cookies `Secure`. Unset, they are when `proxy.trust` or\n`tls.enabled` is on.",
             "type": [
               "boolean",
               "null"
@@ -5775,6 +5863,59 @@
               "10MB",
               "1GB"
             ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "Tls": {
+        "type": "object",
+        "properties": {
+          "acme": {
+            "description": "Certificates obtained and renewed from an ACME authority, Let's\nEncrypt unless another is named, proven with TLS-ALPN-01 on the HTTPS\nport.",
+            "$ref": "#/$defs/Acme",
+            "default": {
+              "directory": "https://acme-v02.api.letsencrypt.org/directory",
+              "enabled": false,
+              "hostnames": [],
+              "on_demand": true
+            }
+          },
+          "certificates": {
+            "description": "Certificates you manage yourself, as PEM files. Each serves the names\nwritten in it, a wildcard included, and is read again when its files\nchange, so a renewal by another tool needs no restart.",
+            "type": "array",
+            "default": [],
+            "examples": [
+              [
+                {
+                  "cert": "/etc/aperio/tls/example.com.pem",
+                  "key": "/etc/aperio/tls/example.com.key"
+                }
+              ]
+            ],
+            "items": {
+              "$ref": "#/$defs/CertificateFiles"
+            }
+          },
+          "enabled": {
+            "description": "Serve HTTPS on `port`, beside the plain listener on the boot `PORT`.\nNeeds certificates: `certificates`, `acme`, or both. Default `false`.",
+            "type": "boolean",
+            "default": false
+          },
+          "port": {
+            "description": "Port of the HTTPS listener, on the boot `HOST`. An ACME authority\nproves a hostname by connecting to it on 443, so with `acme` this is\n443, or whatever forwards 443 to it. Default `443`.",
+            "type": "integer",
+            "format": "uint16",
+            "default": 443,
+            "examples": [
+              8443
+            ],
+            "maximum": 65535,
+            "minimum": 0
+          },
+          "redirect_http": {
+            "description": "Answer plain HTTP with a redirect to HTTPS, except the health probes.\nTunnel clients then have to dial `wss://`. Default `false`.",
+            "type": "boolean",
+            "default": false
           }
         },
         "additionalProperties": false

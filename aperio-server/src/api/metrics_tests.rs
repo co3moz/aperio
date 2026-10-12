@@ -37,6 +37,7 @@ fn test_config(metrics_token: Option<String>) -> ServerConfig {
     trusted_proxies: Vec::new(),
     admin_allowed_ips: Vec::new(),
     secure_cookies: false,
+    tls: None,
     default_access: crate::settings::DefaultAccess::Allow,
     metrics_token,
     scaling_enabled: false,

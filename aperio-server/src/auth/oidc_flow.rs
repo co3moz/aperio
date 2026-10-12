@@ -22,20 +22,13 @@ use crate::state::AppState;
 ///
 /// Only the start of the flow can decide it. The callback reads the URL back
 /// out of the login's state entry instead of deriving it again.
-fn oidc_redirect_uri(state: &AppState, headers: &HeaderMap) -> Option<String> {
+fn oidc_redirect_uri(state: &AppState, headers: &HeaderMap, over_tls: bool) -> Option<String> {
   let rt = state.oidc.as_ref()?;
   if let Some(ref fixed) = rt.redirect_url_override {
     return Some(fixed.clone());
   }
   let host = headers.get("host").and_then(|v| v.to_str().ok())?;
-  let proto = if state.config().trust_proxy {
-    headers
-      .get("x-forwarded-proto")
-      .and_then(|v| v.to_str().ok())
-      .unwrap_or("http")
-  } else {
-    "http"
-  };
+  let proto = crate::tls::scheme(state, headers, over_tls);
   Some(format!("{}://{}/aperio/oidc/callback", proto, host))
 }
 
@@ -108,6 +101,7 @@ pub(crate) async fn oidc_login_handler(
   State(state): State<Arc<AppState>>,
   axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  tls: Option<axum::Extension<crate::tls::ServedOverTls>>,
   headers: HeaderMap,
 ) -> Response {
   // A per-org login (`?org=<id>`) authenticates against that org's OIDC and
@@ -150,7 +144,7 @@ pub(crate) async fn oidc_login_handler(
     .get("redirect")
     .map(|r| safe_redirect_path(r).to_string())
     .unwrap_or_else(|| "/".to_string());
-  let Some(redirect_uri) = oidc_redirect_uri(&state, &headers) else {
+  let Some(redirect_uri) = oidc_redirect_uri(&state, &headers, tls.is_some()) else {
     return (StatusCode::BAD_REQUEST, "Missing Host header").into_response();
   };
 
