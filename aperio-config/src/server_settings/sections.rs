@@ -534,12 +534,12 @@ impl Default for Oidc {
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct Cache {
-  /// Turn the cache on for services that set `cache: true`. Default `false`.
+  /// Turn the cache on for services that set `cache.enabled`. Default `false`.
   pub enabled: bool,
   /// Memory budget of the cache. Default `64MB`.
   pub size: ByteSize,
   /// How long past its lifetime a cached response may still answer while a
-  /// `resilience: true` service has no healthy client. Default `1h`.
+  /// service with `cache.offline` has no healthy client. Default `1h`.
   pub max_stale: Span,
   /// How long an error or negative response (a `404`) is cached. `0s` =
   /// never. Default `0s`.

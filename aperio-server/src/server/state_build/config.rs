@@ -414,7 +414,7 @@ fn log_posture(c: &ServerConfig) {
   }
   if c.cache_enabled {
     info!(
-      "Response cache is enabled ({} byte budget) for services that opt in with cache: true",
+      "Response cache is enabled ({} byte budget) for services that opt in with cache.enabled",
       c.cache_max_bytes
     );
   }

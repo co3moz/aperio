@@ -213,8 +213,8 @@ The server-side GET response cache for services that opt in.
 
 | Setting | Description | Default |
 | --- | --- | --- |
-| `cache.enabled` | Turn the cache on for services that set `cache: true`. | `false` |
-| `cache.max_stale` | How long past its lifetime a cached response may still answer while a `resilience: true` service has no healthy client. | `1h` |
+| `cache.enabled` | Turn the cache on for services that set `cache.enabled`. | `false` |
+| `cache.max_stale` | How long past its lifetime a cached response may still answer while a service with `cache.offline` has no healthy client. | `1h` |
 | `cache.negative_ttl` | How long an error or negative response (a `404`) is cached. `0s` = never. | `0s` |
 | `cache.size` | Memory budget of the cache. | `64MB` |
 

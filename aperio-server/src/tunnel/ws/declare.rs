@@ -300,7 +300,7 @@ impl ConnCtx {
     {
       handle.service_at_mut(service_index).cache_ignored_warned = true;
       warn!(
-        "Client {} requested response caching (cache: true) but the server cache is disabled (cache.enabled off); the opt-in is ignored",
+        "Client {} requested response caching (cache.enabled) but the server cache is disabled (cache.enabled off); the opt-in is ignored",
         client_id
       );
       self.notify_once(

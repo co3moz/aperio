@@ -388,7 +388,7 @@ pub(crate) async fn handle_incoming_request(
               // Nothing has left yet, so this can still be a clean failure
               // rather than a truncated success.
               warn!(
-                "Response for request ID {} exceeded max_response_body ({} bytes) before any of it was sent; refusing",
+                "Response for request ID {} exceeded limits.response_body ({} bytes) before any of it was sent; refusing",
                 id, ctx.max_response_body_size
               );
               return Some(make_error_response(id, 502));

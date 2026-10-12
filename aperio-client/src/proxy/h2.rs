@@ -434,7 +434,7 @@ pub(crate) async fn handle_incoming_request_h2(
           break;
         }
         warn!(
-          "HTTP/2 response for request ID {} exceeded max_response_body ({} bytes) before any of it was sent; refusing",
+          "HTTP/2 response for request ID {} exceeded limits.response_body ({} bytes) before any of it was sent; refusing",
           id, ctx.max_response_body_size
         );
         return Some(make_error_response(id, 502));
