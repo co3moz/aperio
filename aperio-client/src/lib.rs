@@ -8,6 +8,7 @@ mod adaptive;
 mod api;
 mod bind_tunnels;
 mod check;
+mod client_id;
 mod config;
 mod dial;
 mod e2e;
@@ -316,18 +317,18 @@ pub async fn run() {
   // service derives its own id from it by index. `--client-id` (or yaml
   // client_id / APERIO_CLIENT_ID) makes it persistent across runs; it must
   // be a UUID like the generated default.
-  let client_id = match settings.client_id {
-    Some(ref explicit) => match uuid::Uuid::parse_str(explicit) {
-      Ok(u) => u.to_string(),
-      Err(_) => {
-        error!(
-          "CRITICAL ERROR: client_id '{}' is not a valid UUID (--client-id / APERIO_CLIENT_ID / yaml: client_id)",
-          explicit
-        );
-        std::process::exit(1);
-      }
-    },
-    None => uuid::Uuid::new_v4().to_string(),
+  let home = config::home_config_path().and_then(|p| p.parent().map(|d| d.to_path_buf()));
+  let client_id = match client_id::resolve(
+    settings.client_id.as_deref(),
+    settings.client_id_file.as_deref(),
+    config_files.first().map(|p| p.as_path()),
+    home.as_deref(),
+  ) {
+    Ok(id) => id,
+    Err(e) => {
+      error!("CRITICAL ERROR: {}", e);
+      std::process::exit(1);
+    }
   };
 
   // The device key is a process identity: resolved from the full layering

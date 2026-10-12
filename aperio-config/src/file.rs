@@ -36,12 +36,20 @@ pub struct FileConfig {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["eu_server_1"]))]
   pub name: Option<String>,
-  /// Fixed instance id, a UUID kept across restarts, so failover can
-  /// recognize this process when it comes back. A random one is used when
-  /// unset.
+  /// This client's instance id, a UUID kept across restarts so failover can
+  /// recognize the process when it comes back. Unset, one is generated on
+  /// the first run and kept in `client_id_file`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["3f2504e0-4f89-41d3-9a0c-0305e82c3301"]))]
   pub client_id: Option<String>,
+  /// Where a generated `client_id` is kept. Default: a file under
+  /// `~/.aperio/clients/` named after the config file this client reads, so
+  /// two projects on one machine never share an id and the file never lands
+  /// in a repository. A client with no config file, or one that cannot
+  /// write here, runs with a fresh id each time.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["/var/lib/aperio-client/myapp/client-id"]))]
+  pub client_id_file: Option<String>,
   /// Other config files to read before this one, each path relative to the
   /// file that names it. Mappings merge key by key and anything else is
   /// replaced, the same rule as every other layer: a fragment can add a

@@ -88,6 +88,7 @@ pub(crate) fn settings_from(assembled: layers::Assembled) -> Result<ClientSettin
       None => None,
     },
     client_id: nonempty(config.client_id.clone()),
+    client_id_file: nonempty(config.client_id_file.clone()),
     name: nonempty(config.name.clone()),
     services,
     single,

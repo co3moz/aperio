@@ -83,8 +83,11 @@ pub(crate) struct ClientSettings {
   /// Proxy the tunnel dial goes through, if the network needs one.
   /// Process-wide like the two above, applied via `dial::set_egress_proxy`.
   pub(crate) egress_proxy: Option<crate::egress::EgressProxy>,
-  /// Fixed instance id. None = a random UUID per run.
+  /// Fixed instance id. None = the one kept in `client_id_file`.
   pub(crate) client_id: Option<String>,
+  /// Where a generated instance id is kept. None = the default file for the
+  /// config file being read, or none at all without one.
+  pub(crate) client_id_file: Option<String>,
   /// What to call this client on screen and in the server's logs. A label,
   /// never an address: `client_id` stays the identity.
   pub(crate) name: Option<String>,

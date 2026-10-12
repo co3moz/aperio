@@ -233,6 +233,10 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
           // Keep log-based assertions independent of the invoking shell.
           RUST_LOG: 'info',
           APERIO_CONNECTIONS: '1',
+          // A client with a config file keeps its id under the home by
+          // default; a fixture keeps it in its own directory instead, so a
+          // run leaves nothing in the home of whoever ran it.
+          APERIO_CLIENT_ID_FILE: join(this._dir, 'client-id'),
           ...(isPublic ? { APERIO_ACCESS: 'public' } : {}),
           APERIO_SERVER_URL: this._serverUrl(),
           APERIO_SERVER_TOKEN: this._serverToken(),

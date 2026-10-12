@@ -22,7 +22,7 @@ export const CLIENT_GROUPS: GroupSpec[] = [
   {
     title: 'Server connection',
     description: 'Which Aperio server this client dials, and how it identifies itself.',
-    keys: ['server', 'name', 'client_id', 'device_key', 'device_key_file'],
+    keys: ['server', 'name', 'client_id', 'client_id_file', 'device_key', 'device_key_file'],
   },
   {
     title: 'Services',

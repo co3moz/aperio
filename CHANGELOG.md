@@ -35,6 +35,8 @@ project follows semantic versioning per release tag.
 
 ### Added
 
+- **A client keeps its id across restarts.** A client reading a config file generates its id once and keeps it in a file under `~/.aperio/clients/`, named after the config file, so failover's `wait` mode recognizes it when it comes back without anyone pinning a `client_id`. `client_id_file` (`APERIO_CLIENT_ID_FILE`) names the place; the packaged unit keeps it in the instance's state directory. A one-liner with no config file still runs with a fresh id each time.
+
 - **Delegated TCP and UDP public exposes.** Users with explicit organization-scoped grants can create, edit and operate server listeners from the dashboard or API without restarting the server. Port allocations and traffic limits bound each grant; rules persist across restarts and appear in scoped topology, session, audit and metrics views. TCP and UDP listeners can share a port number. The tunnel protocol now negotiates TCP half-close support in v10 and retains a full-close fallback for older clients.
 
 ### Changed
