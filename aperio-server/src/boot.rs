@@ -41,11 +41,14 @@ pub(crate) fn data_dir() -> String {
     .unwrap_or_else(|| "./data".to_string())
 }
 
-/// Reads an apply document (yaml or json).
+/// Reads an apply document (yaml or json): the first-start document,
+/// `apply` and `check`. Read with the loader the client reads `aperio.yaml`
+/// with, so `${VAR}` keeps a secret out of the file and `include:` splits it
+/// into fragments the same way on both sides. What the document may hold is
+/// decided when it is typed, below.
 pub(crate) fn read_document(path: &str) -> Result<ImportDump, String> {
-  let raw = std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
-  serde_yaml::from_str::<Option<ImportDump>>(&raw)
-    .map(Option::unwrap_or_default)
+  let (doc, _) = aperio_config::loader::read_tree(std::path::Path::new(path), &|_, _| Ok(()))?;
+  serde_yaml::from_value::<ImportDump>(serde_yaml::Value::Mapping(doc))
     .map_err(|e| aperio_config::removed::with_settings_hint(format!("{path}: {e}")))
 }
 

@@ -13,6 +13,7 @@ pub mod egress;
 pub mod expose;
 pub mod expose_policy;
 pub mod layers;
+pub mod loader;
 pub mod pairing;
 pub mod removed;
 pub mod server_settings;

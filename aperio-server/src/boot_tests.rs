@@ -132,3 +132,36 @@ fn the_document_sections_aperio_config_knows_are_the_ones_the_import_reads() {
   known.sort_unstable();
   assert_eq!(import, known);
 }
+
+/// The first-start document is read with the client's loader: a secret can
+/// stay out of the file as `${VAR}`, and the document can be split with
+/// `include:`, each resolved relative to the file that names it.
+#[test]
+fn a_first_start_document_takes_variables_and_includes() {
+  let dir = temp_dir();
+  let root = std::path::Path::new(&dir);
+  std::fs::write(
+    root.join("server-init.yaml"),
+    "include: [oidc.yaml]\nsettings:\n  cache: {enabled: true}\n",
+  )
+  .unwrap();
+  std::fs::write(
+    root.join("oidc.yaml"),
+    "settings:\n  dashboard: {fenced_login: true}\n  metrics: {token: '${APERIO_BOOT_TEST_UNSET:-scrape-token}'}\n",
+  )
+  .unwrap();
+  let document = read_document(&root.join("server-init.yaml").display().to_string())
+    .unwrap_or_else(|e| panic!("{e}"));
+  let settings = document.settings.expect("the merged settings");
+  assert!(settings.cache.enabled, "the including file's own setting");
+  assert!(settings.dashboard.fenced_login, "the include's setting");
+  assert_eq!(settings.metrics.token.as_deref(), Some("scrape-token"));
+
+  // A typo is still refused, whichever file wrote it.
+  std::fs::write(
+    root.join("oidc.yaml"),
+    "settings: {cahce: {enabled: true}}\n",
+  )
+  .unwrap();
+  assert!(read_document(&root.join("server-init.yaml").display().to_string()).is_err());
+}

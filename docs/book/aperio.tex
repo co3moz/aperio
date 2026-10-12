@@ -789,6 +789,13 @@ three ways in:
   database.
 \end{enumerate}
 
+The first-start document is read with the loader the client reads
+\code{aperio.yaml} with: \code{\$\{NAME\}} keeps a secret out of the file,
+\code{\$\{NAME:-default\}} gives it a default, and \code{include:} splits the
+document into fragments, each resolved relative to the file that names it.
+An unset variable with no default stops the start naming the file that wrote
+it. \code{aperio-server check} and \code{apply} read a document the same way.
+
 \begin{aperionote}{Consequence}
 A variable that used to configure the server is not quietly ignored. Started
 with \code{APERIO\_TRUSTED\_PROXIES} still in its environment, the server

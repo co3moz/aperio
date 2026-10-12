@@ -775,6 +775,26 @@ settings:
 
 The document is checked like any change, and one the server refuses stops the start with the setting named. It is read **once**: from the second start on the database holds the settings, and the file is not consulted again, so editing it and restarting changes nothing. That is deliberate, the dashboard and the file would otherwise disagree about which of them is the truth.
 
+It is read with the loader the client reads `aperio.yaml` with, so a secret can stay out of the file and the document can be split into fragments the same way on both sides. `aperio-server check` and `apply` read a document the same way.
+
+```yaml
+# server-init.yaml
+include: [sso.yaml]          # relative to this file; later includes win, this file wins over all
+settings:
+  cache: {enabled: true}
+```
+
+```yaml
+# sso.yaml, beside it
+settings:
+  oidc:
+    issuer: https://idp.example.com
+    client_id: aperio
+    client_secret: ${OIDC_CLIENT_SECRET}     # from the environment; ${NAME:-default} gives a default
+```
+
+An unset variable with no default stops the start naming the file that wrote it, rather than reading as an empty value.
+
 #### Keeping settings in git
 
 The settings are a document, so they can be reviewed and versioned like one:
