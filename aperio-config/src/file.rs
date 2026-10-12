@@ -291,7 +291,7 @@ pub struct FileConfig {
   #[schemars(extend("examples" = [["203.0.113.7", "10.0.0.0/8"]]))]
   pub allowed_ips: Option<Vec<String>>,
   /// Let the server cache GET responses (per their `Cache-Control`);
-  /// effective only when the server enables APERIO_CACHE. Default: `false`.
+  /// effective only when the server has `cache.enabled`. Default: `false`.
   #[schemars(extend("examples" = [true]))]
   pub cache: Option<bool>,
   /// Keep serving this service's cached responses (marked, even past their

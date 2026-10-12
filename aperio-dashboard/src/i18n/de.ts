@@ -294,7 +294,6 @@ export const de: Record<string, string> = {
     'Token-Bucket pro Besucher-IP für Proxy-Anfragen.',
   Prefix: 'Präfix',
   'Prometheus metrics endpoint at /aperio/metrics': 'Prometheus-Metrik-Endpoint unter /aperio/metrics',
-  Purpose: 'Zweck',
   'Queue Status': 'Warteschlange',
   'Random subdomain pattern': 'Zufälliges Subdomain-Muster',
   'Rate Limiting': 'Ratenbegrenzung',
@@ -374,8 +373,8 @@ export const de: Record<string, string> = {
     'Melde dich ohne Passwort an, mit YubiKeys, Touch ID / Face ID oder deinem Passwort-Manager.',
   'The built-in "aperio" admin signs in with the master token or dashboard password and cannot register passkeys. Create a named user instead.':
     'Der eingebaute Admin „aperio“ meldet sich mit dem Master-Token oder Dashboard-Passwort an und kann keine Passkeys registrieren. Lege stattdessen einen benannten Benutzer an.',
-  'Passkey sign-in is not configured on this server. Set APERIO_WEBAUTHN_ORIGIN to the dashboard’s public URL to enable it.':
-    'Passkey-Anmeldung ist auf diesem Server nicht konfiguriert. Setze APERIO_WEBAUTHN_ORIGIN auf die öffentliche URL des Dashboards.',
+  'Passkey sign-in is not configured on this server. Set dashboard.webauthn.origin to the dashboard’s public URL to enable it.':
+    'Passkey-Anmeldung ist auf diesem Server nicht konfiguriert. Setze dashboard.webauthn.origin auf die öffentliche URL des Dashboards.',
   'This browser does not support WebAuthn.':
     'Dieser Browser unterstützt WebAuthn nicht.',
   'No passkeys registered yet.':
@@ -759,7 +758,7 @@ export const de: Record<string, string> = {
   'Memory (RSS)': 'Speicher (RSS)',
   'New admin key': 'Neuer Admin-Schlüssel',
   'No admin keys yet': 'Noch keine Admin-Schlüssel',
-  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have APERIO_SCALING enabled.': 'Keine Autoscaling-Einträge. Ein Client legt einen an, indem er einen scaling:-Block deklariert, und der Server muss APERIO_SCALING aktiviert haben.',
+  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have scaling.enabled on.': 'Keine Autoscaling-Einträge. Ein Client legt einen an, indem er einen scaling:-Block deklariert, und der Server muss scaling.enabled aktiviert haben.',
   'No cache data yet': 'Noch keine Cache-Daten',
   'No hostname restriction': 'Keine Hostname-Einschränkung',
   'No self-health data yet': 'Noch keine Selbstdiagnose-Daten',
@@ -949,7 +948,7 @@ export const de: Record<string, string> = {
   'Parallel connections per service (0 = server default, empty = keep)': 'Parallele Verbindungen pro Dienst (0 = Server-Standard, leer = beibehalten)',
   'Parallel connections per service (empty = server default)': 'Parallele Verbindungen pro Dienst (leer = Server-Standard)',
   'Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.': 'Detail nicht verfügbar: nur aktuelle Anfragen werden aufgezeichnet, und ein Dienst mit capture: false (oder ein Server mit abgeschaltetem Inspector) wird gar nicht aufgezeichnet.',
-  'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.': 'Dieser Dienst erlaubt die Aufzeichnung, aber der Server hat den Request-Inspector abgeschaltet (APERIO_INSPECTOR=0), daher kann hier nichts inspiziert oder wiederholt werden.',
+  'This service allows capture but the server has the request inspector switched off (inspector.enabled: false), so nothing here can be inspected or replayed.': 'Dieser Dienst erlaubt die Aufzeichnung, aber der Server hat den Request-Inspector abgeschaltet (inspector.enabled: false), daher kann hier nichts inspiziert oder wiederholt werden.',
   'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': 'Dieser Dienst wird nicht für den Request-Inspector aufgezeichnet (capture: false in seiner aperio.yaml), seine Anfragen lassen sich weder inspizieren noch wiederholen. Live-Traffic und Statistiken sind nicht betroffen.',
   'inspector off': 'Inspector aus',
   'no capture': 'keine Aufzeichnung',
@@ -1098,8 +1097,8 @@ export const de: Record<string, string> = {
     'dieser hostname wird ohne Besuchertor ausgeliefert',
   "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization":
     'Besucher müssen sich anmelden (oder einen Freigabelink mitbringen), bevor dies einen Client erreicht: diese Route verlangt eine Aperio-Anmeldung, eine Dashboard-Sitzung, die die Organisation dieses Hostnamens erreicht',
-  'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
-    'nichts erklärt diese Route als erreichbar und `default_access` steht auf `deny`, sie wird also nicht veröffentlicht: ein Besucher ohne Aperio-Sitzung erhält dieselbe Antwort wie bei einem nicht beanspruchten Hostnamen, ein angemeldeter Aperio-Benutzer erreicht sie weiterhin',
+  'nothing declares this route reachable and `access.default` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
+    'nichts erklärt diese Route als erreichbar und `access.default` steht auf `deny`, sie wird also nicht veröffentlicht: ein Besucher ohne Aperio-Sitzung erhält dieselbe Antwort wie bei einem nicht beanspruchten Hostnamen, ein angemeldeter Aperio-Benutzer erreicht sie weiterhin',
   '{count} client(s) would take it: {clients}':
     '{count} Client(s) würden sie annehmen: {clients}',
   'no connected client serves this hostname and path':
@@ -1144,12 +1143,12 @@ export const de: Record<string, string> = {
     'Wartungsmodus',
   'auth: on the service':
     'auth: am Dienst',
-  'server_auth / OIDC':
-    'server_auth / OIDC',
-  'default_access':
-    'default_access',
-  'server_auth':
-    'server_auth',
+  'access.gate / OIDC':
+    'access.gate / OIDC',
+  'access.default':
+    'access.default',
+  'access.gate':
+    'access.gate',
   'OIDC':
     'OIDC',
   'hostname/path binds':
@@ -1300,7 +1299,6 @@ export const de: Record<string, string> = {
   "All": "Alle",
   "Public endpoint": "Öffentlicher Endpunkt",
   "Tunnel": "Tunnel",
-  "Server configuration file (read-only)": "Server-Konfigurationsdatei (schreibgeschützt)",
   "Managed through API": "Über API verwaltet",
   "{count} sessions": "{count} Sitzungen",
   "Dropped": "Verworfen",
@@ -1334,4 +1332,30 @@ export const de: Record<string, string> = {
   "Could not load expose history.": "Freigabeverlauf konnte nicht geladen werden.",
   "Add group mapping": "Gruppenzuordnung hinzufügen",
   "Leave the secret empty to keep it when the issuer and client id are unchanged.": "Lassen Sie das Geheimnis leer, um es bei unverändertem Aussteller und unveränderter Client-ID beizubehalten.",
+  "Assemble an aperio.yaml, or a server-init.yaml for a server’s first start, from the settings this server understands, or open an existing one and edit it.": "Stelle eine aperio.yaml oder eine server-init.yaml für den ersten Start eines Servers aus den Einstellungen zusammen, die dieser Server versteht, oder öffne eine vorhandene Datei und bearbeite sie.",
+  "Changing this takes Admin in every organization and a sign-in from the last ten minutes.": "Eine Änderung erfordert Admin in jeder Organisation und eine Anmeldung aus den letzten zehn Minuten.",
+  "Client down threshold": "Schwelle für ausgefallene Clients",
+  "Every setting lives in the server’s database and applies when saved. Security-relevant ones take a sign-in from the last ten minutes; a few are read at startup and wait for a restart.": "Jede Einstellung liegt in der Datenbank des Servers und gilt, sobald sie gespeichert ist. Sicherheitsrelevante erfordern eine Anmeldung aus den letzten zehn Minuten; einige werden beim Start gelesen und warten auf einen Neustart.",
+  "Failover window": "Failover-Zeitfenster",
+  "Gateway timeout": "Gateway-Timeout",
+  "How the server shuts down, and its scheduled backups.": "Wie der Server herunterfährt, und seine geplanten Backups.",
+  "Login lockout base": "Basisdauer der Login-Sperre",
+  "Not a duration, use e.g. 30s, 5m, 2h, 1d": "Keine Dauer, verwende z. B. 30s, 5m, 2h, 1d",
+  "Not a size, use e.g. 512KB, 10MB, 1GB": "Keine Größe, verwende z. B. 512KB, 10MB, 1GB",
+  "Not valid YAML: {error}": "Kein gültiges YAML: {error}",
+  "One per line": "Ein Eintrag pro Zeile",
+  "Read when the server starts: a change is stored and takes effect at the next start.": "Wird beim Start des Servers gelesen: eine Änderung wird gespeichert und gilt ab dem nächsten Start.",
+  "Response timeout": "Antwort-Timeout",
+  "Saved, and waiting for a restart: {paths}": "Gespeichert, wartet auf einen Neustart: {paths}",
+  "Seeds a new server’s settings on its first start, through APERIO_INIT_FILE.": "Legt die Einstellungen eines neuen Servers bei seinem ersten Start fest, über APERIO_INIT_FILE.",
+  "Serve-stale window": "Stale-Auslieferungsfenster",
+  "The client file configures a tunnel client and what it exposes; the first-start document seeds a new server’s settings.": "Die Client-Datei konfiguriert einen Tunnel-Client und was er bereitstellt; das Erststart-Dokument legt die Einstellungen eines neuen Servers fest.",
+  "Undo": "Rückgängig",
+  "automatic": "automatisch",
+  "off": "aus",
+  "restart": "Neustart",
+  "restart pending": "Neustart ausstehend",
+  "security": "Sicherheit",
+  "stored, type to replace": "gespeichert, zum Ersetzen tippen",
+  "Every setting that differs from its default": "Jede Einstellung, die vom Standard abweicht",
 }

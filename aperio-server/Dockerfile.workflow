@@ -23,7 +23,7 @@ COPY --chmod=0755 dist-docker/aperio-server-${TARGETARCH} /app/aperio-server
 
 EXPOSE 8080
 ENV PORT=8080
-ENV APERIO_GATEWAY_TIMEOUT=10
-ENV APERIO_GATEWAY_RESPONSE_TIMEOUT=30
+# Every other setting lives in the database under /app/data: mount a volume
+# there, and seed a first start with APERIO_INIT_FILE if you need one.
 
 CMD ["/app/aperio-server"]

@@ -1,0 +1,23 @@
+# First-start settings for this example, read once into an empty data
+# directory. Start the server with:
+#
+#   APERIO_SERVER_TOKEN=apr_autoscaling_change_me APERIO_INIT_FILE=server-init.yaml aperio-server
+#
+# After the first start the settings live in the database: change them from
+# the dashboard (Settings), with `PUT /aperio/api/settings`, or export them
+# with `GET /aperio/api/export?include=settings`.
+
+settings:
+  # Honor client `scaling:` declarations. Off by default, because the client
+  # is a lower-trust credential than an operator and this makes it cause
+  # outbound calls from the server.
+  scaling:
+    enabled: true
+    # The endpoint must be HTTPS on a public address unless explicitly
+    # allowed otherwise; both switches exist for a provider API that
+    # genuinely lives on plain HTTP or on the internal network.
+    allow_http: false
+    allow_private: false
+    # How long an unrefreshed autoscaling record is kept, so a
+    # decommissioned service does not keep a cold-start trap behind.
+    record_ttl: 30d

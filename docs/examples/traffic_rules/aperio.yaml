@@ -1,5 +1,5 @@
 # The client side of this pair is deliberately plain: every rule in
-# aperio-server.yaml is enforced by the server before a request reaches the
+# server-init.yaml is enforced by the server before a request reaches the
 # tunnel, so the client neither declares nor sees any of it.
 server:
   url: https://tunnel.example.com

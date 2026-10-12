@@ -76,16 +76,14 @@ export class ScalingBackend extends StandardBackendBase() {}
  *  which is what an internal provider API needs. The strict default has its
  *  own server below. */
 export class ScalingServer extends AperioServerBase({
-  env: {
-    APERIO_SCALING: '1',
-    APERIO_SCALING_ALLOW_HTTP: '1',
-    APERIO_SCALING_ALLOW_PRIVATE: '1',
-    APERIO_GATEWAY_TIMEOUT: '2',
+  settings: {
+    scaling: { enabled: true, allow_http: true, allow_private: true },
+    gateway: { timeout: '2s' },
   },
 }) {}
 
 export class StrictScalingServer extends AperioServerBase({
-  env: { APERIO_SCALING: '1', APERIO_GATEWAY_TIMEOUT: '2' },
+  settings: { scaling: { enabled: true }, gateway: { timeout: '2s' } },
 }) {}
 
 /** Connects once to arm the record, then goes away. */

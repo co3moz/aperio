@@ -1,0 +1,20 @@
+# First-start settings for this example, read once into an empty data
+# directory. Start the server with:
+#
+#   APERIO_SERVER_TOKEN=apr_tuning_multi_change_me APERIO_INIT_FILE=server-init.yaml aperio-server
+#
+# After the first start the settings live in the database: change them from
+# the dashboard (Settings), with `PUT /aperio/api/settings`, or export them
+# with `GET /aperio/api/export?include=settings`.
+
+settings:
+  limits:
+    # Global ceilings still apply across all services and clients.
+    concurrent_requests: 200
+    request_body: 10MB
+    # Parallel tunnel connections one client may open for a single service.
+    # The number is announced to the client on connect, so a `connections:`
+    # above it costs one refused connection instead of a fan of them; a
+    # token's own `max_connections` may lower it further for its holder,
+    # never raise it.
+    connections_per_service: 8

@@ -14,6 +14,8 @@ pub mod expose;
 pub mod expose_policy;
 pub mod pairing;
 pub mod removed;
+pub mod server_settings;
+pub mod units;
 
 // The schema itself, split by which file each part describes and by what it
 // describes about it. Everything is re-exported, so `aperio_config::Thing`
@@ -34,20 +36,14 @@ pub mod auth;
 pub mod changelog;
 pub mod client;
 pub mod file;
-pub mod groups;
 pub mod hop_by_hop;
 pub mod rules;
-pub mod server;
-pub mod settings;
 pub mod surfaces;
 
 pub use auth::*;
 pub use client::*;
 pub use file::*;
-pub use groups::*;
 pub use rules::*;
-pub use server::*;
-pub use settings::*;
 
 /// Serde default protocol of a declared tunnel.
 fn default_tcp() -> String {
@@ -330,9 +326,9 @@ pub fn format_bandwidth(bps: u64) -> String {
   format!("{} bytes/s", bps)
 }
 
-/// The `aperio-server.yaml` JSON Schema as pretty JSON.
+/// The JSON Schema of the server's settings document, as pretty JSON.
 pub fn server_schema_json() -> String {
-  let schema = schemars::schema_for!(ServerFileConfig);
+  let schema = schemars::schema_for!(server_settings::ServerSettings);
   serde_json::to_string_pretty(&schema).expect("the config schema must serialize")
 }
 

@@ -54,7 +54,7 @@ concrete problem before.
   environment variable, a row in `docs/configuration.md`, and a row in the
   book's reference table (`docs/book/aperio.tex`). A setting that reaches only
   one surface is unfinished, not "to be completed later". See
-  [the naming standard](docs/configuration.md#the-standard-one-name-three-surfaces).
+  [the naming standard](docs/configuration.md#the-clients-standard-one-name-three-surfaces).
 - **A removed or renamed key leaves a hint** in `aperio-config/src/removed.rs`
   naming what replaced it, and a **Breaking** line in `CHANGELOG.md`. There is
   no `version:` and no translation layer, so the hint is what an operator

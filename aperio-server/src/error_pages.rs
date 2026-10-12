@@ -1,7 +1,7 @@
 //! Per-hostname custom error pages (the `error_pages:` section of
 //! `aperio-server.yaml`).
 //!
-//! The global `APERIO_504_PAGE` / `APERIO_503_PAGE` pages apply to every
+//! The global `pages.unavailable` / `pages.maintenance` pages apply to every
 //! service; this section overrides them per hostname, so each exposed site
 //! can carry its own branding on gateway-timeout and maintenance responses:
 //!
@@ -62,21 +62,14 @@ impl ErrorPages {
   }
 }
 
-/// Reads and compiles the `error_pages:` section of `aperio-server.yaml`.
-/// Called at startup and again on hot-reload; failures keep the global pages.
-pub(crate) fn from_config_file() -> ErrorPages {
-  let Some(section) = crate::config_file::structured("error_pages") else {
-    return ErrorPages::default();
+/// Compiles the `error_pages:` section of the settings. A page file that
+/// cannot be read keeps the global page for that hostname, with a log line.
+pub(crate) fn from_section(section: Option<serde_yaml::Value>) -> Result<ErrorPages, String> {
+  let Some(section) = section else {
+    return Ok(ErrorPages::default());
   };
-  let rules: Vec<ErrorPageRule> = match serde_yaml::from_value(section) {
-    Ok(rules) => rules,
-    Err(err) => {
-      tracing::error!(
-        "invalid `error_pages:` section in aperio-server.yaml: {err}, keeping the global error pages"
-      );
-      return ErrorPages::default();
-    }
-  };
+  let rules: Vec<ErrorPageRule> =
+    serde_yaml::from_value(section).map_err(|e| format!("error_pages: {e}"))?;
   let mut compiled = Vec::with_capacity(rules.len());
   for rule in rules {
     let hostname = rule.hostname.trim().to_ascii_lowercase();
@@ -112,7 +105,7 @@ pub(crate) fn from_config_file() -> ErrorPages {
       html_503,
     });
   }
-  ErrorPages { rules: compiled }
+  Ok(ErrorPages { rules: compiled })
 }
 
 #[cfg(test)]

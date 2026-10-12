@@ -17,6 +17,12 @@ export interface JsonSchema {
   properties?: Record<string, JsonSchema>
   items?: JsonSchema
   enum?: unknown[]
+  /** A single permitted value, the way schemars writes one word of an
+   *  untagged union (`auto`). */
+  const?: unknown
+  /** The regex a string must match: how a duration or a size is told apart
+   *  from free text. */
+  pattern?: string
   examples?: unknown[]
   format?: string
   default?: unknown

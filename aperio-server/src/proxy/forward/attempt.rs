@@ -518,7 +518,7 @@ impl Attempt<'_> {
             record_outlier_failure(&state, &selected.id, selected.service_name.as_deref()).await;
           }
 
-          // Transparent retry on a buffered server error (APERIO_RETRY_ON_5XX):
+          // Transparent retry on a buffered server error (failover.retry_on_5xx):
           // a fully-buffered 5xx the retry policy covers is re-dispatched to
           // another client instead of being returned. No response bytes have
           // reached the visitor yet, so this is safe for retryable methods.
@@ -666,14 +666,17 @@ impl Attempt<'_> {
           // Store cacheable buffered GET responses (streamed responses are never
           // cached). A 200 honors the advertised Cache-Control lifetime; a
           // 404/410 may be negatively cached for a short TTL
-          // (APERIO_CACHE_NEGATIVE_TTL) to shield a backend from repeated misses.
+          // (cache.negative_ttl) to shield a backend from repeated misses.
           if cache_eligible && tunnel_res.stream_rx.is_none() {
             let ttl = if status_code == StatusCode::OK {
               crate::cache::response_cache_ttl(&tunnel_res.headers)
             } else if matches!(tunnel_res.status, 404 | 410)
               && !crate::cache::response_uncacheable(&tunnel_res.headers)
             {
-              let neg = crate::cache::negative_cache_ttl();
+              // Read per response, so a settings change applies to the next
+              // one; 0s = negative caching off. Not a cache.rs helper: that
+              // module stays free of crate references for the benches.
+              let neg = crate::live::current().cache.negative_ttl.0;
               (!neg.is_zero()).then_some(neg)
             } else {
               None

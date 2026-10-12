@@ -1,0 +1,16 @@
+# First-start settings for this example, read once into an empty data
+# directory. Start the server with:
+#
+#   APERIO_SERVER_TOKEN=apr_load_balancing_multi_change_me APERIO_INIT_FILE=server-init.yaml aperio-server
+#
+# After the first start the settings live in the database: change them from
+# the dashboard (Settings), with `PUT /aperio/api/settings`, or export them
+# with `GET /aperio/api/export?include=settings`.
+
+settings:
+  routing:
+    # Route each hostname to its lowest healthy priority tier.
+    lb_strategy: primary-standby
+  gateway:
+    # How long a silent client counts as alive before its tier is skipped.
+    client_down_threshold: 15s

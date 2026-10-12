@@ -58,7 +58,7 @@ export const EXPLAIN_MESSAGES: Record<string, string> = {
     "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization",
   'visitor_gate.open': 'this hostname is served without a visitor gate',
   'visitor_gate.undeclared':
-    'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it',
+    'nothing declares this route reachable and `access.default` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it',
 
   'routing.candidates': '{count} client(s) would take it: {clients}',
   'routing.none': 'no connected client serves this hostname and path',
@@ -163,11 +163,11 @@ export const EXPLAIN_STAGES: Record<string, string> = {
 // the same word in every language and left alone; these are the few that were
 // written as prose and so have to be said in the reader's.
 export const EXPLAIN_SETTINGS: Record<string, string> = {
-  'setting.default_access': 'default_access',
+  'setting.default_access': 'access.default',
   'setting.maintenance_mode': 'maintenance mode',
   'setting.service_auth': 'auth: on the service',
-  'setting.server_auth_oidc': 'server_auth / OIDC',
-  'setting.server_auth': 'server_auth',
+  'setting.server_auth_oidc': 'access.gate / OIDC',
+  'setting.server_auth': 'access.gate',
   'setting.oidc': 'OIDC',
   'setting.host_path_binds': 'hostname/path binds',
 }

@@ -195,24 +195,16 @@ impl MaintenanceWindows {
   }
 }
 
-/// Reads and compiles the `maintenance_windows:` section. Like `routes:`, a
-/// malformed section is a startup error: a window the operator believes is
-/// scheduled, silently dropped, is the failure this feature exists to avoid.
-pub(crate) fn from_config_file() -> MaintenanceWindows {
-  let Some(section) = crate::config_file::structured("maintenance_windows") else {
-    return MaintenanceWindows::default();
+/// Compiles the `maintenance_windows:` section of the settings.
+pub(crate) fn from_section(
+  section: Option<serde_yaml::Value>,
+) -> Result<MaintenanceWindows, String> {
+  let Some(section) = section else {
+    return Ok(MaintenanceWindows::default());
   };
-  let parsed: Result<Vec<WindowRaw>, _> = serde_yaml::from_value(section);
-  match parsed
-    .map_err(|e| e.to_string())
-    .and_then(MaintenanceWindows::compile)
-  {
-    Ok(w) => w,
-    Err(err) => {
-      tracing::error!("invalid `maintenance_windows:` section in aperio-server.yaml: {err}");
-      std::process::exit(1);
-    }
-  }
+  let parsed: Vec<WindowRaw> =
+    serde_yaml::from_value(section).map_err(|e| format!("maintenance_windows: {e}"))?;
+  MaintenanceWindows::compile(parsed).map_err(|e| format!("maintenance_windows: {e}"))
 }
 
 #[cfg(test)]

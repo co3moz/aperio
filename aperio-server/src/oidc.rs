@@ -177,44 +177,44 @@ pub async fn build_runtime(
   })
 }
 
-/// The grant policy from `APERIO_OIDC_DEFAULT_GRANTS`, `APERIO_OIDC_GROUPS_CLAIM`
-/// and `APERIO_OIDC_GROUP_GRANTS`. A value that does not parse is an error
-/// naming the variable, since a mapping silently dropped is a person silently
-/// not granted.
-pub fn grant_policy_from_env() -> Result<OidcGrantPolicy, String> {
-  let default_grants =
-    grants::parse_list(&std::env::var("APERIO_OIDC_DEFAULT_GRANTS").unwrap_or_default())
-      .map_err(|e| format!("APERIO_OIDC_DEFAULT_GRANTS: {e}"))?;
-  let group_grants =
-    grants::parse_group_map(&std::env::var("APERIO_OIDC_GROUP_GRANTS").unwrap_or_default())
-      .map_err(|e| format!("APERIO_OIDC_GROUP_GRANTS: {e}"))?;
+/// The grant policy from `oidc.default_grants`, `oidc.groups_claim` and
+/// `oidc.group_grants`. A value that does not parse is an error naming the
+/// setting, since a mapping silently dropped is a person silently not
+/// granted.
+pub fn grant_policy(
+  oidc: &aperio_config::server_settings::Oidc,
+) -> Result<OidcGrantPolicy, String> {
+  let default_grants = grants::parse_list(&oidc.default_grants.join(","))
+    .map_err(|e| format!("oidc.default_grants: {e}"))?;
+  let group_grants = grants::parse_group_map(&oidc.group_grants.join(","))
+    .map_err(|e| format!("oidc.group_grants: {e}"))?;
   Ok(OidcGrantPolicy {
     default_grants,
-    groups_claim: std::env::var("APERIO_OIDC_GROUPS_CLAIM").unwrap_or_default(),
+    groups_claim: oidc.groups_claim.clone(),
     group_grants,
   })
 }
 
-/// Loads OIDC configuration from `APERIO_OIDC_*` environment variables. Returns
-/// `None` when the feature is not configured; exits the process on
-/// misconfiguration so a broken SSO setup never silently exposes the app.
-pub async fn load_from_env(policy: &crate::outbound::OutboundPolicy) -> Option<OidcRuntime> {
-  let issuer = std::env::var("APERIO_OIDC_ISSUER").ok()?;
+/// Loads OIDC from the `oidc` settings. `None` when no issuer is set; exits
+/// the process on misconfiguration so a broken SSO setup never silently
+/// exposes the app.
+pub async fn load(
+  oidc: &aperio_config::server_settings::Oidc,
+  policy: &crate::outbound::OutboundPolicy,
+) -> Option<OidcRuntime> {
+  let issuer = oidc.issuer.clone()?;
   if issuer.trim().is_empty() {
     return None;
   }
-  let allowed_emails: Vec<String> = std::env::var("APERIO_OIDC_ALLOWED_EMAILS")
-    .unwrap_or_default()
-    .split(',')
+  let allowed_emails: Vec<String> = oidc
+    .allowed_emails
+    .iter()
     .map(|s| s.trim().to_ascii_lowercase())
     .filter(|s| !s.is_empty())
     .collect();
-  let scopes =
-    std::env::var("APERIO_OIDC_SCOPES").unwrap_or_else(|_| "openid email profile".to_string());
-  let redirect_url_override = std::env::var("APERIO_OIDC_REDIRECT_URL")
-    .ok()
-    .filter(|s| !s.trim().is_empty());
-  let grants = match grant_policy_from_env() {
+  let scopes = oidc.scopes.clone();
+  let redirect_url_override = oidc.redirect_url.clone().filter(|s| !s.trim().is_empty());
+  let grants = match grant_policy(oidc) {
     Ok(g) => g,
     Err(e) => {
       error!("OIDC configuration error: {e}");
@@ -223,25 +223,22 @@ pub async fn load_from_env(policy: &crate::outbound::OutboundPolicy) -> Option<O
   };
   if grants.default_grants.is_empty() && grants.group_grants.is_empty() {
     info!(
-      "OIDC: an email with no dashboard user record signs in to nothing; set oidc.default_grants \
-       or oidc.group_grants, or create the records ahead of the first login"
+      "OIDC: an email with no dashboard user record signs in to nothing; set oidc.default_grants or oidc.group_grants, or create the records ahead of the first login"
     );
   }
   if redirect_url_override.is_none() {
-    // Not fatal: deriving works, and requiring the key would break every
-    // deployment that never set it. But it is worth saying out loud, because
+    // Not fatal: deriving works. But it is worth saying out loud, because
     // the failure it guards against is silent, the `Host` of the request that
     // starts a login decides where the provider returns the code.
     warn!(
-      "OIDC: APERIO_OIDC_REDIRECT_URL is not set, so the callback URL is derived from each \
-       request's Host header. Set it to the one URL registered with your provider."
+      "OIDC: oidc.redirect_url is not set, so the callback URL is derived from each request's Host header. Set it to the one URL registered with your provider."
     );
   }
   match build_runtime(
     policy,
     &issuer,
-    &std::env::var("APERIO_OIDC_CLIENT_ID").unwrap_or_default(),
-    &std::env::var("APERIO_OIDC_CLIENT_SECRET").unwrap_or_default(),
+    oidc.client_id.as_deref().unwrap_or_default(),
+    oidc.client_secret.as_deref().unwrap_or_default(),
     allowed_emails,
     scopes,
     redirect_url_override,

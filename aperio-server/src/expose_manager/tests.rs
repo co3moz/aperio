@@ -243,71 +243,6 @@ async fn draining_udp_retains_bandwidth_quota_until_sessions_end() {
   draining_quota_case(ExposeProtocol::Udp, true).await;
 }
 
-#[test]
-fn duplicate_file_identities_are_rejected_before_startup_or_reload_binds() {
-  let _lock = crate::test_support::config_lock();
-  struct Cleanup;
-  impl Drop for Cleanup {
-    fn drop(&mut self) {
-      let _ = std::fs::remove_file("aperio-server.yaml");
-      crate::config_file::forget();
-    }
-  }
-  let _cleanup = Cleanup;
-  tokio::runtime::Builder::new_current_thread()
-    .enable_all()
-    .build()
-    .unwrap()
-    .block_on(async {
-      let state = Arc::new(test_state());
-      let rule = fresh(ExposeProtocol::Tcp).await;
-      let port = rule.spec.listener.port;
-      let valid = format!("expose:\n  - port: {port}\n    tunnel: echo\n");
-      let duplicate = format!(
-        "{valid}  - port: {port}\n    address: 127.0.0.1\n    tunnel: other\n    enabled: false\n"
-      );
-      std::fs::write("aperio-server.yaml", &duplicate).unwrap();
-      crate::config_file::reload().unwrap();
-      let mut manager = state.exposes.lock().await;
-      manager.initialize(&state, "127.0.0.1").await;
-      assert!(
-        manager
-          .file_error
-          .as_ref()
-          .unwrap()
-          .contains("declared twice")
-      );
-      assert!(manager.entries.is_empty());
-      let socket = tokio::net::TcpListener::bind(("127.0.0.1", port))
-        .await
-        .unwrap();
-      drop(socket);
-
-      std::fs::write("aperio-server.yaml", valid).unwrap();
-      crate::config_file::reload().unwrap();
-      manager.reload(&state, "127.0.0.1").await.unwrap();
-      let id = format!("file:tcp:127.0.0.1:{port}");
-      let runtime = manager.entries[&id].runtime.clone();
-      std::fs::write("aperio-server.yaml", duplicate).unwrap();
-      crate::config_file::reload().unwrap();
-      assert!(
-        manager
-          .reload(&state, "127.0.0.1")
-          .await
-          .unwrap_err()
-          .contains("declared twice")
-      );
-      assert!(Arc::ptr_eq(&manager.entries[&id].runtime, &runtime));
-      assert!(manager.entries[&id].rule.resource.spec.enabled);
-      manager.shutdown().await;
-      assert!(
-        tokio::net::TcpListener::bind(("127.0.0.1", port))
-          .await
-          .is_ok()
-      );
-    });
-}
-
 #[tokio::test]
 async fn udp_preserves_peer_identity_empty_datagrams_and_shutdown_releases_port() {
   let state = Arc::new(test_state());
@@ -538,48 +473,6 @@ async fn udp_target_edits_only_affect_new_peers() {
     sessions.iter().find(|s| s.id == new_id).unwrap().target,
     "127.0.0.1:9001"
   );
-  clean(&state).await;
-}
-
-#[tokio::test]
-async fn invalid_file_reload_keeps_api_and_file_generations() {
-  let state = Arc::new(test_state());
-  let api = fresh(ExposeProtocol::Tcp).await;
-  let mut file_resource = fresh(ExposeProtocol::Udp).await;
-  file_resource.source = ExposeSource::File;
-  file_resource.id = format!("file:udp:127.0.0.1:{}", file_resource.spec.listener.port);
-  let file = ManagedRule {
-    legacy: Some(aperio_config::ExposeEntry {
-      protocol: "udp".into(),
-      port: file_resource.spec.listener.port,
-      tunnel: Some("echo".into()),
-      ..Default::default()
-    }),
-    resource: file_resource,
-  };
-  let mut manager = state.exposes.lock().await;
-  let mut document = manager.store.document.clone();
-  document.resources = vec![api.clone()];
-  manager
-    .apply(&state, document.clone(), vec![file.clone()], true, false)
-    .await
-    .unwrap();
-  let before = manager.store.document.revision;
-  let mut conflict = file.clone();
-  conflict.resource.spec.listener = api.spec.listener.clone();
-  assert!(
-    manager
-      .apply(&state, document, vec![conflict], false, false)
-      .await
-      .is_err()
-  );
-  assert_eq!(manager.store.document.revision, before);
-  assert_eq!(
-    manager.entries[&file.resource.id].rule.resource,
-    file.resource
-  );
-  assert_eq!(manager.entries[&api.id].rule.resource, api);
-  drop(manager);
   clean(&state).await;
 }
 

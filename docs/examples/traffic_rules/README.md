@@ -2,7 +2,7 @@
 
 > **Concept:** [Routing and Load Balancing](../../routing-and-load-balancing.md), [Production Hardening](../../production-hardening.md).
 
-Server-side rules applied to a request before it enters the tunnel, all of them in `aperio-server.yaml` and none of them visible to the client:
+Server-side rules applied to a request before it enters the tunnel, all of them server settings (here in `server-init.yaml`, read on the first start) and none of them visible to the client:
 
 - **`rate_limits:`**, an aggregate requests-per-second ceiling per hostname and path prefix. The per-visitor IP limit bounds one caller; this bounds the route, which is what protects a login endpoint from a thousand polite visitors. A refused request answers `429` and names the limit that fired in its `x-aperio-limit` header, so `curl -i` answers what used to need the server's log.
 - **`waf:`**, deny and size rules evaluated first: scanner paths, scanner user-agents, and a per-route upload cap answered `413`.

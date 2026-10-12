@@ -140,25 +140,36 @@ createServer((req, res) => {
   start('backend', process.execPath, [backend])
 
   // --- the server, on its own data directory ---
+  // Its settings are a first-start document: the server reads its token and
+  // listener from the environment and everything else from its database,
+  // which this seeds once.
+  const init = join(dir, 'server-init.json')
+  writeFileSync(
+    init,
+    JSON.stringify({
+      settings: {
+        metrics: { enabled: true },
+        // Every request in a capture comes from 127.0.0.1, so the per-visitor
+        // rate limit sees one very busy visitor and fills the traffic table
+        // with its own refusals. Lifted here because it is an artifact of
+        // capturing, not something a deployment with real visitors would hit.
+        limits: { ip_rate: { burst: 100000, per_second: 10000 } },
+        // The autoscaling screen is a list of armed records, so the feature
+        // has to be on for the client's declaration to be honored at all.
+        scaling: { enabled: true },
+      },
+    }),
+  )
   start('server', binary('aperio-server'), [], {
     cwd: dir,
     env: {
       ...process.env,
       APERIO_DATA_DIR: dataDir,
       APERIO_SERVER_TOKEN: TOKEN,
+      APERIO_INIT_FILE: init,
       // The server reads the bare `HOST`/`PORT`, not `APERIO_`-prefixed ones.
       PORT: String(PORT),
       HOST: '127.0.0.1',
-      APERIO_METRICS: '1',
-      // Every request in a capture comes from 127.0.0.1, so the per-visitor
-      // rate limit sees one very busy visitor and fills the traffic table with
-      // its own refusals. Lifted here because it is an artifact of capturing,
-      // not something a deployment with real visitors would hit.
-      APERIO_IP_LIMIT_MAX: '100000',
-      APERIO_IP_LIMIT_REFILL: '10000',
-      // The autoscaling screen is a list of armed records, so the feature has
-      // to be on for the client's declaration to be honored at all.
-      APERIO_SCALING: '1',
     },
   })
   await waitFor('the server', async () => (await api('/aperio/auth')).ok)

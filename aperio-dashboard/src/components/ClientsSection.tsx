@@ -692,7 +692,7 @@ export function ClientsSection({
                           <HintBadge
                             tint="amber"
                             hint={t(
-                              'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.',
+                              'This service allows capture but the server has the request inspector switched off (inspector.enabled: false), so nothing here can be inspected or replayed.',
                             )}
                           >
                             {t('inspector off')}

@@ -82,37 +82,28 @@ fn test_form_and_binary_bodies() {
 // The switch, the entry point, and the predicate that decides
 // ---------------------------------------------------------------------------
 
-/// Redaction is on unless the operator turns it off, and only the two
-/// spellings that mean off turn it off.
+/// Redaction is on unless the operator turns it off, and a settings change
+/// reaches the next capture shown.
 ///
-/// A mutation run left four survivors here, which between them are four ways
-/// for redaction to be silently off: the whole function returning `false`,
-/// `!=` becoming `==`, the `&&` becoming `||`, and the negation deleted. None
-/// of them made a test go red, because nothing asserted the switch at all. It
-/// is the one setting in this module whose failure is invisible: everything
-/// keeps working, the dashboard keeps rendering, and the secrets are in it.
+/// A mutation run once left four survivors here, which between them were four
+/// ways for redaction to be silently off. None of them made a test go red,
+/// because nothing asserted the switch at all. It is the one setting in this
+/// module whose failure is invisible: everything keeps working, the dashboard
+/// keeps rendering, and the secrets are in it.
 #[test]
 fn redaction_is_on_unless_it_is_explicitly_turned_off() {
-  assert!(redaction_setting(None), "on when the operator says nothing");
-  assert!(!redaction_setting(Some("0")));
-  assert!(!redaction_setting(Some("false")));
-  assert!(
-    !redaction_setting(Some("FALSE")),
-    "the spelling is case-insensitive"
-  );
-  // Anything that is not one of those two means on. An operator who writes
-  // `APERIO_INSPECTOR_REDACT=no` has said something this does not understand,
-  // and the safe reading of a misunderstood switch is the protective one.
-  assert!(redaction_setting(Some("1")));
-  assert!(redaction_setting(Some("true")));
-  assert!(
-    redaction_setting(Some("no")),
-    "unrecognised means on, not off"
-  );
-  assert!(redaction_setting(Some("")));
-  // The live switch is on in a test process, which is what every other test
-  // in this file quietly assumes.
+  crate::live::reset();
+  assert!(redaction_enabled(), "on when the operator says nothing");
+  crate::live::set_yaml("inspector:\n  redact: false\n");
+  assert!(!redaction_enabled());
+  crate::live::set_yaml("inspector:\n  redact: true\n");
   assert!(redaction_enabled());
+  // A switch the reader cannot understand is refused, not read as off.
+  assert!(
+    aperio_config::server_settings::ServerSettings::from_yaml("inspector:\n  redact: no-thanks\n")
+      .is_err()
+  );
+  crate::live::reset();
 }
 
 /// A name is sensitive by exact match *or* by containing a needle, and the two
@@ -135,16 +126,15 @@ fn a_name_is_sensitive_by_either_list_not_both() {
 
 /// The mask is a placeholder a reader can see, not an empty string.
 ///
-/// `mask()` returning `""` still technically removes the secret, and that is
+/// A mask of `""` still technically removes the secret, and that is
 /// why no test caught it: the value is gone either way. What is lost is the
 /// difference between "this field was masked" and "this field was empty", on
 /// a screen somebody is reading to find out what the request carried.
 #[test]
 fn the_mask_is_visible_and_is_not_a_plausible_value() {
-  assert!(!mask().is_empty(), "an empty mask reads as an absent field");
-  assert_eq!(mask(), MASK);
+  assert!(!MASK.is_empty(), "an empty mask reads as an absent field");
   assert!(
-    !field_is_sensitive(mask()),
+    !field_is_sensitive(MASK),
     "the mask must not itself look like a secret name"
   );
 }

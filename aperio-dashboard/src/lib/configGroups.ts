@@ -108,55 +108,24 @@ export const CLIENT_GROUPS: GroupSpec[] = [
   },
 ]
 
-/** `aperio-server.yaml`. */
+/** The server's settings document, by section. Shared by the settings form
+ *  and the builder's first-start document, so the two arrange the same
+ *  sections the same way. */
 export const SERVER_GROUPS: GroupSpec[] = [
-  {
-    title: 'Core',
-    description: 'Identity, listening address, and where state lives.',
-    keys: ['version', 'server', 'server_token', 'host', 'port', 'data_dir', 'log_level'],
-  },
   {
     title: 'Routing & load balancing',
     description: 'How a request finds a client, and which clients are eligible.',
-    keys: [
-      'lb_strategy',
-      'require_hostname_bind',
-      'random_subdomain',
-      'preview_noindex',
-      'client_down_threshold',
-      'outlier_ejection',
-      'outlier_max_failures',
-      'outlier_window',
-      'outlier_eject_secs',
-      'routes',
-      'fallbacks',
-    ],
+    keys: ['routing', 'outlier', 'routes', 'fallbacks'],
   },
   {
     title: 'Failover & retry',
     description: 'What happens when a client dies mid-request or answers with an error.',
-    keys: [
-      'failover',
-      'failover_max_jumps',
-      'failover_window',
-      'failover_all_methods',
-      'retry_on_5xx',
-      'retry_statuses',
-    ],
+    keys: ['failover'],
   },
   {
     title: 'Limits & protection',
     description: 'Ceilings on bodies, concurrency, tunnels, and per-visitor rate.',
-    keys: [
-      'max_body_size',
-      'max_concurrent_requests',
-      'max_ws_connections',
-      'max_tunnels',
-      'gateway',
-      'ip_limit',
-      'rate_limits',
-      'waf',
-    ],
+    keys: ['limits', 'gateway', 'rate_limits', 'waf'],
   },
   {
     title: 'Caching',
@@ -166,35 +135,17 @@ export const SERVER_GROUPS: GroupSpec[] = [
   {
     title: 'Stream flow control',
     description: 'How much of a slow visitor’s download is buffered before the client pauses.',
-    keys: ['stream'],
+    keys: ['stream', 'tunnel'],
   },
   {
     title: 'Authentication & dashboard',
     description: 'Who may log in, how, and what the dashboard offers.',
-    keys: [
-      'server_auth',
-      'ignore_client_auth',
-      'dashboard',
-      'oidc',
-      'webauthn_origin',
-      'webauthn_rp_id',
-      'token_pinning',
-      'token_expiry_warning',
-      'login_lockout',
-      'admin_allowed_ips',
-      'ui_language',
-    ],
+    keys: ['access', 'dashboard', 'oidc', 'security'],
   },
   {
     title: 'Proxy trust',
     description: 'How the real client IP is resolved behind a proxy or CDN.',
-    keys: [
-      'trust_proxy',
-      'trusted_proxies',
-      'real_ip_header',
-      'trust_cf_header',
-      'secure_cookies',
-    ],
+    keys: ['proxy'],
   },
   {
     title: 'Observability',
@@ -202,14 +153,15 @@ export const SERVER_GROUPS: GroupSpec[] = [
     keys: [
       'metrics',
       'otel',
-      'access_log',
-      'inspector_redact',
-      'alert',
+      'logging',
+      'inspector',
+      'request_id',
+      'identity_headers',
+      'alerts',
       'audit',
       'retention',
-      'db_max_bytes',
-      'uptime_tick_secs',
-      'webhook_retry_schedule',
+      'uptime',
+      'webhooks',
     ],
   },
   {
@@ -225,12 +177,12 @@ export const SERVER_GROUPS: GroupSpec[] = [
   {
     title: 'Pages & headers',
     description: 'What visitors see on an error, and server-wide header rewriting.',
-    keys: ['504_page', '503_page', 'error_pages', 'headers'],
+    keys: ['pages', 'error_pages', 'maintenance_windows', 'headers'],
   },
   {
     title: 'Process & maintenance',
-    description: 'Startup behaviour, backups, and the public expose ports.',
-    keys: ['config_hot_reload', 'reuseport', 'backup', 'expose', 'tunnel_compression'],
+    description: 'How the server shuts down, and its scheduled backups.',
+    keys: ['shutdown', 'backup'],
   },
 ]
 
@@ -266,9 +218,6 @@ export const ESSENTIAL_KEYS: string[] = [
   'path',
   'port',
   'host',
-  // The server's own irreducible minimum.
-  'server_token',
-  'data_dir',
   // Block-level switches: without these the rest of the block is inert.
   'enabled',
   'mode',

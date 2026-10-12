@@ -20,10 +20,10 @@ export class BackendTwo extends StandardBackendBase() {}
  * the same time.
  */
 export class PrimaryStandbyServer extends AperioServerBase({
-  env: { APERIO_LB_STRATEGY: 'primary-standby' },
+  settings: { routing: { lb_strategy: 'primary-standby' } },
 }) {}
 
-export class StickyServer extends AperioServerBase({ env: { APERIO_LB_STRATEGY: 'sticky' } }) {}
+export class StickyServer extends AperioServerBase({ settings: { routing: { lb_strategy: 'sticky' } } }) {}
 
 export class PrimaryClient extends ClientFor(() => PrimaryStandbyServer, () => BackendOne) {
   _hostname() {

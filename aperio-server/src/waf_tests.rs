@@ -4,22 +4,6 @@
 
 use super::*;
 
-/// Serializes tests that touch the process-global config document / default
-/// `aperio-server.yaml`. Loads `yaml` as the default document, runs `f`.
-fn with_config(yaml: &str, f: impl FnOnce()) {
-  let _lock = crate::test_support::config_lock();
-  struct Cleanup;
-  impl Drop for Cleanup {
-    fn drop(&mut self) {
-      let _ = std::fs::remove_file("aperio-server.yaml");
-    }
-  }
-  let _cleanup = Cleanup;
-  std::fs::write("aperio-server.yaml", yaml).unwrap();
-  crate::config_file::reload().unwrap();
-  f();
-}
-
 fn rules_from(yaml: &str) -> WafRules {
   let raw: Vec<WafRuleRaw> = serde_yaml::from_str(yaml).unwrap();
   WafRules {
@@ -108,31 +92,35 @@ fn empty_and_bad_header_rules_are_dropped() {
 }
 
 #[test]
-fn count_dropped_reports_the_number_of_bad_rules() {
-  let raw: Vec<WafRuleRaw> =
-    serde_yaml::from_str("- path: \"(bad\"\n- {}\n- path: \"^/ok\"\n").unwrap();
-  assert_eq!(count_dropped(raw), 2);
-}
-
-#[test]
 fn from_config_file_absent_section_is_default() {
-  with_config("other: 1\n", || {
-    assert!(from_config_file().is_empty());
-  });
+  {
+    let doc = "other: 1\n";
+    assert!(
+      from_section(crate::test_support::section(doc, "waf"))
+        .unwrap_or_default()
+        .is_empty()
+    );
+  }
 }
 
 #[test]
 fn from_config_file_parses_and_compiles() {
-  with_config("waf:\n  - path: \"^/\\\\.git\"\n", || {
-    let waf = from_config_file();
+  {
+    let doc = "waf:\n  - path: \"^/\\\\.git\"\n";
+    let waf = from_section(crate::test_support::section(doc, "waf")).unwrap_or_default();
     let h = HeaderMap::new();
     assert!(waf.deny_reason("GET", "/.git/config", &h).is_some());
-  });
+  }
 }
 
 #[test]
 fn from_config_file_malformed_section_disables_feature() {
-  with_config("waf: nope\n", || {
-    assert!(from_config_file().is_empty());
-  });
+  {
+    let doc = "waf: nope\n";
+    assert!(
+      from_section(crate::test_support::section(doc, "waf"))
+        .unwrap_or_default()
+        .is_empty()
+    );
+  }
 }

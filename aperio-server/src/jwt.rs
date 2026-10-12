@@ -242,17 +242,13 @@ async fn fetch(state: &AppState, url: &str, declared_by_client: bool) -> Option<
   if declared_by_client {
     match url::Url::parse(url) {
       Ok(parsed) => {
-        let allow_insecure = std::env::var("APERIO_JWKS_ALLOW_HTTP")
-          .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-          .unwrap_or(false);
-        let allow_private = std::env::var("APERIO_JWKS_ALLOW_PRIVATE")
-          .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-          .unwrap_or(false);
+        let jwks = crate::live::current().security.jwks.clone();
+        let (allow_insecure, allow_private) = (jwks.allow_http, jwks.allow_private);
         if let Err(why) = crate::outbound::client_declared_destination_allowed(
           &parsed,
           allow_insecure,
           allow_private,
-          "APERIO_JWKS",
+          "security.jwks",
         )
         .await
         {

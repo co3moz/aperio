@@ -1,6 +1,6 @@
 # Performance Tuning
 
-> **Configuration:** Server settings go in `aperio-server.yaml` (`max_concurrent_requests` maps to `APERIO_MAX_CONCURRENT_REQUESTS`; `cache.max_bytes` maps to `APERIO_CACHE_MAX_BYTES`). Client settings go in `aperio.yaml`. Server file values override environment variables. See [Configuration](configuration.md#grouped-keys) for the full mapping.
+> **Configuration:** Server settings live in the server's database and are changed from the dashboard (**Settings**), with `PUT /aperio/api/settings`, or in a first-start document (`APERIO_INIT_FILE`); they are written as paths such as `cache.enabled`. Client settings go in `aperio.yaml`. See [Configuration](configuration.md#server-settings).
 
 The knobs that shape Aperio's throughput and latency, and the trade-offs behind
 each. Defaults are chosen for a small-to-medium deployment; tune from there
@@ -21,16 +21,16 @@ the slowest-endpoints report, and the [k6 soak test](../tests/soak/k6.js)).
 
 ## Server-side limits
 
-- **`APERIO_MAX_CONCURRENT_REQUESTS`.** Global in-flight proxied-request ceiling;
+- **`limits.concurrent_requests`.** Global in-flight proxied-request ceiling;
   excess visitors get `429`. Size it to what your backends collectively handle.
-- **`APERIO_IP_LIMIT_MAX` / `_REFILL`.** Per-visitor token bucket. The burst
+- **`limits.ip_rate.burst` / `_REFILL`.** Per-visitor token bucket. The burst
   (`max`) absorbs page loads; the refill (`req/s`) sets the sustained rate.
 - **Response bodies over 32 KB stream as binary frames** rather than travelling
   inside one message. Streaming is a third fewer bytes on the
   wire for those responses, which is what matters on a real link; on loopback
   it measures as roughly break-even at 32 KB and a few percent above it, since
   there the cost is CPU rather than bandwidth.
-- **`APERIO_MAX_BODY_SIZE`.** Upload ceiling. Bodies over ~256 KiB stream
+- **`limits.request_body`.** Upload ceiling. Bodies over ~256 KiB stream
   (protocol v2 and later) instead of buffering, so a large limit does not cost
   memory per request, but it does bound how big a single upload can be.
 
@@ -43,8 +43,8 @@ first place to look, and each has a switch:
 
 | Setting | What it does | What you lose |
 |---|---|---|
-| `inspector` (env `APERIO_INSPECTOR`) | Records every transaction for the request inspector | Inspect, replay, cURL and HAR export stop working |
-| `access_events` (env `APERIO_ACCESS_EVENTS`) | One structured log event per successful request | The per-request line; a refused or failed request still logs, at `warn` |
+| `inspector` (env `inspector.enabled`) | Records every transaction for the request inspector | Inspect, replay, cURL and HAR export stop working |
+| `access_events` (env `logging.access_events`) | One structured log event per successful request | The per-request line; a refused or failed request still logs, at `warn` |
 | `capture` (per service, client-side) | The same recording, for one service only | Only that service's requests become uninspectable |
 
 `capture: false` is the one to reach for first: it is per service, so the
@@ -72,7 +72,7 @@ Eight different ceilings answer `429`, and raising the wrong one is a slow way
 to spend an afternoon. Every refusal names itself in a header:
 
 ```
-x-aperio-limit: ip; setting=ip_limit_max
+x-aperio-limit: ip; setting=limits.ip_rate
 retry-after: 1
 ```
 
@@ -80,14 +80,14 @@ One `curl -i` while a load test runs is enough to tell them apart:
 
 | `x-aperio-limit` | What refused | Where the number lives |
 |---|---|---|
-| `ip` | Per-visitor token bucket | `ip_limit_max` / `ip_limit_refill` (env `APERIO_IP_LIMIT_MAX` / `APERIO_IP_LIMIT_REFILL`) |
-| `server-concurrency` | The server's global in-flight ceiling | `max_concurrent_requests` (env `APERIO_MAX_CONCURRENT_REQUESTS`) |
-| `route` | A `rate_limits:` rule, or a `routes:` policy entry's inline `rate_limit:`, matched the hostname and path | the matching rule in `aperio-server.yaml` |
+| `ip` | Per-visitor token bucket | `limits.ip_rate` (`burst` / `per_second`) |
+| `server-concurrency` | The server's global in-flight ceiling | `limits.concurrent_requests` |
+| `route` | A `rate_limits:` rule, or a `routes:` policy entry's inline `rate_limit:`, matched the hostname and path | the matching rule in the `rate_limits` or `routes` setting |
 | `client-concurrency` | The serving client's own limit, nothing freed before the gateway timeout | `max_concurrent` in that client's `aperio.yaml` |
 | `token-rate` | The access token's requests-per-second ceiling | `max_rps` on the token |
 | `token-quota` | The access token's daily byte quota | `daily_max_bytes` on the token |
 | `org-quota` | The organization's monthly byte quota | the organization's quota |
-| `streams-per-ip` | Streamed responses one visitor address holds open at once | `max_streams_per_ip` (env `APERIO_MAX_STREAMS_PER_IP`) |
+| `streams-per-ip` | Streamed responses one visitor address holds open at once | `max_streams_per_ip` (env `limits.streams_per_ip`) |
 
 `Retry-After` is present on the limits that refill and absent on the quotas,
 which have no honest number to give in seconds.
@@ -100,7 +100,7 @@ capturing a single response.
 
 **Benchmarking against your own server?** The per-visitor bucket is the one
 that will fire first, because every request in a load test comes from one
-address. Raise `ip_limit_max` and `ip_limit_refill` for the duration, or the
+address. Raise `limits.ip_rate` (`burst` and `per_second`) for the duration, or the
 number you measure is the speed at which Aperio can refuse you.
 
 ## Slow visitors and stream backpressure
@@ -110,17 +110,17 @@ awkward case: the server cannot block its shared read loop on one consumer, and
 buffering without limit is not an option either. Since tunnel protocol v3 it
 pushes back on the producer instead, and three watermarks control that.
 
-- **`APERIO_STREAM_PAUSE_BYTES`** (2 MB). Per-stream backlog at which the
+- **`stream.pause_at`** (2 MB). Per-stream backlog at which the
   producing client is told to stop reading that stream's source. This is the
   knob that costs memory: budget roughly `pause_bytes` × concurrently-slow
   streams. Raise it for high bandwidth-delay-product links or large media, where
   a bigger in-flight window keeps throughput up; lower it to bound memory on a
   server with many slow consumers.
-- **`APERIO_STREAM_RESUME_BYTES`** (512 KB). Where a paused producer restarts.
+- **`stream.resume_at`** (512 KB). Where a paused producer restarts.
   Keep it well under the pause mark, the gap is what stops the pair from
   flapping chunk by chunk. Too small and a fast producer stalls waiting for the
   queue to drain almost empty.
-- **`APERIO_STREAM_BACKLOG_LIMIT`** (16 MB). Only bites for a producer that
+- **`stream.backlog_limit`** (16 MB). Only bites for a producer that
   ignores a pause.
 
 Note that this is the *server's* side of a slow link. The client-side
@@ -129,18 +129,18 @@ client that knows its own link capacity.
 
 ## The response cache
 
-`APERIO_CACHE=1` plus a service's `cache: true` lets the server answer repeated
+`cache.enabled` plus a service's `cache: true` lets the server answer repeated
 cacheable GETs from memory, skipping the tunnel round-trip entirely, the single
 biggest latency win for read-heavy, cacheable content.
 
-- **`APERIO_CACHE_MAX_BYTES`** bounds the cache; past it, entries closest to
+- **`cache.size`** bounds the cache; past it, entries closest to
   expiry are evicted. Bigger cache = higher hit ratio = fewer tunnel round-trips,
   at the cost of server memory. Watch the hit ratio on the cache stats card.
 - **stale-while-revalidate** (`Cache-Control: stale-while-revalidate=N`) serves a
   slightly-stale entry instantly while one elected leader refreshes it in the
   background, visitors never wait on a refresh, and a stampede never hits the
   backend.
-- **Negative caching** (`APERIO_CACHE_NEGATIVE_TTL`) shields a backend from
+- **Negative caching** (`cache.negative_ttl`) shields a backend from
   repeated 404/410 probes; keep the TTL short so a resource that appears is not
   masked for long.
 - Tracking query params are stripped from the cache key automatically, so
@@ -151,7 +151,7 @@ Only enable the cache for services whose responses are genuinely shared and
 
 ## Compression
 
-`APERIO_TUNNEL_COMPRESSION` zlib-compresses tunnel JSON frames once the client
+`tunnel.compression` zlib-compresses tunnel JSON frames once the client
 acknowledges. It trades CPU for bandwidth: a clear win on a bandwidth-constrained
 or metered client link, a slight loss on a fast LAN where the CPU cost outweighs
 the saving. Body data over the streamed threshold uses raw binary frames
@@ -161,17 +161,17 @@ control handles the other direction, a slow *visitor* behind a fast client.
 
 ## Failover vs. latency
 
-`APERIO_FAILOVER=retry-wait` maximizes availability but a request during an
-outage can take up to `APERIO_FAILOVER_WINDOW` seconds while a client
+`failover.mode: retry-wait` maximizes availability but a request during an
+outage can take up to `failover.window` seconds while a client
 reconnects. For latency-sensitive traffic prefer `retry` (instant re-dispatch to
-a redundant client) or accept the `fail` default. `APERIO_RETRY_ON_5XX` adds a
-retry on error responses; both share the `APERIO_FAILOVER_MAX_JUMPS` budget, so a
+a redundant client) or accept the `fail` default. `failover.retry_on_5xx` adds a
+retry on error responses; both share the `failover.max_jumps` budget, so a
 persistently failing pool cannot loop.
 
 ## Data growth
 
 Long-lived servers should bound their footprint so GC pauses and disk pressure
-never surprise you: set the `APERIO_RETENTION_*` TTLs and the `APERIO_DB_MAX_BYTES`
+never surprise you: set the `APERIO_RETENTION_*` TTLs and the `retention.db_max_size`
 cap (which auto-prunes and vacuums past the limit), and rely on the disk-usage
 warning webhook. See [Observability](observability.md).
 

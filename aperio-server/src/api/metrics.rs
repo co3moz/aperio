@@ -64,7 +64,7 @@ struct Counted<'a> {
 }
 
 /// Prometheus text-format metrics endpoint (`/aperio/metrics`).
-/// Enabled with `APERIO_METRICS=1`. Requires a token, presented either as
+/// Enabled with `metrics.enabled`. Requires a token, presented either as
 /// `?token=<value>` (convenient for Prometheus scrape configs) or as an
 /// `Authorization: Bearer <value>` header.
 #[utoipa::path(get, path = "/aperio/metrics", tag = "public",

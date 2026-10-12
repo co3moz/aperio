@@ -16,9 +16,9 @@ import { AperioClientBase } from '../../lib/client.js'
  * unconfigured server refuses everything.
  */
 export class ServerSideServer extends AperioServerBase({
-  env: {
-    APERIO_RANDOM_SUBDOMAIN: '',
-    APERIO_SERVER_SIDE_TARGETS: '127.0.0.1,10.0.0.0/8',
+  settings: {
+    routing: { random_subdomain: null },
+    security: { server_side_targets: ['127.0.0.1', '10.0.0.0/8'] },
   },
 }) {}
 

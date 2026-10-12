@@ -40,8 +40,8 @@ class BudgetServer extends AperioServerBase() {
   /** The clock polls the server every few milliseconds from one address,
    *  which is exactly what the per-IP bucket exists to refuse; the limiter
    *  is not what is being timed. */
-  _env() {
-    return { APERIO_IP_LIMIT_MAX: '100000', APERIO_IP_LIMIT_REFILL: '10000' }
+  _settings() {
+    return { limits: { ip_rate: { burst: 100000, per_second: 10000 } } }
   }
   async hookStartServer() {
     this._token = `e2e-master-${randomUUID()}`

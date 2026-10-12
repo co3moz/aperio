@@ -53,7 +53,7 @@ use crate::store::stats::{self, StatsStore};
 use crate::store::tokens::TokenStore;
 use crate::store::webhooks::{self, WebhookStore};
 
-use crate::settings::{ServerConfig, SettingsOverrides};
+use crate::settings::ServerConfig;
 
 /// In-memory server-wide traffic statistics.
 #[derive(Serialize, Clone)]
@@ -164,7 +164,7 @@ pub(crate) struct ClientDetail {
   /// Dashboard kill switch state (false = excluded from routing).
   pub(crate) enabled: bool,
   /// True when the service opted into caching (`cache: true`) but the server's
-  /// response cache is disabled (APERIO_CACHE off), so the opt-in does nothing.
+  /// response cache is disabled (cache.enabled off), so the opt-in does nothing.
   pub(crate) cache_ignored: bool,
   /// False when this service asked not to be recorded for the request
   /// inspector (`capture: false`).
@@ -401,16 +401,16 @@ pub(crate) struct AppState {
   /// `Arc<ServerConfig>`; every access takes a cheap read-lock snapshot via
   /// [`AppState::config`].
   pub(crate) config_store: std::sync::RwLock<Arc<ServerConfig>>,
-  /// Configuration as derived from environment variables only, used as the
-  /// base that persisted overrides apply on top of (and for "reset").
-  pub(crate) config_env_defaults: Arc<ServerConfig>,
-  /// Currently persisted dashboard overrides (subset of settings).
-  pub(crate) settings_overrides: Mutex<SettingsOverrides>,
-  /// Path of the persisted overrides file (`<data_dir>/settings.json`).
-  pub(crate) settings_path: std::path::PathBuf,
+  /// Where the settings document is kept.
+  pub(crate) settings_store: Mutex<crate::store::settings::SettingsStore>,
+  /// The settings document the process started with, so a change to one
+  /// that only takes effect at a start can be reported as pending.
+  pub(crate) started_with: Arc<aperio_config::server_settings::ServerSettings>,
+  /// The data directory, from the boot environment.
+  pub(crate) data_dir: String,
   /// Durable public listener resources and their live sockets.
   pub(crate) exposes: Mutex<crate::expose_manager::ExposeManager>,
-  /// True when the admin dashboard is served (APERIO_DASHBOARD != 0); the
+  /// True when the admin dashboard is served (`dashboard.enabled`); the
   /// first-run helper redirect to /aperio only makes sense when it is.
   pub(crate) dashboard_enabled: bool,
   /// Every hostname whose root is a dashboard (`planned_features.md` #152):
@@ -483,7 +483,7 @@ pub(crate) struct AppState {
   /// tasks, which record after their retries finish).
   pub(crate) webhook_deliveries: std::sync::Arc<Mutex<webhooks::DeliveryLog>>,
   /// WebAuthn verifier for passkey sign-in (None until
-  /// APERIO_WEBAUTHN_ORIGIN is configured).
+  /// dashboard.webauthn.origin is configured).
   pub(crate) webauthn: Option<webauthn_rs::Webauthn>,
   /// In-flight WebAuthn registration/authentication ceremonies.
   pub(crate) webauthn_ceremonies: Mutex<crate::webauthn::WebauthnCeremonies>,
@@ -503,7 +503,7 @@ pub(crate) struct AppState {
   /// stream_id → consumer sender. Same handle shape as TCP; the payloads are
   /// whole datagrams instead of stream bytes.
   pub(crate) udp_streams: Mutex<HashMap<String, UdpStreamHandle>>,
-  /// Server-side GET response cache (APERIO_CACHE; see the cache module).
+  /// Server-side GET response cache (cache.enabled; see the cache module).
   pub(crate) response_cache: Mutex<crate::cache::ResponseCache>,
   /// Cacheable GET misses currently being fetched, keyed like the response
   /// cache (`host|uri`). Concurrent identical misses subscribe to the
@@ -527,7 +527,7 @@ pub(crate) struct AppState {
   /// clients are connected. In-memory only, like bind overrides: cleared by a
   /// server restart.
   pub(crate) maintenance: Mutex<std::collections::HashMap<String, MaintenanceFlag>>,
-  /// Structured access log file (APERIO_ACCESS_LOG): one JSON line per
+  /// Structured access log file (logging.access_log): one JSON line per
   /// proxied request, ready for Loki/ClickHouse ingestion. The same data is
   /// always emitted as structured `aperio_access` tracing events on stdout.
   pub(crate) access_log: Option<tokio::sync::mpsc::Sender<crate::access_log::AccessLogCmd>>,
@@ -558,39 +558,6 @@ impl AppState {
       c.stream_backlog_limit,
       c.stream_min_throughput,
     )
-  }
-
-  /// Rebuilds the live config from the layers (env defaults ->
-  /// `aperio-server.yaml` live settings -> dashboard overrides) with the
-  /// current structured `headers`/`routes`, and applies it. Called on file
-  /// hot-reload. Structural keys (host/port/data_dir, proxy trust, OIDC,
-  /// `expose` ports) are not re-applied live and need a restart.
-  /// Returns the list of live-setting keys that changed (`key: old→new`, with
-  /// secrets masked) so the caller can record it in the `config_reloaded`
-  /// audit entry.
-  pub(crate) async fn reload_from_file(self: &Arc<Self>) -> Vec<String> {
-    let file_layer = crate::settings::file_overrides();
-    let dashboard = self.settings_overrides.lock().await.clone();
-    let base = crate::settings::apply_settings_overrides(&self.config_env_defaults, &file_layer);
-    let mut effective = crate::settings::apply_settings_overrides(&base, &dashboard);
-    effective.header_rules = crate::headers::from_config_file();
-    effective.static_routes = crate::static_routes::from_config_file();
-    effective.error_pages = crate::error_pages::from_config_file();
-    effective.route_limits = crate::route_limits::from_config_file();
-    effective.fallbacks = crate::fallbacks::from_config_file();
-    effective.waf = crate::waf::from_config_file();
-    effective.maintenance_windows = crate::maintenance_windows::from_config_file();
-    effective.alert_rules = crate::alert_rules::from_config_file();
-    effective.denied_ips = crate::deny_list::from_config();
-    let old = self.config();
-    let mut diff = crate::settings::config_reload_diff(&old, &effective);
-    crate::api::settings::swap_config(self, effective).await;
-    let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into());
-    if let Err(error) = self.exposes.lock().await.reload(self, &host).await {
-      tracing::error!("Public expose reload rejected; previous listeners retained: {error}");
-      diff.push(format!("expose reload rejected: {error}"));
-    }
-    diff
   }
 
   /// Snapshot of the live configuration (cheap Arc clone).

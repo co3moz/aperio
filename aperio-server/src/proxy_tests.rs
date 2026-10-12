@@ -1180,7 +1180,7 @@ pub(crate) async fn handler_mirrors_h2_authority_to_host() {
 #[tokio::test]
 pub(crate) async fn handler_visitor_gate_denies_with_302() {
   let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  cfg.visitor_auth = crate::test_support::basic_gate("user:secret");
   let state = connected(cfg);
   mark_connected(&state).await;
   let _rx = insert_live_client(&state, "c1").await;

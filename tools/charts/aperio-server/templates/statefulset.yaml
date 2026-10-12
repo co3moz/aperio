@@ -22,12 +22,10 @@ spec:
       {{- include "aperio-server.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      {{- with .Values.podAnnotations }}
       annotations:
-        # Restart on a config change: the server reads the file at startup.
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
-        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-        {{- end }}
+      {{- end }}
       labels:
         {{- include "aperio-server.selectorLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}
@@ -49,8 +47,10 @@ spec:
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           env:
-            - name: APERIO_SERVER_CONFIG
-              value: /etc/aperio/aperio-server.yaml
+            - name: PORT
+              value: {{ .Values.port | quote }}
+            - name: APERIO_INIT_FILE
+              value: /etc/aperio/server-init.yaml
             - name: APERIO_DATA_DIR
               value: /var/lib/aperio
             {{- if or .Values.existingSecret .Values.masterToken }}
@@ -65,7 +65,7 @@ spec:
             {{- end }}
           ports:
             - name: http
-              containerPort: {{ .Values.config.port | default 8080 }}
+              containerPort: {{ .Values.port | default 8080 }}
               protocol: TCP
           {{- if .Values.probes.liveness.enabled }}
           livenessProbe:

@@ -419,38 +419,37 @@ export function auditQuery(filter?: AuditFilter): string {
   return qs ? `?${qs}` : ''
 }
 
-/** Dashboard-editable server settings (see SettingsOverrides in the server). */
-export type SettingsValues = Record<string, string | number | boolean | null>
+/** The server's settings document, every field present, nested by section
+ *  (`{ cache: { enabled: true } }`). Credentials read as `********`. */
+export type ServerSettings = Record<string, unknown>
 
-export type SettingsOverrides = Record<string, string | number | boolean | null | undefined>
-
-export interface EnvFlag {
-  key: string
-  value: string
-}
-
-export interface EnvironmentReport {
-  /** "docker" when the server runs in a container, else "native". */
-  runtime: 'docker' | 'native'
-  flags: EnvFlag[]
-}
-
+/** What `GET /aperio/api/settings` answers. */
 export interface SettingsPayload {
-  effective: SettingsValues
-  defaults: SettingsValues
-  overrides: SettingsOverrides
-  /** Keys aperio-server.yaml writes: the file wins, so they are not editable here. */
-  file_keys: string[]
-  /** The yaml key each setting is written as; the two names often differ
-   *  (`gateway_timeout_secs` is `gateway_timeout:` in the file). */
-  yaml_keys?: Record<string, string>
-  /** Settings whose yaml key is only read at startup. */
-  yaml_keys_needing_restart?: string[]
-  /** Settings the file has no honest spelling for (it takes a path where the
-   *  override holds the HTML itself). */
-  not_expressible_in_yaml?: string[]
-  /** Read-only env-only flags for the reference table. */
-  environment: EnvironmentReport
+  settings: ServerSettings
+  /** Paths whose change takes Admin in every organization and a recent
+   *  sign-in. A path names a field or a whole section. */
+  security_paths: string[]
+  /** Paths holding a credential, read back as `********`; writing the mask
+   *  back keeps the stored value. */
+  secret_paths: string[]
+  /** Paths read when the server starts. */
+  restart_paths: string[]
+  /** Restart paths changed since the server started. */
+  restart_pending: string[]
+}
+
+/** What a settings change answers. */
+export interface SettingsChange {
+  settings: ServerSettings
+  /** The paths the change moved. */
+  changed: string[]
+  restart_pending: string[]
+}
+
+/** Whether `path` falls under one of `prefixes` (a prefix names a field or
+ *  a whole section), the rule the server applies to its special paths. */
+export function pathIn(path: string, prefixes: string[]): boolean {
+  return prefixes.some((p) => path === p || path.startsWith(`${p}.`))
 }
 
 /** One five-second slice of served traffic, from the server's own ring. */
@@ -853,7 +852,7 @@ export interface ExposeSpec {
   org_id: string; tunnel: string; listener: ExposeListener; enabled: boolean
   limits: ExposeLimits; allowed_ips: string[]; advertised_host?: string | null
 }
-export interface ExposeResource { id: string; revision: number; source: 'file' | 'api'; spec: ExposeSpec }
+export interface ExposeResource { id: string; revision: number; source: 'api'; spec: ExposeSpec }
 export interface ExposeView extends ExposeResource {
   state: 'disabled' | 'binding' | 'listening' | 'draining' | 'suspended' | 'failed'
   target_state: 'waiting' | 'ready' | 'unavailable' | 'incompatible'
@@ -869,7 +868,7 @@ export interface ExposePolicy {
 }
 export interface ExposeItem { bounds: ExposePolicy | null; resource: ExposeView; actions: ExposeAction[]; policy: ExposePolicy | null }
 export interface ExposePage {
-  items: ExposeItem[]; total: number; volatile: boolean; history_error: string | null; store_error: string | null; file_error: string | null
+  items: ExposeItem[]; total: number; volatile: boolean; history_error: string | null; store_error: string | null
 }
 export interface ExposeSession {
   id: string; expose_id: string; org_id: string; revision: number; protocol: ExposeProtocol
@@ -1034,8 +1033,8 @@ export const api = {
   scaling: () => request<ScalingRecord[]>('/scaling'),
   disarmScaling: (id: string) => mutate(`/scaling/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   settings: () => request<SettingsPayload>('/settings'),
-  updateSettings: (overrides: SettingsOverrides) =>
-    request<{ effective: SettingsValues }>('/settings', json('PUT', overrides)),
+  updateSettings: (settings: ServerSettings) =>
+    request<SettingsChange>('/settings', json('PUT', settings)),
   createShareLink: (payload: { hostname: string; path?: string; ttl_seconds?: number }) =>
     request<{ id: string; url: string; token: string; expires_at: number | null }>(
       '/share',

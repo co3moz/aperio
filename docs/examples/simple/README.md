@@ -7,10 +7,10 @@ The smallest server and client configuration: one master token and one local bac
 Run the server, then start the client next to its `aperio.yaml`:
 
 ```bash
-aperio-server            # reads ./aperio-server.yaml
+APERIO_SERVER_TOKEN=apr_simple_change_me aperio-server
 aperio-client            # reads ./aperio.yaml
 ```
 
-> **Before running:** Start a backend on port 3000, replace the token in both files, and point `server.url` to your reachable Aperio server. `tunnel.example.com` is only a placeholder. See [Getting Started](../../getting-started.md).
+> **Before running:** Start a backend on port 3000, replace the token in `aperio.yaml` and in the server's environment, and point `server.url` to your reachable Aperio server. `tunnel.example.com` is only a placeholder. See [Getting Started](../../getting-started.md).
 
 Requests reaching the configured server are forwarded to `http://localhost:3000`.

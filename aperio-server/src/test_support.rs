@@ -6,7 +6,7 @@
 //! they need with `use crate::test_support::*`.
 #![allow(dead_code)]
 
-use crate::settings::{FailoverMode, LbStrategy, ServerConfig, SettingsOverrides};
+use crate::settings::{FailoverMode, LbStrategy, ServerConfig};
 use crate::state::{
   AppState, ClientHandle, ClientPerms, ConnectionState, DurationHistogram, ServerStats,
   SessionInfo, TunnelResponse,
@@ -25,10 +25,9 @@ use std::sync::atomic::{AtomicU64, AtomicUsize};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, mpsc, watch};
 
-/// Generous health threshold so mock clients (which never ping) stay eligible.
 /// Serializes every test that touches process-global configuration state: the
-/// parsed `aperio-server.yaml` document, the `APERIO_*` environment, and the
-/// `aperio-server.yaml` written into the working directory.
+/// `APERIO_*` environment the boot settings are read from, and files written
+/// into the working directory.
 ///
 /// A plain mutex, held for the length of the test. It replaces nine copies of
 /// a hand-rolled lock file that broke any lock older than thirty seconds,
@@ -41,21 +40,17 @@ use tokio::sync::{Mutex, mpsc, watch};
 /// Poisoning is recovered rather than propagated: one panicking test should
 /// fail alone, not turn every later test into a second failure.
 ///
-/// **Acquiring also forgets the loaded config document**, and that is not
-/// tidiness. The environment is re-established by each test's own guard, but
-/// the document is not: `config_file::load()` returns early when there is no
-/// file to read, which is right for a server that was started without one and
-/// means a test which loaded a config leaves it behind for whoever runs next.
-/// That produced a failure roughly one run in fifteen, in whichever test
-/// happened to follow the one that loads `version: not-a-version`, with the
-/// assertion failing for a reason that was nowhere in its own code.
+/// Acquiring also resets this thread's live settings document to the
+/// defaults. The document is per thread in a test build (see [`crate::live`]),
+/// so this is only hygiene for a test that reuses its thread.
 pub(crate) fn config_lock() -> std::sync::MutexGuard<'static, ()> {
   static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
   let guard = LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-  crate::config_file::forget();
+  crate::live::reset();
   guard
 }
 
+/// Generous health threshold so mock clients (which never ping) stay eligible.
 pub(crate) const TEST_THRESHOLD: Duration = Duration::from_secs(3600);
 
 /// A throwaway store directory, under one root per test process.
@@ -166,7 +161,6 @@ pub(crate) fn test_config() -> ServerConfig {
     access_events: true,
     ip_limit_max: 1000.0,
     ip_limit_refill: 100.0,
-    visitor_auth_block: None,
     visitor_auth: crate::visitor_auth::Policy::default(),
     trust_proxy: false,
     ignore_client_auth: false,
@@ -245,6 +239,10 @@ pub(crate) fn test_config() -> ServerConfig {
 
 /// A full [`AppState`] with the given config and fresh throwaway stores.
 pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
+  let settings_dir = test_temp_root()
+    .join(format!("settings-{}", uuid::Uuid::new_v4()))
+    .to_string_lossy()
+    .into_owned();
   let (client_connected_tx, _) = watch::channel(false);
   // Receiver dropped on purpose: with no collector task, every telemetry
   // try_send fails Closed and the caller records inline, which keeps unit
@@ -276,13 +274,10 @@ pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
     traffic_tx: tokio::sync::broadcast::channel(16).0,
     events_tx: tokio::sync::broadcast::channel(16).0,
     changes_tx: tokio::sync::broadcast::channel(64).0,
-    config_store: std::sync::RwLock::new(Arc::new(config.clone())),
-    config_env_defaults: Arc::new(config),
-    settings_overrides: Mutex::new(SettingsOverrides::default()),
-    settings_path: test_temp_root().join(format!(
-      "aperio-test-settings-{}.json",
-      uuid::Uuid::new_v4()
-    )),
+    config_store: std::sync::RwLock::new(Arc::new(config)),
+    settings_store: Mutex::new(crate::store::settings::SettingsStore::load(&settings_dir)),
+    started_with: Arc::new(aperio_config::server_settings::ServerSettings::default()),
+    data_dir: settings_dir.clone(),
     exposes: Mutex::new(crate::expose_manager::ExposeManager::load(
       &test_temp_root()
         .join(format!("exposes-{}", uuid::Uuid::new_v4()))
@@ -577,4 +572,29 @@ pub(crate) fn sent_message(msg: &Message) -> Option<crate::protocol::TunnelMessa
     }
     _ => None,
   }
+}
+
+/// The `key` section of a yaml settings document, the way the rule modules
+/// receive it: `None` when the document does not write it.
+pub(crate) fn section(doc: &str, key: &str) -> Option<serde_yaml::Value> {
+  let map: serde_yaml::Mapping = serde_yaml::from_str(doc).unwrap_or_default();
+  map.get(key).cloned()
+}
+
+/// The gate a single `user:password` compiles to, the shape most proxy tests
+/// put in front of a route.
+pub(crate) fn basic_gate(credential: &str) -> crate::visitor_auth::Policy {
+  crate::visitor_auth::Policy::compile(&aperio_config::AuthSetting::Credentials(
+    credential.to_string(),
+  ))
+}
+
+/// The `key` section of a yaml settings document, compiled by a rule module's
+/// `from_section`. A refusal panics: a test's document is meant to be valid.
+pub(crate) fn rules<T>(
+  doc: &str,
+  key: &str,
+  compile: fn(Option<serde_yaml::Value>) -> Result<T, String>,
+) -> T {
+  compile(section(doc, key)).unwrap_or_else(|e| panic!("{key}: {e}"))
 }

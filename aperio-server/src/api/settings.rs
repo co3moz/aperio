@@ -1,3 +1,11 @@
+//! The server's settings over the API: read the document, replace it.
+//!
+//! The document is the whole configuration that is not needed before the
+//! database opens (see `aperio_config::server_settings`). A change is built
+//! into a config first, so a value the server cannot honour is refused with
+//! the setting's path before anything moves; then it is stored, put in
+//! force, and audited with the paths it changed.
+
 use axum::{
   Json,
   extract::{ConnectInfo, State, ws::Message},
@@ -6,112 +14,86 @@ use axum::{
 };
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::info;
+
+use aperio_config::server_settings::{
+  RESTART_PATHS, SECRET_PATHS, SECURITY_PATHS, ServerSettings, path_in, unmask,
+};
 
 use crate::protocol::TunnelMessage;
 use crate::routing::{extract_client_ip, random_subdomain_hostname};
-use crate::settings::{
-  ServerConfig, SettingsOverrides, apply_settings_overrides, override_keys, parse_failover_mode,
-  parse_lb_strategy, settings_view,
-};
+use crate::settings::ServerConfig;
 use crate::state::AppState;
 
-/// Returns the dashboard-editable settings: effective values, environment
-/// defaults, and the persisted overrides.
+/// How recent a dashboard sign-in must be to change a security-relevant
+/// setting. An admin key is a credential somebody minted for the purpose,
+/// and is not asked.
+pub(crate) const STEP_UP_SECS: u64 = 10 * 60;
+
+/// Returns the settings document in force, every field present and every
+/// credential masked, plus the paths that are security-relevant, that hold a
+/// credential, that need a restart, and that were changed and are waiting
+/// for one.
 #[utoipa::path(get, path = "/aperio/api/settings", tag = "dashboard",
-  description = "Effective server settings plus which keys are overridden from the dashboard.",
+  description = "The server's settings document, with which paths are security-relevant and which need a restart.",
   responses((status = 200, description = "Current settings", body = serde_json::Value)))]
 pub(crate) async fn settings_get_handler(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
 ) -> Response {
-  // Server settings are global; only the master super-admin may view or edit
-  // them (a child-org admin manages their org, not the server).
+  // Server settings are global; only an Admin of master may read them.
   if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
     return resp;
   }
-  let overrides = state.settings_overrides.lock().await.clone();
+  let current = crate::live::current();
   Json(serde_json::json!({
-    "effective": settings_view(&state.config()),
-    "defaults": settings_view(&state.config_env_defaults),
-    "overrides": overrides,
-    // Keys aperio-server.yaml writes. They cannot be changed from here, and
-    // the pane says so on the field rather than letting someone type into it
-    // and receive an error on save.
-    "file_keys": crate::settings::override_keys(&crate::settings::file_overrides()),
-    // The aperio-server.yaml spelling of each setting, so the pane can offer
-    // the yaml that makes an override permanent without guessing at a name:
-    // the two disagree often enough (`gateway_timeout`, `cache`,
-    // `server_auth`) that a guess produces a file which changes nothing.
-    "yaml_keys": crate::settings::YAML_KEYS
-      .iter()
-      .map(|(setting, key)| (setting.to_string(), serde_json::Value::from(*key)))
-      .collect::<serde_json::Map<_, _>>(),
-    "yaml_keys_needing_restart": crate::settings::YAML_KEYS_NEEDING_RESTART,
-    "not_expressible_in_yaml": crate::settings::NOT_EXPRESSIBLE_IN_YAML,
-    "environment": environment_report(&state),
+    "settings": current.masked(),
+    "security_paths": SECURITY_PATHS,
+    "secret_paths": SECRET_PATHS,
+    "restart_paths": RESTART_PATHS,
+    "restart_pending": restart_pending(&state, &current),
   }))
   .into_response()
 }
 
-/// True when the server appears to run inside a container, so the dashboard
-/// can show the right way to change env-only flags.
-fn running_in_container() -> bool {
-  if std::path::Path::new("/.dockerenv").exists() {
-    return true;
-  }
-  std::fs::read_to_string("/proc/1/cgroup")
-    .map(|c| c.contains("docker") || c.contains("containerd") || c.contains("kubepods"))
-    .unwrap_or(false)
+/// The restart-only paths whose stored value differs from what the process
+/// started with.
+fn restart_pending(state: &AppState, current: &ServerSettings) -> Vec<String> {
+  state
+    .started_with
+    .changed_paths(current)
+    .into_iter()
+    .filter(|p| path_in(p, RESTART_PATHS))
+    .collect()
 }
 
-/// Read-only report of env-only flags for the dashboard reference table.
-/// Secrets are never included, only whether they are set.
-fn environment_report(state: &Arc<AppState>) -> serde_json::Value {
-  let c = state.config();
-  let env_or = |key: &str, fallback: &str| std::env::var(key).unwrap_or_else(|_| fallback.into());
-  let flags = serde_json::json!([
-    { "key": "APERIO_TRUST_PROXY", "value": if c.trust_proxy { "on" } else { "off" } },
-    { "key": "APERIO_TRUSTED_PROXIES",
-      "value": if c.trusted_proxies.is_empty() { "(unset, first XFF entry is trusted)".to_string() }
-               else { env_or("APERIO_TRUSTED_PROXIES", "") } },
-    { "key": "APERIO_TRUST_CF_HEADER", "value": env_or("APERIO_TRUST_CF_HEADER", "off") },
-    { "key": "APERIO_REAL_IP_HEADER",
-      "value": c.real_ip_header.clone().unwrap_or_else(|| "(unset)".into()) },
-    { "key": "APERIO_SECURE_COOKIES", "value": if c.secure_cookies { "on" } else { "off" } },
-    { "key": "APERIO_IGNORE_CLIENT_AUTH", "value": if c.ignore_client_auth { "on" } else { "off" } },
-    { "key": "APERIO_OIDC_*",
-      "value": match state.oidc {
-        Some(_) => format!("configured ({})", env_or("APERIO_OIDC_ISSUER", "?")),
-        None => "not configured".to_string(),
-      } },
-    { "key": "APERIO_METRICS", "value": env_or("APERIO_METRICS", "off") },
-    { "key": "APERIO_METRICS_TOKEN",
-      "value": if c.metrics_token.is_some() { "set (value hidden)" } else { "not set" } },
-    { "key": "APERIO_ACCESS_LOG", "value": env_or("APERIO_ACCESS_LOG", "(disabled)") },
-  ]);
-  serde_json::json!({
-    "runtime": if running_in_container() { "docker" } else { "native" },
-    "flags": flags,
-  })
-}
-
-/// Replaces the settings overrides. The body is the full overrides object:
-/// missing/null fields fall back to the environment default. Changes apply
-/// live (config swap), persist to `<data_dir>/settings.json`, and are
-/// audited with the list of overridden keys.
+/// Replaces the settings document. The body is the whole document; whatever
+/// it leaves out takes its default, and a credential still reading as the
+/// mask keeps its stored value. A change to a security-relevant path
+/// takes Admin in every organization and, for a dashboard session, a
+/// sign-in from the last ten minutes.
 #[utoipa::path(put, path = "/aperio/api/settings", tag = "dashboard",
-  description = "Applies dashboard settings overrides live and persists them (missing keys keep env defaults).",
-  request_body = SettingsOverrides,
-  responses((status = 200, description = "Settings applied", body = serde_json::Value), (status = 400, description = "Invalid value")))]
+  description = "Replaces the server's settings document; omitted fields take their defaults. Security-relevant paths take `*` Admin and a recent sign-in.",
+  request_body = serde_json::Value,
+  responses((status = 200, description = "Settings applied", body = serde_json::Value), (status = 400, description = "Invalid value"), (status = 403, description = "A security-relevant change without the authority for it")))]
 pub(crate) async fn settings_put_handler(
   State(state): State<Arc<AppState>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
-  Json(payload): Json<SettingsOverrides>,
+  Json(mut payload): Json<serde_json::Value>,
 ) -> Response {
-  // Global server settings: master super-admin only.
   if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+    return resp;
+  }
+  if let Err(e) = unmask(&mut payload, &crate::live::current()) {
+    return (StatusCode::BAD_REQUEST, e).into_response();
+  }
+  let new: ServerSettings = match serde_json::from_value(payload) {
+    Ok(s) => s,
+    Err(e) => return (StatusCode::BAD_REQUEST, format!("settings: {e}")).into_response(),
+  };
+  let changed = crate::live::current().changed_paths(&new);
+  if let Err(resp) = authorize_change(&state, &headers, &changed).await {
     return resp;
   }
   let actor_ip = extract_client_ip(
@@ -122,172 +104,127 @@ pub(crate) async fn settings_put_handler(
     &state.config().trusted_proxies,
   )
   .to_string();
-
-  if let Err(msg) = apply_overrides_validated(&state, payload.clone()).await {
-    return (StatusCode::BAD_REQUEST, msg).into_response();
-  }
-
-  let keys = override_keys(&payload);
-  info!(
-    "Settings updated from the dashboard (overridden: {:?})",
-    keys
-  );
+  let applied = match apply_settings(&state, new).await {
+    Ok(applied) => applied,
+    Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+  };
+  let actor = state.session_actor(&headers).await;
+  info!("Settings changed ({})", applied.changed.join(", "));
   state
     .audit(
       "settings_updated",
-      &state.session_actor(&headers).await,
+      &actor,
       &actor_ip,
-      &keys.join(","),
+      &applied.changed.join(","),
     )
     .await;
+  let security: Vec<&String> = applied
+    .changed
+    .iter()
+    .filter(|p| path_in(p, SECURITY_PATHS))
+    .collect();
+  if !security.is_empty() {
+    state
+      .audit(
+        "settings_security_changed",
+        &actor,
+        &actor_ip,
+        &security
+          .iter()
+          .map(|p| p.as_str())
+          .collect::<Vec<_>>()
+          .join(","),
+      )
+      .await;
+  }
   state
-    .emit_event("settings_updated", serde_json::json!({"overridden": keys}))
+    .emit_event(
+      "settings_updated",
+      serde_json::json!({"changed": applied.changed}),
+    )
     .await;
-
+  let current = crate::live::current();
   (
     StatusCode::OK,
-    Json(serde_json::json!({"effective": settings_view(&state.config())})),
+    Json(serde_json::json!({
+      "settings": current.masked(),
+      "changed": applied.changed,
+      "restart_pending": restart_pending(&state, &current),
+    })),
   )
     .into_response()
 }
 
-/// Validates and applies a full overrides object: live config swap, pushes
-/// to connected clients / live structures, and persistence to
-/// `<data_dir>/settings.json`. Shared by the settings PUT and the dump
-/// import. Returns a human-readable message on invalid values.
-pub(crate) async fn apply_overrides_validated(
-  state: &Arc<AppState>,
-  payload: SettingsOverrides,
-) -> Result<(), String> {
-  // Reject values that apply_settings_overrides would silently skip.
-  if let Some(ref s) = payload.lb_strategy
-    && parse_lb_strategy(s).is_none()
-  {
-    return Err(format!("Invalid lb_strategy: {}", s));
-  }
-  if let Some(ref s) = payload.failover_mode
-    && parse_failover_mode(s).is_none()
-  {
-    return Err(format!("Invalid failover_mode: {}", s));
-  }
-  if let Some(ref creds) = payload.auth_credentials
-    && !creds.is_empty()
-    && !creds.contains(':')
-  {
-    return Err("auth_credentials must be in user:password form".to_string());
-  }
-  for (label, page) in [
-    ("custom_504_page", &payload.custom_504_page),
-    ("custom_503_page", &payload.custom_503_page),
-  ] {
-    if let Some(html) = page
-      && html.len() > 512 * 1024
-    {
-      return Err(format!("{} exceeds 512 KB", label));
-    }
-  }
-  if let Some(ref lang) = payload.ui_language
-    && !crate::settings::UI_LANGUAGES.contains(&lang.as_str())
-  {
-    return Err(format!(
-      "Unsupported ui_language: {} (supported: {})",
-      lang,
-      crate::settings::UI_LANGUAGES.join(", ")
-    ));
-  }
-  if payload.cache_max_bytes == Some(0) {
+/// The authority a change to these paths takes, beyond Admin of master.
+#[allow(clippy::result_large_err)] // see api/tokens.rs
+pub(crate) async fn authorize_change(
+  state: &AppState,
+  headers: &HeaderMap,
+  changed: &[String],
+) -> Result<(), Response> {
+  let security: Vec<&String> = changed
+    .iter()
+    .filter(|p| path_in(p, SECURITY_PATHS))
+    .collect();
+  let Some(first) = security.first() else {
+    return Ok(());
+  };
+  let caller = crate::auth::resolve_caller(state, headers).await;
+  if !caller.as_ref().is_some_and(|c| c.holds_all_admin()) {
     return Err(
-      "cache_max_bytes must be positive (disable the cache with cache_enabled instead)".to_string(),
+      (
+        StatusCode::FORBIDDEN,
+        format!(
+          "{first} is security-relevant, and changing it takes Admin in every organization (*)"
+        ),
+      )
+        .into_response(),
     );
   }
-  for (name, value) in [
-    ("stream_pause_bytes", payload.stream_pause_bytes),
-    ("stream_resume_bytes", payload.stream_resume_bytes),
-    ("stream_backlog_limit", payload.stream_backlog_limit),
-  ] {
-    if value == Some(0) {
-      return Err(format!("{name} must be positive"));
-    }
+  if let Some(age) = crate::auth::session_age(state, headers).await
+    && age > STEP_UP_SECS
+  {
+    return Err(
+      (
+        StatusCode::FORBIDDEN,
+        format!(
+          "{first} is security-relevant, and changing it takes a sign-in from the last {} minutes. Sign in again and retry.",
+          STEP_UP_SECS / 60
+        ),
+      )
+        .into_response(),
+    );
   }
-
-  // A key the file writes cannot be overridden from here. Refused at the
-  // door rather than stored and ignored: an override that does nothing is
-  // exactly the invisible state this is about, and the dashboard would show
-  // it as if it were in force.
-  let file_layer = crate::settings::file_overrides();
-  let conflicts = crate::settings::conflicting_keys(&file_layer, &payload);
-  if !conflicts.is_empty() {
-    return Err(format!(
-      "aperio-server.yaml sets {}, so {} cannot be changed here. Edit the file: it is applied on \
-       hot-reload, and it is what an operator reads to know how this server is configured.",
-      conflicts.join(", "),
-      if conflicts.len() == 1 { "it" } else { "they" }
-    ));
-  }
-
-  // Layer the config: env defaults -> aperio-server.yaml live settings ->
-  // dashboard overrides. Then swap it in and push the side-effects into live
-  // structures.
-  let base = apply_settings_overrides(&state.config_env_defaults, &file_layer);
-  let mut effective = apply_settings_overrides(&base, &payload);
-  // Structured sections come from the file document, not overrides.
-  effective.header_rules = crate::headers::from_config_file();
-  effective.static_routes = crate::static_routes::from_config_file();
-  swap_config(state, effective).await;
-  *state.settings_overrides.lock().await = payload.clone();
-
-  match serde_json::to_string_pretty(&payload) {
-    Ok(json) => {
-      if let Err(e) = write_owner_only(&state.settings_path, json.as_bytes()) {
-        error!(
-          "Failed to persist settings to {:?}: {}",
-          state.settings_path, e
-        );
-      }
-    }
-    Err(e) => error!("Failed to serialize settings: {}", e),
-  }
-
   Ok(())
 }
 
-/// Persists `contents` to `path`, owner-only (0600) on Unix. `settings.json`
-/// holds `auth_credentials` as plaintext `user:password`, so a default-umask
-/// (typically 0644) write would let other local users read it. Mirrors the
-/// device-key persistence in the client's `service.rs`.
-pub(crate) fn write_owner_only(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
-  use std::io::Write;
-  #[cfg(unix)]
-  let opened = {
-    use std::os::unix::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new()
-      .write(true)
-      .create(true)
-      .truncate(true)
-      .mode(0o600)
-      .open(path)
-  };
-  #[cfg(not(unix))]
-  let opened = std::fs::OpenOptions::new()
-    .write(true)
-    .create(true)
-    .truncate(true)
-    .open(path);
-  let mut file = opened?;
-  // `.mode()` only applies when the file is created; a pre-existing settings
-  // file written before this fix keeps its old (possibly 0644) permissions, so
-  // tighten it explicitly on every write.
-  #[cfg(unix)]
-  {
-    use std::os::unix::fs::PermissionsExt;
-    file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+/// What applying a document changed.
+pub(crate) struct Applied {
+  pub(crate) changed: Vec<String>,
+}
+
+/// Builds, stores and puts a settings document in force. `Err` is the
+/// message naming the setting that was refused; nothing has changed then.
+/// No authorization: the callers do their own.
+pub(crate) async fn apply_settings(
+  state: &Arc<AppState>,
+  new: ServerSettings,
+) -> Result<Applied, String> {
+  let config =
+    crate::server::state_build::config::build_config(&new, &state.config().token, &state.data_dir)?;
+  let changed = crate::live::current().changed_paths(&new);
+  if !state.settings_store.lock().await.put(&new) {
+    return Err("the settings could not be saved to the database".to_string());
   }
-  file.write_all(contents)
+  // The egress (`outbound.proxy`) is fixed for the life of the process,
+  // since the clients built from it are kept; it is a restart path.
+  crate::live::set(new);
+  swap_config(state, config).await;
+  Ok(Applied { changed })
 }
 
 /// Swaps in a freshly built config and pushes settings that back live
-/// structures (not just config reads) into those structures. Shared by the
-/// dashboard settings PUT and the `aperio-server.yaml` hot-reload.
+/// structures (not just config reads) into those structures.
 pub(crate) async fn swap_config(state: &Arc<AppState>, new_config: ServerConfig) {
   let old_config = state.config();
   *state

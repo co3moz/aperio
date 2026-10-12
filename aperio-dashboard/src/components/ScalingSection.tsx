@@ -146,7 +146,7 @@ export function ScalingSection() {
               <SkeletonRows rows={2} cols={6} />
             ) : records.length === 0 ? (
               <EmptyRow colSpan={6} icon={<GaugeIcon />}>
-                {t('No autoscaling records. A client arms one by declaring a scaling: block, and the server must have APERIO_SCALING enabled.')}
+                {t('No autoscaling records. A client arms one by declaring a scaling: block, and the server must have scaling.enabled on.')}
               </EmptyRow>
             ) : (
               records.map((r) => (

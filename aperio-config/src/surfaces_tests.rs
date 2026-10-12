@@ -1,4 +1,5 @@
-//! That every setting reaches both documentation tables, or says why not.
+//! That every setting reaches both documentation tables, or says why not:
+//! the client's keys, and every path of the server's settings document.
 //!
 //! The check rules 15 to 17 describe but nothing enforced. It works off the
 //! JSON Schema rather than the Rust structs, which matters more than it
@@ -114,8 +115,8 @@ fn documented_spans(text: &str) -> String {
 ///
 /// Two boundaries are deliberately not boundaries, both learned by breaking
 /// them. A leading `aperio_` is one, because both tables document most
-/// settings in their environment spelling, so `APERIO_BACKUP_DIR` is how
-/// `backup_dir` appears. A trailing `_` is the other, because a grouped block
+/// settings in their environment spelling, so `APERIO_HEALTH_INTERVAL` is how
+/// `health_interval` appears. A trailing `_` is the other, because a grouped block
 /// like `circuit_breaker` is documented through its children.
 fn mentions(spans: &str, key: &str) -> bool {
   let ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
@@ -134,11 +135,35 @@ fn mentions(spans: &str, key: &str) -> bool {
   false
 }
 
+/// Every setting of the server's document, folded: `section.field` for a
+/// field of a section, the bare key for a list or block at the top. A nested
+/// block (`security.login_lockout`) is one setting, documented as a whole.
+fn setting_paths() -> Vec<String> {
+  let v: serde_json::Value =
+    serde_json::from_str(&crate::server_schema_json()).expect("the schema is valid JSON");
+  let mut out = Vec::new();
+  for (key, prop) in v["properties"]
+    .as_object()
+    .expect("the schema has properties")
+  {
+    let fields = prop["$ref"]
+      .as_str()
+      .and_then(|r| r.rsplit('/').next())
+      .and_then(|name| v["$defs"][name]["properties"].as_object());
+    match fields {
+      Some(fields) => out.extend(fields.keys().map(|f| fold(&format!("{key}.{f}")))),
+      None => out.push(fold(key)),
+    }
+  }
+  out
+}
+
 fn check(table: &str, text: &str, exempt: &[Exempt]) {
   let excused: Vec<String> = exempt.iter().map(|e| fold(e.key)).collect();
   let spans = documented_spans(text);
   let mut missing: Vec<String> = Vec::new();
-  for schema in [crate::schema_json(), crate::server_schema_json()] {
+  let schema = crate::schema_json();
+  {
     let bare = no_env_spelling(&schema);
     for key in keys(&schema) {
       // The environment spelling is what a table actually writes, and it is
@@ -160,6 +185,13 @@ fn check(table: &str, text: &str, exempt: &[Exempt]) {
       if !found && !excused.contains(&key) {
         missing.push(key);
       }
+    }
+  }
+  // The server's settings have no environment spelling: the dotted path is
+  // what an operator writes, in the dashboard, the API and a document alike.
+  for path in setting_paths() {
+    if !mentions(&spans, &path) && !excused.contains(&path) {
+      missing.push(path);
     }
   }
   missing.sort();
@@ -204,9 +236,9 @@ fn every_setting_is_in_the_books_reference_table() {
 /// from someone having deleted a failing assertion.
 #[test]
 fn every_exemption_is_for_a_key_that_exists_and_gives_a_reason() {
-  let all: Vec<String> = [crate::schema_json(), crate::server_schema_json()]
-    .iter()
-    .flat_map(|s| keys(s))
+  let all: Vec<String> = keys(&crate::schema_json())
+    .into_iter()
+    .chain(setting_paths())
     .collect();
   for exempt in NOT_IN_CONFIGURATION_MD.iter().chain(NOT_IN_BOOK) {
     assert!(

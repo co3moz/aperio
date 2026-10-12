@@ -5,10 +5,10 @@ mod api;
 mod auth;
 mod backup;
 mod backup_crypto;
+mod boot;
 mod cache;
 mod capacity;
-mod check_config;
-mod config_file;
+mod cli;
 mod consumers;
 mod deny_list;
 mod error_pages;
@@ -19,12 +19,12 @@ mod forward_auth_tunnel;
 mod headers;
 mod jwt;
 mod limits;
+mod live;
 mod maintenance_windows;
 mod metrics_labels;
 mod oidc;
 mod otlp_identity;
 mod outbound;
-mod print_config;
 mod protocol;
 mod protocol_profile;
 mod proxy;
@@ -93,9 +93,8 @@ pub(crate) fn ensure_crypto_provider() {
 }
 
 /// Entry point for the Aperio server, called by the thin binary in
-/// `main.rs`. Handles the diagnostic subcommands, loads `aperio-server.yaml`
-/// into the environment while still single-threaded, then hands over to the
-/// async server on a multi-thread runtime.
+/// `main.rs`. Runs a command from the command line, or, with none, starts the
+/// server on a multi-thread runtime.
 pub fn run() {
   // Route every panic through structured logging before the runtime contains
   // it (see `install_panic_logger`), so a panic in a spawned task or a
@@ -110,75 +109,42 @@ pub fn run() {
   // this.
   ensure_crypto_provider();
 
-  // `aperio-server --version` must print and exit instead of starting the
-  // server (used by installers and packaging).
-  if matches!(
-    std::env::args().nth(1).as_deref(),
-    Some("--version" | "-V" | "version")
-  ) {
-    println!("aperio-server {}", env!("CARGO_PKG_VERSION"));
-    return;
-  }
-
-  // `aperio-server --print-schema` prints the JSON Schema for
-  // `aperio-server.yaml` (the file is the primary configuration surface; env
-  // vars are the fallback) and exits. Point an editor's `yaml.schemas` at the
-  // output for autocompletion and validation. Needs no config load.
-  if std::env::args().nth(1).as_deref() == Some("--print-schema") {
-    println!("{}", aperio_config::server_schema_json());
-    return;
-  }
-
-  // Must happen before the runtime exists: the loader writes environment
-  // variables, which is only sound while no other thread can read them.
-  config_file::load();
-
-  // `aperio-server --decrypt-backup <in.db.enc> [out.db]` turns an encrypted
-  // snapshot back into a database, using the same key configuration the
-  // server writes them with. This is not a convenience: an encrypted backup
-  // nobody can open is worse than no backup, and the moment somebody needs it
-  // is the moment they are least able to write a decryption script.
-  //
-  // **Before the upgrade check, unlike every other subcommand**, and
-  // deliberately: that check exits on a security-relevant config change, and
-  // this is the one command that must still run during an emergency. Turning
-  // ciphertext back into bytes does not depend on what a config key means, so
-  // there is nothing for the verdict to protect here and a restore it blocked
-  // would be the worst possible time to find out. It runs after the file is
-  // loaded, so a key written in the `backup:` block still works.
-  if std::env::args().nth(1).as_deref() == Some("--decrypt-backup") {
-    std::process::exit(decrypt_backup());
-  }
-
-  // A removed setting still configured stops the start before anything binds
-  // a port, naming what replaced it.
-  refuse_removed_settings();
-
-  // `aperio-server --check-config` lints the layered configuration (file +
-  // environment) and exits without starting the server.
-  if std::env::args().nth(1).as_deref() == Some("--check-config") {
-    std::process::exit(check_config::run());
-  }
-
-  // `aperio-server --print-config` prints the effective configuration, which
-  // `APERIO_*` values are set and whether each came from the environment, the
-  // `aperio-server.yaml` file, or a persisted dashboard override, and exits
-  // without starting the server.
-  if std::env::args().nth(1).as_deref() == Some("--print-config") {
-    std::process::exit(print_config::run());
-  }
-
-  // `aperio-server --verify-audit` verifies the tamper-evident hash chain of
-  // the audit log and exits without starting the server.
-  if std::env::args().nth(1).as_deref() == Some("--verify-audit") {
-    std::process::exit(verify_audit());
-  }
-
-  tokio::runtime::Builder::new_multi_thread()
-    .enable_all()
-    .build()
-    .expect("failed to build the tokio runtime")
-    .block_on(async_main());
+  use clap::Parser;
+  use cli::{AuditAction, BackupAction, Command, SettingsAction};
+  let cli = cli::Cli::parse();
+  let code = match cli.command {
+    None | Some(Command::Run) => {
+      // A setting that moved into the database and is still set in the
+      // environment stops the start before anything binds a port, naming
+      // where it went.
+      refuse_removed_settings();
+      tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("failed to build the tokio runtime")
+        .block_on(async_main());
+      return;
+    }
+    Some(Command::Settings {
+      action: SettingsAction::Show { full, json },
+    }) => cli::settings_show(full, json),
+    Some(Command::Settings {
+      action: SettingsAction::Reset { path },
+    }) => cli::settings_reset(path.as_deref()),
+    Some(Command::Apply { file }) => cli::apply(&file),
+    Some(Command::Check { file }) => cli::check(&file),
+    Some(Command::Schema) => {
+      println!("{}", aperio_config::server_schema_json());
+      0
+    }
+    Some(Command::Audit {
+      action: AuditAction::Verify,
+    }) => verify_audit(),
+    Some(Command::Backup {
+      action: BackupAction::Decrypt { input, output },
+    }) => decrypt_backup(&input, output.as_deref()),
+  };
+  std::process::exit(code);
 }
 
 /// Decrypts one snapshot, reading the key the same way the backup task does.
@@ -189,43 +155,27 @@ pub fn run() {
 /// it wrong. The "inside the backup directory" refusal applies here too: if
 /// the arrangement was never safe, saying so while restoring is the last
 /// chance to hear it.
-fn decrypt_backup() -> i32 {
-  let mut args = std::env::args().skip(2);
-  let Some(input) = args.next() else {
-    eprintln!(
-      "usage: aperio-server --decrypt-backup <snapshot{}> [output.db]",
-      backup_crypto::ENCRYPTED_SUFFIX
-    );
-    return 2;
-  };
+fn decrypt_backup(input: &str, output: Option<&str>) -> i32 {
   let input = std::path::PathBuf::from(input);
-  let output = args
-    .next()
-    .map(std::path::PathBuf::from)
-    .unwrap_or_else(|| {
-      // `aperio-1700000000.db.enc` -> `aperio-1700000000.db`
-      let name = input.file_name().map(|n| n.to_string_lossy().into_owned());
-      match name.and_then(|n| {
-        n.strip_suffix(backup_crypto::ENCRYPTED_SUFFIX)
-          .map(str::to_string)
-      }) {
-        Some(stem) => input.with_file_name(format!("{stem}.db")),
-        None => input.with_extension("db"),
-      }
-    });
+  let output = output.map(std::path::PathBuf::from).unwrap_or_else(|| {
+    // `aperio-1700000000.db.enc` -> `aperio-1700000000.db`
+    let name = input.file_name().map(|n| n.to_string_lossy().into_owned());
+    match name.and_then(|n| {
+      n.strip_suffix(backup_crypto::ENCRYPTED_SUFFIX)
+        .map(str::to_string)
+    }) {
+      Some(stem) => input.with_file_name(format!("{stem}.db")),
+      None => input.with_extension("db"),
+    }
+  });
 
-  // The backup directory only matters for the refusal, and defaults to the
-  // snapshot's own directory, which is the right answer when someone is
-  // restoring from a copy rather than from where it was written.
-  let dir = std::env::var("APERIO_BACKUP_DIR")
-    .ok()
-    .map(std::path::PathBuf::from)
-    .unwrap_or_else(|| {
-      input
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-    });
+  // The backup directory only matters for the refusal: the snapshot's own
+  // directory, which is the right answer when someone is restoring from a
+  // copy rather than from where it was written.
+  let dir = input
+    .parent()
+    .map(|p| p.to_path_buf())
+    .unwrap_or_else(|| std::path::PathBuf::from("."));
 
   let key = match backup_crypto::load_key(
     std::env::var("APERIO_BACKUP_KEY").ok().as_deref(),
@@ -364,12 +314,14 @@ pub mod testkit {
     pub router: axum::Router,
   }
 
-  /// Runs the real startup path (environment, stores, settings layering,
+  /// Runs the real startup path (boot environment, stored settings, stores,
   /// router assembly) inside the calling process. `None` = the same refusals
-  /// `build_state` logs. Spawns no background loops: the test decides what
-  /// runs beside it.
+  /// startup logs. Spawns no background loops: the test decides what runs
+  /// beside it.
   pub async fn compose() -> Option<Composed> {
-    let bundle = crate::build_state().await?;
+    let boot = crate::boot::Boot::from_env().ok()?;
+    let (settings, init) = crate::boot::load_settings(&boot).ok()?;
+    let bundle = crate::build_state(boot, settings, init).await?;
     let router = crate::build_router(bundle.state.clone(), bundle.metrics_enabled);
     Some(Composed {
       state: bundle.state,

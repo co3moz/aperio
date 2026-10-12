@@ -4,7 +4,7 @@ import { ClientFor } from '../../lib/client.js'
 import { freePort } from '../../lib/env.js'
 
 export class MessageServer extends AperioServerBase({
-  env: { APERIO_METRICS: '1', APERIO_METRICS_TOKEN: 'e2e-scrape' },
+  settings: { metrics: { enabled: true, token: 'e2e-scrape' } },
 }) {}
 
 export class MessageBackend extends StandardBackendBase() {}

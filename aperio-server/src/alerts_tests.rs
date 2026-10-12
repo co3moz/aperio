@@ -4,34 +4,12 @@
 //! the background ticker's 15 s cadence has to be driven with real sleeps. One
 //! comprehensive test therefore drives a live [`spawn`] task across three ticks
 //! (~48 s) to exercise every fire/resolve branch of both rules plus window
-//! eviction; the rest of the coverage comes from the pure `from_env` parser and
+//! eviction; the rest of the coverage comes from the pure `from_settings` reader and
 //! the `emit` side-effect helper, which need no timing.
 
 use super::*;
 use crate::store::webhooks::WebhookFormat;
 use crate::test_support::*;
-
-use std::sync::Mutex as StdMutex;
-
-/// Serializes the tests that mutate process-global `APERIO_ALERT_*` env vars.
-static ENV_LOCK: StdMutex<()> = StdMutex::new(());
-
-const ALERT_KEYS: &[&str] = &[
-  "APERIO_ALERT_ERROR_RATE",
-  "APERIO_ALERT_CLIENT_DOWN",
-  "APERIO_ALERT_WINDOW",
-  "APERIO_ALERT_MIN_REQUESTS",
-];
-
-fn clear_alert_env() {
-  for k in ALERT_KEYS {
-    unsafe { std::env::remove_var(k) };
-  }
-}
-
-fn set_env(k: &str, v: &str) {
-  unsafe { std::env::set_var(k, v) };
-}
 
 /// Snapshot of `(event, details)` for every audit row written so far.
 async fn audit_rows(state: &AppState) -> Vec<(String, String)> {
@@ -55,86 +33,79 @@ fn count_alert(rows: &[(String, String)], event: &str, kind: &str) -> usize {
 }
 
 // ---------------------------------------------------------------------------
-// AlertConfig::from_env
+// AlertConfig::from_settings
 // ---------------------------------------------------------------------------
 
 #[test]
-fn from_env_all_unset_is_none() {
-  let _g = ENV_LOCK.lock().unwrap();
-  clear_alert_env();
-  assert!(AlertConfig::from_env().is_none());
+fn from_settings_with_nothing_set_is_none() {
+  crate::live::reset();
+  assert!(AlertConfig::from_settings().is_none());
 }
 
 #[test]
-fn from_env_zero_and_invalid_values_are_off() {
-  let _g = ENV_LOCK.lock().unwrap();
-  clear_alert_env();
-  // Zero, negative and unparsable values are all filtered out -> both off.
-  set_env("APERIO_ALERT_ERROR_RATE", "0");
-  set_env("APERIO_ALERT_CLIENT_DOWN", "-5");
-  assert!(AlertConfig::from_env().is_none());
-
-  set_env("APERIO_ALERT_ERROR_RATE", "not-a-number");
-  clear_env_single("APERIO_ALERT_CLIENT_DOWN");
-  assert!(AlertConfig::from_env().is_none());
-  clear_alert_env();
+fn from_settings_zero_values_are_off() {
+  crate::live::set_yaml(
+    "alerts:
+  error_rate: 0
+  client_down: 0s
+",
+  );
+  assert!(AlertConfig::from_settings().is_none());
 }
 
 #[test]
-fn from_env_error_rate_only_uses_defaults() {
-  let _g = ENV_LOCK.lock().unwrap();
-  clear_alert_env();
-  set_env("APERIO_ALERT_ERROR_RATE", "12.5");
-  let cfg = AlertConfig::from_env().expect("some");
+fn from_settings_error_rate_only_uses_defaults() {
+  crate::live::set_yaml(
+    "alerts:
+  error_rate: 0.125
+",
+  );
+  let cfg = AlertConfig::from_settings().expect("some");
   assert_eq!(cfg.error_rate_pct, 12.5);
   assert_eq!(cfg.window, Duration::from_secs(300));
   assert_eq!(cfg.min_requests, 20);
   assert_eq!(cfg.client_down, Duration::ZERO);
-  clear_alert_env();
 }
 
 #[test]
-fn from_env_client_down_only() {
-  let _g = ENV_LOCK.lock().unwrap();
-  clear_alert_env();
-  set_env("APERIO_ALERT_CLIENT_DOWN", "45");
-  let cfg = AlertConfig::from_env().expect("some");
+fn from_settings_client_down_only() {
+  crate::live::set_yaml(
+    "alerts:
+  client_down: 45s
+",
+  );
+  let cfg = AlertConfig::from_settings().expect("some");
   assert_eq!(cfg.error_rate_pct, 0.0);
   assert_eq!(cfg.client_down, Duration::from_secs(45));
-  clear_alert_env();
 }
 
 #[test]
-fn from_env_full_custom_config() {
-  let _g = ENV_LOCK.lock().unwrap();
-  clear_alert_env();
-  set_env("APERIO_ALERT_ERROR_RATE", "5");
-  set_env("APERIO_ALERT_CLIENT_DOWN", "30");
-  set_env("APERIO_ALERT_WINDOW", "120");
-  set_env("APERIO_ALERT_MIN_REQUESTS", "50");
-  let cfg = AlertConfig::from_env().expect("some");
-  assert_eq!(cfg.error_rate_pct, 5.0);
+fn from_settings_full_custom_config() {
+  crate::live::set_yaml(
+    "alerts:
+  error_rate: 0.05
+  client_down: 30s
+  window: 2m
+  min_requests: 50
+",
+  );
+  let cfg = AlertConfig::from_settings().expect("some");
+  assert!((cfg.error_rate_pct - 5.0).abs() < 1e-9);
   assert_eq!(cfg.client_down, Duration::from_secs(30));
   assert_eq!(cfg.window, Duration::from_secs(120));
   assert_eq!(cfg.min_requests, 50);
-  clear_alert_env();
 }
 
 #[test]
-fn from_env_invalid_window_and_min_fall_back_to_defaults() {
-  let _g = ENV_LOCK.lock().unwrap();
-  clear_alert_env();
-  set_env("APERIO_ALERT_ERROR_RATE", "10");
-  set_env("APERIO_ALERT_WINDOW", "garbage");
-  set_env("APERIO_ALERT_MIN_REQUESTS", "0");
-  let cfg = AlertConfig::from_env().expect("some");
-  assert_eq!(cfg.window, Duration::from_secs(300));
-  assert_eq!(cfg.min_requests, 20);
-  clear_alert_env();
-}
-
-fn clear_env_single(k: &str) {
-  unsafe { std::env::remove_var(k) };
+fn a_typo_in_the_alerts_section_is_refused_not_read_as_off() {
+  assert!(
+    aperio_config::server_settings::ServerSettings::from_yaml(
+      "alerts:
+  window: soon
+"
+    )
+    .is_err()
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -179,13 +150,13 @@ async fn emit_audits_and_dispatches_to_subscribers() {
 #[tokio::test]
 async fn spawn_logs_both_rules_on() {
   let state = Arc::new(test_state());
-  let cfg = AlertConfig {
-    error_rate_pct: 10.0,
-    window: Duration::from_secs(300),
-    min_requests: 20,
-    client_down: Duration::from_secs(60),
-  };
-  spawn(state, cfg);
+  crate::live::set_yaml(
+    "alerts:
+  error_rate: 0.1
+  client_down: 1m
+",
+  );
+  spawn(state);
   // Let the task reach its first `sleep().await` (variable setup executes),
   // then let the test end so the runtime aborts it before any tick.
   tokio::task::yield_now().await;
@@ -194,13 +165,8 @@ async fn spawn_logs_both_rules_on() {
 #[tokio::test]
 async fn spawn_logs_both_rules_off() {
   let state = Arc::new(test_state());
-  let cfg = AlertConfig {
-    error_rate_pct: 0.0,
-    window: Duration::from_secs(300),
-    min_requests: 20,
-    client_down: Duration::ZERO,
-  };
-  spawn(state, cfg);
+  crate::live::reset();
+  spawn(state);
   tokio::task::yield_now().await;
 }
 
@@ -227,13 +193,16 @@ async fn ticker_fires_and_resolves_both_rules() {
     .await
     .insert("svc1".to_string(), mock_client(None, None, None, None));
 
-  let cfg = AlertConfig {
-    error_rate_pct: 10.0,
-    window: Duration::from_secs(25),
-    min_requests: 20,
-    client_down: Duration::from_secs(1),
-  };
-  spawn(state.clone(), cfg);
+  // Read by the ticker on this thread: the runtime is current-thread.
+  crate::live::set_yaml(
+    "alerts:
+  error_rate: 0.1
+  window: 25s
+  min_requests: 20
+  client_down: 1s
+",
+  );
+  spawn(state.clone());
 
   // Tick 1 (~16 s): first error sample (0/0) and first sight of svc1 down.
   tokio::time::sleep(Duration::from_secs(16)).await;

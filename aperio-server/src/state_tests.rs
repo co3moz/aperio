@@ -542,15 +542,6 @@ async fn test_audit_events_and_session_actor() {
     .await;
 }
 
-#[tokio::test]
-async fn test_reload_from_file_returns_diff() {
-  let state = std::sync::Arc::new(crate::test_support::test_state());
-  // With no dashboard overrides and no file layer, the effective config is
-  // unchanged, so the diff is empty. Exercises the reload plumbing.
-  let diff = state.reload_from_file().await;
-  assert!(diff.is_empty(), "no changes: {diff:?}");
-}
-
 #[test]
 fn request_timeline_assemble_anchors_client_offsets() {
   use crate::protocol::ClientTimings;

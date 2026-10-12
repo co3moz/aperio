@@ -67,21 +67,16 @@ impl Fallbacks {
   }
 }
 
-/// Reads and compiles the `fallbacks:` section of `aperio-server.yaml`.
-pub(crate) fn from_config_file() -> Fallbacks {
-  let Some(section) = crate::config_file::structured("fallbacks") else {
-    return Fallbacks::default();
+/// Compiles the `fallbacks:` section of the settings.
+pub(crate) fn from_section(section: Option<serde_yaml::Value>) -> Result<Fallbacks, String> {
+  let Some(section) = section else {
+    return Ok(Fallbacks::default());
   };
-  let raw: Vec<FallbackRuleRaw> = match serde_yaml::from_value(section) {
-    Ok(rules) => rules,
-    Err(err) => {
-      tracing::error!("invalid `fallbacks:` section in aperio-server.yaml: {err}, disabled");
-      return Fallbacks::default();
-    }
-  };
-  Fallbacks {
+  let raw: Vec<FallbackRuleRaw> =
+    serde_yaml::from_value(section).map_err(|e| format!("fallbacks: {e}"))?;
+  Ok(Fallbacks {
     rules: compile(raw),
-  }
+  })
 }
 
 /// Compiles raw rules (shared with the config lint). Drops entries with a bad

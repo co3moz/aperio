@@ -179,7 +179,7 @@ pub(crate) struct ClientSettings {
   /// Security response-header preset (config files only; per-service
   /// `security_headers:` entries override this).
   pub(crate) security_headers: Option<SecurityHeaders>,
-  /// Opt into the server-side response cache (server must enable APERIO_CACHE).
+  /// Opt into the server-side response cache (the server must have `cache.enabled`).
   pub(crate) cache: bool,
   /// Keep serving cached responses while this client is offline (server-side).
   pub(crate) resilience: bool,

@@ -43,7 +43,7 @@ it is an argument rather than a method:
 
 ```ts
 export class AuthServer extends AperioServerBase({
-  env: { APERIO_SERVER_AUTH: 'demo:secret123' },
+  env: { access.gate: 'demo:secret123' },
 }) {}
 ```
 

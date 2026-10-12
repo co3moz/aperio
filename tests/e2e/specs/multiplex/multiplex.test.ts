@@ -7,7 +7,7 @@ import { waitFor } from '../../lib/env.js'
 
 /** Random subdomains off, so a hostname that is not routed really is not. */
 export class MultiplexServer extends AperioServerBase({
-  env: { APERIO_RANDOM_SUBDOMAIN: '' },
+  settings: { routing: { random_subdomain: null } },
 }) {}
 
 export class WebBackend extends StandardBackendBase() {}

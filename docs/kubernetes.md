@@ -2,68 +2,67 @@
 
 A Helm chart deploys the server; the client can run beside your app in its pod. The chart is in [`tools/charts/aperio-server`](../tools/charts/aperio-server/).
 
-Create the `aperio-token` Secret shown [below](#the-master-token) before installing. Replace the hostname, configure DNS and TLS on the Ingress, and set `trusted_proxies` to your actual proxy ranges. The chart currently defaults to a 0.9.0 server image, so set the image tag to the release you intend to run.
+Create the `aperio-token` Secret shown [below](#the-master-token) before installing. Replace the hostname, configure DNS and TLS on the Ingress, and set `proxy.trusted` to your actual proxy ranges. The chart currently defaults to a 0.9.0 server image, so set the image tag to the release you intend to run.
 
 ```bash
 helm install aperio ./tools/charts/aperio-server \
   --set existingSecret=aperio-token \
-  --set image.tag=0.12.0 \
+  --set image.tag=0.13.0 \
   --set ingress.enabled=true \
   --set ingress.hosts[0].host=tunnel.example.com
 ```
 
-## The values file is the server's own configuration
+## The values file seeds the server's settings
 
-Everything under `config:` is written out as `aperio-server.yaml` and handed
-to the server as `APERIO_SERVER_CONFIG`, unchanged. The chart does not read
-it, validate it or know what is in it.
+The server keeps its settings in its database, on the volume, and changes them
+from the dashboard without a restart. What the chart can say is what a new
+server starts with: everything under `initSettings:` is written out as the
+`settings:` section of a document handed to the server as `APERIO_INIT_FILE`,
+unchanged. The chart does not read it, validate it or know what is in it, and
+the server reads it once, into an empty database.
 
 ```yaml
-config:
-  host: 0.0.0.0
-  port: 8080
-  trusted_proxies: ["10.0.0.0/8"]
+initSettings:
+  proxy:
+    trusted: ["10.0.0.0/8"]
   cache:
     enabled: true
-    max_bytes: 268435456
+    size: 256MB
   backup:
-    interval: 86400
+    interval: 1d
     dir: /var/lib/aperio/backups
 ```
 
-Use [Configuration](configuration.md) or the release JSON Schema for keys under `config:`. The chart's other values cover Kubernetes resources: the image, volume, Service, Ingress, and probes.
+Use [Configuration](configuration.md) or the release JSON Schema for the settings. Changing `initSettings:` on an installed release changes nothing on the running server, deliberately: to roll a settings document out to it, `POST /aperio/api/import` it. The chart's other values cover Kubernetes resources: the image, volume, Service, Ingress, and probes.
 
 You can check a values file against the real thing before installing it:
 
 ```bash
 helm template aperio ./tools/charts/aperio-server -f my-values.yaml \
-  | yq 'select(.kind == "ConfigMap") | .data["aperio-server.yaml"]' > /tmp/aperio-server.yaml
-APERIO_SERVER_TOKEN=x APERIO_SERVER_CONFIG=/tmp/aperio-server.yaml aperio-server --check-config
+  | yq 'select(.kind == "ConfigMap") | .data["server-init.yaml"]' > /tmp/server-init.yaml
+aperio-server check /tmp/server-init.yaml
 ```
 
 ## The master token
 
-It is not in `config:`, and it should not be in a values file either. The
-chart takes either a token to put in a Secret it creates, or the name of a
-Secret you already manage:
+It should not be in a values file. The chart takes either a token to put in a
+Secret it creates, or the name of a Secret you already manage:
 
 ```bash
 kubectl create secret generic aperio-token --from-literal=token="$(openssl rand -hex 32)"
 helm install aperio ./tools/charts/aperio-server --set existingSecret=aperio-token
 ```
 
-It arrives as `APERIO_SERVER_TOKEN`. The chart deliberately leaves
-`server.token` out of the `config:` file because the file wins over the
-environment: a token written there would outvote the Secret, so the value to
-change is the Secret, never the file. Everything else
-that comes from a secret manager goes through `extraEnv`, since every setting
-is reachable as an `APERIO_*` variable:
+It arrives as `APERIO_SERVER_TOKEN`. The other boot settings a secret manager
+holds, a backup encryption key for instance, go through `extraEnv`. A
+credential among the settings (the OIDC client secret, say) is set from the
+dashboard after the first start, where it is stored and never read back.
 
 ```yaml
 extraEnv:
-  - name: APERIO_OIDC_CLIENT_SECRET
+  - name: APERIO_BACKUP_KEY
     valueFrom:
-      secretKeyRef: { name: aperio-oidc, key: client-secret }
+      secretKeyRef: { name: aperio-backup, key: key }
 ```
 
 ## One replica, and why it is not a placeholder
@@ -105,7 +104,7 @@ containers:
       - containerPort: 3000
 
   - name: aperio-client
-    image: ghcr.io/co3moz/aperio-client:0.12.0
+    image: ghcr.io/co3moz/aperio-client:0.13.0
     env:
       - name: APERIO_SERVER_URL
         value: https://tunnel.example.com

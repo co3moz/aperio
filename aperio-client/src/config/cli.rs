@@ -120,8 +120,8 @@ pub(crate) struct CommonOpts {
   pub(crate) public: bool,
   /// Per-service visitor login as `user:password`: the server gates this
   /// service behind a login with these credentials, overriding its own
-  /// APERIO_SERVER_AUTH for this service (needs the same token permission as
-  /// `public`; ignored if the server sets APERIO_IGNORE_CLIENT_AUTH)
+  /// the server's visitor gate (`access.gate`) for this service (needs the same token permission as
+  /// `public`; ignored if the server sets `access.ignore_client_auth`)
   /// (yaml: auth, env: APERIO_VISITOR_AUTH)
   #[arg(long = "visitor-auth", global = true, value_name = "USER:PASSWORD")]
   pub(crate) visitor_auth: Option<String>,

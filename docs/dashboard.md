@@ -32,7 +32,7 @@ Clicking a row opens that connection's **effective configuration** as a YAML doc
 
 - **Enable/Disable kill switch**, a disabled client stays connected but receives no new traffic. Useful for taking a backend out of rotation without touching its machine.
 
-Below the table, an **Uptime** panel tracks each service's availability history: current status (up / degraded / down), uptime percentages for today, the last 7 days, and the last 30 days, plus a per-day color strip. A background ticker (every `APERIO_UPTIME_TICK_SECS` (yaml `uptime_tick_secs`) seconds, default 10) accrues time as *up* (tunnel healthy and backend probe passing), *degraded* (connected but not serving, backend down, draining, or disabled), or *down* (no connection); history is persisted in `aperio.db` for 60 days. Percentages cover observed time only, time while the server itself was offline is not counted against a service. Also available as `GET /aperio/api/uptime`.
+Below the table, an **Uptime** panel tracks each service's availability history: current status (up / degraded / down), uptime percentages for today, the last 7 days, and the last 30 days, plus a per-day color strip. A background ticker (every `uptime.tick` (yaml `uptime_tick_secs`) seconds, default 10) accrues time as *up* (tunnel healthy and backend probe passing), *degraded* (connected but not serving, backend down, draining, or disabled), or *down* (no connection); history is persisted in `aperio.db` for 60 days. Percentages cover observed time only, time while the server itself was offline is not counted against a service. Also available as `GET /aperio/api/uptime`.
 - **Redirect hostname**, temporarily override a client's hostname/path binds, e.g. to redirect a hostname live. In-memory only; a reconnect or restart reverts it. The dialog opens with one row per hostname the connection currently answers on, the ones the client declared first, then the random subdomain on its own row, each labeled with where it came from. Editing a single row moves only that name, so retargeting the hostname the client configured leaves the random subdomain routing as it was, and emptying every row clears the override.
 
 ## Live traffic table
@@ -85,7 +85,7 @@ The buffer of fifty is shared across organizations, and eviction is by **fair sh
 
 **Every buffered capture carries a high-resolution timeline**: microsecond stage offsets from the request's arrival at the server, queueing/routing, dispatch into the tunnel, the client's own stages (backend request sent, first byte, body complete, response handed back, measured on the client's monotonic clock and anchored by splitting the unaccounted tunnel transit evenly, marked as estimated), the response arriving back, and the hand-off to the visitor. The inspector renders it as a waterfall. Streamed responses and pre-timing clients simply omit it.
 
-**Secrets are masked before anything leaves the server**: credential headers (`Authorization`, `Cookie`/`Set-Cookie`, `X-Api-Key` and friends) and secret-looking body fields (`password`, `token`, `api_key`, `client_secret`, … in JSON or form bodies) show as `[REDACTED]` in the inspector, and therefore also in the cURL copy and the HAR download. The raw capture stays intact in server memory, so replay still re-sends the original bytes. Opt out with `APERIO_INSPECTOR_REDACT=0` (yaml `inspector_redact`).
+**Secrets are masked before anything leaves the server**: credential headers (`Authorization`, `Cookie`/`Set-Cookie`, `X-Api-Key` and friends) and secret-looking body fields (`password`, `token`, `api_key`, `client_secret`, … in JSON or form bodies) show as `[REDACTED]` in the inspector, and therefore also in the cURL copy and the HAR download. The raw capture stays intact in server memory, so replay still re-sends the original bytes. Opt out with `inspector.redact: false` (yaml `inspector_redact`).
 
 ## Add Client wizard
 
@@ -99,7 +99,7 @@ Admins see every live dashboard session on the Users page, who is signed in, fro
 
 ![Maintenance: the per-hostname 503 switch, with each flag's reason and when it lifts](images/dashboard-maintenance.png)
 
-Put a hostname into maintenance: visitors get a 503 page (customizable via `APERIO_503_PAGE` (yaml `503_page`), served with `Retry-After`) while tunnel clients stay connected. Like bind overrides it is in-memory and cleared on restart. Toggles are audited and emitted as `maintenance_on` / `maintenance_off` webhook events.
+Put a hostname into maintenance: visitors get a 503 page (customizable via `pages.maintenance` (yaml `503_page`), served with `Retry-After`) while tunnel clients stay connected. Like bind overrides it is in-memory and cleared on restart. Toggles are audited and emitted as `maintenance_on` / `maintenance_off` webhook events.
 
 Four shapes are accepted, the same three an organization's hostname allowlist is written in plus the server-wide one:
 
@@ -114,12 +114,12 @@ A flag carries a **reason** and, optionally, a **window**. The reason is shown o
 
 Clearing a flag is the organization's own, with one exception: master may clear any flag, including one whose organization has since been deleted. Deleting an organization also clears the flags it owned, so a tenant cannot leave a hostname answering 503 behind it.
 
-### Recurring windows (`maintenance_windows:`)
+### Recurring windows (`maintenance_windows`)
 
-A flag is a switch somebody flips, which covers the unplanned outage. A window that comes round every week is standing configuration instead, so it lives in `aperio-server.yaml` rather than in the dashboard: written there it survives a restart (runtime flags do not), reloads without one, and is reviewed in a diff.
+A flag is a switch somebody flips, which covers the unplanned outage. A window that comes round every week is standing configuration instead, so it is a server setting (**Settings → Pages & headers**): it survives a restart (runtime flags do not), applies without one, and travels in an export.
 
 ```yaml
-# aperio-server.yaml
+# settings
 maintenance_windows:
   - hostname: "*.example.com"   # same shapes as a flag; omit or "*" = every host
     from: "02:00"               # local start, HH:MM
@@ -129,7 +129,7 @@ maintenance_windows:
     reason: weekly patching
 ```
 
-While a window is running, matching hostnames answer exactly as a flag would, reason and all, with `Retry-After` pointing at the end of the window. `to` earlier than `from` wraps past midnight, and `days` then names the day the window **starts**: `22:00` to `02:00` on `[sat]` runs Saturday night into Sunday morning. Use a named zone rather than a fixed offset, so 02:00 stays 02:00 across a daylight-saving change. A malformed entry refuses startup rather than being skipped, because a window that silently never fires is a deploy nobody stopped.
+While a window is running, matching hostnames answer exactly as a flag would, reason and all, with `Retry-After` pointing at the end of the window. `to` earlier than `from` wraps past midnight, and `days` then names the day the window **starts**: `22:00` to `02:00` on `[sat]` runs Saturday night into Sunday morning. Use a named zone rather than a fixed offset, so 02:00 stays 02:00 across a daylight-saving change. A malformed entry is refused when the settings are saved rather than being skipped, because a window that silently never fires is a deploy nobody stopped.
 
 A subdomain wildcard is the answer to "take everything under this domain down": one entry instead of one per service, and it covers services that connect while the flag is on. Because it is a claim over a whole subtree, it takes an organization that owns the subtree: an org fenced to `robogon.com` alone cannot set `*.robogon.com` (its fence covers one name), and master cannot set it either while a tenant is fenced to anything inside it. A flag also cannot be raised over a hostname a client of *another* organization is currently serving, whatever the fence says: coverage is a claim over a name, not over somebody else's live service. See [Organizations](organizations.md).
 
@@ -145,25 +145,27 @@ The configuration screens open as a **dialog over whatever page you were on**, n
 
 ## Server settings
 
-Everything on this pane is **live**: a save applies immediately and takes effect on the running server, no restart and no reconnect. Environment variables stay the defaults; an edit becomes a **persisted override** (`APERIO_DATA_DIR/settings.json`) that survives restarts, wins over the environment, and can be reset per field back to the environment default. A key that `aperio-server.yaml` writes is the file's: the pane refuses to override it and says so, and a stored override for such a key is dropped at the next start, because the file is what an operator versions and reviews. Every change is audited as `settings_updated`.
+This pane is the server's settings document, and it holds **every** setting: it is built from the same schema that parses the settings, so a setting added to the server appears here without a dashboard release. A save sends the whole document; the server checks it, stores it in its database, and puts it in force for the next request, and a value it cannot honour is refused with the setting named. Every change is audited as `settings_updated` with the paths it moved.
 
-The settings sit in one accordion, grouped by what they govern; **Export & Import** is its own pane beside it rather than a group in the accordion. The full description of each is in the [Configuration Reference](configuration.md); this is what the screen can reach:
+Each setting carries what is special about it. **security** marks one that decides who reaches what (access, proxy trust, the admin fence, the outbound policy, OIDC, the metrics and edge tokens, and a few more): changing it takes Admin in every organization and a sign-in from the last ten minutes, and it is audited a second time as `settings_security_changed`. **restart** marks one read at startup: it is stored at once, shown as **restart pending**, and in force from the next start. A credential (the OIDC client secret, the metrics and edge tokens, the visitor gate's secrets) shows as stored rather than as its value, and saving leaves it as it was unless you type a new one. The lists (routes, rate limits, the firewall, fallbacks, error pages, maintenance windows, alert rules, the header rules and the visitor gate) are edited as yaml.
+
+The settings sit in one accordion, grouped by what they govern; **Export & Import** is its own pane beside it rather than a group in the accordion. The full description of each is in the [Configuration Reference](configuration.md); the groups most reached for are:
 
 | Group | What you can change from here |
 | --- | --- |
-| **Gateway & Requests** | How long a request waits for a client to (re)connect and to answer, and the largest request body accepted (`APERIO_GATEWAY_TIMEOUT`, `APERIO_GATEWAY_RESPONSE_TIMEOUT`, `APERIO_MAX_BODY_SIZE`). |
-| **Capacity & Health** | Ceiling on connected tunnel clients and on in-flight proxied requests, and the missed-heartbeat window after which a client leaves routing (`APERIO_MAX_TUNNELS`, `APERIO_MAX_CONCURRENT_REQUESTS`, `APERIO_CLIENT_DOWN_THRESHOLD`). |
-| **Routing & Failover** | Load-balancing strategy, strict multi-tenant mode, and the whole in-flight failover policy: mode, jump count, time budget, and whether non-idempotent methods take part (`APERIO_LB_STRATEGY`, `APERIO_REQUIRE_HOSTNAME_BIND`, `APERIO_FAILOVER*`). |
-| **Rate Limiting** | The per-visitor-IP token bucket: burst size and sustained rate (`APERIO_IP_LIMIT_MAX`, `APERIO_IP_LIMIT_REFILL`). |
-| **Tunnels & Domains** | Tunnel compression, the random-subdomain pattern, and whether preview hosts answer `noindex` (`APERIO_TUNNEL_COMPRESSION`, `APERIO_RANDOM_SUBDOMAIN`, `APERIO_PREVIEW_NOINDEX`). Two of these reach connected clients at once: enabling compression is offered to them immediately, and a new pattern re-issues their random hostnames on the spot. |
-| **Caching** | The response cache: on/off, its memory budget, and how long an expired entry may still answer while a resilient service has no healthy client (`APERIO_CACHE`, `APERIO_CACHE_MAX_BYTES`, `APERIO_CACHE_MAX_STALE`). Disabling it clears the stored entries. |
-| **Stream Flow Control** | The backpressure watermarks: the backlog at which a producing client is told to pause, the one at which it resumes, and the hard cap past which a stream whose producer cannot be paused is dropped (`APERIO_STREAM_PAUSE_BYTES`, `APERIO_STREAM_RESUME_BYTES`, `APERIO_STREAM_BACKLOG_LIMIT`). |
-| **Security & Audit** | Login brute-force lockout (threshold and base duration, which doubles per repeat) and `audit.jsonl` rotation size and generations kept (`APERIO_LOGIN_LOCKOUT_*`, `APERIO_AUDIT_MAX_*`). |
-| **Visitor Experience** | Default dashboard/login language, the visitor password gate in front of all proxied traffic, and custom 504/503 HTML (`APERIO_UI_LANGUAGE`, `APERIO_SERVER_AUTH`, `APERIO_504_PAGE`, `APERIO_503_PAGE`). |
-| **Export & Import** | The server as one JSON document, to move a deployment or keep a copy. A checkbox per section decides what travels: the six that rebuild a deployment (tokens, webhooks, users, organizations, autoscaling, settings overrides) are on by default, and the history the store also holds (statistics, uptime, the webhook inbox, admin API keys) is there for the asking. Leave **Organizations** out and only the master organization's rows travel, its statistics included, because a row whose organization does not exist on the target is an orphan; the pane says so before you download. Sessions and the audit log are never exported. |
-| **Environment Flags** | Read-only: the env-only flags with their current values, and the exact way to change one on this host (a `docker run`/compose snippet or a shell/systemd one, chosen by what the server detects it is running in). |
+| **Gateway & Requests** | How long a request waits for a client to (re)connect and to answer, and the largest request body accepted (`gateway.timeout`, `gateway.response_timeout`, `limits.request_body`). |
+| **Capacity & Health** | Ceiling on connected tunnel clients and on in-flight proxied requests, and the missed-heartbeat window after which a client leaves routing (`limits.tunnels`, `limits.concurrent_requests`, `gateway.client_down_threshold`). |
+| **Routing & Failover** | Load-balancing strategy, strict multi-tenant mode, and the whole in-flight failover policy: mode, jump count, time budget, and whether non-idempotent methods take part (`routing.lb_strategy`, `routing.require_hostname_bind`, `failover.mode*`). |
+| **Rate Limiting** | The per-visitor-IP token bucket: burst size and sustained rate (`limits.ip_rate.burst`, `limits.ip_rate.per_second`). |
+| **Tunnels & Domains** | Tunnel compression, the random-subdomain pattern, and whether preview hosts answer `noindex` (`tunnel.compression`, `routing.random_subdomain`, `routing.preview_noindex`). Two of these reach connected clients at once: enabling compression is offered to them immediately, and a new pattern re-issues their random hostnames on the spot. |
+| **Caching** | The response cache: on/off, its memory budget, and how long an expired entry may still answer while a resilient service has no healthy client (`cache.enabled`, `cache.size`, `cache.max_stale`). Disabling it clears the stored entries. |
+| **Stream Flow Control** | The backpressure watermarks: the backlog at which a producing client is told to pause, the one at which it resumes, and the hard cap past which a stream whose producer cannot be paused is dropped (`stream.pause_at`, `stream.resume_at`, `stream.backlog_limit`). |
+| **Security & Audit** | Login brute-force lockout (threshold and base duration, which doubles per repeat) and `audit.jsonl` rotation size and generations kept (`security.login_lockout`, `audit.max_size`, `audit.max_files`). |
+| **Visitor Experience** | Default dashboard/login language, the visitor password gate in front of all proxied traffic, and custom 504/503 HTML (`dashboard.ui_language`, `access.gate`, `pages.unavailable`, `pages.maintenance`). |
+| **Export & Import** | The server as one JSON document, to move a deployment or keep a copy. A checkbox per section decides what travels: the six that rebuild a deployment (tokens, webhooks, users, organizations, autoscaling, server settings) are on by default, and the history the store also holds (statistics, uptime, the webhook inbox, admin API keys) is there for the asking. Leave **Organizations** out and only the master organization's rows travel, its statistics included, because a row whose organization does not exist on the target is an orphan; the pane says so before you download. Sessions and the audit log are never exported. |
 
-**What is deliberately not here.** The master token, `HOST`/`PORT`, `data_dir`, proxy trust, secure cookies, OIDC, metrics, the access log and the outbound callback policy never become dashboard overrides: they are security- or startup-critical, and a compromised dashboard session must not be able to move them. Every one is still settable from `aperio-server.yaml` (or its environment spelling) and needs a restart. The pane lists them read-only rather than hiding them, so the screen still answers "what is this server actually running".
+
+**What is deliberately not here.** The boot environment: the master token, `HOST`/`PORT` and the data directory, which the server needs before it can read anything else. When a setting locks the dashboard out, `aperio-server settings reset <path>` on the host puts it back, see [Configuration](configuration.md#getting-back-in).
 
 The live stream re-checks the session on every tick, so signing out (or being signed out) closes it within a couple of seconds rather than when the tab does. The session's own document travels on the stream too (`session`), re-sent when the users or sessions of its organization change, so a grant taken away is on screen at once.
 
@@ -210,7 +212,7 @@ It also publishes. Type a topic and a message and the reply says how many client
 
 ## Finding a setting
 
-`Ctrl`/`⌘`+`K` searches the settings as well as the pages. Every server setting is listed by name, matching its English name, its translated one, its environment key (`max_body_size`) and its group, **with its current value on the right**, marked when that value is an override rather than the environment default. Half the reason to look a setting up is to check it, and that costs nothing here. Picking one opens the settings pane, expands the group holding it and scrolls to it. The palette also carries the dialog panes themselves and shortcuts that land on a form rather than a page (*Add User*, *New Organization*). Values are shown only to the master super-admin, since only they may read them.
+`Ctrl`/`⌘`+`K` searches the settings as well as the pages. Every server setting the catalogue names is listed, matching its English name, its translated one, its path (`limits.request_body`) and its group, **with its current value on the right**. Half the reason to look a setting up is to check it, and that costs nothing here. Picking one opens the settings pane, expands the group holding it and scrolls to it. The palette also carries the dialog panes themselves and shortcuts that land on a form rather than a page (*Add User*, *New Organization*). Values are shown only to the master super-admin, since only they may read them.
 
 ## Also here
 
@@ -231,7 +233,7 @@ The *API Explorer* pane (sidebar → **Tools**) renders the server's own `/aperi
 
 ## Config builder
 
-The *Config Builder* pane (sidebar → **Tools**) writes an `aperio.yaml` or an `aperio-server.yaml` for you. Pick which of the two at the top, then either start from **New** or press **Import YAML** and paste a document (or open a file) to edit one you already have. **Export YAML** at the bottom shows the finished document to copy, or saves it as a file named after the side you chose.
+The *Config Builder* pane (sidebar → **Tools**) writes an `aperio.yaml`, or a `server-init.yaml` (the settings a new server starts with, through `APERIO_INIT_FILE`) for you. Pick which of the two at the top, then either start from **New** or press **Import YAML** and paste a document (or open a file) to edit one you already have. **Export YAML** at the bottom shows the finished document to copy, or saves it as a file named after the side you chose.
 
 The form is generated from the JSON Schema this server serves (`GET /aperio/api/config/schema/{client|server}`), which is derived from the very Rust types that parse these files. That is the point of building it this way: the page offers exactly the settings the running binary understands, so it cannot drift ahead of an older server or lag behind a newer one, and each field carries the setting's own documentation.
 

@@ -43,8 +43,17 @@ contents:
   # Never overwritten on upgrade: a new default arrives as .rpmnew or
   # .dpkg-dist beside it. This file holds the master token, and the unit runs
   # as `aperio`, so group ownership is what lets that account read it.
-  - src: dist/aperio-server.yaml
-    dst: /etc/aperio/aperio-server.yaml
+  - src: dist/aperio-server.env
+    dst: /etc/aperio/aperio-server.env
+    type: config|noreplace
+    file_info:
+      owner: root
+      group: aperio
+      mode: 0640
+
+  # The first start's settings. Read once, into an empty database.
+  - src: dist/server-init.yaml
+    dst: /etc/aperio/server-init.yaml
     type: config|noreplace
     file_info:
       owner: root

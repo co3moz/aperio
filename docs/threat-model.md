@@ -45,7 +45,7 @@ Controls:
 - Per-IP token-bucket rate limiting, a global concurrency cap, and a request
   body-size limit.
 - Client-IP resolution that does **not** trust `X-Forwarded-For` unless a proxy
-  is configured (`APERIO_TRUSTED_PROXIES` (yaml `trusted_proxies`)), so a visitor cannot spoof its IP to
+  is configured (`proxy.trusted`), so a visitor cannot spoof its IP to
   dodge rate limits.
 - Visitor authentication (server password / share links / OIDC) in front of
   protected services; unauthenticated hostnames answer only what routing
@@ -71,7 +71,7 @@ Controls:
   The reverse is deliberate:
   an admin session does carry its holder past the visitor gate, fenced to the
   hostnames their own organization serves.
-- Optional network fence: `APERIO_ADMIN_ALLOWED_IPS` (yaml `admin_allowed_ips`) restricts the dashboard and
+- Optional network fence: `security.admin_allowed_ips` (yaml `admin_allowed_ips`) restricts the dashboard and
   its API to operator CIDRs, answering `403` otherwise, while leaving the login
   page and visitor-auth endpoints reachable so password-gated proxied services
   keep working.
@@ -119,15 +119,15 @@ It is not simply forbidden because internal receivers are the normal case, most
 deployments point webhooks at a service on the same network. Controls:
 
 - Autoscaling URLs are fenced on their own terms: https unless
-  `APERIO_SCALING_ALLOW_HTTP`, every resolved address checked against loopback,
+  `scaling.allow_http`, every resolved address checked against loopback,
   private, link-local (including the metadata address) and their IPv6 forms
-  unless `APERIO_SCALING_ALLOW_PRIVATE`, no redirects followed, response body
+  unless `scaling.allow_private`, no redirects followed, response body
   never read.
-- `APERIO_OUTBOUND_ALLOWLIST` names the host/CIDR patterns the server may call
+- `outbound.allowlist` names the host/CIDR patterns the server may call
   at all, for webhooks *and* scaling hooks. Once set it is the whole policy:
   anything unmatched is refused, at webhook creation and again at every
   delivery, so a policy introduced later also covers existing webhooks.
-- `APERIO_OUTBOUND_BLOCK_PRIVATE` is the weaker form for deployments that
+- `outbound.block_private` is the weaker form for deployments that
   cannot enumerate their receivers: refuse destinations that are, or resolve
   to, internal addresses.
 - **No redirects are followed on any of these calls.** The policy vets the URL
@@ -165,7 +165,7 @@ answer" but "here is the page". That is why its rules are stricter than the
 callback policy's rather than the same:
 
 - **The destination is the operator's to name.** `server_side_targets:`
-  (`APERIO_SERVER_SIDE_TARGETS`) lists the host/CIDR patterns a client may ask
+  (`security.server_side_targets`) lists the host/CIDR patterns a client may ask
   for. **Unset permits nothing**, which is the opposite of
   `outbound.allowlist`'s empty-means-permissive default, and deliberately: an
   operator who never configured this cannot be pointed anywhere by a client.
@@ -209,7 +209,7 @@ verify against the same certificate store as boundary 5's, which
 
 The audit log is an append-only, hash-chained record: each line commits to the
 previous one, so a deleted or altered event breaks the chain. Verify it with
-`aperio-server --verify-audit` or `GET /aperio/api/audit/verify`, and ship the
+`aperio-server audit verify` or `GET /aperio/api/audit/verify`, and ship the
 log off-box so an attacker who reaches the server cannot quietly rewrite history.
 
 See the [Production Hardening Checklist](production-hardening.md) to put these

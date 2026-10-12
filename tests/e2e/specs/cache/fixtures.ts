@@ -5,7 +5,7 @@ import { sleep } from '../../lib/env.js'
 
 /** The server every cache spec shares: one process, one port, named once. */
 export class CacheServer extends AperioServerBase({
-  env: { APERIO_CACHE: '1', APERIO_CACHE_MAX_STALE: '60' },
+  settings: { cache: { enabled: true, max_stale: '1m' } },
 }) {}
 
 /** Answers anything, and allows shared caching for a second. */

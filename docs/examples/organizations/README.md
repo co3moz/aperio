@@ -4,11 +4,11 @@
 
 One Aperio server, several isolated tenants. Each organization has its own tunnel clients, API tokens, dashboard users, traffic, statistics, and audit trail, and one tenant never sees another's. A tunnel client belongs to the organization of the **token** it authenticates with, so making a client "belong to Acme" is entirely a matter of which token it uses.
 
-Nothing tenant-specific lives in the config files: organizations are created at runtime by the built-in `aperio` super-admin. The server file here is a normal master setup; the client file simply uses a token that was minted under a child organization.
+Nothing tenant-specific lives in the config files: organizations are created at runtime by the built-in `aperio` super-admin. The server is a normal master setup, started with nothing but its token; the client file simply uses a token that was minted under a child organization.
 
 ## Set it up
 
-Set `APERIO_SERVER_TOKEN` to the master token in `aperio-server.yaml`. Sign in as the built-in admin to save a session cookie:
+Start the server with `APERIO_SERVER_TOKEN=apr_orgs_master_change_me aperio-server`, and set the same variable in your shell. Sign in as the built-in admin to save a session cookie:
 
 ```bash
 curl -fsS -X POST -u "aperio:$APERIO_SERVER_TOKEN" \

@@ -23,7 +23,7 @@ pub(crate) fn valid_visitor_creds(creds: &str) -> bool {
 /// members must agree" rule of [`route_is_public`], so a request can never be
 /// gated by (or leak past) an override that only some pool members set. Returns
 /// `None` (use the server's own gate) when the pool is empty, mixed, declares
-/// differing credentials, or the server set `APERIO_IGNORE_CLIENT_AUTH`.
+/// differing credentials, or the server set `access.ignore_client_auth`.
 pub(crate) async fn route_visitor_auth(
   state: &AppState,
   uri_path: &str,
@@ -221,7 +221,7 @@ pub(crate) async fn wait_for_candidate(
 
 /// True when in-flight failover may re-dispatch this method: idempotent
 /// methods (RFC 9110) are safe to send twice, while POST/PATCH may execute
-/// twice on the backend and require the APERIO_FAILOVER_ALL_METHODS opt-in.
+/// twice on the backend and require the failover.all_methods opt-in.
 pub(crate) fn method_retryable(method: &str, all_methods: bool) -> bool {
   all_methods
     || matches!(

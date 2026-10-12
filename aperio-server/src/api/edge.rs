@@ -4,7 +4,7 @@
 //! Aperio's hostnames are born at runtime, when a client connects and claims a
 //! bind, so an edge proxy configured from static files or container labels
 //! cannot know them. Two endpoints close that gap, both gated by
-//! `APERIO_EDGE_TOKEN` (unset = the endpoints do not exist):
+//! `edge.token` (unset = the endpoints do not exist):
 //!
 //! * `GET /aperio/api/edge/ask?domain=<host>` answers 200 when the hostname is
 //!   served and 404 when it is not. That is exactly Caddy's on-demand TLS
@@ -104,7 +104,7 @@ pub(crate) async fn served_hostnames(state: &AppState) -> Vec<String> {
 /// Caddy on-demand TLS `ask` endpoint (and a generic "is this hostname
 /// served?" probe): 200 when the hostname is served, 404 when it is not.
 #[utoipa::path(get, path = "/aperio/api/edge/ask", tag = "public",
-  description = "Answers 200 when the hostname is currently served, 404 otherwise. Matches Caddy's on-demand TLS `ask` contract. Requires APERIO_EDGE_TOKEN.",
+  description = "Answers 200 when the hostname is currently served, 404 otherwise. Matches Caddy's on-demand TLS `ask` contract. Requires edge.token.",
   params(
     ("domain" = String, Query, description = "Hostname to check"),
     ("token" = Option<String>, Query, description = "Edge token (alternative to the Authorization header)")
@@ -188,13 +188,13 @@ fn traefik_document(
 
 /// Traefik HTTP-provider document for the live hostname inventory.
 #[utoipa::path(get, path = "/aperio/api/edge/traefik", tag = "public",
-  description = "Traefik dynamic configuration: one router per served hostname, pointing at this server. For Traefik's HTTP provider. Requires APERIO_EDGE_TOKEN and APERIO_EDGE_SERVICE_URL.",
+  description = "Traefik dynamic configuration: one router per served hostname, pointing at this server. For Traefik's HTTP provider. Requires edge.token and edge.service_url.",
   params(("token" = Option<String>, Query, description = "Edge token (alternative to the Authorization header)")),
   responses(
     (status = 200, description = "Traefik dynamic configuration", body = serde_json::Value),
     (status = 401, description = "Missing/invalid edge token"),
     (status = 404, description = "The feature is disabled"),
-    (status = 503, description = "APERIO_EDGE_SERVICE_URL is not configured")))]
+    (status = 503, description = "edge.service_url is not configured")))]
 pub(crate) async fn edge_traefik_handler(
   State(state): State<Arc<AppState>>,
   Query(query): Query<HashMap<String, String>>,
@@ -207,7 +207,7 @@ pub(crate) async fn edge_traefik_handler(
   let Some(ref service_url) = config.edge_service_url else {
     return (
       StatusCode::SERVICE_UNAVAILABLE,
-      "APERIO_EDGE_SERVICE_URL must be set to the URL the edge proxy should forward to",
+      "edge.service_url must be set to the URL the edge proxy should forward to",
     )
       .into_response();
   };

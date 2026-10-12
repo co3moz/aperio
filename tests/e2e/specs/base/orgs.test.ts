@@ -8,8 +8,8 @@ import { BaseServerFor, BaseBackendFor, BaseClientFor } from './fixtures.js'
  *  shared with another file. See `fixtures.ts`. */
 class OrgsServer extends BaseServerFor() {
   // The server's own panel hostname, for `PanelSpec`.
-  _env() {
-    return { ...super._env(), APERIO_DASHBOARD_HOSTNAME: 'panel.e2e.local' }
+  _settings() {
+    return { ...super._settings(), dashboard: { hostname: 'panel.e2e.local' } }
   }
 }
 class OrgsBackend extends BaseBackendFor() {}

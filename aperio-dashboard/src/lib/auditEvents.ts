@@ -101,9 +101,8 @@ export const AUDIT_EVENT_GROUPS: AuditEventGroup[] = [
   {
     label: 'Configuration',
     events: [
-      'config_reloaded',
       'settings_updated',
-      'settings_override_dropped',
+      'settings_security_changed',
       'maintenance_on',
       'maintenance_off',
       'cache_purged',

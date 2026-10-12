@@ -29,17 +29,18 @@ export const EDGE_TOKEN = 'e2e-edge-token'
  */
 export function BaseServerFor() {
   return class extends AperioServerBase() {
-    // Overridden rather than passed as `{ env }`: the access log lives inside
-    // the data directory this instance is handed at startup.
-    _env() {
+    // Overridden rather than passed as `{ settings }`: the access log lives
+    // inside the data directory this instance is handed at startup.
+    _settings() {
       return {
-        APERIO_ACCESS_LOG: join(this._dataDir, 'access.jsonl'),
-        APERIO_METRICS: '1',
-        APERIO_METRICS_TOKEN: METRICS_TOKEN,
-        APERIO_EDGE_TOKEN: EDGE_TOKEN,
-        APERIO_EDGE_SERVICE_URL: 'http://aperio:8080',
-        APERIO_EDGE_ENTRYPOINTS: 'websecure',
-        APERIO_EDGE_CERT_RESOLVER: 'letsencrypt',
+        logging: { access_log: join(this._dataDir, 'access.jsonl') },
+        metrics: { enabled: true, token: METRICS_TOKEN },
+        edge: {
+          token: EDGE_TOKEN,
+          service_url: 'http://aperio:8080',
+          entrypoints: ['websecure'],
+          cert_resolver: 'letsencrypt',
+        },
       }
     }
 

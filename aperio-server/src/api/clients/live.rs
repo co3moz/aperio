@@ -14,7 +14,7 @@ use crate::state::AppState;
 ///
 /// The window is the server's recent-request ring, so this answers "what has
 /// been happening" rather than "what happened last Tuesday"; the durable
-/// record is the access log file (`APERIO_ACCESS_LOG`). The filters exist so
+/// record is the access log file (`logging.access_log`). The filters exist so
 /// automation does not have to fetch the whole ring and re-implement the
 /// matching the dashboard already does client-side.
 #[utoipa::path(get, path = "/aperio/api/logs", tag = "dashboard",

@@ -135,15 +135,15 @@ impl RequestTimeline {
 }
 
 /// Default backlog at which the producer of a pumped stream is asked to
-/// pause (`StreamPause`, `APERIO_STREAM_PAUSE_BYTES`): enough to ride out
+/// pause (`StreamPause`, `stream.pause_at`): enough to ride out
 /// short consumer hiccups without ever involving the client, small enough
 /// that a slow visitor costs little memory.
 pub(crate) const STREAM_PAUSE_BYTES: usize = 2 * 1024 * 1024;
 /// Default backlog below which a paused producer is asked to resume
-/// (`APERIO_STREAM_RESUME_BYTES`). Well under the pause mark so the pair
+/// (`stream.resume_at`). Well under the pause mark so the pair
 /// does not flap on every forwarded chunk.
 pub(crate) const STREAM_RESUME_BYTES: usize = 512 * 1024;
-/// Default hard per-stream backlog cap (`APERIO_STREAM_BACKLOG_LIMIT`): the
+/// Default hard per-stream backlog cap (`stream.backlog_limit`): the
 /// stream is dropped beyond it. Only reachable when the producer cannot be
 /// paused (a pre-v3 client) or ignores the pause; a pausing client stops
 /// with at most its frames already on the wire outstanding, far below the

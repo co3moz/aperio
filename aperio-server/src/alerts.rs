@@ -4,12 +4,12 @@
 //! Deliberately small: two rules that cover the incidents a tunnel operator
 //! actually wakes up for, evaluated by one background ticker.
 //!
-//! - **Error rate** (`APERIO_ALERT_ERROR_RATE`, percent, 0 = off): the share
-//!   of failed (5xx) proxied requests over a sliding window
-//!   (`APERIO_ALERT_WINDOW`, default 300 s) crosses the threshold. Windows
-//!   with fewer than `APERIO_ALERT_MIN_REQUESTS` (default 20) requests never
+//! - **Error rate** (`alerts.error_rate`, a fraction such as `0.05`, unset
+//!   = off): the share of failed (5xx) proxied requests over a sliding
+//!   window (`alerts.window`, default `5m`) crosses the threshold. Windows
+//!   with fewer than `alerts.min_requests` (default 20) requests never
 //!   alert, a single failure in a quiet minute is not an incident.
-//! - **Client down** (`APERIO_ALERT_CLIENT_DOWN`, seconds, 0 = off): a
+//! - **Client down** (`alerts.client_down`, a duration, unset = off): a
 //!   service entity that was seen connected stays down (or disappears) for
 //!   longer than the threshold.
 //!
@@ -32,7 +32,7 @@ use crate::store::uptime::Availability;
 ///
 /// The default is "both built-in rules off", which is what the ticker runs
 /// with when it was started only for operator-defined `alert_rules:`.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
 pub(crate) struct AlertConfig {
   /// Failed-request percentage that triggers the error-rate alert (0 = off).
   pub(crate) error_rate_pct: f64,
@@ -45,30 +45,20 @@ pub(crate) struct AlertConfig {
 }
 
 impl AlertConfig {
-  /// Reads the thresholds from the environment. `None` = alerting off.
-  pub(crate) fn from_env() -> Option<Self> {
-    let parse = |key: &str| {
-      std::env::var(key)
-        .ok()
-        .and_then(|v| v.trim().parse::<f64>().ok())
-        .filter(|v| *v > 0.0)
-    };
-    let error_rate_pct = parse("APERIO_ALERT_ERROR_RATE");
-    let client_down_secs = parse("APERIO_ALERT_CLIENT_DOWN");
-    if error_rate_pct.is_none() && client_down_secs.is_none() {
+  /// Reads the thresholds from the `alerts` settings. `None` = alerting
+  /// off. The setting is a fraction; the rule compares percentages.
+  pub(crate) fn from_settings() -> Option<Self> {
+    let alerts = crate::live::current().alerts.clone();
+    let error_rate_pct = alerts.error_rate.filter(|v| *v > 0.0).map(|v| v * 100.0);
+    let client_down = alerts.client_down.filter(|d| !d.is_zero());
+    if error_rate_pct.is_none() && client_down.is_none() {
       return None;
     }
     Some(AlertConfig {
       error_rate_pct: error_rate_pct.unwrap_or(0.0),
-      window: Duration::from_secs(
-        parse("APERIO_ALERT_WINDOW")
-          .map(|v| v as u64)
-          .unwrap_or(300),
-      ),
-      min_requests: parse("APERIO_ALERT_MIN_REQUESTS")
-        .map(|v| v as u64)
-        .unwrap_or(20),
-      client_down: Duration::from_secs(client_down_secs.map(|v| v as u64).unwrap_or(0)),
+      window: alerts.window.0.max(Duration::from_secs(1)),
+      min_requests: u64::from(alerts.min_requests),
+      client_down: client_down.map(|d| d.0).unwrap_or_default(),
     })
   }
 }
@@ -80,26 +70,14 @@ struct Sample {
   failed: u64,
 }
 
-/// Spawns the alert evaluation ticker (15 s cadence).
-pub(crate) fn spawn(state: Arc<AppState>, cfg: AlertConfig) {
-  info!(
-    "Alerting enabled (error_rate: {}, client_down: {})",
-    if cfg.error_rate_pct > 0.0 {
-      format!(
-        "≥{}% over {}s, min {} requests",
-        cfg.error_rate_pct,
-        cfg.window.as_secs(),
-        cfg.min_requests
-      )
-    } else {
-      "off".to_string()
-    },
-    if cfg.client_down > Duration::ZERO {
-      format!("≥{}s", cfg.client_down.as_secs())
-    } else {
-      "off".to_string()
-    },
-  );
+/// Spawns the alert evaluation ticker (15 s cadence). The built-in
+/// thresholds and the operator's rules are read from the settings every
+/// tick, so a change applies from the next one and a server started with no
+/// alerts can be given some without a restart.
+pub(crate) fn spawn(state: Arc<AppState>) {
+  if let Some(cfg) = AlertConfig::from_settings() {
+    log_thresholds(&cfg);
+  }
   crate::supervise::spawn_supervised("alerts", move || {
     let state = state.clone();
     async move {
@@ -114,9 +92,15 @@ pub(crate) fn spawn(state: Arc<AppState>, cfg: AlertConfig) {
       // hot-reload adds or removes a rule without a restart; a rule that
       // disappears simply stops being observed, and its tracker entry is inert.
       let mut rule_tracker = crate::alert_rules::RuleTracker::default();
+      let mut in_force = AlertConfig::from_settings().unwrap_or_default();
       loop {
         tokio::time::sleep(Duration::from_secs(15)).await;
         let now = Instant::now();
+        let cfg = AlertConfig::from_settings().unwrap_or_default();
+        if cfg != in_force {
+          log_thresholds(&cfg);
+          in_force = cfg;
+        }
 
         let rules = state.config().alert_rules.clone();
         if !rules.is_empty() {
@@ -292,7 +276,28 @@ pub(crate) fn spawn(state: Arc<AppState>, cfg: AlertConfig) {
   });
 }
 
-/// Audits and emits one alert event.
+/// Says which built-in thresholds are armed.
+fn log_thresholds(cfg: &AlertConfig) {
+  info!(
+    "Alerting thresholds (error_rate: {}, client_down: {})",
+    if cfg.error_rate_pct > 0.0 {
+      format!(
+        "≥{}% over {}s, min {} requests",
+        cfg.error_rate_pct,
+        cfg.window.as_secs(),
+        cfg.min_requests
+      )
+    } else {
+      "off".to_string()
+    },
+    if cfg.client_down > Duration::ZERO {
+      format!("≥{}s", cfg.client_down.as_secs())
+    } else {
+      "off".to_string()
+    },
+  );
+}
+
 /// Reads one watched quantity. `None` where the platform cannot answer, which
 /// keeps a rule quiet rather than firing it on a fabricated zero.
 async fn read_metric(state: &Arc<AppState>, metric: crate::alert_rules::Metric) -> Option<f64> {
@@ -303,11 +308,7 @@ async fn read_metric(state: &Arc<AppState>, metric: crate::alert_rules::Metric) 
     Metric::StoreBytes => {
       // The same measurement the self-health panel reports, so a rule and the
       // dashboard cannot disagree about how big the store is.
-      let data_dir = state
-        .settings_path
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
+      let data_dir = std::path::PathBuf::from(&state.data_dir);
       crate::api::observe::store_bytes(&data_dir) as f64
     }
     Metric::RssBytes => crate::api::observe::process_rss_bytes()? as f64,

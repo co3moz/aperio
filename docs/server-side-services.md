@@ -33,10 +33,11 @@ goes at the end.
 the server says so:
 
 ```yaml
-# aperio-server.yaml
-server_side_targets:
-  - 10.0.0.0/8
-  - "*.internal.example.com"
+# settings
+security:
+  server_side_targets:
+    - 10.0.0.0/8
+    - "*.internal.example.com"
 ```
 
 Unset permits nothing. That is the opposite of `outbound.allowlist`'s

@@ -215,7 +215,7 @@ pub(crate) struct ServiceSpec {
   /// a reload applies it with the rest of the config).
   pub(crate) allow_server_forward: bool,
   /// Per-service visitor login (`user:password`) the server should gate this
-  /// service behind, overriding its own APERIO_SERVER_AUTH (None = no override).
+  /// service behind, overriding its own `access.gate` (None = no override).
   pub(crate) visitor_auth: Option<String>,
   /// The full `auth:` policy for this service, when it says more than the
   /// scalar above can carry. Announced only to a server that said it
@@ -232,7 +232,7 @@ pub(crate) struct ServiceSpec {
   /// (config `headers:`; None = pass through untouched).
   pub(crate) headers: Option<crate::config::HeaderRules>,
   /// Opt this service into the server-side response cache (announced via
-  /// Ping; effective only when the server enables APERIO_CACHE).
+  /// Ping; effective only when the server has `cache.enabled`).
   pub(crate) cache: bool,
   /// Ask the server to keep serving this service's cached responses while
   /// no healthy client is connected (announced via Ping; needs `cache`).

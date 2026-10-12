@@ -23,7 +23,7 @@ inputs:
     description: 'Full target URL to forward requests to. Overrides port.'
     required: false
   hostname:
-    description: 'Hostname to bind, e.g. pr-123.example.com. Omit to get a random subdomain (requires APERIO_RANDOM_SUBDOMAIN on the server).'
+    description: 'Hostname to bind, e.g. pr-123.example.com. Omit to get a random subdomain (requires routing.random_subdomain on the server).'
     required: false
   name:
     description: 'Label for the ephemeral token, shown in the dashboard. Defaults to <repo>-run-<run id>.'

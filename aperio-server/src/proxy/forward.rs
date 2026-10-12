@@ -565,7 +565,7 @@ pub(crate) async fn proxy_http_request(
     return refuse(&state, Limit::OrgQuota);
   }
 
-  // Server-side response cache (APERIO_CACHE + the client's `cache: true`):
+  // Server-side response cache (cache.enabled + the client's `cache: true`):
   // a fresh cached GET answer skips the tunnel round-trip entirely. Only
   // credential-less plain GETs qualify, and only responses whose
   // Cache-Control explicitly allowed shared caching were stored.
@@ -719,7 +719,7 @@ pub(crate) async fn proxy_http_request(
     .and_then(|v| v.to_str().ok())
     .is_some_and(|v| v.to_ascii_lowercase().contains("chunked"));
   // Effective request body cap: the service's own declared limit (Ping
-  // `max_request_body`) can only tighten the global APERIO_MAX_BODY_SIZE.
+  // `max_request_body`) can only tighten the global limits.request_body.
   let body_limit = effective_body_limit(state.config().max_body_size, selected.max_request_body);
   // Declared over-limit bodies keep failing fast with 413 even when they
   // would otherwise be streamed.

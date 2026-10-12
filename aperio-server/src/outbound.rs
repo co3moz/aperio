@@ -8,11 +8,11 @@
 //! deployment, where the receiver lives on the same network, so the policy
 //! is opt-in and defaults to today's permissive behaviour:
 //!
-//! - `outbound.allowlist` (`APERIO_OUTBOUND_ALLOWLIST`): host/CIDR patterns
+//! - `outbound.allowlist` (`outbound.allowlist`): host/CIDR patterns
 //!   the server may call. When set, it is the policy: a destination either
 //!   matches an entry or is refused, and a matching entry is trusted even if
 //!   it is private (the operator named it).
-//! - `outbound.block_private` (`APERIO_OUTBOUND_BLOCK_PRIVATE`): with no
+//! - `outbound.block_private` (`outbound.block_private`): with no
 //!   allowlist, refuse destinations that resolve to internal addresses
 //!   (loopback, RFC 1918, link-local, CGNAT/metadata, unique-local).
 //!
@@ -22,9 +22,9 @@
 //! It also owns *how* those calls leave (#118), because the two questions
 //! turn out to be one:
 //!
-//! - `outbound.proxy` (`APERIO_OUTBOUND_PROXY`): the proxy to send them
+//! - `outbound.proxy` (`outbound.proxy`): the proxy to send them
 //!   through, on a network with no direct route out.
-//! - `outbound.no_proxy` (`APERIO_OUTBOUND_NO_PROXY`): the destinations that
+//! - `outbound.no_proxy` (`outbound.no_proxy`): the destinations that
 //!   skip it, for the auth endpoint or issuer inside your own network.
 //!
 //! **A proxy changes what the policy can decide, so the policy has to know
@@ -78,7 +78,7 @@ pub(crate) fn server_side_allows(targets: &[OutboundPattern], url_str: &str) -> 
   if targets.is_empty() {
     return Err(
       "no server_side_targets are configured, so this server reaches nothing on a client's \
-       behalf (set server_side_targets: / APERIO_SERVER_SIDE_TARGETS)"
+       behalf (set security.server_side_targets)"
         .to_string(),
     );
   }
@@ -234,14 +234,14 @@ const PROXY_ENV_VARS: [&str; 6] = [
 /// The HTTP client used to read them by default, so a deployment could be
 /// sending its callbacks through a proxy with nothing in its configuration
 /// saying so, and the policy below could not tell. Now the server is told
-/// instead, through `APERIO_OUTBOUND_PROXY`, and this exists only to notice the
+/// instead, through `outbound.proxy`, and this exists only to notice the
 /// machine that still has the old variables set and say that they no longer
 /// do anything, rather than let a working route disappear in silence.
 ///
 /// `NO_PROXY` is not among them, and not treated as an escape anywhere. It is
 /// measured behaviour, not caution: a request to a loopback address with
 /// `NO_PROXY=*` set still went to the proxy, so a rule that matters cannot be
-/// delegated to a library's reading of that variable. `APERIO_OUTBOUND_NO_PROXY`
+/// delegated to a library's reading of that variable. `outbound.no_proxy`
 /// is ours and is applied by us.
 pub(crate) fn proxy_env_vars() -> Vec<&'static str> {
   proxy_vars_from(|name| std::env::var(name).ok())
@@ -427,7 +427,7 @@ impl OutboundPolicy {
         return Ok(());
       }
       return Err(format!(
-        "destination {host} is not on the outbound allowlist (APERIO_OUTBOUND_ALLOWLIST)"
+        "destination {host} is not on the outbound allowlist (outbound.allowlist)"
       ));
     }
 
@@ -435,7 +435,7 @@ impl OutboundPolicy {
     if let Some(ip) = literal_ip {
       if is_internal(ip) {
         return Err(format!(
-          "destination {host} is an internal address (refused by APERIO_OUTBOUND_BLOCK_PRIVATE)"
+          "destination {host} is an internal address (refused by outbound.block_private)"
         ));
       }
       return Ok(());
@@ -459,7 +459,7 @@ impl OutboundPolicy {
       any = true;
       if is_internal(addr.ip()) {
         return Err(format!(
-          "{host} resolves to the internal address {} (refused by APERIO_OUTBOUND_BLOCK_PRIVATE)",
+          "{host} resolves to the internal address {} (refused by outbound.block_private)",
           addr.ip()
         ));
       }
@@ -497,7 +497,7 @@ pub(crate) async fn client_declared_destination_allowed(
     "http" if allow_insecure => {}
     scheme => {
       return Err(format!(
-        "scheme {scheme} is not allowed (https only unless {relax_hint}_ALLOW_HTTP=1)"
+        "scheme {scheme} is not allowed (https only unless {relax_hint}.allow_http is on)"
       ));
     }
   }

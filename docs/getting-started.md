@@ -18,7 +18,9 @@ docker run -d --name aperio-server \
   ghcr.io/co3moz/aperio-server:latest
 ```
 
-The master token authenticates clients and also serves as the dashboard password for the built-in `aperio` admin. The `data` directory in your current working directory keeps tokens, statistics, audit events, and webhooks across restarts.
+The master token authenticates clients and also serves as the dashboard password for the built-in `aperio` admin. The `data` directory in your current working directory keeps the server's settings, tokens, statistics, audit events, and webhooks across restarts.
+
+That is the whole server configuration for a first run. Everything else (proxy trust, caching, limits, sign-in) is a setting you change from the dashboard at `http://your-server-ip:8080/aperio`, under **Settings**, and it applies without a restart. To start a server with settings already in place, as automation does, see [The first start](configuration.md#the-first-start-aperio_init_file).
 
 ## 2. Connect a client
 

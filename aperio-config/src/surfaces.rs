@@ -29,7 +29,7 @@ pub struct Exempt {
 /// fit in a cell, so it is written up where it can be shown as yaml.
 pub const NOT_IN_CONFIGURATION_MD: &[Exempt] = &[
   Exempt {
-    key: "alert_rules",
+    key: "alerts.rules",
     why: "a list of mappings, each with a metric, a bound and a window; written up with examples in docs/observability.md",
   },
   Exempt {

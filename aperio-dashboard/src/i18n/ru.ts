@@ -293,7 +293,6 @@ export const ru: Record<string, string> = {
     'Token bucket на IP посетителя для проксируемых запросов.',
   Prefix: 'Префикс',
   'Prometheus metrics endpoint at /aperio/metrics': 'Endpoint метрик Prometheus на /aperio/metrics',
-  Purpose: 'Назначение',
   'Queue Status': 'Состояние очереди',
   'Random subdomain pattern': 'Шаблон случайного subdomain',
   'Rate Limiting': 'Ограничение частоты',
@@ -372,8 +371,8 @@ export const ru: Record<string, string> = {
     'Входите без пароля с помощью YubiKey, Touch ID / Face ID или менеджера паролей.',
   'The built-in "aperio" admin signs in with the master token or dashboard password and cannot register passkeys. Create a named user instead.':
     'Встроенный администратор «aperio» входит по мастер-token или паролю панели и не может регистрировать passkey. Создайте именованного пользователя.',
-  'Passkey sign-in is not configured on this server. Set APERIO_WEBAUTHN_ORIGIN to the dashboard’s public URL to enable it.':
-    'Вход по passkey не настроен на этом сервере. Укажите APERIO_WEBAUTHN_ORIGIN, публичный URL панели.',
+  'Passkey sign-in is not configured on this server. Set dashboard.webauthn.origin to the dashboard’s public URL to enable it.':
+    'Вход по passkey не настроен на этом сервере. Укажите dashboard.webauthn.origin, публичный URL панели.',
   'This browser does not support WebAuthn.':
     'Этот браузер не поддерживает WebAuthn.',
   'No passkeys registered yet.':
@@ -757,7 +756,7 @@ export const ru: Record<string, string> = {
   'Memory (RSS)': 'Память (RSS)',
   'New admin key': 'Новый админ-ключ',
   'No admin keys yet': 'Админ-ключей пока нет',
-  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have APERIO_SCALING enabled.': 'Записей автомасштабирования нет. Клиент создаёт запись, объявив блок scaling:, и на сервере должен быть включён APERIO_SCALING.',
+  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have scaling.enabled on.': 'Записей автомасштабирования нет. Клиент создаёт запись, объявив блок scaling:, и на сервере должен быть включён scaling.enabled.',
   'No cache data yet': 'Данных кэша пока нет',
   'No hostname restriction': 'Без ограничения по hostname',
   'No self-health data yet': 'Данных самодиагностики пока нет',
@@ -947,7 +946,7 @@ export const ru: Record<string, string> = {
   'Parallel connections per service (0 = server default, empty = keep)': 'Параллельные соединения на сервис (0 = значение сервера, пусто = не менять)',
   'Parallel connections per service (empty = server default)': 'Параллельные соединения на сервис (пусто = значение сервера)',
   'Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.': 'Детали недоступны: сохраняются только недавние запросы, а сервис с capture: false (или сервер с выключенным инспектором) не сохраняется вовсе.',
-  'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.': 'Этот сервис разрешает запись, но на сервере инспектор запросов выключен (APERIO_INSPECTOR=0), поэтому здесь нечего просматривать и нечего повторить.',
+  'This service allows capture but the server has the request inspector switched off (inspector.enabled: false), so nothing here can be inspected or replayed.': 'Этот сервис разрешает запись, но на сервере инспектор запросов выключен (inspector.enabled: false), поэтому здесь нечего просматривать и нечего повторить.',
   'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': 'Этот сервис не записывается для инспектора запросов (capture: false в его aperio.yaml), его запросы нельзя просмотреть или повторить. На живой трафик и статистику это не влияет.',
   'inspector off': 'инспектор выключен',
   'no capture': 'без записи',
@@ -1096,8 +1095,8 @@ export const ru: Record<string, string> = {
     'этот hostname обслуживается без двери для посетителей',
   "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization":
     'Посетители должны войти (или принести ссылку общего доступа), прежде чем это дойдёт до клиента: этот маршрут требует входа Aperio, сессии панели, достигающей организации этого имени хоста',
-  'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
-    'ничто не объявляет этот маршрут доступным, а `default_access` установлен в `deny`, поэтому он не публикуется: посетитель без сессии Aperio получает тот же ответ, что и для незанятого имени хоста, а вошедший пользователь Aperio по-прежнему до него доходит',
+  'nothing declares this route reachable and `access.default` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
+    'ничто не объявляет этот маршрут доступным, а `access.default` установлен в `deny`, поэтому он не публикуется: посетитель без сессии Aperio получает тот же ответ, что и для незанятого имени хоста, а вошедший пользователь Aperio по-прежнему до него доходит',
   '{count} client(s) would take it: {clients}':
     'запрос взяли бы {count} клиент(ов): {clients}',
   'no connected client serves this hostname and path':
@@ -1142,12 +1141,12 @@ export const ru: Record<string, string> = {
     'режим обслуживания',
   'auth: on the service':
     'auth: у сервиса',
-  'server_auth / OIDC':
-    'server_auth / OIDC',
-  'default_access':
-    'default_access',
-  'server_auth':
-    'server_auth',
+  'access.gate / OIDC':
+    'access.gate / OIDC',
+  'access.default':
+    'access.default',
+  'access.gate':
+    'access.gate',
   'OIDC':
     'OIDC',
   'hostname/path binds':
@@ -1298,7 +1297,6 @@ export const ru: Record<string, string> = {
   "All": "Все",
   "Public endpoint": "Публичная точка доступа",
   "Tunnel": "Туннель",
-  "Server configuration file (read-only)": "Файл конфигурации сервера (только чтение)",
   "Managed through API": "Управляется через API",
   "{count} sessions": "Сеансов: {count}",
   "Dropped": "Отброшено",
@@ -1332,4 +1330,30 @@ export const ru: Record<string, string> = {
   "Could not load expose history.": "Не удалось загрузить историю экспозиции.",
   "Add group mapping": "Добавить сопоставление группы",
   "Leave the secret empty to keep it when the issuer and client id are unchanged.": "Оставьте секрет пустым, чтобы сохранить его, если издатель и идентификатор клиента не изменились.",
+  "Assemble an aperio.yaml, or a server-init.yaml for a server’s first start, from the settings this server understands, or open an existing one and edit it.": "Соберите aperio.yaml или server-init.yaml для первого запуска сервера из настроек, которые понимает этот сервер, или откройте существующий файл и отредактируйте его.",
+  "Changing this takes Admin in every organization and a sign-in from the last ten minutes.": "Изменение требует роли Admin во всех организациях и входа не старше десяти минут.",
+  "Client down threshold": "Порог недоступности клиента",
+  "Every setting lives in the server’s database and applies when saved. Security-relevant ones take a sign-in from the last ten minutes; a few are read at startup and wait for a restart.": "Каждая настройка хранится в базе данных сервера и применяется при сохранении. Связанные с безопасностью требуют входа не старше десяти минут; некоторые читаются при запуске и ждут перезапуска.",
+  "Failover window": "Окно failover",
+  "Gateway timeout": "Таймаут шлюза",
+  "How the server shuts down, and its scheduled backups.": "Как сервер завершает работу, и его плановые резервные копии.",
+  "Login lockout base": "Базовая длительность блокировки входа",
+  "Not a duration, use e.g. 30s, 5m, 2h, 1d": "Это не длительность, используйте, например, 30s, 5m, 2h, 1d",
+  "Not a size, use e.g. 512KB, 10MB, 1GB": "Это не размер, используйте, например, 512KB, 10MB, 1GB",
+  "Not valid YAML: {error}": "Некорректный YAML: {error}",
+  "One per line": "По одному на строку",
+  "Read when the server starts: a change is stored and takes effect at the next start.": "Читается при запуске сервера: изменение сохраняется и вступает в силу при следующем запуске.",
+  "Response timeout": "Таймаут ответа",
+  "Saved, and waiting for a restart: {paths}": "Сохранено, ожидается перезапуск: {paths}",
+  "Seeds a new server’s settings on its first start, through APERIO_INIT_FILE.": "Задаёт настройки нового сервера при первом запуске через APERIO_INIT_FILE.",
+  "Serve-stale window": "Окно устаревших ответов",
+  "The client file configures a tunnel client and what it exposes; the first-start document seeds a new server’s settings.": "Клиентский файл настраивает туннельный клиент и то, что он публикует; документ первого запуска задаёт настройки нового сервера.",
+  "Undo": "Отменить",
+  "automatic": "автоматически",
+  "off": "выкл.",
+  "restart": "перезапуск",
+  "restart pending": "ожидает перезапуска",
+  "security": "безопасность",
+  "stored, type to replace": "сохранено, введите для замены",
+  "Every setting that differs from its default": "Каждая настройка, отличающаяся от значения по умолчанию",
 }

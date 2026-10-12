@@ -38,7 +38,7 @@ jobs:
 ```
 
 Omit `hostname` to get a random subdomain, requires
-`APERIO_RANDOM_SUBDOMAIN="*.example.com"` on the server.
+`routing.random_subdomain="*.example.com"` on the server.
 
 ## Inputs
 

@@ -1,7 +1,0 @@
-server:
-  token: apr_cache_multi_change_me
-port: 8080
-
-cache:
-  enabled: true
-  max_bytes: 67108864

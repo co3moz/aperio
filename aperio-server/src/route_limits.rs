@@ -95,25 +95,16 @@ impl RouteLimits {
   }
 }
 
-/// Reads and compiles the `rate_limits:` section of `aperio-server.yaml`.
-/// Called at startup and again on hot-reload; a bad section disables the
-/// feature instead of breaking proxying.
-pub(crate) fn from_config_file() -> RouteLimits {
-  let Some(section) = crate::config_file::structured("rate_limits") else {
-    return RouteLimits::default();
+/// Compiles the `rate_limits:` section of the settings.
+pub(crate) fn from_section(section: Option<serde_yaml::Value>) -> Result<RouteLimits, String> {
+  let Some(section) = section else {
+    return Ok(RouteLimits::default());
   };
-  let raw: Vec<RateLimitRuleRaw> = match serde_yaml::from_value(section) {
-    Ok(rules) => rules,
-    Err(err) => {
-      tracing::error!(
-        "invalid `rate_limits:` section in aperio-server.yaml: {err}, per-route rate limiting disabled"
-      );
-      return RouteLimits::default();
-    }
-  };
-  RouteLimits {
+  let raw: Vec<RateLimitRuleRaw> =
+    serde_yaml::from_value(section).map_err(|e| format!("rate_limits: {e}"))?;
+  Ok(RouteLimits {
     rules: compile(raw),
-  }
+  })
 }
 
 /// Compiles raw rules into normalized, validated rules (shared by the loader

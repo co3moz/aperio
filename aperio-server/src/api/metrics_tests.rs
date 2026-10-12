@@ -4,7 +4,7 @@
 
 use super::*;
 
-use crate::settings::{FailoverMode, LbStrategy, ServerConfig, SettingsOverrides};
+use crate::settings::{FailoverMode, LbStrategy, ServerConfig};
 use crate::state::{
   ClientHandle, ClientPerms, ConnectionState, DurationHistogram, EndpointStats, RequestTimeline,
   RouteTrends, ServerStats, StageStats,
@@ -31,7 +31,6 @@ fn test_config(metrics_token: Option<String>) -> ServerConfig {
     access_events: true,
     ip_limit_max: 100.0,
     ip_limit_refill: 1.0,
-    visitor_auth_block: None,
     visitor_auth: crate::visitor_auth::Policy::default(),
     trust_proxy: false,
     ignore_client_auth: false,
@@ -152,10 +151,11 @@ fn build_state(config: ServerConfig) -> Arc<AppState> {
     events_tx: tokio::sync::broadcast::channel(16).0,
     changes_tx: tokio::sync::broadcast::channel(64).0,
     config_store: std::sync::RwLock::new(Arc::new(config.clone())),
-    config_env_defaults: Arc::new(config),
-    settings_overrides: Mutex::new(SettingsOverrides::default()),
-    settings_path: crate::test_support::test_temp_root()
-      .join(format!("metrics-settings-{}.json", uuid::Uuid::new_v4())),
+    settings_store: Mutex::new(crate::store::settings::SettingsStore::load(&tmp_dir(
+      "settings",
+    ))),
+    started_with: Arc::new(aperio_config::server_settings::ServerSettings::default()),
+    data_dir: tmp_dir("data"),
     dashboard_enabled: true,
     panel_hostnames: std::sync::RwLock::new(Vec::new()),
     shutdown: watch::channel(false).0,

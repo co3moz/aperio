@@ -1,0 +1,15 @@
+# First-start settings for this example, read once into an empty data
+# directory. Start the server with:
+#
+#   APERIO_SERVER_TOKEN=apr_headers_multi_change_me APERIO_INIT_FILE=server-init.yaml aperio-server
+#
+# After the first start the settings live in the database: change them from
+# the dashboard (Settings), with `PUT /aperio/api/settings`, or export them
+# with `GET /aperio/api/export?include=settings`.
+
+settings:
+  # Server-wide rules run in addition to the client's per-service rules.
+  headers:
+    response:
+      add:
+        Strict-Transport-Security: max-age=63072000

@@ -284,7 +284,6 @@ export const zh: Record<string, string> = {
   'Per-visitor-IP token bucket for proxied requests.': '按访客 IP 的 Token 桶（用于 Proxy 请求）。',
   Prefix: '前缀',
   'Prometheus metrics endpoint at /aperio/metrics': '位于 /aperio/metrics 的 Prometheus 指标 Endpoint',
-  Purpose: '用途',
   'Queue Status': '队列状态',
   'Random subdomain pattern': '随机 Subdomain 模式',
   'Rate Limiting': '速率限制',
@@ -359,8 +358,8 @@ export const zh: Record<string, string> = {
     '使用 YubiKey、Touch ID / Face ID 或密码管理器实现免密码登录。',
   'The built-in "aperio" admin signs in with the master token or dashboard password and cannot register passkeys. Create a named user instead.':
     '内置的 "aperio" 管理员使用主 Token 或仪表板密码登录，无法注册通行密钥。请改为创建命名用户。',
-  'Passkey sign-in is not configured on this server. Set APERIO_WEBAUTHN_ORIGIN to the dashboard’s public URL to enable it.':
-    '此服务器未配置通行密钥登录。将 APERIO_WEBAUTHN_ORIGIN 设置为仪表板的公开 URL 即可启用。',
+  'Passkey sign-in is not configured on this server. Set dashboard.webauthn.origin to the dashboard’s public URL to enable it.':
+    '此服务器未配置通行密钥登录。将 dashboard.webauthn.origin 设置为仪表板的公开 URL 即可启用。',
   'This browser does not support WebAuthn.':
     '此浏览器不支持 WebAuthn。',
   'No passkeys registered yet.':
@@ -738,7 +737,7 @@ export const zh: Record<string, string> = {
   'Memory (RSS)': '内存 (RSS)',
   'New admin key': '新建管理密钥',
   'No admin keys yet': '暂无管理密钥',
-  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have APERIO_SCALING enabled.': '暂无自动扩缩记录。客户端通过声明 scaling: 块来创建记录，且服务器必须启用 APERIO_SCALING。',
+  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have scaling.enabled on.': '暂无自动扩缩记录。客户端通过声明 scaling: 块来创建记录，且服务器必须启用 scaling.enabled。',
   'No cache data yet': '暂无缓存数据',
   'No hostname restriction': '无 Hostname 限制',
   'No self-health data yet': '暂无自检数据',
@@ -928,7 +927,7 @@ export const zh: Record<string, string> = {
   'Parallel connections per service (0 = server default, empty = keep)': '每个服务的并行连接数（0 = 服务器默认值，留空 = 保持不变）',
   'Parallel connections per service (empty = server default)': '每个服务的并行连接数（留空 = 服务器默认值）',
   'Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.': '详情不可用：只有最近的请求会被记录，而设置了 capture: false 的服务（或关闭了检查器的服务器）根本不会被记录。',
-  'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.': '该服务允许记录，但服务器关闭了请求检查器（APERIO_INSPECTOR=0），因此这里无法检查或重放任何内容。',
+  'This service allows capture but the server has the request inspector switched off (inspector.enabled: false), so nothing here can be inspected or replayed.': '该服务允许记录，但服务器关闭了请求检查器（inspector.enabled: false），因此这里无法检查或重放任何内容。',
   'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': '该服务未被请求检查器记录（其 aperio.yaml 中 capture: false），其请求无法检查或重放。实时流量和统计不受影响。',
   'inspector off': '检查器已关闭',
   'no capture': '未记录',
@@ -1077,8 +1076,8 @@ export const zh: Record<string, string> = {
     '这个 hostname 在没有访客门禁的情况下提供服务',
   "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization":
     '访客必须先登录（或携带共享链接）才能到达客户端：此路由要求 Aperio 登录，即可访问该主机名所属组织的仪表板会话',
-  'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
-    '没有任何配置声明该路由可达，且 `default_access` 为 `deny`，因此不予发布：没有 Aperio 会话的访问者得到的响应与未被认领的主机名相同，而已登录的 Aperio 用户仍可访问',
+  'nothing declares this route reachable and `access.default` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
+    '没有任何配置声明该路由可达，且 `access.default` 为 `deny`，因此不予发布：没有 Aperio 会话的访问者得到的响应与未被认领的主机名相同，而已登录的 Aperio 用户仍可访问',
   '{count} client(s) would take it: {clients}':
     '{count} 个客户端会接收它：{clients}',
   'no connected client serves this hostname and path':
@@ -1123,12 +1122,12 @@ export const zh: Record<string, string> = {
     '维护模式',
   'auth: on the service':
     '服务上的 auth:',
-  'server_auth / OIDC':
-    'server_auth / OIDC',
-  'default_access':
-    'default_access',
-  'server_auth':
-    'server_auth',
+  'access.gate / OIDC':
+    'access.gate / OIDC',
+  'access.default':
+    'access.default',
+  'access.gate':
+    'access.gate',
   'OIDC':
     'OIDC',
   'hostname/path binds':
@@ -1279,7 +1278,6 @@ export const zh: Record<string, string> = {
   "All": "全部",
   "Public endpoint": "公开端点",
   "Tunnel": "隧道",
-  "Server configuration file (read-only)": "服务器配置文件（只读）",
   "Managed through API": "通过 API 管理",
   "{count} sessions": "{count} 个会话",
   "Dropped": "已丢弃",
@@ -1313,4 +1311,30 @@ export const zh: Record<string, string> = {
   "Could not load expose history.": "无法加载暴露历史记录。",
   "Add group mapping": "添加组映射",
   "Leave the secret empty to keep it when the issuer and client id are unchanged.": "如果颁发者和客户端 ID 未更改，留空密钥以保留原值。",
+  "Assemble an aperio.yaml, or a server-init.yaml for a server’s first start, from the settings this server understands, or open an existing one and edit it.": "根据此服务器支持的设置生成 aperio.yaml，或用于服务器首次启动的 server-init.yaml，也可以打开现有文件进行编辑。",
+  "Changing this takes Admin in every organization and a sign-in from the last ten minutes.": "更改此项需要在所有组织中拥有 Admin 权限，并且需要在最近十分钟内登录。",
+  "Client down threshold": "客户端离线阈值",
+  "Every setting lives in the server’s database and applies when saved. Security-relevant ones take a sign-in from the last ten minutes; a few are read at startup and wait for a restart.": "每项设置都保存在服务器的数据库中，保存后立即生效。与安全相关的设置需要最近十分钟内的登录；少数设置在启动时读取，需要重启后生效。",
+  "Failover window": "故障转移窗口",
+  "Gateway timeout": "网关超时",
+  "How the server shuts down, and its scheduled backups.": "服务器如何关闭，以及计划备份。",
+  "Login lockout base": "登录锁定基础时长",
+  "Not a duration, use e.g. 30s, 5m, 2h, 1d": "不是有效的时长，请使用如 30s、5m、2h、1d",
+  "Not a size, use e.g. 512KB, 10MB, 1GB": "不是有效的大小，请使用如 512KB、10MB、1GB",
+  "Not valid YAML: {error}": "无效的 YAML：{error}",
+  "One per line": "每行一个",
+  "Read when the server starts: a change is stored and takes effect at the next start.": "在服务器启动时读取：更改会被保存，并在下次启动时生效。",
+  "Response timeout": "响应超时",
+  "Saved, and waiting for a restart: {paths}": "已保存，等待重启：{paths}",
+  "Seeds a new server’s settings on its first start, through APERIO_INIT_FILE.": "通过 APERIO_INIT_FILE 在新服务器首次启动时设定其设置。",
+  "Serve-stale window": "过期响应窗口",
+  "The client file configures a tunnel client and what it exposes; the first-start document seeds a new server’s settings.": "客户端文件配置隧道客户端及其公开的内容；首次启动文档设定新服务器的设置。",
+  "Undo": "撤销",
+  "automatic": "自动",
+  "off": "关",
+  "restart": "需重启",
+  "restart pending": "等待重启",
+  "security": "安全",
+  "stored, type to replace": "已保存，输入以替换",
+  "Every setting that differs from its default": "所有与默认值不同的设置",
 }

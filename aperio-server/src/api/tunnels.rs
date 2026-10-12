@@ -23,7 +23,7 @@ pub(crate) struct TunnelCreateRequest {
   /// Label for the ephemeral token; defaults to "tunnel".
   pub(crate) name: Option<String>,
   /// Explicit hostname to bind. Omitted = a random subdomain is generated
-  /// (requires APERIO_RANDOM_SUBDOMAIN on the server).
+  /// (requires routing.random_subdomain on the server).
   pub(crate) hostname: Option<String>,
   /// Source IPs/CIDRs allowed to connect with the minted token.
   #[serde(default)]
@@ -203,7 +203,7 @@ pub(crate) async fn tunnels_create_handler(
       None => {
         return (
           StatusCode::BAD_REQUEST,
-          "No hostname given and APERIO_RANDOM_SUBDOMAIN is not configured on the server",
+          "No hostname given and routing.random_subdomain is not configured on the server",
         )
           .into_response();
       }

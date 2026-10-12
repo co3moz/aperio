@@ -101,7 +101,7 @@ export class ChaosBackend extends StandardBackendBase() {
  * runs into. Only the second can end that request.
  */
 export class ChaosServer extends AperioServerBase({
-  env: { APERIO_GATEWAY_TIMEOUT: '3', APERIO_GATEWAY_RESPONSE_TIMEOUT: '4' },
+  settings: { gateway: { timeout: '3s', response_timeout: '4s' } },
 }) {}
 
 export class ChaosClient extends ClientFor(() => ChaosServer, () => ChaosBackend) {

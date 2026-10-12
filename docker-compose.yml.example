@@ -10,7 +10,6 @@ services:
     environment:
       - PORT=8080
       - APERIO_SERVER_TOKEN=supersecrettoken123
-      - APERIO_DASHBOARD=1
       - APERIO_DATA_DIR=/app/data
       - LOG_LEVEL=debug
     volumes:

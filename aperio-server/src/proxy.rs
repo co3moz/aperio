@@ -59,7 +59,7 @@ fn retry_covers(retry_on_5xx: bool, retry_statuses: &[u16], status: u16) -> bool
 
 /// Records one dispatch failure (buffered 5xx, response timeout, or connection
 /// loss) against the serving client for passive outlier ejection. A no-op
-/// unless `APERIO_OUTLIER_EJECTION` is enabled.
+/// unless `outlier.enabled` is enabled.
 /// `service` is the chosen service's *name*, not its index.
 ///
 /// The index was captured under a read lock the dispatch has long since
@@ -143,7 +143,7 @@ fn worth_waiting_for_route(
 }
 
 /// Builds a 504 response: the hostname's own `error_pages:` page when one is
-/// configured, then the global APERIO_504_PAGE HTML, then the given
+/// configured, then the global pages.unavailable HTML, then the given
 /// plain-text message.
 pub(crate) fn gateway_timeout_response(
   state: &AppState,
@@ -167,7 +167,7 @@ pub(crate) fn gateway_timeout_response(
 }
 
 /// Effective request body cap for a dispatch: a service's client-declared
-/// `max_request_body` can only tighten the global APERIO_MAX_BODY_SIZE limit,
+/// `max_request_body` can only tighten the global limits.request_body limit,
 /// never widen it.
 pub(crate) fn effective_body_limit(global: usize, declared: Option<u64>) -> usize {
   match declared {
@@ -194,7 +194,7 @@ fn is_safe_request_id(v: &str) -> bool {
 }
 
 /// Builds the 503 maintenance response: the hostname's own `error_pages:`
-/// page, then the global APERIO_503_PAGE, then plain text.
+/// page, then the global pages.maintenance, then plain text.
 ///
 /// The flag's reason reaches the visitor: a maintenance page that says why,
 /// and until when, is the difference between "this is broken" and "this is
@@ -340,7 +340,7 @@ pub(crate) async fn proxy_handler(
 
   // --- Normal HTTP proxy below ---
 
-  // Per-request OpenTelemetry span (no-op export when APERIO_OTEL is off). The
+  // Per-request OpenTelemetry span (no-op export when otel.enabled is off). The
   // span adopts any incoming W3C trace context as its parent; its own context
   // is forwarded through the tunnel so the backend continues the trace.
   let host_for_span = extract_request_host(&headers);

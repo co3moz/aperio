@@ -5,22 +5,6 @@
 
 use super::*;
 
-/// Serializes tests that touch the process-global config document / default
-/// `aperio-server.yaml`. Loads `yaml` as the default document, runs `f`.
-fn with_config(yaml: &str, f: impl FnOnce()) {
-  let _lock = crate::test_support::config_lock();
-  struct Cleanup;
-  impl Drop for Cleanup {
-    fn drop(&mut self) {
-      let _ = std::fs::remove_file("aperio-server.yaml");
-    }
-  }
-  let _cleanup = Cleanup;
-  std::fs::write("aperio-server.yaml", yaml).unwrap();
-  crate::config_file::reload().unwrap();
-  f();
-}
-
 fn rules_from(yaml: &str) -> RouteLimits {
   let raw: Vec<RateLimitRuleRaw> = serde_yaml::from_str(yaml).unwrap();
   RouteLimits {
@@ -96,33 +80,43 @@ fn sub_one_burst_is_floored_to_one() {
 
 #[test]
 fn from_config_file_absent_section_is_default() {
-  with_config("other: 1\n", || {
-    assert!(from_config_file().rules.is_empty());
-  });
+  {
+    let doc = "other: 1\n";
+    assert!(
+      from_section(crate::test_support::section(doc, "rate_limits"))
+        .unwrap_or_default()
+        .rules
+        .is_empty()
+    );
+  }
 }
 
 #[test]
 fn from_config_file_parses_and_compiles() {
-  with_config(
-    "rate_limits:\n  - hostname: app.example.com\n    path: /login\n    rps: 5\n",
-    || {
-      let limits = from_config_file();
-      assert_eq!(
-        limits
-          .matched(Some("app.example.com"), "/login", None)
-          .unwrap()
-          .rps,
-        5.0
-      );
-    },
-  );
+  {
+    let doc = "rate_limits:\n  - hostname: app.example.com\n    path: /login\n    rps: 5\n";
+    let limits = from_section(crate::test_support::section(doc, "rate_limits")).unwrap_or_default();
+    assert_eq!(
+      limits
+        .matched(Some("app.example.com"), "/login", None)
+        .unwrap()
+        .rps,
+      5.0
+    );
+  }
 }
 
 #[test]
 fn from_config_file_malformed_section_disables_feature() {
-  with_config("rate_limits: nope\n", || {
-    assert!(from_config_file().rules.is_empty());
-  });
+  {
+    let doc = "rate_limits: nope\n";
+    assert!(
+      from_section(crate::test_support::section(doc, "rate_limits"))
+        .unwrap_or_default()
+        .rules
+        .is_empty()
+    );
+  }
 }
 
 // --- method filter (planned_features #26) -----------------------------------

@@ -2,9 +2,10 @@ server:
   url: https://tunnel.example.com
   token: apr_public_expose_change_me
 
-# Declare the tunnel by name. The server's expose: entry names this tunnel
-# and the token above, so only a client holding that token can claim the
-# public port; revoking the token closes the port's source.
+# Declare the tunnel by name. The server's expose listener (expose.json)
+# names this tunnel and the master organization, so only a client of that
+# organization can claim the public port; revoking its tokens closes the
+# port's source.
 tunnels:
   - name: ssh
     target: 127.0.0.1:22

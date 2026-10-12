@@ -43,18 +43,19 @@ page.
 | `/usr/bin/aperio-server`, `/usr/bin/aperio-client` | the binaries |
 | `/usr/lib/systemd/system/aperio-server.service` | the server unit |
 | `/usr/lib/systemd/system/aperio-client@.service` | the client unit, one instance per config file |
-| `/etc/aperio/aperio-server.yaml` | the server's config, `0640` owned `root:aperio` (the unit runs as `aperio`), never overwritten by an upgrade |
+| `/etc/aperio/aperio-server.env` | the server's boot settings (the master token, the listener), `0640` owned `root:aperio` (the unit runs as `aperio`), never overwritten by an upgrade |
+| `/etc/aperio/server-init.yaml` | the settings a new server starts with, read once into an empty database |
 | `/etc/aperio/aperio-client.yaml.example` | the template an instance is installed from, `0640 root:aperio` |
 | `/var/lib/aperio` | the server's SQLite store |
 | `/var/lib/aperio-client/<instance>` | a client instance's state (its persistent client id) |
 
-Installing does **not** start anything. The shipped server config carries a
+Installing does **not** start anything. The shipped environment file carries a
 placeholder master token, and a tunnel server that comes up on `apt install`
 with a token that was published in a package is worse than one that does not
 come up at all. Set a real token first:
 
 ```bash
-sudoedit /etc/aperio/aperio-server.yaml     # change server.token
+sudoedit /etc/aperio/aperio-server.env      # change APERIO_SERVER_TOKEN
 sudo systemctl enable --now aperio-server
 ```
 
@@ -112,43 +113,38 @@ The same override is how a client that serves a directory it must also *write*
 to gets permission for exactly that path.
 
 **Why a named account and not `DynamicUser`.** A transient account is otherwise
-the better answer, and it cannot work here: the config file holds a token and
-so is not world-readable, and a file that is not world-readable has to be
+the better answer, and it cannot work here: the environment file holds a token
+and so is not world-readable, and a file that is not world-readable has to be
 readable by someone with a name. A dynamic user has a different uid on every
 start, so no mode on that file admits it and nothing else.
 
-## Secrets from somewhere other than the file
+## Settings
 
-Scalar settings also have `APERIO_*` environment variables. Use them for
-values from a secret store. Mapping-valued sections (`headers:`, `routes:`,
-`error_pages:`, `expose:` and the like) exist only in the file:
+Every setting other than the boot ones lives in the server's database under
+`/var/lib/aperio`, and is changed from the dashboard (**Settings**) or with
+`PUT /aperio/api/settings`, without a restart. `/etc/aperio/server-init.yaml`
+seeds them on the first start only; after that, editing it changes nothing,
+and `POST /aperio/api/import` is how a document reaches a running server. See
+[configuration.md](configuration.md#server-settings).
+
+A boot setting from a secret store goes into the unit instead of the file:
 
 ```bash
 sudo systemctl edit aperio-server
 ```
 ```ini
 [Service]
-Environment=APERIO_SERVER_TOKEN=...
+Environment=APERIO_BACKUP_KEY=...
 ```
-
-**The file wins over an environment override**, so this is for values the file
-does not write: a key set in `aperio-server.yaml` (the shipped
-`server.token`, for one) outvotes the same setting in the unit. The override
-is still worth using for a value kept out of a file that backups and
-configuration management copy around, so leave that key out of the file rather
-than writing both.
 
 ## Upgrades
 
-`/etc/aperio/aperio-server.yaml` is marked as a config file in both formats, so
-an upgrade never overwrites your edits; a changed default arrives beside it as
-`.dpkg-dist` or `.rpmnew` for you to diff. The package restarts what was
-already running and starts nothing that was not.
-
-The `version:` key in the shipped config is stamped with the version that built
-the package. Keep it current when you upgrade: it is what lets the binary tell
-you which configuration-format changes landed in between, and refuse to start
-when one of them has security consequences. See
+`/etc/aperio/aperio-server.env` and `/etc/aperio/server-init.yaml` are marked
+as config files in both formats, so an upgrade never overwrites your edits; a
+changed default arrives beside them as `.dpkg-dist` or `.rpmnew` for you to
+diff. The package restarts what was already running and starts nothing that
+was not. A server that finds a variable in its environment that moved into the
+settings refuses to start and names the setting; see
 [upgrade-guide.md](upgrade-guide.md).
 
 ## Maintainers

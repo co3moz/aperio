@@ -440,7 +440,7 @@ async fn the_visitor_password_is_not_a_dashboard_credential() {
   // creates also opens the dashboard, that value is an admin credential and
   // nothing says so.
   let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("visitor:pass");
+  cfg.visitor_auth = crate::test_support::basic_gate("visitor:pass");
   let state = Arc::new(test_state_with(cfg));
   let res = call_login(
     state.clone(),
@@ -489,7 +489,7 @@ async fn a_visitor_session_still_reaches_every_proxied_host() {
   // visitor who signed in on one hostname should not be asked again on the
   // next. Only the dashboard is closed to them.
   let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("visitor:pass");
+  cfg.visitor_auth = crate::test_support::basic_gate("visitor:pass");
   let state = Arc::new(test_state_with(cfg));
   let res = call_login(
     state.clone(),

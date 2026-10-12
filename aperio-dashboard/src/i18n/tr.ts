@@ -293,7 +293,6 @@ export const tr: Record<string, string> = {
     "Proxy'lenen istekler için ziyaretçi IP'si başına token kovası.",
   Prefix: 'Önek',
   'Prometheus metrics endpoint at /aperio/metrics': "/aperio/metrics'te Prometheus metrik endpoint'i",
-  Purpose: 'Amaç',
   'Queue Status': 'Kuyruk Durumu',
   'Random subdomain pattern': 'Rastgele subdomain deseni',
   'Rate Limiting': 'Hız Sınırlama',
@@ -372,8 +371,8 @@ export const tr: Record<string, string> = {
     'YubiKey, Touch ID / Face ID veya parola yöneticinizle parolasız giriş yapın.',
   'The built-in "aperio" admin signs in with the master token or dashboard password and cannot register passkeys. Create a named user instead.':
     'Yerleşik "aperio" yöneticisi ana token veya panel parolasıyla giriş yapar ve passkey kaydedemez. Bunun yerine adlandırılmış bir kullanıcı oluşturun.',
-  'Passkey sign-in is not configured on this server. Set APERIO_WEBAUTHN_ORIGIN to the dashboard’s public URL to enable it.':
-    'Bu sunucuda passkey girişi yapılandırılmamış. Etkinleştirmek için APERIO_WEBAUTHN_ORIGIN değişkenini panelin genel adresine ayarlayın.',
+  'Passkey sign-in is not configured on this server. Set dashboard.webauthn.origin to the dashboard’s public URL to enable it.':
+    'Bu sunucuda passkey girişi yapılandırılmamış. Etkinleştirmek için dashboard.webauthn.origin ayarını panelin genel adresine ayarlayın.',
   'This browser does not support WebAuthn.':
     'Bu tarayıcı WebAuthn desteklemiyor.',
   'No passkeys registered yet.':
@@ -761,7 +760,7 @@ export const tr: Record<string, string> = {
   'Memory (RSS)': 'Bellek (RSS)',
   'New admin key': 'Yeni yönetici anahtarı',
   'No admin keys yet': 'Henüz yönetici anahtarı yok',
-  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have APERIO_SCALING enabled.': 'Otomatik ölçekleme kaydı yok. Bir istemci scaling: bloğu tanımlayarak kayıt oluşturur ve sunucuda APERIO_SCALING etkin olmalıdır.',
+  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have scaling.enabled on.': 'Otomatik ölçekleme kaydı yok. Bir istemci scaling: bloğu tanımlayarak kayıt oluşturur ve sunucuda scaling.enabled etkin olmalıdır.',
   'No cache data yet': 'Henüz önbellek verisi yok',
   'No hostname restriction': 'Hostname kısıtlaması yok',
   'No self-health data yet': 'Henüz öz-sağlık verisi yok',
@@ -951,7 +950,7 @@ export const tr: Record<string, string> = {
   'Parallel connections per service (0 = server default, empty = keep)': 'Servis başına paralel bağlantı (0 = sunucu varsayılanı, boş = değiştirme)',
   'Parallel connections per service (empty = server default)': 'Servis başına paralel bağlantı (boş = sunucu varsayılanı)',
   'Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.': 'Ayrıntı yok: yalnızca son istekler kaydedilir ve capture: false olan bir servis (ya da inspector\'ı kapalı bir sunucu) hiç kaydedilmez.',
-  'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.': 'Bu servis kayda izin veriyor ama sunucuda istek inspector\'ı kapalı (APERIO_INSPECTOR=0), bu yüzden burada hiçbir şey incelenemez veya tekrar oynatılamaz.',
+  'This service allows capture but the server has the request inspector switched off (inspector.enabled: false), so nothing here can be inspected or replayed.': 'Bu servis kayda izin veriyor ama sunucuda istek inspector\'ı kapalı (inspector.enabled: false), bu yüzden burada hiçbir şey incelenemez veya tekrar oynatılamaz.',
   'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': 'Bu servis istek inspector\'ı için kaydedilmiyor (aperio.yaml içinde capture: false), istekleri incelenemez ve tekrar oynatılamaz. Canlı trafik ve istatistikler etkilenmez.',
   'inspector off': 'inspector kapalı',
   'no capture': 'kayıt yok',
@@ -1100,8 +1099,8 @@ export const tr: Record<string, string> = {
     'bu hostname ziyaretçi kapısı olmadan sunuluyor',
   "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization":
     'Ziyaretçiler bu istek bir istemciye ulaşmadan önce giriş yapmalı (ya da bir paylaşım bağlantısı taşımalı): bu rota bir Aperio girişi istiyor, bu hostname’in organizasyonuna erişen bir panel oturumu',
-  'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
-    'hiçbir şey bu rotayı erişilebilir ilan etmiyor ve `default_access` `deny`, bu yüzden yayınlanmıyor: Aperio oturumu taşımayan bir ziyaretçi, sahipsiz bir hostname icin verilen cevabın aynısını alır, oturum açmış bir Aperio kullanıcısı ise yine erişir',
+  'nothing declares this route reachable and `access.default` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
+    'hiçbir şey bu rotayı erişilebilir ilan etmiyor ve `access.default` `deny`, bu yüzden yayınlanmıyor: Aperio oturumu taşımayan bir ziyaretçi, sahipsiz bir hostname icin verilen cevabın aynısını alır, oturum açmış bir Aperio kullanıcısı ise yine erişir',
   '{count} client(s) would take it: {clients}':
     '{count} istemci bunu alırdı: {clients}',
   'no connected client serves this hostname and path':
@@ -1146,12 +1145,12 @@ export const tr: Record<string, string> = {
     'bakım modu',
   'auth: on the service':
     'hizmetteki auth:',
-  'server_auth / OIDC':
-    'server_auth / OIDC',
-  'default_access':
-    'default_access',
-  'server_auth':
-    'server_auth',
+  'access.gate / OIDC':
+    'access.gate / OIDC',
+  'access.default':
+    'access.default',
+  'access.gate':
+    'access.gate',
   'OIDC':
     'OIDC',
   'hostname/path binds':
@@ -1302,7 +1301,6 @@ export const tr: Record<string, string> = {
   "All": "Tümü",
   "Public endpoint": "Public endpoint",
   "Tunnel": "Tünel",
-  "Server configuration file (read-only)": "Sunucu yapılandırma dosyası (salt okunur)",
   "Managed through API": "API üzerinden yönetiliyor",
   "{count} sessions": "{count} oturum",
   "Dropped": "Düşürülen",
@@ -1336,4 +1334,30 @@ export const tr: Record<string, string> = {
   "Could not load expose history.": "Expose geçmişi yüklenemedi.",
   "Add group mapping": "Grup eşlemesi ekle",
   "Leave the secret empty to keep it when the issuer and client id are unchanged.": "Issuer ve client id değişmediyse mevcut secret’ı korumak için boş bırakın.",
+  "Assemble an aperio.yaml, or a server-init.yaml for a server’s first start, from the settings this server understands, or open an existing one and edit it.": "Bu sunucunun anladığı ayarlardan bir aperio.yaml ya da bir sunucunun ilk açılışı için bir server-init.yaml oluşturun, veya mevcut bir dosyayı açıp düzenleyin.",
+  "Changing this takes Admin in every organization and a sign-in from the last ten minutes.": "Bunu değiştirmek her organizasyonda Admin ve son on dakika içinde yapılmış bir oturum açma gerektirir.",
+  "Client down threshold": "İstemci düşme eşiği",
+  "Every setting lives in the server’s database and applies when saved. Security-relevant ones take a sign-in from the last ten minutes; a few are read at startup and wait for a restart.": "Her ayar sunucunun veritabanında durur ve kaydedildiğinde uygulanır. Güvenlikle ilgili olanlar son on dakika içinde açılmış bir oturum ister; birkaçı açılışta okunur ve yeniden başlatmayı bekler.",
+  "Failover window": "Failover penceresi",
+  "Gateway timeout": "Gateway zaman aşımı",
+  "How the server shuts down, and its scheduled backups.": "Sunucunun nasıl kapandığı ve zamanlanmış yedekleri.",
+  "Login lockout base": "Giriş kilidi taban süresi",
+  "Not a duration, use e.g. 30s, 5m, 2h, 1d": "Süre değil, örneğin 30s, 5m, 2h, 1d kullanın",
+  "Not a size, use e.g. 512KB, 10MB, 1GB": "Boyut değil, örneğin 512KB, 10MB, 1GB kullanın",
+  "Not valid YAML: {error}": "Geçerli YAML değil: {error}",
+  "One per line": "Satır başına bir tane",
+  "Read when the server starts: a change is stored and takes effect at the next start.": "Sunucu açılırken okunur: değişiklik kaydedilir ve bir sonraki açılışta geçerli olur.",
+  "Response timeout": "Yanıt zaman aşımı",
+  "Saved, and waiting for a restart: {paths}": "Kaydedildi, yeniden başlatma bekleniyor: {paths}",
+  "Seeds a new server’s settings on its first start, through APERIO_INIT_FILE.": "Yeni bir sunucunun ayarlarını ilk açılışında APERIO_INIT_FILE ile belirler.",
+  "Serve-stale window": "Bayat yanıt penceresi",
+  "The client file configures a tunnel client and what it exposes; the first-start document seeds a new server’s settings.": "İstemci dosyası bir tünel istemcisini ve neyi açtığını yapılandırır; ilk açılış belgesi yeni bir sunucunun ayarlarını belirler.",
+  "Undo": "Geri al",
+  "automatic": "otomatik",
+  "off": "kapalı",
+  "restart": "yeniden başlatma",
+  "restart pending": "yeniden başlatma bekliyor",
+  "security": "güvenlik",
+  "stored, type to replace": "kayıtlı, değiştirmek için yazın",
+  "Every setting that differs from its default": "Varsayılanından farklı olan her ayar",
 }

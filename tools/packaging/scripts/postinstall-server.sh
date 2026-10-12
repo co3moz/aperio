@@ -1,6 +1,6 @@
 #!/bin/sh
 # Runs on install and on upgrade. Deliberately does *not* start the service:
-# the shipped config carries a placeholder master token, and a tunnel server
+# the shipped environment file carries a placeholder master token, and a tunnel server
 # that comes up on `apt install` with a token from a package is worse than one
 # that does not come up at all.
 set -e
@@ -17,7 +17,7 @@ else
 
 Aperio server installed. Before starting it:
 
-  1. Set a master token in /etc/aperio/aperio-server.yaml
+  1. Set a master token in /etc/aperio/aperio-server.env
   2. systemctl enable --now aperio-server
 
 It listens on 127.0.0.1:8080 and does not terminate TLS; put a reverse proxy

@@ -229,11 +229,13 @@ async function main() {
   })
   await new Promise((r) => backend.listen(backendPort, '127.0.0.1', r))
 
+  const init = join(dataDir, 'server-init.json')
+  await writeFile(init, JSON.stringify({ settings: { dashboard: { enabled: false } } }))
   start('server', binary('aperio-server'), [], {
     PORT: String(serverPort),
     APERIO_SERVER_TOKEN: token,
     APERIO_DATA_DIR: dataDir,
-    APERIO_DASHBOARD: '0',
+    APERIO_INIT_FILE: init,
   })
   await waitFor(async () => (await get(serverPort, '/aperio/health')) === 200, 'aperio-server')
 

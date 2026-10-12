@@ -1,7 +1,5 @@
 import { Test } from 'nole'
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
 import { waitFor } from '../../lib/env.js'
 import { sendRaw } from '../../lib/http.js'
 import { ClientFor } from '../../lib/client.js'
@@ -121,9 +119,20 @@ export class DashboardApiSpec extends Test({
   }
 }
 
-interface Settings {
-  effective: Record<string, unknown>
-  environment: unknown
+interface SettingsDoc {
+  // A partial view: the sections this spec reads.
+  settings: {
+    routing: { lb_strategy: string }
+    gateway: { timeout: string }
+    cache: { enabled: boolean }
+    limits: { concurrent_requests: number }
+    dashboard: { ui_language: string }
+    metrics: { token: string | null }
+  }
+  security_paths: string[]
+  secret_paths: string[]
+  restart_paths: string[]
+  restart_pending: string[]
 }
 
 export class SettingsApiSpec extends Test({
@@ -133,53 +142,68 @@ export class SettingsApiSpec extends Test({
   timeout: 60_000,
   dependencies: { server: () => DashboardServer },
 }) {
-  async _put(body: unknown): Promise<number> {
-    const cookie = await this.server._login()
-    const res = await this.server._fetch('/aperio/api/settings', {
-      method: 'PUT',
-      headers: { cookie, 'content-type': 'application/json' },
-      body: JSON.stringify(body),
+  async anUpdateAppliesLiveAndSaysWhatMoved() {
+    const before = await this.server._api<SettingsDoc>('/aperio/api/settings')
+    assert.equal(before.settings.routing.lb_strategy, 'round-robin')
+
+    const res = await this.server._putSettings({
+      gateway: { timeout: '5s' },
+      routing: { lb_strategy: 'sticky' },
     })
-    return res.status
+    assert.equal(res.status, 200, res.body)
+    const changed = (JSON.parse(res.body) as { changed: string[] }).changed
+    assert.deepEqual([...changed].sort(), ['gateway.timeout', 'routing.lb_strategy'])
+
+    const after = await this.server._api<SettingsDoc>('/aperio/api/settings')
+    assert.equal(after.settings.routing.lb_strategy, 'sticky')
+    assert.equal(after.settings.gateway.timeout, '5s')
   }
 
-  async anUpdateAppliesLiveAndIsPersisted() {
-    const before = await this.server._api<Settings>('/aperio/api/settings')
-    assert.equal(before.effective.lb_strategy, 'round-robin')
-
-    assert.equal(await this._put({ gateway_timeout_secs: 5, lb_strategy: 'sticky' }), 200)
-    const after = await this.server._api<Settings>('/aperio/api/settings')
-    assert.equal(after.effective.lb_strategy, 'sticky')
-
-    const persisted = await readFile(join(this.server._dataDir, 'settings.json'), 'utf8')
-    assert.match(persisted, /"gateway_timeout_secs": 5/)
-  }
-
-  async theReportNamesTheEnvOnlyFlagsAndTheDefaults() {
-    const settings = await this.server._api<Settings>('/aperio/api/settings')
-    assert.ok(settings.environment, 'the env-only flag report is exposed')
-    assert.match(JSON.stringify(settings.environment), /APERIO_TRUST_PROXY/)
-    assert.equal(typeof settings.effective.cache_enabled, 'boolean')
-    assert.equal(settings.effective.ui_language, 'en')
+  async theDocumentSaysWhatIsSpecialAndHidesCredentials() {
+    const doc = await this.server._api<SettingsDoc>('/aperio/api/settings')
+    assert.ok(doc.security_paths.includes('proxy'), 'proxy trust is security-relevant')
+    assert.ok(doc.restart_paths.includes('oidc'), 'oidc is read at startup')
+    assert.ok(doc.secret_paths.includes('metrics.token'))
+    // The fixture sets a metrics token; it is never read back.
+    assert.equal(doc.settings.metrics.token, '********')
+    assert.equal(typeof doc.settings.cache.enabled, 'boolean')
+    assert.equal(doc.settings.dashboard.ui_language, 'en')
   }
 
   async theRuntimeSettingsApplyLive() {
-    assert.equal(
-      await this._put({
-        cache_enabled: true,
-        max_concurrent_requests: 64,
-        login_lockout_threshold: 7,
-      }),
-      200,
-    )
-    const settings = await this.server._api<Settings>('/aperio/api/settings')
-    assert.equal(settings.effective.max_concurrent_requests, 64)
+    const res = await this.server._putSettings({
+      cache: { enabled: true },
+      limits: { concurrent_requests: 64 },
+      security: { login_lockout: { threshold: 7 } },
+    })
+    assert.equal(res.status, 200, res.body)
+    const doc = await this.server._api<SettingsDoc>('/aperio/api/settings')
+    assert.equal(doc.settings.limits.concurrent_requests, 64)
+    assert.equal(doc.settings.cache.enabled, true)
+    // The masked token went back as the mask and is still the real one.
+    const scraped = await this.server._fetch('/aperio/metrics', {
+      headers: { authorization: `Bearer ${METRICS_TOKEN}` },
+    })
+    assert.equal(scraped.status, 200, 'the metrics token survived a whole-document save')
   }
 
-  async invalidValuesAreRejectedAndOverridesCanBeReset() {
-    assert.equal(await this._put({ lb_strategy: 'bogus' }), 400)
-    assert.equal(await this._put({ cache_max_bytes: 0 }), 400, 'a zero cache budget is refused')
-    assert.equal(await this._put({}), 200, 'overrides can be reset')
+  async invalidValuesAreRefusedWithTheirPath() {
+    let res = await this.server._putSettings({ routing: { lb_strategy: 'bogus' } })
+    assert.equal(res.status, 400)
+    res = await this.server._putSettings({ cache: { size: 0 } })
+    assert.equal(res.status, 400, 'a zero cache budget is refused')
+    assert.match(res.body, /^cache\.size/)
+    res = await this.server._putSettings({ limits: { tunnelz: 3 } })
+    assert.equal(res.status, 400, 'an unknown key is refused, not ignored')
+    // What this spec changed goes back, for the specs after it.
+    res = await this.server._putSettings({
+      gateway: { timeout: '3s' },
+      routing: { lb_strategy: 'round-robin' },
+      cache: { enabled: false },
+      limits: { concurrent_requests: 100 },
+      security: { login_lockout: { threshold: 5 } },
+    })
+    assert.equal(res.status, 200, res.body)
   }
 }
 

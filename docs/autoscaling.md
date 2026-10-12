@@ -9,7 +9,7 @@ Two things fall out of that one signal:
 
 Scaling **in** works the same way as scaling out, one call with a *lower* desired capacity. The server still never kills anything, which keeps the entire class of "why did my instance disappear" incidents away from it. What it does not do is ask for the last instance to go: 1 to 0 stays the client's own decision through `idle_timeout`, because the client knows about requests in flight that the server cannot see.
 
-> **Configuration:** Server settings go in `aperio-server.yaml` (for example, `scaling.enabled` maps to `APERIO_SCALING`); client settings go in `aperio.yaml`. Server file values override environment variables. See [Configuration](configuration.md#grouped-keys) for the full mapping.
+> **Configuration:** Server settings live in the server's database and are changed from the dashboard (**Settings**), with `PUT /aperio/api/settings`, or in a first-start document (`APERIO_INIT_FILE`); they are written as paths such as `cache.enabled`. Client settings go in `aperio.yaml`. See [Configuration](configuration.md#server-settings).
 
 ## Enabling it
 
@@ -18,9 +18,9 @@ Scaling **in** works the same way as scaling out, one call with a *lower* desire
 Autoscaling is off unless the operator turns it on. A client's declaration is ignored entirely without it:
 
 ```yaml
-# aperio-server.yaml
+# settings
 scaling:
-  enabled: true       # env: APERIO_SCALING=1
+  enabled: true
 ```
 
 Then declare it on the client, in `aperio.yaml`:
@@ -139,25 +139,25 @@ Every call is audited (`scaling_requested` on success, `scaling_failed` on failu
 
 The declaration comes from a client, which is a lower-trust credential than an operator, and it makes the server perform an outbound request. That is server-side request forgery by construction, so the destination is fenced:
 
-- **https only**, unless the operator sets `APERIO_SCALING_ALLOW_HTTP=1`.
-- **public addresses only**, unless the operator sets `APERIO_SCALING_ALLOW_PRIVATE=1`; every address the hostname resolves to is checked, not just the first.
+- **https only**, unless the operator sets `scaling.allow_http: true`.
+- **public addresses only**, unless the operator sets `scaling.allow_private: true`; every address the hostname resolves to is checked, not just the first.
 - **Every resolved address is checked**: loopback, private ranges, link-local (including `169.254.169.254`, the cloud metadata address), carrier-grade NAT, and their IPv6 equivalents are refused. A hostname that resolves to one of them is refused too. The check resolves the name once and the HTTP client resolves it again when it connects, so a DNS name the client controls can answer public to the check and private to the connection; pinning the checked address and dialing that is not done today. Treat the endpoint as operator-chosen, not tenant-chosen.
 - **Redirects are never followed**, since a redirect is a way to reach an address the pre-flight check just refused.
 - The secret is never returned by the API or logged, and the only place it leaves the server is an `export` that includes the scaling section, which is an Admin read.
-- **The operator's outbound policy applies on top of all of that.** `APERIO_OUTBOUND_ALLOWLIST` / `APERIO_OUTBOUND_BLOCK_PRIVATE` cover webhook deliveries and scaling hooks alike; a destination has to pass both the fence above and the policy. See [Threat Model](threat-model.md).
+- **The operator's outbound policy applies on top of all of that.** `outbound.allowlist` / `outbound.block_private` cover webhook deliveries and scaling hooks alike; a destination has to pass both the fence above and the policy. See [Threat Model](threat-model.md).
 
-Records are scoped to the organization of the token that armed them. Revoking that token disarms the records only it owned, immediately. An *expired* token is another matter: expiry is enforced when a token is presented, and nothing sweeps expired tokens, so a record an expired token still owns is not dropped on expiry. `APERIO_SCALING_RECORD_TTL` (default 30 days) is what eventually removes a record nothing has re-announced; revoke a token you are done with rather than letting it lapse, if its records should stop.
+Records are scoped to the organization of the token that armed them. Revoking that token disarms the records only it owned, immediately. An *expired* token is another matter: expiry is enforced when a token is presented, and nothing sweeps expired tokens, so a record an expired token still owns is not dropped on expiry. `scaling.record_ttl` (default 30 days) is what eventually removes a record nothing has re-announced; revoke a token you are done with rather than letting it lapse, if its records should stop.
 
 ## Settings
 
 | Variable | yaml key | Description | Default |
 | --- | --- | --- | --- |
-| `APERIO_SCALING` | `scaling` | Honor client `scaling:` declarations. | `0` |
-| `APERIO_SCALING_ALLOW_HTTP` | `scaling.allow_http` | Permit a plain-http endpoint. | `0` |
-| `APERIO_SCALING_ALLOW_PRIVATE` | `scaling.allow_private` | Permit an endpoint resolving to a private/loopback/link-local address. | `0` |
-| `APERIO_OUTBOUND_ALLOWLIST` | `outbound.allowlist` | Host/CIDR patterns the server may call for scaling hooks and webhooks; everything else refused. Empty = no restriction. | |
-| `APERIO_OUTBOUND_BLOCK_PRIVATE` | `outbound.block_private` | With no allowlist: refuse destinations that resolve to internal addresses. | `0` |
-| `APERIO_SCALING_RECORD_TTL` | `scaling.record_ttl` | Seconds before an unrefreshed record is dropped. | `2592000` (30 d) |
+| `scaling.enabled` | `scaling` | Honor client `scaling:` declarations. | `0` |
+| `scaling.allow_http` | `scaling.allow_http` | Permit a plain-http endpoint. | `0` |
+| `scaling.allow_private` | `scaling.allow_private` | Permit an endpoint resolving to a private/loopback/link-local address. | `0` |
+| `outbound.allowlist` | `outbound.allowlist` | Host/CIDR patterns the server may call for scaling hooks and webhooks; everything else refused. Empty = no restriction. | |
+| `outbound.block_private` | `outbound.block_private` | With no allowlist: refuse destinations that resolve to internal addresses. | `0` |
+| `scaling.record_ttl` | `scaling.record_ttl` | Seconds before an unrefreshed record is dropped. | `2592000` (30 d) |
 
 Client side, in `aperio.yaml`: the `scaling:` block above, `idle_timeout` (also `APERIO_IDLE_TIMEOUT`), and `max_concurrent`, which is what makes utilization measurable.
 

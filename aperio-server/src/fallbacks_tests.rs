@@ -3,23 +3,6 @@
 
 use super::*;
 
-/// Serializes tests that touch the process-global config document / default
-/// `aperio-server.yaml` so the parallel test runner can't let them clobber one
-/// another. Loads `yaml` as the default document, runs `f`, and cleans up.
-fn with_config(yaml: &str, f: impl FnOnce()) {
-  let _lock = crate::test_support::config_lock();
-  struct Cleanup;
-  impl Drop for Cleanup {
-    fn drop(&mut self) {
-      let _ = std::fs::remove_file("aperio-server.yaml");
-    }
-  }
-  let _cleanup = Cleanup;
-  std::fs::write("aperio-server.yaml", yaml).unwrap();
-  crate::config_file::reload().unwrap();
-  f();
-}
-
 fn rules(yaml: &str) -> Fallbacks {
   Fallbacks {
     rules: compile(serde_yaml::from_str(yaml).unwrap()),
@@ -110,30 +93,38 @@ fn redirect_location_preserves_path_when_asked() {
 
 #[test]
 fn from_config_file_absent_section_is_default() {
-  with_config("other: 1\n", || {
+  {
+    let doc = "other: 1\n";
     // No `fallbacks:` key → the feature is off.
-    assert!(from_config_file().is_empty());
-  });
+    assert!(
+      from_section(crate::test_support::section(doc, "fallbacks"))
+        .unwrap_or_default()
+        .is_empty()
+    );
+  }
 }
 
 #[test]
 fn from_config_file_parses_and_compiles() {
-  with_config(
-    "fallbacks:\n  - hostname: app.example.com\n    url: https://status.example.com\n",
-    || {
-      let f = from_config_file();
-      assert_eq!(
-        f.matched(Some("app.example.com")).unwrap().url,
-        "https://status.example.com"
-      );
-    },
-  );
+  {
+    let doc = "fallbacks:\n  - hostname: app.example.com\n    url: https://status.example.com\n";
+    let f = from_section(crate::test_support::section(doc, "fallbacks")).unwrap_or_default();
+    assert_eq!(
+      f.matched(Some("app.example.com")).unwrap().url,
+      "https://status.example.com"
+    );
+  }
 }
 
 #[test]
 fn from_config_file_malformed_section_disables_feature() {
   // A scalar where a sequence is expected fails to deserialize → default (off).
-  with_config("fallbacks: not-a-list\n", || {
-    assert!(from_config_file().is_empty());
-  });
+  {
+    let doc = "fallbacks: not-a-list\n";
+    assert!(
+      from_section(crate::test_support::section(doc, "fallbacks"))
+        .unwrap_or_default()
+        .is_empty()
+    );
+  }
 }

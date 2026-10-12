@@ -11,12 +11,11 @@ Caching is **off by default** and strictly opt-in on both sides.
 
 A response is only cached when three independent conditions all agree:
 
-1. **The server operator enabled the cache**, `cache.enabled: true` in
-   `aperio-server.yaml` (env `APERIO_CACHE=1`; the dashboard's live settings
-   persist it as a `cache_enabled` override). This provisions the shared
-   in-memory cache and its memory budget.
+1. **The server operator enabled the cache**, the `cache.enabled` setting
+   (dashboard **Settings → Caching**). This provisions the shared in-memory
+   cache and its memory budget.
 2. **The service owner opted the service in**, `cache: true` in the client
-   config (per `services:` entry, or as a top-level default for the entries, or `APERIO_CACHE=1` on the
+   config (per `services:` entry, or as a top-level default for the entries, or `APERIO_CACHE=1` in the
    client). Only the service owner knows whether *their* responses are safe to
    cache, so this consent lives with the client and is announced over the
    tunnel.
@@ -50,7 +49,7 @@ Nothing is cached implicitly, if your backend never sends `Cache-Control`,
 nothing is stored, no matter the flags.
 
 **Negative caching** is the one exception, and it is off by default.
-`cache.negative_ttl` (env `APERIO_CACHE_NEGATIVE_TTL`) holds `404` and `410`
+`cache.negative_ttl` (env `cache.negative_ttl`) holds `404` and `410`
 answers for a few seconds without asking the backend's permission, because a
 hot missing URL, a scanner, a broken link on a busy page, otherwise reaches
 the backend on every request to be told nothing is there each time. Keep it
@@ -89,7 +88,7 @@ that has since appeared. A response carrying `Vary`, `Set-Cookie` or a
 `resilience: true` on a service (needs `cache: true` and the server cache) lets
 cached responses keep answering visitors **while no healthy client is
 connected**, instead of failing with `504`. Fresh-or-expired entries answer up
-to the `cache.max_stale` (env `APERIO_CACHE_MAX_STALE`) window past their lifetime, marked
+to the `cache.max_stale` (env `cache.max_stale`) window past their lifetime, marked
 `x-aperio-stale: true` once past it and always with an `Age` header. When a client reconnects, cache hits continue until expiry and misses can reach the backend again. See
 [Client Resilience](client-resilience.md).
 
@@ -102,17 +101,18 @@ with no resilient entry still gets the refusal.
 
 ## Knobs
 
-Every setting is shown by its yaml key (env var in parentheses). Server keys go
-in `aperio-server.yaml`, client keys in `aperio.yaml` (per `services:` entry).
+Server settings are shown by their path, changed from the dashboard or the
+settings API; client keys go in `aperio.yaml` (per `services:` entry), with the
+env var in parentheses.
 
 | yaml key | Where | Effect | Default |
 |---|---|---|---|
-| `cache.enabled` (env `APERIO_CACHE`) | server | Enable the shared response cache. | `0` |
+| `cache.enabled` | server | Enable the shared response cache. | `false` |
 | `cache` (env `APERIO_CACHE`) | client, per service or top level | Opt a service in; written at the top level it is the default for every `services:` entry. | `0` |
-| `cache.max_bytes` (env `APERIO_CACHE_MAX_BYTES`) | server | Total in-memory budget; inserting past it evicts the entries closest to expiry, and a body larger than a quarter of the budget is never cached. | `67108864` (64 MB) |
+| `cache.max_bytes` (env `cache.size`) | server | Total in-memory budget; inserting past it evicts the entries closest to expiry, and a body larger than a quarter of the budget is never cached. | `67108864` (64 MB) |
 | `resilience` (env `APERIO_RESILIENCE`) | client, per service | Serve stale while no client is connected. | `0` |
-| `cache.max_stale` (env `APERIO_CACHE_MAX_STALE`) | server | Serve-stale window in seconds; `0` disables it. | `3600` |
-| `cache.negative_ttl` (env `APERIO_CACHE_NEGATIVE_TTL`) | server | Seconds to hold a `404`/`410` so a hot missing URL cannot hammer the backend; `0` disables it. | `0` |
+| `cache.max_stale` (env `cache.max_stale`) | server | Serve-stale window in seconds; `0` disables it. | `3600` |
+| `cache.negative_ttl` (env `cache.negative_ttl`) | server | Seconds to hold a `404`/`410` so a hot missing URL cannot hammer the backend; `0` disables it. | `0` |
 
 The full option reference lives in [Configuration](configuration.md); the
 end-to-end request path is in

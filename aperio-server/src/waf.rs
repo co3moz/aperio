@@ -129,22 +129,15 @@ impl WafRules {
   }
 }
 
-/// Reads and compiles the `waf:` section of `aperio-server.yaml`. Called at
-/// startup and again on hot-reload; a bad section disables the feature.
-pub(crate) fn from_config_file() -> WafRules {
-  let Some(section) = crate::config_file::structured("waf") else {
-    return WafRules::default();
+/// Compiles the `waf:` section of the settings.
+pub(crate) fn from_section(section: Option<serde_yaml::Value>) -> Result<WafRules, String> {
+  let Some(section) = section else {
+    return Ok(WafRules::default());
   };
-  let raw: Vec<WafRuleRaw> = match serde_yaml::from_value(section) {
-    Ok(rules) => rules,
-    Err(err) => {
-      tracing::error!("invalid `waf:` section in aperio-server.yaml: {err}, WAF disabled");
-      return WafRules::default();
-    }
-  };
-  WafRules {
+  let raw: Vec<WafRuleRaw> = serde_yaml::from_value(section).map_err(|e| format!("waf: {e}"))?;
+  Ok(WafRules {
     rules: compile(raw),
-  }
+  })
 }
 
 /// Compiles raw rules, dropping any with an invalid regex or no condition.
@@ -198,11 +191,6 @@ fn compile_reported(raw: Vec<WafRuleRaw>) -> (Vec<WafRule>, usize) {
     });
   }
   (compiled, dropped)
-}
-
-/// Count of rules that fail to compile (for the config lint).
-pub(crate) fn count_dropped(raw: Vec<WafRuleRaw>) -> usize {
-  compile_reported(raw).1
 }
 
 fn describe(

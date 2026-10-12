@@ -94,12 +94,15 @@ describe('the single-service keys on their way out', () => {
   })
 })
 
-describe('the server schema through the builder', () => {
-  it('offers the identity form of an expose entry', () => {
-    const expose = find(serverFields, 'expose')
-    expect(expose?.kind).toBe('objectList')
-    const keys = expose?.children?.map((c) => c.key)
-    expect(keys).toEqual(expect.arrayContaining(['port', 'tunnel', 'token', 'key']))
+describe('the server settings through the builder', () => {
+  it('reads every section as a block of its own', () => {
+    // The settings document is sections all the way down; a section that
+    // came out as a single field would put every one of its settings out of
+    // the form's reach.
+    for (const section of ['limits', 'gateway', 'routing', 'proxy', 'cache', 'oidc']) {
+      expect(find(serverFields, section)?.kind, section).toBe('object')
+    }
+    expect(find(serverFields, 'rate_limits')?.kind).toBe('objectList')
   })
 })
 
@@ -140,16 +143,16 @@ describe('every setting reaches an editor', () => {
   })
 
   it('has only the same holes in the server schema', () => {
-    // `routes.headers.*` is the same shape reached through a policy rule, and
-    // `auth.claims` is the claim map a `jwt` method requires, reached by both
-    // spellings of the server's own gate.
+    // `routes.headers.*` is the same shape reached through a policy rule,
+    // `access.gate.claims` is the claim map a `jwt` method requires, and
+    // `otel.headers` is a map of header names to values.
     expect(unsupported(serverFields).sort()).toEqual([
+      'access.gate.claims',
       'headers.request.add',
       'headers.response.add',
+      'otel.headers',
       'routes.headers.request',
       'routes.headers.response',
-      'server.auth.claims',
-      'server_auth.claims',
     ])
   })
 })

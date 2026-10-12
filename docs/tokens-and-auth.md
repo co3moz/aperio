@@ -2,7 +2,7 @@
 
 Aperio has several independent auth layers. They answer different questions, *who may open a tunnel*, *who may visit the proxied site*, and *who may administer the server*, and you enable only the ones you need.
 
-> **Configuration:** Server settings go in `aperio-server.yaml` (`server.auth` maps to `APERIO_SERVER_AUTH`; `max_tunnels` maps to `APERIO_MAX_TUNNELS`). Client settings go in `aperio.yaml`. Server file values override environment variables. See [Configuration](configuration.md#grouped-keys) for the full mapping.
+> **Configuration:** Server settings live in the server's database and are changed from the dashboard (**Settings**), with `PUT /aperio/api/settings`, or in a first-start document (`APERIO_INIT_FILE`); they are written as paths such as `cache.enabled`. Client settings go in `aperio.yaml`. See [Configuration](configuration.md#server-settings).
 
 ## The master token
 
@@ -17,7 +17,7 @@ Minted from the dashboard's *API Tokens* section, each token is scoped and revoc
 - **Hostnames**, which hostname binds the token may claim (`*` = any). Specific entries are **auto-bound** on connect, so the client doesn't even need `--host`.
 - **Paths**, which path binds it may claim.
 - **Allowed IPs**, source IPs/CIDRs that may connect with this token.
-- **Lifetime**, optional TTL; expired tokens are rejected at connect time. As an early-warning system, a `token_expiring` webhook/audit event fires once a token's remaining lifetime drops under `APERIO_TOKEN_EXPIRY_WARNING` (default 24 h), and the dashboard tokens table shows an "expiring soon" badge, refresh or re-issue before anything breaks.
+- **Lifetime**, optional TTL; expired tokens are rejected at connect time. As an early-warning system, a `token_expiring` webhook/audit event fires once a token's remaining lifetime drops under `security.token_expiry_warning` (default 24 h), and the dashboard tokens table shows an "expiring soon" badge, refresh or re-issue before anything breaks.
 - **Rate limit**, optional requests/second cap for the traffic served through this token; excess requests answer `429`.
 - **Daily quota**, optional bytes/day cap (request + response payload), answering `429` once exhausted until local midnight (in-memory tracking; a restart resets the day's usage).
 - **Parallel connections** (`max_connections`), optional ceiling on the `connections:` a client using this token may open for one service. It can only lower the server's `max_connections_per_service`, never raise it: the effective number is the smaller of the two, announced to the client on connect so it opens that many instead of finding out by being closed. Empty = whatever the server allows.
@@ -58,16 +58,16 @@ The new secret is returned exactly once (like creation). `grace_seconds: 0` (or 
 
 A gate is written as `auth:`, on the server for every route or on a client's service for its own traffic, and it names a **method**. Six exist: `none` (deliberately open), `basic` (a `user:password` login), `bearer` (an opaque secret in a header, for callers with no browser), `jwt` (a token the visitor already holds, verified against its issuer's keys), `forward` (ask an endpoint you run, on the server's network or, with `via: client`, on the client's) and `aperio` (this server's own sign-in, for a route that should ask for a dashboard session rather than a password of its own). [Configuration](configuration.md#visitor-authentication) is the reference; the two below are what most deployments start with.
 
-- **Visitor password**, `APERIO_SERVER_AUTH=user:password` shows a login form to every visitor. It is the scalar spelling of `auth: {method: basic, users: ...}` and still works exactly as it always did.
+- **Visitor password**, `access.gate: user:password` shows a login form to every visitor. It is the scalar spelling of `auth: {method: basic, users: ...}` and still works exactly as it always did.
 
   **It is a key to the site and not to Aperio.** The session it creates reaches every proxied hostname, so somebody who signs in on one is not asked again on the next, and it opens nothing on the dashboard or its API. To administer Aperio, use the master token or a named user.
 - **OIDC / SSO**, redirect unauthenticated visitors to an identity provider (Google, Keycloak, Authentik, ...), Cloudflare-Access style:
 
   ```bash
-  APERIO_OIDC_ISSUER=https://accounts.google.com
-  APERIO_OIDC_CLIENT_ID=xxxx.apps.googleusercontent.com
-  APERIO_OIDC_CLIENT_SECRET=xxxx
-  APERIO_OIDC_ALLOWED_EMAILS=me@corp.com,*@team.example.com
+  oidc.issuer: https://accounts.google.com
+  oidc.client_id: xxxx.apps.googleusercontent.com
+  oidc.client_secret: xxxx
+  oidc.allowed_emails: me@corp.com,*@team.example.com
   ```
 
   After login, the verified email (fetched from the issuer's `userinfo` endpoint over TLS) is checked against the allowlist, exact addresses, `*@domain`, or `*`. Sessions last 24 h. A misconfigured SSO setup is a **fatal error**: the server refuses to start rather than silently serving an unprotected proxy. Grants and denials are audit-logged.
@@ -76,19 +76,19 @@ A client can opt its own service out of the gate by declaring itself **public** 
 
 ### Client-set visitor password (per service)
 
-Instead of opting out, a client can supply its **own** gate for its service, `--visitor-auth user:password`, env `APERIO_VISITOR_AUTH`, or per `services:` entry `auth:`. The flag and the environment variable are single values, so they always mean `basic`; in the file a client may write any method, with one rule: a `forward` must say `via: client`, so the endpoint is asked over the tunnel on the client's own network, since the server never dials a URL a client chose. The server then gates that service with what the client declared, whether or not the server itself set `APERIO_SERVER_AUTH`:
+Instead of opting out, a client can supply its **own** gate for its service, `--visitor-auth user:password`, env `APERIO_VISITOR_AUTH`, or per `services:` entry `auth:`. The flag and the environment variable are single values, so they always mean `basic`; in the file a client may write any method, with one rule: a `forward` must say `via: client`, so the endpoint is asked over the tunnel on the client's own network, since the server never dials a URL a client chose. The server then gates that service with what the client declared, whether or not the server itself set `access.gate`:
 
 - It reuses the same *may publish public services* token permission (master always may); a client without it has its `auth` ignored (and logged).
-- When set, it **supersedes** the server's own visitor password *for that service*: the `APERIO_SERVER_AUTH` credentials no longer work there, only the client's, plus the always-valid `aperio:<master token>`.
+- When set, it **supersedes** the server's own visitor password *for that service*: the `access.gate` credentials no longer work there, only the client's, plus the always-valid `aperio:<master token>`.
 - A successful login with client credentials yields a session **scoped to that hostname only**, it never unlocks the dashboard or another host. (If several path-bound services share one hostname with *different* `auth`, a login covers the whole hostname; give each its own hostname to isolate them. All clients serving one route must declare the same `auth`, mirroring the `public` rule.)
-- The server operator can turn the whole feature off with **`APERIO_IGNORE_CLIENT_AUTH=1`**, which makes the server ignore every client-declared `auth` and keep sole control of the gate with its own `APERIO_SERVER_AUTH` / OIDC.
+- The server operator can turn the whole feature off with **`access.ignore_client_auth: true`**, which makes the server ignore every client-declared `auth` and keep sole control of the gate with its own `access.gate` / OIDC.
 - Anything beyond `basic` is **agreed with the server on the handshake** before it is declared. A server that does not accept the method means the client does not serve that service at all, saying which side is too old, rather than connecting under a gate the server was never told about.
 
 To let specific people through a protected site *without* an account, use [Share Links](share-links.md).
 
 ## Dashboard access
 
-The dashboard password is the master token. To let someone in without handing them root, create a named dashboard user (Users page) or give them their own [organization](organizations.md) rather than sharing a second server-wide password; `APERIO_DASHBOARD=0` disables the dashboard entirely. The Prometheus endpoint always requires its own token (`APERIO_METRICS_TOKEN`).
+The dashboard password is the master token. To let someone in without handing them root, create a named dashboard user (Users page) or give them their own [organization](organizations.md) rather than sharing a second server-wide password; `dashboard.enabled: false` disables the dashboard entirely. The Prometheus endpoint always requires its own token (`metrics.token`).
 
 Named dashboard users are created on the *Users* page and carry a list of grants, one `(organization, role)` pair each, with `viewer`, `operator` or `admin` in every organization they reach. The built-in `aperio` admin, the master token, is the super-admin. An OIDC login is matched to a dashboard user record by email and holds exactly that record's grants; an email with no record gets `oidc.default_grants`, which is empty unless configured, and is refused until something is granted to it. See [Organizations](organizations.md#oidc-identity-is-the-providers-authorization-is-aperios).
 
@@ -104,7 +104,7 @@ The client deliberately does not fully trust the server: it only connects to its
 
 ## Token pinning (trust-on-first-use)
 
-`APERIO_TOKEN_PINNING=1` binds each dynamic token to a single client device. On the first connection, the server pins the device key the client announces; any later connection presenting a **different** (or missing) key for that token is rejected, and a `token_pin_mismatch` audit + webhook event fires. This means a token leaked into a CI log or a config dump cannot be replayed from another machine without also stealing that machine's device key.
+`security.token_pinning: true` binds each dynamic token to a single client device. On the first connection, the server pins the device key the client announces; any later connection presenting a **different** (or missing) key for that token is rejected, and a `token_pin_mismatch` audit + webhook event fires. This means a token leaked into a CI log or a config dump cannot be replayed from another machine without also stealing that machine's device key.
 
 The client announces its device key when one is configured:
 

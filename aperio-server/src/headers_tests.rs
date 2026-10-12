@@ -1,23 +1,7 @@
 //! The server's own header rules: both directions applied, an add replacing
 //! case-insensitively, and an absent or malformed section leaving the default.
 
-use super::{HeaderRules, HeaderTransform, HeaderTransforms, from_config_file};
-
-/// Serializes tests that touch the process-global config document / default
-/// `aperio-server.yaml`. Loads `yaml` as the default document, runs `f`.
-fn with_config(yaml: &str, f: impl FnOnce()) {
-  let _lock = crate::test_support::config_lock();
-  struct Cleanup;
-  impl Drop for Cleanup {
-    fn drop(&mut self) {
-      let _ = std::fs::remove_file("aperio-server.yaml");
-    }
-  }
-  let _cleanup = Cleanup;
-  std::fs::write("aperio-server.yaml", yaml).unwrap();
-  crate::config_file::reload().unwrap();
-  f();
-}
+use super::{HeaderRules, HeaderTransform, HeaderTransforms, from_section};
 
 fn headers(list: &[(&str, &str)]) -> Vec<(String, String)> {
   list
@@ -89,28 +73,28 @@ fn empty_transform_is_a_no_op() {
 
 #[test]
 fn from_config_file_absent_section_is_default() {
-  with_config("other: 1\n", || {
+  {
+    let doc = "other: 1\n";
     // No `headers:` key → both directions are empty no-ops.
-    let t = from_config_file();
+    let t = from_section(crate::test_support::section(doc, "headers")).unwrap_or_default();
     assert!(t.request.is_empty());
     assert!(t.response.is_empty());
-  });
+  }
 }
 
 #[test]
 fn from_config_file_parses_the_section() {
-  with_config(
-    "headers:\n  response:\n    add:\n      X-Frame-Options: DENY\n    remove: [Server]\n",
-    || {
-      let t = from_config_file();
-      assert!(t.request.is_empty());
-      let out = t
-        .response
-        .apply(vec![("server".to_string(), "nginx".to_string())]);
-      assert_eq!(
-        out,
-        vec![("X-Frame-Options".to_string(), "DENY".to_string())]
-      );
-    },
-  );
+  {
+    let doc =
+      "headers:\n  response:\n    add:\n      X-Frame-Options: DENY\n    remove: [Server]\n";
+    let t = from_section(crate::test_support::section(doc, "headers")).unwrap_or_default();
+    assert!(t.request.is_empty());
+    let out = t
+      .response
+      .apply(vec![("server".to_string(), "nginx".to_string())]);
+    assert_eq!(
+      out,
+      vec![("X-Frame-Options".to_string(), "DENY".to_string())]
+    );
+  }
 }

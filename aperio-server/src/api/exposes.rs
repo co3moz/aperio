@@ -97,13 +97,6 @@ fn authorized(
       "Listener is outside your delegated allocation",
     ));
   }
-  if action != ExposeAction::Read && resource.source == ExposeSource::File {
-    return Err(failure(
-      StatusCode::CONFLICT,
-      "file_owned",
-      "Edit this rule in the server configuration file",
-    ));
-  }
   Ok(())
 }
 fn bounded_change(
@@ -172,7 +165,6 @@ async fn validate(state: &Arc<AppState>, spec: &ExposeSpec) -> Result<(), Respon
       source: ExposeSource::Api,
       spec: spec.clone(),
     },
-    legacy: None,
   };
   if matches!(
     crate::expose_manager::resolve::target(state, &rule).await,
@@ -295,8 +287,7 @@ pub(crate) async fn list(
   Json(serde_json::json!({"items": filtered.into_iter().skip(page.offset.unwrap_or(0)).take(page.limit.unwrap_or(100).min(500)).collect::<Vec<_>>(),
     "total": total, "volatile": manager.store.volatile,
     "history_error": manager.store.history_error.as_ref().map(|_| "Recent session history could not be persisted"),
-    "store_error": if caller.is_master_admin() { manager.store.load_error.clone() } else { None },
-    "file_error": if caller.is_master_admin() { manager.file_error.clone() } else { None }})).into_response()
+    "store_error": if caller.is_master_admin() { manager.store.load_error.clone() } else { None }})).into_response()
 }
 
 #[utoipa::path(get, path = "/aperio/api/exposes/{id}", params(("id" = String, Path)), description = "Inspect one authorized public listener.", tag = "exposes", responses((status = 200, description = "Current result", body = serde_json::Value), (status = 403, description = "Not authorized"), (status = 409, description = "Revision, port or quota conflict")))]

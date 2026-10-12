@@ -78,7 +78,7 @@ overrides.
 
 ## Releases
 
-Tagging a version (`git tag v0.2.0 && git push --tags`) triggers the release workflow: static binaries for Linux (x86_64/aarch64, musl), macOS (Intel/Apple Silicon), and Windows are built, checksummed, and attached to a GitHub Release, [install.sh](../install.sh) always picks up the latest. `aperio-client --version` / `aperio-server --version` print the installed version. The versioned `aperio.yaml` and `aperio-server.yaml` JSON Schemas (`aperio-client.<tag>.json`, `aperio-server.<tag>.json`) are attached to the release too, along with [The Complete Guide](book/aperio.tex) as a PDF (`aperio-guide.<tag>.pdf`, plus a stable `aperio-guide.pdf` for `releases/latest/download`).
+Tagging a version (`git tag v0.2.0 && git push --tags`) triggers the release workflow: static binaries for Linux (x86_64/aarch64, musl), macOS (Intel/Apple Silicon), and Windows are built, checksummed, and attached to a GitHub Release, [install.sh](../install.sh) always picks up the latest. `aperio-client --version` / `aperio-server --version` print the installed version. The versioned JSON Schemas for `aperio.yaml` and the server's settings (`aperio-client.<tag>.json`, `aperio-server.<tag>.json`) are attached to the release too, along with [The Complete Guide](book/aperio.tex) as a PDF (`aperio-guide.<tag>.pdf`, plus a stable `aperio-guide.pdf` for `releases/latest/download`).
 
 **Rehearse it first.** The same workflow runs from its Run button (`workflow_dispatch`) with the tag it is about to be given, and does everything a release does except publish: the five targets build, the .deb/.rpm are packaged, the guide is typeset and its version checked against the tag, the checksum manifest is written and signed, and the whole asset set is uploaded as a `release-rehearsal-<tag>` artifact for inspection instead of becoming a GitHub Release. No image is pushed, no attestation or tap commit is made. It exists because the guide and the packaging only ever run in this workflow, and both were broken on master for weeks with every other check green until 0.10.0 tried to ship them. Run it, wait for green, then tag.
 
@@ -93,7 +93,7 @@ The same run also publishes the multi-arch (amd64+arm64) Docker images `ghcr.io/
 
 ## Conventions
 
-- Configuration naming follows the [one-name-three-surfaces standard](configuration.md#the-standard-one-name-three-surfaces), CLI `--kebab-case` ↔ yaml `snake_case` ↔ env `APERIO_SNAKE_CASE`. Never rename across surfaces; keep legacy spellings as aliases.
+- Configuration naming follows the [one-name-three-surfaces standard](configuration.md#the-clients-standard-one-name-three-surfaces), CLI `--kebab-case` ↔ yaml `snake_case` ↔ env `APERIO_SNAKE_CASE`. Never rename across surfaces; keep legacy spellings as aliases.
 - Unit tests live next to the module in a `<module>_tests.rs` file, included with `#[cfg(test)] #[path = "..."] mod tests;`.
 - Every feature, fix, or behavior change updates `CHANGELOG.md` (`[Unreleased]` section, [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format) in the same commit.
 

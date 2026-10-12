@@ -1,0 +1,37 @@
+# First-start settings for this example, read once into an empty data
+# directory. Start the server with:
+#
+#   APERIO_SERVER_TOKEN=apr_observability_change_me APERIO_INIT_FILE=server-init.yaml aperio-server
+#
+# After the first start the settings live in the database: change them from
+# the dashboard (Settings), with `PUT /aperio/api/settings`, or export them
+# with `GET /aperio/api/export?include=settings`.
+
+settings:
+  # --- Prometheus ---
+  metrics:
+    enabled: true
+    token: replace-with-a-long-random-string   # gates /aperio/metrics
+
+  # --- Structured access log (one JSON line per proxied request) ---
+  logging:
+    access_log: ./data/access.jsonl
+
+  # --- OpenTelemetry traces (one OTLP span per proxied request) ---
+  otel:
+    enabled: true
+    endpoint: http://localhost:4318
+    protocol: http          # http (4318) or grpc (4317); unset follows the port
+    service_name: aperio-server
+
+  # --- Alerting (webhook/audit `alert_triggered` events) ---
+  alerts:
+    error_rate: 0.25        # fire when more than 25% of requests fail...
+    window: 5m              # ...measured over a 5-minute sliding window...
+    min_requests: 20        # ...with at least 20 requests in it
+    client_down: 2m         # fire when a known service is down for 2 minutes
+
+  # --- Audit log rotation ---
+  audit:
+    max_size: 10MB          # rotate audit.jsonl past 10 MB
+    max_files: 3            # keep audit.jsonl.1 to .3

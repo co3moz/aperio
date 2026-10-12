@@ -106,7 +106,7 @@ fn client_config_view(
       "cache",
       "true",
       "false",
-      "the server's response cache is disabled (APERIO_CACHE off), so the opt-in does nothing",
+      "the server's response cache is disabled (cache.enabled off), so the opt-in does nothing",
     );
   }
   if service.public_denied_warned {
@@ -122,7 +122,7 @@ fn client_config_view(
       "auth",
       "set",
       "ignored",
-      "the token does not permit controlling the visitor gate, the value was not user:password, or the server sets APERIO_IGNORE_CLIENT_AUTH",
+      "the token does not permit controlling the visitor gate, the value was not user:password, or the server sets access.ignore_client_auth",
     );
   }
   let declared_hostnames = declared_hostnames_of(service);

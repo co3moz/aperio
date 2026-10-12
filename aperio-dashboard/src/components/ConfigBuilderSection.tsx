@@ -156,8 +156,13 @@ function sectionsFor(
 }
 
 /**
- * Builds an `aperio.yaml` or `aperio-server.yaml` from a form, or edits one
- * that already exists.
+ * Builds an `aperio.yaml`, or a first-start settings document for a server,
+ * from a form, or edits one that already exists.
+ *
+ * The server keeps its settings in its database; what can be written ahead
+ * of a deployment is the document `APERIO_INIT_FILE` seeds them from, the
+ * settings under a `settings:` key. The form edits the settings, and the
+ * file wraps them.
  *
  * The form is generated from the JSON Schema the server serves, which is
  * derived from the very Rust types that parse these files, so every setting
@@ -225,22 +230,22 @@ export function ConfigBuilderSection() {
     [kind],
   )
 
-  const filename = kind === 'client' ? 'aperio.yaml' : 'aperio-server.yaml'
+  const filename = kind === 'client' ? 'aperio.yaml' : 'server-init.yaml'
   const yamlText = useMemo(() => {
     if (Object.keys(doc).length === 0) return ''
     try {
-      return stringify(doc, { lineWidth: 0 })
+      return stringify(kind === 'server' ? { settings: doc } : doc, { lineWidth: 0 })
     } catch {
       return ''
     }
-  }, [doc])
+  }, [doc, kind])
 
   return (
     <div className="space-y-6">
       <SectionHeader
         title={t('Config Builder')}
         description={t(
-          'Assemble an aperio.yaml or aperio-server.yaml from the settings this server understands, or open an existing one and edit it.',
+          'Assemble an aperio.yaml, or a server-init.yaml for a server’s first start, from the settings this server understands, or open an existing one and edit it.',
         )}
       >
         <div className="flex flex-wrap items-center gap-2">
@@ -264,7 +269,7 @@ export function ConfigBuilderSection() {
           <CardTitle>{t('Which file?')}</CardTitle>
           <CardDescription>
             {t(
-              'The client file configures a tunnel client and what it exposes; the server file configures the Aperio server itself.',
+              'The client file configures a tunnel client and what it exposes; the first-start document seeds a new server’s settings.',
             )}
           </CardDescription>
         </CardHeader>
@@ -282,14 +287,14 @@ export function ConfigBuilderSection() {
               }}
             >
               <ToggleGroupItem value="client">aperio.yaml</ToggleGroupItem>
-              <ToggleGroupItem value="server">aperio-server.yaml</ToggleGroupItem>
+              <ToggleGroupItem value="server">server-init.yaml</ToggleGroupItem>
             </ToggleGroup>
             {/* Keeps this column the same height as the one beside it, which
                 carries a hint under its buttons. */}
             <p className="max-w-md text-xs text-muted-foreground">
               {kind === 'client'
                 ? t('Configures a tunnel client and the backends it exposes.')
-                : t('Configures the Aperio server itself.')}
+                : t('Seeds a new server’s settings on its first start, through APERIO_INIT_FILE.')}
             </p>
           </div>
         </CardContent>
@@ -418,7 +423,17 @@ export function ConfigBuilderSection() {
         open={importOpen}
         onOpenChange={setImportOpen}
         filename={filename}
-        onImport={(parsed) => setDocs((prev) => ({ ...prev, [kind]: parsed }))}
+        onImport={(parsed) =>
+          setDocs((prev) => ({
+            ...prev,
+            // A first-start document carries the settings under `settings:`;
+            // the form edits what is inside it.
+            [kind]:
+              kind === 'server' && parsed.settings && typeof parsed.settings === 'object'
+                ? (parsed.settings as Doc)
+                : parsed,
+          }))
+        }
       />
       <ExportDialog
         open={exportOpen}

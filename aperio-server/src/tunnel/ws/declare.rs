@@ -251,7 +251,7 @@ impl ConnCtx {
     }
     // The service asked to be cached but the server's cache is
     // off, so the opt-in silently does nothing, warn once so the
-    // operator can enable APERIO_CACHE (or the owner can drop the
+    // operator can enable cache.enabled (or the owner can drop the
     // flag). Surfaced in the dashboard as a badge too.
     if cache
       && !state.config().cache_enabled
@@ -259,7 +259,7 @@ impl ConnCtx {
     {
       handle.service_at_mut(service_index).cache_ignored_warned = true;
       warn!(
-        "Client {} requested response caching (cache: true) but the server cache is disabled (APERIO_CACHE off); the opt-in is ignored",
+        "Client {} requested response caching (cache: true) but the server cache is disabled (cache.enabled off); the opt-in is ignored",
         client_id
       );
     }

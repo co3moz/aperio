@@ -352,7 +352,7 @@ impl ConnCtx {
       return false;
     }
 
-    // Trust-on-first-use token pinning (APERIO_TOKEN_PINNING): pin the
+    // Trust-on-first-use token pinning (security.token_pinning): pin the
     // first device key seen for a dynamic token and reject a later
     // connection that presents a different (or missing) key. Done
     // outside the clients lock so we never hold two store locks.
@@ -365,7 +365,7 @@ impl ConnCtx {
           Some(key) => store.pin_key(&token_id, key),
           // No key announced while pinning is required: reject (fail
           // closed). A key-less client can never satisfy pinning, so
-          // enabling APERIO_TOKEN_PINNING requires every client to
+          // enabling security.token_pinning requires every client to
           // carry a device key (APERIO_DEVICE_KEY[_FILE]).
           None => Ok(crate::store::tokens::PinOutcome::Mismatch),
         }

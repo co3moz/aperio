@@ -6,24 +6,23 @@ later ones limit the damage and make an incident visible. Nothing here is
 exotic, every item maps to an existing setting, but going live with the
 secure defaults in place is the difference between a tunnel and a liability.
 
-> **Configuration:** Server settings go in `aperio-server.yaml` (`trust_proxy` maps to `APERIO_TRUST_PROXY`; `admin_allowed_ips` maps to `APERIO_ADMIN_ALLOWED_IPS`). Client settings go in `aperio.yaml`. Server file values override environment variables. See [Configuration](configuration.md#grouped-keys) for the full mapping.
-
-Run `aperio-server --check-config` after wiring these up: it validates the
-layered configuration (env + `aperio-server.yaml`) without binding a port.
+> **Configuration:** Server settings live in the server's database and are changed from the dashboard (**Settings**), with `PUT /aperio/api/settings`, or in a first-start document (`APERIO_INIT_FILE`); they are written as paths such as `cache.enabled`. Client settings go in `aperio.yaml`. See [Configuration](configuration.md#server-settings).
+Check a settings document with `aperio-server check <file>` before applying
+it: it runs the same checks a change gets, without touching a server.
 
 ## Transport & network
 
 - [ ] **Terminate TLS in front of the server.** Aperio speaks plain HTTP; put
       it behind a TLS-terminating reverse proxy (or a CDN) and never expose the
       HTTP port directly to the internet.
-- [ ] **Set `APERIO_TRUST_PROXY` / `APERIO_TRUSTED_PROXIES` correctly.** Only
+- [ ] **Set `proxy.trust` / `proxy.trusted` correctly.** Only
       enable proxy trust when you actually run behind one, and prefer the
-      CIDR-based `APERIO_TRUSTED_PROXIES` so client IPs are resolved by walking
+      CIDR-based `proxy.trusted` so client IPs are resolved by walking
       the `X-Forwarded-For` chain. Trusting the header without a proxy lets
       visitors spoof their IP and bypass rate limiting.
-- [ ] **Enable `APERIO_SECURE_COOKIES`.** Session cookies then carry the
+- [ ] **Enable `security.secure_cookies`.** Session cookies then carry the
       `Secure` flag (defaults on when proxy trust is on).
-- [ ] **Fence the admin surface with `APERIO_ADMIN_ALLOWED_IPS`.** Restrict the
+- [ ] **Fence the admin surface with `security.admin_allowed_ips`.** Restrict the
       `/aperio` dashboard and `/aperio/api/*` endpoints to your operator
       network (office/VPN CIDRs). The login page and visitor-auth endpoints stay
       reachable so password-gated proxied sites keep working.
@@ -31,8 +30,8 @@ layered configuration (env + `aperio-server.yaml`) without binding a port.
 ## Credentials & authentication
 
 - [ ] **Use a long, random `APERIO_SERVER_TOKEN`.** This is the master
-      credential; treat it like a root password. `--check-config` warns on
-      tokens shorter than 16 characters.
+      credential; treat it like a root password: 32 random bytes,
+      `openssl rand -hex 32`.
 - [ ] **Prefer scoped dynamic tokens over the master token** for clients, CI,
       and automation. Scope each to the hostnames/paths it needs, set a TTL, and
       add per-token rate limits and daily byte quotas where relevant. See
@@ -41,7 +40,7 @@ layered configuration (env + `aperio-server.yaml`) without binding a port.
       and create per-person accounts with the least role that works
       (viewer/operator/admin) instead of sharing the master login.
 - [ ] **Turn on a second factor** (TOTP or a passkey) for dashboard admins.
-- [ ] **Set `APERIO_OIDC_REDIRECT_URL` if you use OIDC.** Without it the
+- [ ] **Set `oidc.redirect_url` if you use OIDC.** Without it the
       callback URL is derived from each request's `Host`, so the hostname a
       login starts on decides where the provider sends the authorization code
       back to. One fixed URL, the one registered with your provider.
@@ -52,23 +51,23 @@ layered configuration (env + `aperio-server.yaml`) without binding a port.
 
 ## Abuse & brute-force protection
 
-- [ ] **Keep the login lockout enabled** (`APERIO_LOGIN_LOCKOUT_THRESHOLD` /
-      `APERIO_LOGIN_LOCKOUT_SECS`); the defaults escalate per repeat offender.
-- [ ] **Set per-IP rate limits** (`APERIO_IP_LIMIT_MAX` / `APERIO_IP_LIMIT_REFILL`)
-      sized to your traffic, plus `APERIO_MAX_CONCURRENT_REQUESTS` and
-      `APERIO_MAX_BODY_SIZE` so a single visitor cannot exhaust the server.
+- [ ] **Keep the login lockout enabled** (`security.login_lockout.threshold` /
+      `security.login_lockout.duration`); the defaults escalate per repeat offender.
+- [ ] **Set per-IP rate limits** (`limits.ip_rate.burst` / `limits.ip_rate.per_second`)
+      sized to your traffic, plus `limits.concurrent_requests` and
+      `limits.request_body` so a single visitor cannot exhaust the server.
 
 ## Data lifecycle & durability
 
 - [ ] **Configure retention** (`APERIO_RETENTION_*`) so captures, access logs,
       audit events, and stats do not grow without bound, and cap the store with
-      `APERIO_DB_MAX_BYTES`.
-- [ ] **Schedule physical backups** (`APERIO_BACKUP_INTERVAL` /
-      `APERIO_BACKUP_DIR` / `APERIO_BACKUP_KEEP`) and store snapshots off-box.
+      `retention.db_max_size`.
+- [ ] **Schedule physical backups** (`backup.interval` /
+      `backup.dir` / `backup.keep`) and store snapshots off-box.
       Complement them with periodic logical exports (`/aperio/api/export`).
       The two are for different emergencies; see *Restoring, and which restore
       you want* below for which one to reach for.
-- [ ] **Keep secret redaction on** (`APERIO_INSPECTOR_REDACT`, on by default) so
+- [ ] **Keep secret redaction on** (`inspector.redact`, on by default) so
       the request inspector never shows credentials to a dashboard viewer.
 
 ### Restoring, and which restore you want
@@ -88,7 +87,7 @@ for getting a machine back, and it is offline by nature. The documented step
 gets you a plaintext file:
 
 ```
-aperio-server --decrypt-backup /backups/aperio-1755500000.db.enc /tmp/restored.db
+aperio-server backup decrypt /backups/aperio-1755500000.db.enc /tmp/restored.db
 ```
 
 What that step does not say is what comes next, and the next part has a trap
@@ -120,8 +119,7 @@ The whole sequence:
    performed as root leaves a database the service user cannot write, which
    surfaces later as a write failure rather than at startup.
 5. **Start the server and check what came back**: the client count and token
-   list on the dashboard, and `aperio-server --check-config` for a clean
-   startup. A snapshot restores the state as of when it was taken, so tokens
+   list on the dashboard, and the startup log for a clean start. A snapshot restores the state as of when it was taken, so tokens
    issued after that moment are gone and the clients holding them will be
    refused.
 
@@ -136,25 +134,26 @@ where a real restore goes wrong quietly.
 - [ ] **Point a webhook at the security events**, `canary_tripped`,
       `token_new_ip`, `alert_triggered`, `disk_usage_warning`, so they page
       someone. See [Observability](observability.md).
-- [ ] **Enable threshold alerting** (`APERIO_ALERT_ERROR_RATE` /
-      `APERIO_ALERT_CLIENT_DOWN`).
+- [ ] **Enable threshold alerting** (`alerts.error_rate` /
+      `alerts.client_down`).
 - [ ] **Fence outbound callbacks** where webhook creators are not fully
-      trusted. `APERIO_OUTBOUND_ALLOWLIST` names the destinations the server
+      trusted. `outbound.allowlist` names the destinations the server
       may call for webhook deliveries and autoscaling hooks; failing that,
-      `APERIO_OUTBOUND_BLOCK_PRIVATE=1` at least keeps them off the internal
+      `outbound.block_private: true` at least keeps them off the internal
       network. Both are off by default, and without one of them the delivery
       log lets a tenant probe your private network one port at a time. See
       [Threat Model](threat-model.md).
 - [ ] **Ship the audit log** off-box and verify it periodically. The audit log
-      is a tamper-evident hash chain; `aperio-server --verify-audit` (or
+      is a tamper-evident hash chain; `aperio-server audit verify` (or
       `GET /aperio/api/audit/verify`) reports any broken line.
 - [ ] **Scrape `/aperio/metrics`** with an authenticated token and alert on the
       request-duration and error trends.
 
 ## Before you flip the switch
 
-- [ ] `aperio-server --check-config` is clean (no `FAIL`, warnings reviewed).
-- [ ] `aperio-server --verify-audit` passes on a fresh install.
+- [ ] The settings are what you meant: `aperio-server settings show` on the
+      host lists everything that differs from the defaults.
+- [ ] `aperio-server audit verify` passes on a fresh install.
 - [ ] A backup snapshot restores into a working server in a staging test,
       following the whole sequence in *Restoring, and which restore you want*,
       not just the decrypt step.

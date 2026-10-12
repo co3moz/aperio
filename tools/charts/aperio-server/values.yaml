@@ -1,26 +1,28 @@
-# The Aperio server's own configuration, verbatim.
+# The port the server listens on inside the pod.
+port: 8080
+
+# The server's settings for its **first start**, verbatim.
 #
-# **This is the whole design decision of the chart.** Everything under
-# `config:` is written out as `aperio-server.yaml` and handed to the server as
-# `APERIO_SERVER_CONFIG`, unchanged and unvalidated by the templates. So the
-# reference is docs/configuration.md and the JSON Schema published with each
-# release, not a second vocabulary invented here, and a key added to Aperio
-# works in this chart on the day it ships without the chart being touched.
+# The server keeps its settings in its database, on the volume below, and
+# changes them from the dashboard or `PUT /aperio/api/settings` without a
+# restart. What a chart can usefully say is what a new server starts with:
+# everything under `initSettings:` is written out as the `settings:` section
+# of a document handed to the server as `APERIO_INIT_FILE`, unchanged and
+# unvalidated by the templates. The server reads it once, into an empty
+# database, and refuses to start on a setting it cannot honour, naming it.
 #
-# The trap this avoids is the usual one: a chart that mirrors a subset of the
-# application's settings as its own values, which then drift, cover less every
-# release, and force an operator to learn two names for one thing.
-config:
-  host: 0.0.0.0
-  port: 8080
-  # The master token belongs in a Secret rather than here. Leave this out and
-  # set `masterToken` (or `existingSecret`) below; it is injected as
-  # APERIO_SERVER_TOKEN. Leave the key out of the file entirely: the file wins
-  # over the environment, so a `server.token` written here would outvote the
-  # Secret.
-  #
-  # server:
-  #   token: ...
+# Changing these values on an installed release therefore changes nothing on
+# the running server, deliberately: the dashboard and this file would
+# otherwise disagree about which one is the truth. To roll a settings document
+# out to a running server, `POST /aperio/api/import` it.
+#
+# The reference is docs/configuration.md and the JSON Schema published with
+# each release, not a second vocabulary invented here.
+initSettings: {}
+#  proxy:
+#    trusted: [10.0.0.0/8]
+#  cache:
+#    enabled: true
 
 # The master token. Written into a Secret created by this chart.
 #
@@ -32,13 +34,13 @@ masterToken: ""
 existingSecret: ""
 tokenKey: token
 
-# Extra environment for the container, for values that come from elsewhere.
-# Every setting is reachable as an APERIO_* variable, so this is the escape
-# hatch for anything a Secret or a downward-API field has to supply.
+# Extra environment for the container. The server reads only its boot
+# settings from the environment (see docs/configuration.md), so this is for
+# those, a backup encryption key from a Secret for instance.
 extraEnv: []
-#  - name: APERIO_OIDC_CLIENT_SECRET
+#  - name: APERIO_BACKUP_KEY
 #    valueFrom:
-#      secretKeyRef: { name: aperio-oidc, key: client-secret }
+#      secretKeyRef: { name: aperio-backup, key: key }
 
 image:
   repository: ghcr.io/co3moz/aperio-server

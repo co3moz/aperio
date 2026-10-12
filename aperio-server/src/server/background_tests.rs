@@ -3,7 +3,6 @@
 
 use crate::store::tokens::TokenSpec;
 use crate::test_support::*;
-use std::time::Duration;
 
 // ---------------------------------------------------------------------------
 // The background loops, one beat at a time.
@@ -93,72 +92,6 @@ async fn one_expiry_tick_warns_once_and_rearms_on_refresh() {
     "a passed expiry is forgotten so a refreshed token can warn again"
   );
   let _ = expiring_soon;
-}
-
-#[test]
-fn one_hot_reload_tick_applies_a_changed_file_and_audits_it() {
-  use crate::hot_reload_tick_once;
-  let _lock = crate::test_support::config_lock();
-  struct Cleanup;
-  impl Drop for Cleanup {
-    fn drop(&mut self) {
-      unsafe { std::env::remove_var("APERIO_SERVER_CONFIG") };
-      let _ = crate::config_file::reload();
-    }
-  }
-  let _cleanup = Cleanup;
-  let file =
-    crate::test_support::test_temp_root().join(format!("hotreload-{}.yaml", uuid::Uuid::new_v4()));
-  std::fs::write(&file, "gateway_timeout: 10\n").unwrap();
-  unsafe { std::env::set_var("APERIO_SERVER_CONFIG", file.to_str().unwrap()) };
-  crate::config_file::load();
-
-  let rt = tokio::runtime::Builder::new_current_thread()
-    .enable_all()
-    .build()
-    .unwrap();
-  rt.block_on(async {
-    let state = std::sync::Arc::new(test_state());
-    let mtime = std::fs::metadata(&file)
-      .ok()
-      .and_then(|m| m.modified().ok());
-
-    // Nothing moved: the beat is a no-op and keeps the mtime.
-    let same = hot_reload_tick_once(&state, &file, mtime).await;
-    assert_eq!(same, mtime);
-    assert!(
-      state
-        .audit
-        .lock()
-        .await
-        .recent()
-        .iter()
-        .all(|e| e.event != "config_reloaded"),
-      "an unchanged file reloads nothing"
-    );
-
-    // The file changes: the beat re-applies it, the live setting moves, and
-    // the audit trail says which key. `None` as the remembered mtime stands
-    // in for "it moved": filesystem mtime granularity is up to a second, and
-    // a test must not sleep its way across it.
-    std::fs::write(&file, "gateway_timeout: 42\n").unwrap();
-    let next = hot_reload_tick_once(&state, &file, None).await;
-    assert!(
-      next.is_some(),
-      "the new mtime is what the next beat compares to"
-    );
-    assert_eq!(state.config().gateway_timeout, Duration::from_secs(42));
-    let events = state.audit.lock().await.recent();
-    let entry = events
-      .iter()
-      .find(|e| e.event == "config_reloaded")
-      .expect("the reload is audited");
-    assert!(
-      entry.details.contains("gateway_timeout"),
-      "{}",
-      entry.details
-    );
-  });
 }
 
 #[tokio::test]

@@ -414,23 +414,14 @@ impl StaticRoutes {
   }
 }
 
-/// Reads and compiles the `routes:` section of `aperio-server.yaml`.
-/// Like `headers:`, a malformed section is a startup error.
-pub(crate) fn from_config_file() -> StaticRoutes {
-  let Some(section) = crate::config_file::structured("routes") else {
-    return StaticRoutes::default();
+/// Compiles the `routes:` section of the settings.
+pub(crate) fn from_section(section: Option<serde_yaml::Value>) -> Result<StaticRoutes, String> {
+  let Some(section) = section else {
+    return Ok(StaticRoutes::default());
   };
-  let parsed: Result<Vec<RouteRule>, _> = serde_yaml::from_value(section);
-  let compiled = parsed
-    .map_err(|e| e.to_string())
-    .and_then(StaticRoutes::compile);
-  match compiled {
-    Ok(routes) => routes,
-    Err(err) => {
-      tracing::error!("invalid `routes:` section in aperio-server.yaml: {err}");
-      std::process::exit(1);
-    }
-  }
+  let parsed: Vec<RouteRule> =
+    serde_yaml::from_value(section).map_err(|e| format!("routes: {e}"))?;
+  StaticRoutes::compile(parsed).map_err(|e| format!("routes: {e}"))
 }
 
 #[cfg(test)]

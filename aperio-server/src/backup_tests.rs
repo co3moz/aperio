@@ -1,51 +1,10 @@
-//! Unit tests for the scheduled DB-backup helpers: the env-driven schedule
-//! parser, the filename timestamp codec, the one-shot `VACUUM INTO` snapshot,
+//! Unit tests for the scheduled DB-backup helpers: the schedule read from
+//! the settings, the filename timestamp codec, the one-shot `VACUUM INTO` snapshot,
 //! and the retention prune. The `spawn` task's infinite interval loop is driven
 //! for a single startup iteration under a tokio runtime; the perpetual loop
 //! itself is not asserted.
 
 use super::*;
-
-/// Serializes the tests that mutate the `APERIO_BACKUP_*` environment.
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-const BACKUP_KEYS: &[&str] = &[
-  "APERIO_BACKUP_INTERVAL",
-  "APERIO_BACKUP_DIR",
-  "APERIO_BACKUP_KEEP",
-];
-
-struct EnvSnapshot {
-  saved: Vec<(&'static str, Option<String>)>,
-}
-
-impl EnvSnapshot {
-  fn take() -> Self {
-    let saved = BACKUP_KEYS
-      .iter()
-      .map(|k| (*k, std::env::var(k).ok()))
-      .collect();
-    for k in BACKUP_KEYS {
-      unsafe { std::env::remove_var(k) };
-    }
-    Self { saved }
-  }
-}
-
-impl Drop for EnvSnapshot {
-  fn drop(&mut self) {
-    for (k, v) in &self.saved {
-      match v {
-        Some(val) => unsafe { std::env::set_var(k, val) },
-        None => unsafe { std::env::remove_var(k) },
-      }
-    }
-  }
-}
-
-fn set(k: &str, v: &str) {
-  unsafe { std::env::set_var(k, v) };
-}
 
 fn temp_dir() -> PathBuf {
   let dir =
@@ -55,50 +14,64 @@ fn temp_dir() -> PathBuf {
 }
 
 // --------------------------------------------------------------------------
-// BackupConfig::from_env
+// BackupConfig::from_settings
 // --------------------------------------------------------------------------
 
 #[test]
-fn from_env_disabled_without_interval_or_dir() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
-
+fn from_settings_disabled_without_interval_or_dir() {
   // Nothing set at all.
-  assert!(BackupConfig::from_env().is_none());
+  crate::live::reset();
+  assert!(BackupConfig::from_settings().is_none());
 
   // Interval set but no directory.
-  set("APERIO_BACKUP_INTERVAL", "60");
-  assert!(BackupConfig::from_env().is_none());
+  crate::live::set_yaml(
+    "backup:
+  interval: 1m
+",
+  );
+  assert!(BackupConfig::from_settings().is_none());
 
   // A zero interval is treated as disabled even with a directory.
-  set("APERIO_BACKUP_INTERVAL", "0");
-  set("APERIO_BACKUP_DIR", "/tmp/aperio-backups");
-  assert!(BackupConfig::from_env().is_none());
+  crate::live::set_yaml(
+    "backup:
+  interval: 0s
+  dir: /tmp/aperio-backups
+",
+  );
+  assert!(BackupConfig::from_settings().is_none());
 
   // A blank directory is filtered out.
-  set("APERIO_BACKUP_INTERVAL", "60");
-  set("APERIO_BACKUP_DIR", "   ");
-  assert!(BackupConfig::from_env().is_none());
+  crate::live::set_yaml(
+    "backup:
+  interval: 1m
+  dir: \"   \"
+",
+  );
+  assert!(BackupConfig::from_settings().is_none());
 }
 
 #[test]
-fn from_env_enabled_with_defaults_and_overrides() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
-
-  set("APERIO_BACKUP_INTERVAL", "120");
-  set("APERIO_BACKUP_DIR", "/tmp/aperio-backups");
+fn from_settings_enabled_with_defaults_and_overrides() {
+  crate::live::set_yaml(
+    "backup:
+  interval: 2m
+  dir: /tmp/aperio-backups
+",
+  );
   // Keep unset -> default of 7.
-  let cfg = BackupConfig::from_env().expect("enabled");
+  let cfg = BackupConfig::from_settings().expect("enabled");
   assert_eq!(cfg.interval, Duration::from_secs(120));
   assert_eq!(cfg.dir, PathBuf::from("/tmp/aperio-backups"));
   assert_eq!(cfg.keep, 7);
 
-  // An explicit keep overrides the default; a garbage keep also falls back.
-  set("APERIO_BACKUP_KEEP", "3");
-  assert_eq!(BackupConfig::from_env().unwrap().keep, 3);
-  set("APERIO_BACKUP_KEEP", "not-a-number");
-  assert_eq!(BackupConfig::from_env().unwrap().keep, 7);
+  crate::live::set_yaml(
+    "backup:
+  interval: 2m
+  dir: /tmp/aperio-backups
+  keep: 3
+",
+  );
+  assert_eq!(BackupConfig::from_settings().unwrap().keep, 3);
 }
 
 // --------------------------------------------------------------------------
@@ -195,9 +168,9 @@ fn prune_on_missing_dir_is_a_noop() {
 
 #[test]
 fn spawn_is_inert_when_unconfigured() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
-  // No backup env -> from_env() is None -> spawn returns without spawning.
+  crate::live::reset();
+  // No backup settings -> from_settings() is None -> spawn returns without
+  // spawning.
   let state = std::sync::Arc::new(crate::test_support::test_state());
   spawn(state);
 }
@@ -209,22 +182,20 @@ async fn spawn_writes_a_snapshot_on_startup() {
   let _conn = crate::store::open_db(data_dir.to_str().unwrap());
   let backup_dir = temp_dir();
 
-  // `spawn` reads the schedule synchronously (before its task is spawned), so
-  // the env only needs to be held around that call. Scope the lock/snapshot so
-  // no non-Send guard is held across the awaits below.
-  {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let _env = EnvSnapshot::take();
-    // A large interval so only the immediate first tick fires within the test.
-    set("APERIO_BACKUP_INTERVAL", "3600");
-    set("APERIO_BACKUP_DIR", backup_dir.to_str().unwrap());
-    set("APERIO_BACKUP_KEEP", "2");
-
-    let mut st = crate::test_support::test_state();
-    // spawn derives the db path from settings_path.parent()/aperio.db.
-    st.settings_path = data_dir.join("settings.json");
-    spawn(std::sync::Arc::new(st));
-  }
+  // `spawn` reads the schedule synchronously, before its task is spawned.
+  // A large interval so only the immediate first tick fires within the test.
+  crate::live::set_yaml(&format!(
+    "backup:
+  interval: 1h
+  dir: {:?}
+  keep: 2
+",
+    backup_dir.to_str().unwrap()
+  ));
+  let mut st = crate::test_support::test_state();
+  // spawn derives the db path from the data directory.
+  st.data_dir = data_dir.to_string_lossy().into_owned();
+  spawn(std::sync::Arc::new(st));
 
   // Wait for the first (immediate) interval tick to produce a snapshot.
   let mut wrote = false;

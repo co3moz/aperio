@@ -37,7 +37,7 @@ Each is a directory under `e2e/specs/`, and each runs on its own, as does each f
 | `cache` | cache hits, ETag/304, serve-stale during an outage, single-flight coalescing, stale-while-revalidate, ranged reads, purge |
 | `health` | `target_health` probes: unhealthy reporting and routing exclusion, recovery, immediate first probe, `wait_for_backend` |
 | `multihost` | one service claiming several hostnames; per-service static `serve:` |
-| `config` | `aperio-server.yaml` hot-reload, `denied_ips`, per-hostname error pages, `--print-schema` / `--print-config` / `--check-config`, tunnel compression |
+| `config` | settings applied live and from a first-start document, `security.denied_ips` and `settings reset`, per-hostname error pages, `schema` / `check` / `apply`, tunnel compression |
 | `api-cli` | the `aperio-client api …` admin commands |
 | `scaling` | cold start from zero, single-flight scaling calls, the SSRF fence |
 | `messages` | publish/subscribe between clients, the local HTTP and MQTT faces, QoS 1, subscription commands, messaging metrics |

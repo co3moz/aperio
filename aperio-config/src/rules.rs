@@ -3,94 +3,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::*;
 
-/// One `expose:` entry of `aperio-server.yaml`: a raw public TCP or UDP port the
-/// server relays into a client's declared tunnel, with no binder peer.
-#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct ExposeEntry {
-  /// Bind address; omitted uses the server's host setting (IPv6 is v6-only).
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["0.0.0.0", "::1"]))]
-  pub address: Option<std::net::IpAddr>,
-  /// Whether this listener accepts public traffic.
-  #[serde(default = "expose_enabled")]
-  pub enabled: bool,
-  /// Protocol-specific connection, queue and bandwidth limits.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = [{"protocol": "tcp", "max_connections": 256, "open_timeout_secs": 10, "drain_timeout_secs": 30}]))]
-  pub limits: Option<crate::expose::ExposeLimits>,
-  /// Allowed visitor IP addresses or CIDRs; empty permits every source.
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
-  #[schemars(extend("examples" = [["192.0.2.0/24", "2001:db8::/32"]]))]
-  pub allowed_ips: Vec<String>,
-  /// Visitor-facing hostname or IP for copied public endpoints; does not change the bind.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["tunnel.example.com"]))]
-  pub advertised_host: Option<String>,
-  /// Transport of the exposed port: `tcp` or `udp`. UDP listeners use bounded
-  /// peer sessions, queues and datagram sizes.
-  /// Default: `tcp`.
-  #[serde(default = "default_tcp")]
-  #[schemars(extend("examples" = ["tcp", "udp"]))]
-  pub protocol: String,
-  /// Public port the server listens on.
-  #[schemars(extend("examples" = [2222]))]
-  pub port: u16,
-  /// Name of the tunnel this port is relayed into. Preferred over `key`:
-  /// the claim is settled by identity (which organization declared the
-  /// tunnel) rather than by a secret copied into two files. May be written
-  /// as `<org>@<name>`, e.g. `payments@postgres`, which says the same thing
-  /// as a separate `org:` and reads the way the dashboard shows it.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["ssh_bastion", "payments@postgres"]))]
-  pub tunnel: Option<String>,
-  /// Name of the organization whose client may claim this port. A tunnel name
-  /// is unique inside an organization and nowhere else, so this is what makes
-  /// the claim unambiguous. Unset (with no `<org>@` prefix and no `token`)
-  /// means the master organization.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["payments"]))]
-  pub org: Option<String>,
-  /// Name of the token whose client may claim this port. Superseded by `org`:
-  /// a token name is not unique across organizations, so a rule naming one
-  /// can match a client of another organization, and which one gets the port
-  /// is not defined. Still honored; write `org` instead.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["bastion-host"], "deprecated" = true))]
-  pub token: Option<String>,
-  /// Deprecated spelling: a shared secret the client's tunnel declaration
-  /// repeats as `expose: <key>`. Still honored, but it names no owner, cannot
-  /// be revoked, and lives in plaintext in two files; prefer `tunnel` + `token`.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["k5fj2q-expose-secret"]))]
-  pub key: Option<String>,
-}
-
-fn expose_enabled() -> bool {
-  true
-}
-
-impl Default for ExposeEntry {
-  fn default() -> Self {
-    Self {
-      address: None,
-      enabled: true,
-      limits: None,
-      allowed_ips: Vec::new(),
-      advertised_host: None,
-      protocol: "tcp".into(),
-      port: 0,
-      tunnel: None,
-      org: None,
-      token: None,
-      key: None,
-    }
-  }
-}
-
 /// One `rate_limits:` entry: an aggregate requests-per-second ceiling for a
 /// hostname and/or path prefix, independent of the per-visitor IP limit.
-#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct RateLimitRule {
   /// Hostname the rule applies to (omit for any host).
@@ -113,7 +28,7 @@ pub struct RateLimitRule {
 
 /// One `fallbacks:` entry: where to send visitors of a hostname no client
 /// currently serves, instead of answering with a gateway error.
-#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct FallbackRule {
   /// Hostname to catch, or `*` for every unserved hostname.
@@ -132,7 +47,7 @@ pub struct FallbackRule {
 }
 
 /// A header match inside a `waf:` rule.
-#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct WafHeaderMatch {
   /// Header name to inspect (case-insensitive).
@@ -145,7 +60,7 @@ pub struct WafHeaderMatch {
 
 /// One `waf:` entry: a request is denied with `403` when every set condition
 /// matches, or answered `413` when `max_body` is exceeded.
-#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct WafRule {
   /// Regular expression matched against the request path.
@@ -164,7 +79,7 @@ pub struct WafRule {
 }
 
 /// The fixed response of a client-less `respond` route.
-#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema, PartialEq)]
 pub struct RespondRule {
   /// HTTP status to answer with. Default: `200`.
   #[schemars(extend("examples" = [503]))]
@@ -215,32 +130,9 @@ pub struct CircuitBreakerConfig {
   pub open_for: Option<u64>,
 }
 
-/// Request-id correlation (`request_id:`): the id the server already assigns
-/// every proxied request, made visible to the backend and to the visitor.
-#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct RequestIdGroup {
-  /// Send the id to the backend and echo it on the response. On by default
-  /// (env: APERIO_REQUEST_ID).
-  #[schemars(extend("examples" = [false]))]
-  pub enabled: Option<bool>,
-  /// Header carrying it. Default: `x-request-id`
-  /// (env: APERIO_REQUEST_ID_HEADER).
-  #[schemars(extend("examples" = ["x-correlation-id"]))]
-  pub header: Option<String>,
-  /// Adopt the visitor's own value when the request already carries one,
-  /// instead of ignoring it. Off by default: the header is attacker-supplied,
-  /// so trusting it lets a visitor choose what appears in your logs and in
-  /// your backend's. Turn it on behind a proxy that sets the header itself.
-  /// Default: `false` (env: APERIO_REQUEST_ID_TRUST_INBOUND).
-  #[schemars(extend("examples" = [true]))]
-  pub trust_inbound: Option<bool>,
-}
-
-/// One `alert_rules:` entry: a quantity the server measures, a bound, and how
-/// long the condition must hold. A list of mappings, so it has no
-/// environment-variable equivalent.
-#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+/// One `alerts.rules` entry: a quantity the server measures, a bound, and how
+/// long the condition must hold.
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct AlertRule {
   /// Names the alert. It becomes the event's `kind`, which is what a webhook
@@ -271,7 +163,7 @@ pub struct AlertRule {
 ///
 /// A list of mappings, so it has no environment-variable equivalent, like
 /// `routes:` and `rate_limits:`.
-#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct MaintenanceWindow {
   /// Hostname or pattern the window applies to, in the same shapes the
@@ -301,13 +193,13 @@ pub struct MaintenanceWindow {
   pub reason: Option<String>,
 }
 
-/// One `routes:` entry of `aperio-server.yaml`. Either an *answer* rule, a
+/// One `routes` entry of the server's settings. Either an *answer* rule, a
 /// hostname/path match paired with exactly one action (`redirect` or
 /// `respond`) served without a client, or a *policy* rule, which has neither
 /// action and instead carries settings (`timeout`, `headers`, `rate_limit`)
 /// that apply to proxied traffic matching it. The two kinds are matched
 /// independently, each first-match in file order.
-#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema, PartialEq)]
 pub struct RouteRule {
   /// Hostname to match exactly (unset = any hostname).
   #[schemars(extend("examples" = ["old.example.com"]))]
@@ -354,7 +246,7 @@ pub struct RouteRule {
 ///
 /// Weighted routing and a header-based canary are the same mechanism seen from
 /// two angles, which is why they are one block rather than two settings.
-#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct RouteCanary {
   /// Name of the `services:` entry serving the new version. Clients that
@@ -384,7 +276,7 @@ pub struct RouteCanary {
 
 /// A `rate_limit:` block inside a `routes:` entry: the same token bucket as a
 /// `rate_limits:` rule, without repeating the hostname and path.
-#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct RouteRateLimit {
   /// Sustained requests per second allowed to the route.
@@ -399,9 +291,9 @@ pub struct RouteRateLimit {
   pub methods: Option<Vec<String>>,
 }
 
-/// One `error_pages:` entry of `aperio-server.yaml`: per-hostname custom
+/// One `error_pages` entry of the server's settings: per-hostname custom
 /// 504/503 pages overriding the global `504_page`/`503_page` for that host.
-#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema, PartialEq)]
 pub struct ErrorPageRule {
   /// Hostname the pages apply to (matched exactly, case-insensitive).
   #[schemars(extend("examples" = ["app.example.com"]))]

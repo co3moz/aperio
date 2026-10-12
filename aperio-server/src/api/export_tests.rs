@@ -4,6 +4,7 @@ use super::*;
 use crate::store::tokens::TokenSpec;
 use crate::store::users::Role;
 use crate::test_support::*;
+use aperio_config::server_settings::ServerSettings;
 use axum::extract::{ConnectInfo, Query, State};
 
 /// The default section set (what `?include=` unset means).
@@ -24,7 +25,7 @@ fn import_dump(
   webhooks: Option<Vec<Webhook>>,
   users: Option<Vec<User>>,
   organizations: Option<Vec<Organization>>,
-  settings_overrides: Option<SettingsOverrides>,
+  settings: Option<ServerSettings>,
 ) -> Json<ImportDump> {
   Json(ImportDump {
     exposes: None,
@@ -32,7 +33,7 @@ fn import_dump(
     tokens,
     webhooks,
     users,
-    settings_overrides,
+    settings,
     organizations,
     scaling: None,
     statistics: None,
@@ -40,6 +41,7 @@ fn import_dump(
     activity: None,
     inbox: None,
     admin_keys: None,
+    ..Default::default()
   })
 }
 
@@ -97,7 +99,7 @@ async fn export_empty_state_returns_dump() {
   assert_eq!(body["webhooks"].as_array().unwrap().len(), 0);
   assert_eq!(body["users"].as_array().unwrap().len(), 0);
   assert_eq!(body["organizations"].as_array().unwrap().len(), 0);
-  assert!(body["settings_overrides"].is_object());
+  assert!(body["settings"].is_object());
 }
 
 #[tokio::test]
@@ -169,26 +171,36 @@ async fn import_rejects_unsupported_format_version() {
 }
 
 #[tokio::test]
-async fn import_rejects_invalid_settings_overrides() {
+async fn import_rejects_settings_the_server_cannot_honour() {
   let state = Arc::new(test_state());
   let headers = admin_headers(&state).await;
-  let overrides = SettingsOverrides {
-    lb_strategy: Some("not-a-strategy".to_string()),
-    ..Default::default()
-  };
+  let settings = ServerSettings::from_yaml(
+    "limits:
+  tunnels: 4
+cache:
+  size: 0
+",
+  )
+  .unwrap();
   let resp = import_handler(
     State(state),
     ConnectInfo(test_peer()),
     headers,
-    import_dump(FORMAT_VERSION, None, None, None, None, Some(overrides)),
+    import_dump(FORMAT_VERSION, None, None, None, None, Some(settings)),
   )
   .await;
   assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-  let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
-    .await
-    .unwrap();
-  let text = String::from_utf8(bytes.to_vec()).unwrap();
-  assert!(text.contains("settings_overrides rejected"), "{text}");
+  let body = json_body(resp).await;
+  assert_eq!(body["failed_section"], "settings");
+  assert!(
+    body["error"].as_str().unwrap().starts_with("cache.size"),
+    "{body}"
+  );
+  assert_eq!(
+    crate::live::current().limits.tunnels,
+    ServerSettings::default().limits.tunnels,
+    "a refused document changes nothing"
+  );
 }
 
 #[tokio::test]
@@ -243,12 +255,14 @@ async fn importing_users_revokes_sessions_bound_to_old_user_rows() {
 async fn import_all_sections_applies_and_reports_counts() {
   let state = Arc::new(test_state());
   let headers = admin_headers(&state).await;
-  // A valid settings override plus every store section (empty vectors still
-  // exercise each `if let Some(..)` import branch and record a count key).
-  let overrides = SettingsOverrides {
-    max_tunnels: Some(4),
-    ..Default::default()
-  };
+  // Valid settings plus every store section (empty vectors still exercise
+  // each `if let Some(..)` import branch and record a count key).
+  let settings = ServerSettings::from_yaml(
+    "limits:
+  tunnels: 4
+",
+  )
+  .unwrap();
   let resp = import_handler(
     State(state.clone()),
     ConnectInfo(test_peer()),
@@ -259,7 +273,7 @@ async fn import_all_sections_applies_and_reports_counts() {
       Some(Vec::new()),
       Some(Vec::new()),
       Some(Vec::new()),
-      Some(overrides),
+      Some(settings),
     ),
   )
   .await;
@@ -270,6 +284,9 @@ async fn import_all_sections_applies_and_reports_counts() {
   assert_eq!(imported["webhooks"], 0);
   assert_eq!(imported["users"], 0);
   assert_eq!(imported["organizations"], 0);
+  assert_eq!(imported["settings"], 1, "one setting moved");
+  assert_eq!(crate::live::current().limits.tunnels, 4);
+  assert_eq!(state.config().max_tunnels, 4);
 }
 
 // ---- Section selection ----
@@ -288,7 +305,7 @@ async fn the_default_dump_is_the_configuration_sections() {
     "users",
     "organizations",
     "scaling",
-    "settings_overrides",
+    "settings",
   ] {
     assert!(!body[key].is_null(), "{key} missing from the default dump");
   }

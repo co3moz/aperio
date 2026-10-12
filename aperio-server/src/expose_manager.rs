@@ -22,8 +22,6 @@ pub(crate) mod resolve;
 #[derive(Clone, Debug)]
 pub(crate) struct ManagedRule {
   pub resource: ExposeResource,
-  // Never serialized in a management view: old keys are secrets.
-  pub legacy: Option<aperio_config::ExposeEntry>,
 }
 
 #[derive(Clone)]
@@ -338,7 +336,6 @@ pub(crate) struct ExposeManager {
   entries: BTreeMap<String, Entry>,
   retired: Vec<Entry>,
   retired_totals: BTreeMap<&'static str, RelayTotals>,
-  pub file_error: Option<String>,
 }
 
 type StagedListeners = (HashMap<String, BoundSocket>, HashMap<String, String>);
@@ -350,7 +347,6 @@ impl ExposeManager {
       entries: BTreeMap::new(),
       retired: Vec::new(),
       retired_totals: BTreeMap::new(),
-      file_error: None,
     }
   }
 
@@ -406,10 +402,7 @@ impl ExposeManager {
     false
   }
   pub fn drain(&mut self, id: &str, duration: Duration) -> Result<(), String> {
-    let entry = self.entries.get(id).ok_or("unknown expose")?;
-    if entry.rule.resource.source == ExposeSource::File {
-      return Err("file rules must be edited in the config file".into());
-    }
+    self.entries.get(id).ok_or("unknown expose")?;
     let mut document = self.store.document.clone();
     let row = document
       .resources
@@ -476,49 +469,15 @@ impl ExposeManager {
     views
   }
 
-  fn file_rules(&self) -> Vec<ManagedRule> {
-    self
-      .entries
-      .values()
-      .filter(|e| e.rule.resource.source == ExposeSource::File)
-      .map(|e| e.rule.clone())
-      .collect()
-  }
-
-  pub async fn initialize(&mut self, state: &Arc<AppState>, host: &str) {
-    // Invalid YAML must not erase otherwise valid API-owned desired state.
-    let files = match self.read_file(state, host).await {
-      Ok(rules) => {
-        self.file_error = None;
-        rules
-      }
-      Err(error) => {
-        self.file_error = Some(error);
-        Vec::new()
-      }
-    };
-    let mut all = files.clone();
-    all.extend(
-      self
-        .store
-        .document
-        .resources
-        .iter()
-        .cloned()
-        .map(|resource| ManagedRule {
-          resource,
-          legacy: None,
-        }),
-    );
+  pub async fn initialize(&mut self, state: &Arc<AppState>) {
+    let all = rules(&self.store.document);
     for rule in all {
       let mut status = if rule.resource.spec.enabled {
         ExposeListenerState::Listening
       } else {
         ExposeListenerState::Disabled
       };
-      let mut error = self
-        .allowed(&rule.resource, &self.store.document, &files)
-        .err();
+      let mut error = self.allowed(&rule.resource, &self.store.document).err();
       let mut socket = None;
       if error.is_some() {
         status = ExposeListenerState::Suspended;
@@ -545,104 +504,7 @@ impl ExposeManager {
     }
   }
 
-  async fn read_file(
-    &mut self,
-    state: &Arc<AppState>,
-    host: &str,
-  ) -> Result<Vec<ManagedRule>, String> {
-    let entries: Vec<aperio_config::ExposeEntry> = match crate::config_file::structured("expose") {
-      Some(value) => {
-        serde_yaml::from_value(value).map_err(|e| format!("invalid expose section: {e}"))?
-      }
-      None => Vec::new(),
-    };
-    let default_host: IpAddr = host
-      .parse()
-      .map_err(|_| "expose listener host must be an IP address")?;
-    let errors = validate_entries_at_address(
-      &entries,
-      &[ExposeProtocol::Tcp, ExposeProtocol::Udp],
-      default_host,
-    );
-    if !errors.is_empty() {
-      return Err(
-        errors
-          .iter()
-          .map(ToString::to_string)
-          .collect::<Vec<_>>()
-          .join(", "),
-      );
-    }
-    let mut rules = Vec::new();
-    for entry in entries {
-      let protocol = if entry.protocol == "udp" {
-        ExposeProtocol::Udp
-      } else {
-        ExposeProtocol::Tcp
-      };
-      let org_id = match entry.explicit_org() {
-        Some(org) => crate::tunnel::registry::org_id_for_name(state, org)
-          .await
-          .unwrap_or_else(|_| Some(format!("unresolved:{org}")))
-          .unwrap_or_else(|| "master".into()),
-        None => "master".into(),
-      };
-      let address = entry.address.unwrap_or(default_host);
-      let id = format!("file:{}:{address}:{}", protocol.as_str(), entry.port);
-      let spec = ExposeSpec {
-        advertised_host: entry.advertised_host.clone(),
-        org_id,
-        tunnel: split_qualified(entry.tunnel.as_deref().unwrap_or("legacy_key"))
-          .1
-          .to_string(),
-        listener: ExposeListener {
-          address,
-          port: entry.port,
-          protocol,
-        },
-        enabled: entry.enabled,
-        limits: entry
-          .limits
-          .clone()
-          .unwrap_or_else(|| ExposeLimits::defaults(protocol)),
-        allowed_ips: entry.allowed_ips.clone(),
-      };
-      let errors = spec.validate();
-      if !errors.is_empty() {
-        return Err(
-          errors
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(", "),
-        );
-      }
-      let revision = self.entries.get(&id).map_or(1, |old| {
-        old.rule.resource.revision
-          + u64::from(old.rule.resource.spec != spec || old.rule.legacy.as_ref() != Some(&entry))
-      });
-      rules.push(ManagedRule {
-        resource: ExposeResource {
-          id,
-          revision,
-          source: ExposeSource::File,
-          spec,
-        },
-        legacy: Some(entry),
-      });
-    }
-    Ok(rules)
-  }
-
-  fn allowed(
-    &self,
-    resource: &ExposeResource,
-    document: &ExposeDocument,
-    files: &[ManagedRule],
-  ) -> Result<(), String> {
-    if resource.source == ExposeSource::File {
-      return Ok(());
-    }
+  fn allowed(&self, resource: &ExposeResource, document: &ExposeDocument) -> Result<(), String> {
     let policy = document
       .policies
       .iter()
@@ -654,12 +516,7 @@ impl ExposeManager {
     if !policy.allows(&resource.spec) {
       return Err("listener is outside the organization's port allocation".into());
     }
-    let specs = self.quota_specs(
-      document
-        .resources
-        .iter()
-        .chain(files.iter().map(|r| &r.resource)),
-    );
+    let specs = self.quota_specs(document.resources.iter());
     if !policy.fits(&specs) {
       return Err("organization expose quota exceeded".into());
     }
@@ -692,59 +549,32 @@ impl ExposeManager {
       .collect()
   }
 
-  pub async fn reload(&mut self, state: &Arc<AppState>, host: &str) -> Result<(), String> {
-    let files = match self.read_file(state, host).await {
-      Ok(files) => files,
-      Err(error) => {
-        self.file_error = Some(error.clone());
-        return Err(error);
-      }
-    };
-    let document = self.store.document.clone();
-    let result = self.apply(state, document, files, false, false).await;
-    self.file_error = result.as_ref().err().cloned();
-    result
-  }
-
   pub async fn replace(
     &mut self,
     state: &Arc<AppState>,
     document: ExposeDocument,
     allow_suspension: bool,
   ) -> Result<(), String> {
-    self
-      .apply(state, document, self.file_rules(), true, allow_suspension)
-      .await
+    self.apply(state, document, true, allow_suspension).await
   }
 
   /// Probe every changed bind using the same checks as a real apply. Dropping
   /// staged sockets leaves desired state, counters and existing tasks untouched.
   pub fn preview(&self, document: &ExposeDocument) -> Result<(), String> {
-    self.stage(document, &self.file_rules(), false).map(|_| ())
+    self.stage(document, false).map(|_| ())
   }
 
   fn stage(
     &self,
     document: &ExposeDocument,
-    files: &[ManagedRule],
     allow_suspension: bool,
   ) -> Result<StagedListeners, String> {
     document.validate()?;
-    let mut all = files.to_vec();
-    all.extend(
-      document
-        .resources
-        .iter()
-        .cloned()
-        .map(|resource| ManagedRule {
-          resource,
-          legacy: None,
-        }),
-    );
+    let all = rules(document);
     let mut errors = HashMap::new();
     for (index, rule) in all.iter().enumerate() {
       let resource = &rule.resource;
-      if let Err(error) = self.allowed(resource, document, files) {
+      if let Err(error) = self.allowed(resource, document) {
         // A suspended organization must not prevent an unrelated tenant
         // from changing its own rules. Revalidate every changed organization.
         let org = &resource.spec.org_id;
@@ -818,23 +648,12 @@ impl ExposeManager {
     &mut self,
     state: &Arc<AppState>,
     document: ExposeDocument,
-    files: Vec<ManagedRule>,
     persist: bool,
     allow_suspension: bool,
   ) -> Result<(), String> {
-    let (mut staged, mut errors) = self.stage(&document, &files, allow_suspension)?;
+    let (mut staged, mut errors) = self.stage(&document, allow_suspension)?;
     self.prune_retired();
-    let mut all = files;
-    all.extend(
-      document
-        .resources
-        .iter()
-        .cloned()
-        .map(|resource| ManagedRule {
-          resource,
-          legacy: None,
-        }),
-    );
+    let all = rules(&document);
     if persist {
       self
         .store
@@ -846,9 +665,7 @@ impl ExposeManager {
     // Release it before starting *any* new listener, regardless of list order.
     for entry in old.values_mut() {
       if entry.runtime.control.borrow().deadline.is_some()
-        && !all
-          .iter()
-          .any(|rule| rule.resource == entry.rule.resource && rule.legacy == entry.rule.legacy)
+        && !all.iter().any(|rule| rule.resource == entry.rule.resource)
       {
         entry.runtime.stop(None);
         finish_task(&mut entry.task).await;
@@ -865,7 +682,6 @@ impl ExposeManager {
       };
       if let Some(mut entry) = old.remove(&id) {
         if entry.rule.resource == rule.resource
-          && entry.rule.legacy == rule.legacy
           && !staged.contains_key(&id)
           && !errors.contains_key(&id)
         {
@@ -1058,6 +874,16 @@ impl<T> Drop for OwnedTask<T> {
   fn drop(&mut self) {
     self.0.abort();
   }
+}
+
+/// The rules a stored document describes.
+fn rules(document: &ExposeDocument) -> Vec<ManagedRule> {
+  document
+    .resources
+    .iter()
+    .cloned()
+    .map(|resource| ManagedRule { resource })
+    .collect()
 }
 
 async fn finish_task(task: &mut Option<tokio::task::JoinHandle<()>>) {

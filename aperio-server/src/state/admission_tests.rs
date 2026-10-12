@@ -230,38 +230,24 @@ async fn the_monthly_quota_adds_both_directions() {
 
 // ----- maintenance windows -----
 
-/// A scheduled window in the file is consulted.
+/// A scheduled window in the settings is consulted.
 ///
 /// The guard is `!cfg.maintenance_windows.is_empty()`, and deleting the `!`
 /// survived: under it the window list is only read when it is *empty*, so
 /// every scheduled window ever written is silently ignored. Nothing else
 /// notices, because the runtime flag path still works and that is what the
-/// dashboard uses; the file-configured windows just quietly stop existing.
-// Held across awaits on purpose: the lock exists to serialize the tests that
-// write `aperio-server.yaml`, so releasing it at the first await would defeat
-// it. Same reason `oidc_tests.rs` allows this.
-#[allow(clippy::await_holding_lock)]
+/// dashboard uses; the scheduled windows just quietly stop existing.
 #[tokio::test]
-async fn a_scheduled_window_in_the_file_puts_the_host_into_maintenance() {
-  let _lock = crate::test_support::config_lock();
-  struct Cleanup;
-  impl Drop for Cleanup {
-    fn drop(&mut self) {
-      let _ = std::fs::remove_file("aperio-server.yaml");
-    }
-  }
-  let _cleanup = Cleanup;
+async fn a_scheduled_window_in_the_settings_puts_the_host_into_maintenance() {
   // A window covering the whole day, every day, so the test does not depend
   // on when it runs.
-  std::fs::write(
-    "aperio-server.yaml",
-    "maintenance_windows:\n  - hostname: 'app.example.com'\n    from: '00:00'\n    to: '23:59'\n    reason: 'scheduled'\n",
-  )
-  .unwrap();
-  crate::config_file::reload().unwrap();
-
+  let doc = "maintenance_windows:\n  - hostname: 'app.example.com'\n    from: '00:00'\n    to: '23:59'\n    reason: 'scheduled'\n";
   let mut cfg = crate::test_support::test_config();
-  cfg.maintenance_windows = crate::maintenance_windows::from_config_file();
+  cfg.maintenance_windows = crate::test_support::rules(
+    doc,
+    "maintenance_windows",
+    crate::maintenance_windows::from_section,
+  );
   assert!(
     !cfg.maintenance_windows.is_empty(),
     "the fixture must actually parse, or this test proves nothing"

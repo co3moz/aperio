@@ -64,8 +64,8 @@ A proxied request flows through, in this order. `GET /aperio/api/explain`
 walks the same chain on a request nobody sends, so it is the executable
 version of this list:
 
-1. **Client IP resolution** (`extract_client_ip`), honoring `trust_proxy` /
-   `trusted_proxies` when configured, otherwise the socket peer.
+1. **Client IP resolution** (`extract_client_ip`), honoring `proxy.trust` /
+   `proxy.trusted` when configured, otherwise the socket peer.
 2. **Maintenance mode**, a flag covering the hostname answers `503` before
    anything else is looked at.
 3. **Static routes**, a client-less `routes:` entry with a `redirect` or a
@@ -156,18 +156,18 @@ The practical consequences:
   inbox, and restart-surviving traffic statistics. Each store keeps its own
   connection; WAL + a busy timeout make concurrent access safe.
 - **`audit.jsonl`**, an append-only, hash-chained audit log (tamper-evident;
-  `--verify-audit`), size-rotated across generations.
+  `aperio-server audit verify`), size-rotated across generations.
 - **In-memory only**, the live client table, pending requests, the response
   cache, rate-limit buckets, captured requests (bounded ring), per-route latency
   windows, maintenance flags, and the token-seen-IP / outlier-ejection tracking.
   These are deliberately not persisted; a restart starts them clean.
 
-Configuration is layered into an immutable `ServerConfig` snapshot behind an
-`RwLock`: environment defaults, then the live-editable keys of
-`aperio-server.yaml`, then the dashboard's persisted overrides for the keys the
-file leaves alone. The file wins for every key it writes: a stored override
-that contradicts it is dropped at startup (audited as
-`settings_override_dropped`), and the dashboard refuses to set such a key
-while the file names it, because the file is what an operator writes, versions
-and reviews. A hot-reload of the file swaps the snapshot atomically and audits
-the key diff.
+Configuration is one settings document, stored in the database and built
+into an immutable `ServerConfig` snapshot behind an `RwLock`. Only the boot
+settings (the master token, the listener, the data directory) come from the
+environment. A change, from the dashboard or the API, is checked by building a
+new snapshot first, so a value the server cannot honour is refused with its
+path before anything moves; then it is stored, swapped in atomically, and
+audited with the paths it changed. A few modules read their own section of the
+document directly (backups, retention, the OTLP bridge), from the copy held in
+`live`.

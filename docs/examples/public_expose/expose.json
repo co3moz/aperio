@@ -1,0 +1,14 @@
+{
+  "spec": {
+    "org_id": "master",
+    "tunnel": "ssh",
+    "listener": { "address": "0.0.0.0", "port": 2222, "protocol": "tcp" },
+    "enabled": true,
+    "limits": {
+      "protocol": "tcp",
+      "max_connections": 256,
+      "open_timeout_secs": 10,
+      "drain_timeout_secs": 30
+    }
+  }
+}

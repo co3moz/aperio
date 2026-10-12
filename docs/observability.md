@@ -2,13 +2,13 @@
 
 Aperio exposes what it is doing through five channels: metrics for dashboards and alerting, distributed traces for end-to-end request timing, an access log for per-request analysis, an audit trail for security events, and webhooks for pushing events into your own systems.
 
-> **Configuration:** Server settings go in `aperio-server.yaml` (`otel.enabled` maps to `APERIO_OTEL`; `access_log` maps to `APERIO_ACCESS_LOG`). Client settings go in `aperio.yaml`. Server file values override environment variables. See [Configuration](configuration.md#grouped-keys) for the full mapping.
+> **Configuration:** Server settings live in the server's database and are changed from the dashboard (**Settings**), with `PUT /aperio/api/settings`, or in a first-start document (`APERIO_INIT_FILE`); they are written as paths such as `cache.enabled`. Client settings go in `aperio.yaml`. See [Configuration](configuration.md#server-settings).
 
 ## Prometheus metrics
 
 ![The Breakdown page: traffic by token and hostname, route trends and per-stage latencies](images/dashboard-breakdown.png)
 
-Enable with `APERIO_METRICS=1`. The endpoint always requires a token: set `APERIO_METRICS_TOKEN`, or let the server generate one on first start (persisted in `APERIO_DATA_DIR/metrics_token`, printed to the log once).
+Enable with `metrics.enabled: true`. The endpoint always requires a token: set `metrics.token`, or let the server generate one on first start (persisted in `APERIO_DATA_DIR/metrics_token`, printed to the log once).
 
 ```yaml
 # prometheus.yml
@@ -37,16 +37,16 @@ For quota and billing dashboards, per-tenant counters are exposed with `token` a
 
 ## Distributed tracing (OpenTelemetry)
 
-Set `APERIO_OTEL=1` to export one span per proxied request over OTLP to an OpenTelemetry collector. Each `proxy.request` span carries the request method, path, host, the selected `aperio.client.id`, and the final response status.
+Set `otel.enabled: true` to export one span per proxied request over OTLP to an OpenTelemetry collector. Each `proxy.request` span carries the request method, path, host, the selected `aperio.client.id`, and the final response status.
 
 ```yaml
-# aperio-server.yaml
+# settings
 otel:
-  enabled: true                       # env: APERIO_OTEL=1
-  endpoint: http://otel-collector:4318 # env: APERIO_OTEL_ENDPOINT, base URL
-  protocol: http                      # env: APERIO_OTEL_PROTOCOL, http | grpc
-  service_name: aperio-server         # env: APERIO_OTEL_SERVICE_NAME, optional
-  sample_rate: 0.01                   # env: APERIO_OTEL_SAMPLE_RATE, 1.0 = every request
+  enabled: true
+  endpoint: http://otel-collector:4318 # base URL
+  protocol: http                      # http | grpc
+  service_name: aperio-server         # optional
+  sample_rate: 0.01                   # 1.0 = every request
 ```
 
 Both OTLP transports are built in. `protocol: http` sends protobuf over HTTP and appends the `/v1/traces` signal path to the endpoint; `protocol: grpc` sends gRPC to the bare base URL. Left unset, the endpoint's port decides, 4317 is the conventional gRPC port, and anything else is treated as HTTP, so the common collector layouts work without saying anything. Pin it explicitly when the collector listens on a non-standard port: a collector answering the other protocol accepts the connection and drops every span, which is exactly the failure that looks like "tracing is enabled and nothing shows up". The startup probe tests the transport that was actually chosen and warns when the port contradicts it.
@@ -55,7 +55,7 @@ Both OTLP transports are built in. `protocol: http` sends protobuf over HTTP and
 
 An edge host usually has exactly one outbound connection it is allowed to make, the tunnel, and its own telemetry has nowhere to go. Shipping spans from there normally means a new firewall rule and a collector credential on a machine that should hold as few of those as possible.
 
-With `otel_bridge: true` on the server (`APERIO_OTEL_BRIDGE`) and an `otel_bridge:` block on the client, the client runs an OTLP receiver on loopback and carries what it receives to the server, which forwards it to the collector it already exports its own spans to.
+With `otel_bridge: true` on the server (`otel.bridge`) and an `otel_bridge:` block on the client, the client runs an OTLP receiver on loopback and carries what it receives to the server, which forwards it to the collector it already exports its own spans to.
 
 ```yaml
 # aperio.yaml, on the edge host
@@ -82,7 +82,7 @@ The standard `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL`, and `
 
 **Sampling.** `sample_rate` is the fraction of requests traced, and it defaults to `1.0`: every request builds a span tree, the proxy span plus a child per phase, and hands it to the exporter. That is the right default for a staging server and the wrong one for a busy production server, where a hundredth of the traffic answers the same questions about latency and error shape. The decision is made once, at the root of the request, and every span of that request follows it, so a sampled trace is always whole rather than a `proxy.request` with three of its eight phases. A request that is not sampled skips the phase-span assembly altogether. If you are benchmarking with tracing on, this is the setting that is in your numbers: at `1.0` you are measuring the exporter as much as the tunnel.
 
-**Context propagation.** If an incoming request already carries a W3C `traceparent` header (e.g. from an upstream gateway or Cloudflare), Aperio adopts it as the span's parent. It then injects its own trace context into the headers forwarded through the tunnel, so a backend that reads `traceparent` continues the same trace, the visitor → Aperio → backend path shows up as one distributed trace. When `APERIO_OTEL` is off there is no overhead and inbound trace headers pass through untouched.
+**Context propagation.** If an incoming request already carries a W3C `traceparent` header (e.g. from an upstream gateway or Cloudflare), Aperio adopts it as the span's parent. It then injects its own trace context into the headers forwarded through the tunnel, so a backend that reads `traceparent` continues the same trace, the visitor → Aperio → backend path shows up as one distributed trace. When `otel.enabled` is off there is no overhead and inbound trace headers pass through untouched.
 
 > **Note:** the exporter is compiled into every build (both transports), so enabling it is a configuration change, not a rebuild. It reuses the server's own rustls/ring TLS stack, no second crypto backend and no C toolchain are involved.
 
@@ -91,31 +91,32 @@ The standard `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL`, and `
 Two threshold rules turn the webhook pipeline into a simple pager, point a Slack/Discord/Teams webhook at the `alert_triggered` event:
 
 ```yaml
-# aperio-server.yaml
-alert:
-  error_rate: 5            # env: APERIO_ALERT_ERROR_RATE, alert when ≥5% of requests fail (5xx)
-  window: 300              # env: APERIO_ALERT_WINDOW, measured over 300 s (default)
-  min_requests: 20         # env: APERIO_ALERT_MIN_REQUESTS, skip quieter windows
-  client_down: 120         # env: APERIO_ALERT_CLIENT_DOWN, alert after 2 minutes down
+# settings
+alerts:
+  error_rate: 0.05         # alert when 5% or more of requests fail (5xx)
+  window: 5m               # measured over five minutes (default)
+  min_requests: 20         # skip quieter windows
+  client_down: 2m          # alert after 2 minutes down
 ```
 
 Both rules are off unless their threshold is set. One `alert_triggered` event (kinds `error_rate` / `client_down`) fires per episode and one `alert_resolved` when the condition clears, the error rate resolves at 80% of the threshold, so a value hovering at the limit cannot flap. Alerts are also audit-logged. For richer alerting (latency percentiles, arbitrary PromQL), scrape the Prometheus endpoint with Alertmanager instead.
 
-### Your own rules (`alert_rules:`)
+### Your own rules (`alerts.rules`)
 
 The two rules above are built in. Anything else worth being told about, starting with the disk filling up and the server's own memory climbing, is written as a rule over a quantity the server already measures:
 
 ```yaml
-# aperio-server.yaml
-alert_rules:
-  - name: disk-filling          # becomes the alert's `kind`
-    metric: store_bytes
-    above: 536870912            # 512 MB
-    for: 300                    # seconds the condition must hold
-  - name: no-clients
-    metric: connected_clients
-    below: 1
-    for: 120
+# settings
+alerts:
+  rules:
+    - name: disk-filling          # becomes the alert's `kind`
+      metric: store_bytes
+      above: 536870912            # 512 MB
+      for: 300                    # seconds the condition must hold
+    - name: no-clients
+      metric: connected_clients
+      below: 1
+      for: 120
 ```
 
 | Metric | What it reads |
@@ -129,7 +130,7 @@ Each rule sets `above` or `below`, never both, and the bound itself is not a bre
 
 ## Access log
 
-Every proxied request is emitted as a structured `aperio_access` tracing event on stdout, JSON with `request_id`, `method`, `uri`, `status`, `duration_ms`, `host`, `client_id` and `token` as top-level fields; a refused or failed request carries `error` instead of the identity fields, and the JSON lines written to `APERIO_ACCESS_LOG` fill the absent ones with `null` so every line has the same shape. Set `APERIO_ACCESS_LOG=/path/to/access.jsonl` to additionally append the same data as raw JSON lines, unaffected by `LOG_LEVEL`, ready to be tailed into Loki or ClickHouse. Query strings are stripped from logs.
+Every proxied request is emitted as a structured `aperio_access` tracing event on stdout, JSON with `request_id`, `method`, `uri`, `status`, `duration_ms`, `host`, `client_id` and `token` as top-level fields; a refused or failed request carries `error` instead of the identity fields, and the JSON lines written to `logging.access_log` fill the absent ones with `null` so every line has the same shape. Set `logging.access_log: /path/to/access.jsonl` to additionally append the same data as raw JSON lines, unaffected by `LOG_LEVEL`, ready to be tailed into Loki or ClickHouse. Query strings are stripped from logs.
 
 
 TCP and UDP relays produce a line of their own, one **per connection** rather than per packet, with `event: relay_closed`: `transport` (`tcp`/`udp`), `kind` (`expose` for a public port, `tunnel` for a peer client dialling one), `peer`, `client_id`, `tunnel`, `token`, `port`, `duration_ms`, and bytes each way. A per-packet line would produce one entry per datagram of a video stream, which is not a log anybody reads. It goes to the same two places as a request line and takes the same `access_log_sample_rate`, so a query for "everything that touched this token" answers across transports and an operator who turned the volume down gets it turned down here too. This is the record the topology view's dependency edges do not keep: the graph says who depends on a tunnel, this says when and how much. A public `expose:` port authorizes nobody, so its lines carry no `token`, which is the honest answer rather than an invented one.
@@ -164,7 +165,7 @@ tunnel is slow", which is otherwise indistinguishable from the server's side.
 
 ## Audit log
 
-Administrative and security events, logins (password and OIDC), token create/update/revoke, ephemeral tunnel provisioning, share link creation, maintenance toggles, client connect/disconnect/drain, kill-switch toggles, overrules, replays, and tunnel streams, are appended to `APERIO_DATA_DIR/audit.jsonl` with timestamp, actor IP, and details. Each event also records the acting user and the organization it belongs to. The dashboard shows the most recent 200, filtered to the caller's organization (see [Organizations](organizations.md)). The file is size-rotated (`APERIO_AUDIT_MAX_SIZE`, default 10 MB; `APERIO_AUDIT_MAX_FILES` generations kept, default 3) so long-lived installations cannot fill the disk.
+Administrative and security events, logins (password and OIDC), token create/update/revoke, ephemeral tunnel provisioning, share link creation, maintenance toggles, client connect/disconnect/drain, kill-switch toggles, overrules, replays, and tunnel streams, are appended to `APERIO_DATA_DIR/audit.jsonl` with timestamp, actor IP, and details. Each event also records the acting user and the organization it belongs to. The dashboard shows the most recent 200, filtered to the caller's organization (see [Organizations](organizations.md)). The file is size-rotated (`audit.max_size`, default 10 MB; `audit.max_files` generations kept, default 3) so long-lived installations cannot fill the disk.
 
 **Searching it.** The recent-200 view answers "what just happened"; a log that is hash-chained and retained by policy also has to answer "what did this user do last Tuesday", which is past the end of that ring. `GET /aperio/api/audit` takes filters, and any filter switches it from the ring to a search of the durable log itself, the active file plus every rotated generation:
 
@@ -190,7 +191,7 @@ The audit API filters on `event` **exactly**, so the names matter. This is the w
 | Tokens and keys | `token_created`, `token_updated`, `token_revoked`, `token_rotated`, `token_refreshed` (a TTL slid forward by the token itself), `token_expiring`, `token_new_ip` (a token connected from an address it never used), `token_pin_mismatch` (a pinned token presented from another device), `canary_tripped`, `admin_key_created`, `admin_key_revoked`, `share_created` |
 | Clients and tunnels | `client_connected`, `client_disconnected`, `client_draining`, `client_enabled`, `client_disabled` (the kill switch), `client_overrule` (a bind overridden from the dashboard), `tunnel_created`, `tunnel_deleted` (ephemeral tunnels), `tunnel_denied` (a bind refused by the token or the fence), `tcp_stream_opened`, `udp_stream_opened`, `expose_stream_opened` (a public `expose:` port accepted a connection) |
 | Users and organizations | `user_created`, `user_updated`, `user_deleted`, `user_grant_added`, `user_grant_removed` (each carrying who made the change, or the identity-provider group that caused it), `grants_widened_on_upgrade` (a pre-grants master Admin read as `*`, written once at the first start), `org_created`, `org_renamed`, `org_deleted`, `org_hostnames_set`, `org_panel_set`, `org_quota_updated`, `org_oidc_updated` |
-| Configuration | `config_reloaded` (`aperio-server.yaml` re-applied, with the key diff), `settings_updated`, `settings_override_dropped` (a stored dashboard override the file also sets, dropped at startup), `maintenance_on`, `maintenance_off`, `cache_purged` |
+| Configuration | `settings_updated` (the setting paths a change moved), `settings_security_changed` (the security-relevant paths among them, recorded on their own), `maintenance_on`, `maintenance_off`, `cache_purged` |
 | Data | `export_created`, `import_applied`, `db_backup`, `data_purged` (the right-to-erasure purge, with per-surface counts), `retention_pruned` (each hourly pruning cycle, with per-surface counts), `disk_pruned` (the store cap enforced), `request_replayed` |
 | Alerts and scaling | `alert_triggered`, `alert_resolved`, `disk_usage_warning`, `scaling_requested`, `scaling_failed`, `scaling_disarmed` (the breaker, or an operator) |
 | Webhooks and messages | `webhook_created`, `webhook_deleted`, `webhook_tested`, `webhook_refired` (an inbox entry re-dispatched), `webhook_redelivered`, `message_published` (a message published from the dashboard or the API) |
@@ -225,7 +226,7 @@ Two deliberate differences from a real event: it is sent **once**, with no retri
 
 ### Delivery reliability & the delivery log
 
-A delivery that fails with a transport error, a 5xx, or a 429 is **retried with backoff**, by default 4 retries over ~1.5 minutes (`1s, 5s, 25s, 60s` between attempts; override with `APERIO_WEBHOOK_RETRY_SCHEDULE`, comma-separated seconds, empty = no retries). Other 4xx responses are treated as permanent and not retried. A delivery refused by the outbound policy is not retried either, and the destination is never contacted at all: the refusal is recorded in the log with its reason, so a policy introduced after a webhook was created is visible rather than silent. Redeliveries are re-checked the same way.
+A delivery that fails with a transport error, a 5xx, or a 429 is **retried with backoff**, by default 4 retries over ~1.5 minutes (`1s, 5s, 25s, 60s` between attempts; override with `webhooks.retry_schedule`, comma-separated seconds, empty = no retries). Other 4xx responses are treated as permanent and not retried. A delivery refused by the outbound policy is not retried either, and the destination is never contacted at all: the refusal is recorded in the log with its reason, so a policy introduced after a webhook was created is visible rather than silent. Redeliveries are re-checked the same way.
 
 Every final outcome (success or failure, with the HTTP status or error, the attempt count, and the exact payload sent) lands in the **delivery log**: the *Recent deliveries* table on the dashboard's Webhooks page, or `GET /aperio/api/webhooks/deliveries` (`?webhook_id=` to filter). The last 500 outcomes are kept in `aperio.db`. Any logged delivery can be **redelivered**, the same payload is re-sent to the webhook's current URL with a fresh signature and the normal retry policy (`POST /aperio/api/webhooks/deliveries/{id}/redeliver`, or the *Redeliver* button), and the outcome is logged as a new row.
 
@@ -261,12 +262,12 @@ Independent TTLs, all in days, unset = keep forever, bound how long each data ty
 
 | Variable | Prunes |
 | --- | --- |
-| `retention_captures` (env `APERIO_RETENTION_CAPTURES`) | Inspector captures and webhook inbox entries |
-| `retention_access_log` (env `APERIO_RETENTION_ACCESS_LOG`) | Structured access-log file lines (rewritten in place) |
-| `retention_audit` (env `APERIO_RETENTION_AUDIT`) | Audit events, expired rotated generations are deleted whole; the active file loses only its leading expired prefix, so the hash chain stays verifiable |
-| `retention_stats` (env `APERIO_RETENTION_STATS`) | Day-granularity statistics buckets (coarser buckets keep their built-in caps) |
+| `retention_captures` (env `retention.captures`) | Inspector captures and webhook inbox entries |
+| `retention_access_log` (env `retention.access_log`) | Structured access-log file lines (rewritten in place) |
+| `retention_audit` (env `retention.audit`) | Audit events, expired rotated generations are deleted whole; the active file loses only its leading expired prefix, so the hash chain stays verifiable |
+| `retention_stats` (env `retention.stats`) | Day-granularity statistics buckets (coarser buckets keep their built-in caps) |
 
-The same hourly cycle also runs the **disk-usage guard** when `APERIO_DB_MAX_BYTES` caps the SQLite store: nearing the cap (90%) emits a `disk_usage_warning` webhook/audit event once per episode, and exceeding it auto-prunes the lowest-priority persisted data (oldest webhook inbox entries, delivery-log rows, and day-stat buckets), vacuums the database so the file shrinks on disk, and records a `disk_pruned` event with before/after sizes.
+The same hourly cycle also runs the **disk-usage guard** when `retention.db_max_size` caps the SQLite store: nearing the cap (90%) emits a `disk_usage_warning` webhook/audit event once per episode, and exceeding it auto-prunes the lowest-priority persisted data (oldest webhook inbox entries, delivery-log rows, and day-stat buckets), vacuums the database so the file shrinks on disk, and records a `disk_pruned` event with before/after sizes.
 
 ## Right-to-erasure selective purge
 
@@ -279,7 +280,7 @@ curl -X POST -b "$SESSION" -H 'Content-Type: application/json' \
 # → { "status": "ok", "removed": { "traffic_log": 12, "inspector_captures": 3, "stats_rows": 2, … } }
 ```
 
-Selectors (at least one required): `hostname` (a request hostname), `token` (a token label), `ip` (a visitor IP). A purge touches the in-memory traffic log, the request inspector captures, the per-hostname/per-token statistics aggregates, per-route latency stage windows, the response cache, and the structured `APERIO_ACCESS_LOG` file (rewritten in place). Lifetime totals and period buckets are aggregates without personal attribution and stay intact. Visitor IPs are deliberately never persisted in logs or stats (queries are sanitized, no IP field is written), so the `ip` selector only matches inspector captures via their forwarded-IP request headers. Every purge writes a `data_purged` audit event with the per-surface removal counts.
+Selectors (at least one required): `hostname` (a request hostname), `token` (a token label), `ip` (a visitor IP). A purge touches the in-memory traffic log, the request inspector captures, the per-hostname/per-token statistics aggregates, per-route latency stage windows, the response cache, and the structured `logging.access_log` file (rewritten in place). Lifetime totals and period buckets are aggregates without personal attribution and stay intact. Visitor IPs are deliberately never persisted in logs or stats (queries are sanitized, no IP field is written), so the `ip` selector only matches inspector captures via their forwarded-IP request headers. Every purge writes a `data_purged` audit event with the per-surface removal counts.
 
 ## Server self-health
 

@@ -291,7 +291,6 @@ export const ja: Record<string, string> = {
     'Proxy リクエストに対する訪問者 IP ごとの Token バケット。',
   Prefix: 'プレフィックス',
   'Prometheus metrics endpoint at /aperio/metrics': '/aperio/metrics の Prometheus メトリクス Endpoint',
-  Purpose: '用途',
   'Queue Status': 'キュー状態',
   'Random subdomain pattern': 'ランダム Subdomain パターン',
   'Rate Limiting': 'レート制限',
@@ -370,8 +369,8 @@ export const ja: Record<string, string> = {
     'YubiKey、Touch ID / Face ID、またはパスワードマネージャーでパスワードなしにサインインできます。',
   'The built-in "aperio" admin signs in with the master token or dashboard password and cannot register passkeys. Create a named user instead.':
     '組み込みの「aperio」管理者はマスター Token またはダッシュボードパスワードでサインインするため、パスキーを登録できません。代わりに名前付きユーザーを作成してください。',
-  'Passkey sign-in is not configured on this server. Set APERIO_WEBAUTHN_ORIGIN to the dashboard’s public URL to enable it.':
-    'このサーバーではパスキーサインインが設定されていません。有効にするには APERIO_WEBAUTHN_ORIGIN にダッシュボードの公開 URL を設定してください。',
+  'Passkey sign-in is not configured on this server. Set dashboard.webauthn.origin to the dashboard’s public URL to enable it.':
+    'このサーバーではパスキーサインインが設定されていません。有効にするには dashboard.webauthn.origin にダッシュボードの公開 URL を設定してください。',
   'This browser does not support WebAuthn.':
     'このブラウザは WebAuthn をサポートしていません。',
   'No passkeys registered yet.':
@@ -755,7 +754,7 @@ export const ja: Record<string, string> = {
   'Memory (RSS)': 'メモリ (RSS)',
   'New admin key': '新しい管理キー',
   'No admin keys yet': '管理キーはまだありません',
-  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have APERIO_SCALING enabled.': 'オートスケーリングのレコードがありません。クライアントが scaling: ブロックを宣言すると作成され、サーバー側で APERIO_SCALING が有効である必要があります。',
+  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have scaling.enabled on.': 'オートスケーリングのレコードがありません。クライアントが scaling: ブロックを宣言すると作成され、サーバー側で scaling.enabled が有効である必要があります。',
   'No cache data yet': 'キャッシュのデータはまだありません',
   'No hostname restriction': 'Hostname の制限なし',
   'No self-health data yet': 'セルフヘルスのデータはまだありません',
@@ -945,7 +944,7 @@ export const ja: Record<string, string> = {
   'Parallel connections per service (0 = server default, empty = keep)': 'サービスごとの並列接続数（0 = サーバーの既定値、空欄 = 変更しない）',
   'Parallel connections per service (empty = server default)': 'サービスごとの並列接続数（空欄 = サーバーの既定値）',
   'Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.': '詳細はありません: 記録されるのは直近のリクエストだけで、capture: false のサービス（またはインスペクタを無効にしたサーバー）はそもそも記録されません。',
-  'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.': 'このサービスは記録を許可していますが、サーバー側でリクエストインスペクタが無効です（APERIO_INSPECTOR=0）。ここでは検査も再送もできません。',
+  'This service allows capture but the server has the request inspector switched off (inspector.enabled: false), so nothing here can be inspected or replayed.': 'このサービスは記録を許可していますが、サーバー側でリクエストインスペクタが無効です（inspector.enabled: false）。ここでは検査も再送もできません。',
   'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': 'このサービスはリクエストインスペクタに記録されていません（aperio.yaml の capture: false）。リクエストの検査も再送もできません。ライブトラフィックと統計には影響しません。',
   'inspector off': 'インスペクタ無効',
   'no capture': '記録なし',
@@ -1094,8 +1093,8 @@ export const ja: Record<string, string> = {
     'この hostname は訪問者関門なしで配信されています',
   "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization":
     'これがクライアントに届く前に訪問者はサインインする（または共有リンクを持つ）必要があります: このルートは Aperio のサインイン、つまりこのホスト名の組織に到達できるダッシュボードセッションを求めます',
-  'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
-    'このルートを到達可能と宣言するものがなく、`default_access` が `deny` のため、公開されません。Aperio のセッションを持たない訪問者には、要求されていないホスト名と同じ応答が返り、サインイン済みの Aperio ユーザーは引き続き到達できます',
+  'nothing declares this route reachable and `access.default` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
+    'このルートを到達可能と宣言するものがなく、`access.default` が `deny` のため、公開されません。Aperio のセッションを持たない訪問者には、要求されていないホスト名と同じ応答が返り、サインイン済みの Aperio ユーザーは引き続き到達できます',
   '{count} client(s) would take it: {clients}':
     '{count} 個のクライアントが受け取ります: {clients}',
   'no connected client serves this hostname and path':
@@ -1140,12 +1139,12 @@ export const ja: Record<string, string> = {
     'メンテナンスモード',
   'auth: on the service':
     'サービス側の auth:',
-  'server_auth / OIDC':
-    'server_auth / OIDC',
-  'default_access':
-    'default_access',
-  'server_auth':
-    'server_auth',
+  'access.gate / OIDC':
+    'access.gate / OIDC',
+  'access.default':
+    'access.default',
+  'access.gate':
+    'access.gate',
   'OIDC':
     'OIDC',
   'hostname/path binds':
@@ -1296,7 +1295,6 @@ export const ja: Record<string, string> = {
   "All": "すべて",
   "Public endpoint": "公開エンドポイント",
   "Tunnel": "トンネル",
-  "Server configuration file (read-only)": "サーバー設定ファイル（読み取り専用）",
   "Managed through API": "API で管理",
   "{count} sessions": "{count} セッション",
   "Dropped": "破棄",
@@ -1330,4 +1328,30 @@ export const ja: Record<string, string> = {
   "Could not load expose history.": "公開履歴を読み込めませんでした。",
   "Add group mapping": "グループマッピングを追加",
   "Leave the secret empty to keep it when the issuer and client id are unchanged.": "発行者とクライアント ID が同じ場合、シークレットを空欄にすると既存の値を保持します。",
+  "Assemble an aperio.yaml, or a server-init.yaml for a server’s first start, from the settings this server understands, or open an existing one and edit it.": "このサーバーが理解する設定から aperio.yaml、またはサーバー初回起動用の server-init.yaml を作成するか、既存のファイルを開いて編集します。",
+  "Changing this takes Admin in every organization and a sign-in from the last ten minutes.": "変更にはすべての組織での Admin 権限と、直近 10 分以内のサインインが必要です。",
+  "Client down threshold": "クライアントダウンのしきい値",
+  "Every setting lives in the server’s database and applies when saved. Security-relevant ones take a sign-in from the last ten minutes; a few are read at startup and wait for a restart.": "すべての設定はサーバーのデータベースに保存され、保存した時点で適用されます。セキュリティに関わる設定には直近 10 分以内のサインインが必要です。一部は起動時に読み込まれ、再起動を待ちます。",
+  "Failover window": "フェイルオーバーウィンドウ",
+  "Gateway timeout": "ゲートウェイタイムアウト",
+  "How the server shuts down, and its scheduled backups.": "サーバーの停止方法と、スケジュールされたバックアップ。",
+  "Login lockout base": "ログインロックの基本時間",
+  "Not a duration, use e.g. 30s, 5m, 2h, 1d": "期間ではありません。例: 30s、5m、2h、1d",
+  "Not a size, use e.g. 512KB, 10MB, 1GB": "サイズではありません。例: 512KB、10MB、1GB",
+  "Not valid YAML: {error}": "無効な YAML: {error}",
+  "One per line": "1 行に 1 つ",
+  "Read when the server starts: a change is stored and takes effect at the next start.": "サーバー起動時に読み込まれます。変更は保存され、次回起動時に有効になります。",
+  "Response timeout": "応答タイムアウト",
+  "Saved, and waiting for a restart: {paths}": "保存済み。再起動待ち: {paths}",
+  "Seeds a new server’s settings on its first start, through APERIO_INIT_FILE.": "APERIO_INIT_FILE を通じて、新しいサーバーの初回起動時に設定を与えます。",
+  "Serve-stale window": "期限切れ応答の提供期間",
+  "The client file configures a tunnel client and what it exposes; the first-start document seeds a new server’s settings.": "クライアントファイルはトンネルクライアントとその公開内容を設定し、初回起動ドキュメントは新しいサーバーの設定を与えます。",
+  "Undo": "元に戻す",
+  "automatic": "自動",
+  "off": "オフ",
+  "restart": "要再起動",
+  "restart pending": "再起動待ち",
+  "security": "セキュリティ",
+  "stored, type to replace": "保存済み。入力すると置き換えます",
+  "Every setting that differs from its default": "既定値と異なるすべての設定",
 }

@@ -3,9 +3,9 @@ import assert from 'node:assert/strict'
 import { AperioServerBase } from '../../lib/server.js'
 
 export class SubdomainServer extends AperioServerBase({
-  env: {
-    APERIO_RANDOM_SUBDOMAIN: '*-pi.e2e.local',
-    APERIO_WEBAUTHN_ORIGIN: 'https://tunnel.e2e.local',
+  settings: {
+    routing: { random_subdomain: '*-pi.e2e.local' },
+    dashboard: { webauthn: { origin: 'https://tunnel.e2e.local' } },
   },
 }) {}
 

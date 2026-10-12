@@ -18,15 +18,12 @@ async fn serves_both_schemas_and_rejects_anything_else() {
   assert!(doc["properties"]["target"].is_object(), "{doc}");
   assert!(doc["properties"]["services"].is_object());
 
-  // …and the server schema aperio-server.yaml. The two must not be the same
+  // …and the server's settings document. The two must not be the same
   // document, which a copy-paste slip in the match arms would produce.
   let resp = config_schema_handler(Path("SERVER".to_string())).await;
   assert_eq!(resp.status(), StatusCode::OK);
   let server = body_json(resp).await;
-  assert!(
-    server["properties"]["max_body_size"].is_object(),
-    "{server}"
-  );
+  assert!(server["properties"]["limits"].is_object(), "{server}");
   assert!(server["properties"]["target"].is_null());
 
   // Unknown kinds 404 rather than falling back to one of them.

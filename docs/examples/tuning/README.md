@@ -6,7 +6,7 @@
 The knobs that shape how much traffic flows and how fast, on both sides:
 
 - **Client**, `max_concurrent` announces a per-connection cap the server queues against instead of flooding the backend; `connections` opens parallel tunnel connections the server load-balances across (so one service isn't serialized behind a single WebSocket); `bandwidth` caps what the server pushes at the client, as a budget divided across every service and connection; `timeout`, `max_response_body`, `max_request_body`, and `max_redirects` bound individual requests, with `response_timeout` asking the server to wait as long as the client will; `capture: false` keeps a high-volume service out of the request inspector without touching its traffic or statistics.
-- **Server**, global ceilings (`max_concurrent_requests`, `max_tunnels`, `max_body_size`), per-IP rate limiting (`ip_limit_max` burst + `ip_limit_refill` per second), gateway timeouts, and optional `tunnel_compression` for text-heavy traffic on slow links.
+- **Server**, global ceilings (`limits.concurrent_requests`, `limits.tunnels`, `limits.request_body`), per-IP rate limiting (`limits.ip_rate`: a `burst` and a `per_second` refill), gateway timeouts (`gateway`), and optional `tunnel.compression` for text-heavy traffic on slow links.
 
 The values below are illustrative, measure before copying.
 

@@ -633,7 +633,7 @@ pub(crate) async fn explain_handler(
       (
         "the server's gate asks for an Aperio sign-in: a dashboard session reaching this hostname's organization",
         "visitor_gate.aperio_login",
-        "server_auth",
+        "access.gate",
         "setting.server_auth",
       )
     } else if client_gate {
@@ -647,14 +647,14 @@ pub(crate) async fn explain_handler(
       (
         "the server's visitor gate is on, and OIDC is configured",
         "visitor_gate.server_password_and_oidc",
-        "server_auth / OIDC",
+        "access.gate / OIDC",
         "setting.server_auth_oidc",
       )
     } else if server_gate {
       (
         "the server's visitor password is set",
         "visitor_gate.server_password",
-        "server_auth",
+        "access.gate",
         "setting.server_auth",
       )
     } else {
@@ -696,7 +696,7 @@ pub(crate) async fn explain_handler(
     // unclaimed hostname does so that nothing leaks to a caller who was never
     // going to be let in. The report is for the operator, so here it says
     // plainly what the wire does not.
-    let detail = "nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it".to_string();
+    let detail = "nothing declares this route reachable and `access.default` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it".to_string();
     decided(
       &mut outcome,
       "visitor_gate",
@@ -711,7 +711,7 @@ pub(crate) async fn explain_handler(
         "visitor_gate.undeclared",
         detail,
       )
-      .from_named("default_access", "setting.default_access"),
+      .from_named("access.default", "setting.default_access"),
     );
   } else {
     steps.push(Step::new(

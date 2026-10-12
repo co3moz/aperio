@@ -381,13 +381,13 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
       crate::api::exposes::audit_failures,
     ));
 
-    // Network-level fence for the admin surface (APERIO_ADMIN_ALLOWED_IPS).
+    // Network-level fence for the admin surface (security.admin_allowed_ips).
     // Added after the session layer so it runs first (outermost): a blocked
     // source IP is rejected with 403 before any auth check. Registered before
     // the assets route below so public login assets stay reachable, and it
     // wraps only the dashboard + /api routes, the login page, auth endpoints,
     // health and OIDC routes live on the root router and are never fenced, so
-    // APERIO_SERVER_AUTH-protected proxied sites keep working from any address.
+    // access.gate-protected proxied sites keep working from any address.
     let ip_state = state.clone();
     dash_router = dash_router.layer(axum::middleware::from_fn(
       move |req: axum::extract::Request, next: axum::middleware::Next| {
@@ -430,7 +430,7 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
     app = app.nest("/aperio", dash_router);
   } else {
     // Even with the dashboard disabled the login page (used by
-    // APERIO_SERVER_AUTH-protected proxied sites) still needs its assets.
+    // access.gate-protected proxied sites) still needs its assets.
     app = app.nest(
       "/aperio",
       Router::new().route("/assets/{*path}", get(dashboard_asset_handler)),
@@ -547,14 +547,14 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
   app = app.route("/aperio/oidc/callback", get(oidc_callback_handler));
 
   // Prometheus metrics endpoint, registered outside the dashboard session
-  // middleware. Access control is handled by APERIO_METRICS_TOKEN if set.
+  // middleware. Access control is handled by metrics.token if set.
   if metrics_enabled {
     app = app.route("/aperio/metrics", get(metrics_handler));
     info!("Prometheus metrics endpoint enabled at /aperio/metrics");
   }
 
   // Edge integration. Registered outside the dashboard session middleware on
-  // purpose: the edge proxy holds only APERIO_EDGE_TOKEN, and the endpoints
+  // purpose: the edge proxy holds only edge.token, and the endpoints
   // must work with the dashboard disabled.
   //
   // The routes exist whether or not the feature is on, and the handlers answer
@@ -579,7 +579,7 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
       if state.config().edge_service_url.is_some() {
         ""
       } else {
-        " (set APERIO_EDGE_SERVICE_URL for the Traefik document)"
+        " (set edge.service_url for the Traefik document)"
       }
     );
   }

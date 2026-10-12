@@ -1,44 +1,46 @@
-//! What the server checks before it agrees to exist: a configuration still
-//! setting a removed key, the upgrade notes a file's declared `version:` earns,
-//! the audit chain's own verification, and binding the listener.
+//! What the server checks before it agrees to exist: an environment still
+//! carrying a setting that moved into the database, the audit chain's own
+//! verification, and binding the listener.
 
 use crate::*;
 use tracing::info;
 
-/// Settings that no longer exist, and what to do instead.
+/// Refuses to start while the environment still sets a variable whose
+/// setting moved into the database, naming where it went.
 ///
-/// A removed key that is merely ignored is the worst outcome: the file still
-/// says the dashboard has its own password, the server no longer agrees, and
-/// nobody finds out until someone tries to sign in. Refusing to start turns a
-/// silent authentication change into an obvious one, at the only moment the
-/// operator is watching.
-const REMOVED_SETTINGS: &[(&str, &str)] = &[(
-  "APERIO_DASHBOARD_AUTH",
-  "the separate dashboard password was removed. Sign in as `aperio:<APERIO_SERVER_TOKEN>`, \
-   or create a dashboard user (Users page) or an organization for anyone who used it. \
-   Remove `dashboard_auth:` / `dashboard.auth:` from the configuration to start.",
-)];
-
-/// Refuses to start when the configuration still sets a removed key.
-///
-/// Runs before the runtime exists, so it prints rather than logs, like the
-/// upgrade check beside it. Every spelling is covered by checking the
-/// environment variable: the file loader materializes both the flat key and
-/// the block child into it.
+/// A variable that is silently ignored is the worst outcome: a container
+/// definition still says `APERIO_ADMIN_ALLOWED_IPS`, the server no longer
+/// reads it, and the dashboard is open to everyone while the operator
+/// believes otherwise. Refusing to start makes the move impossible to miss at
+/// the one moment somebody is watching. Runs before the runtime exists, so it
+/// prints rather than logs.
 pub(crate) fn refuse_removed_settings() {
-  let mut refused = false;
-  for (var, guidance) in REMOVED_SETTINGS {
-    let set = std::env::var(var)
-      .map(|v| !v.trim().is_empty())
-      .unwrap_or(false);
-    if set {
-      eprintln!("aperio-server: {var} is set, but {guidance}");
-      refused = true;
+  let mut refused: Vec<String> = Vec::new();
+  for (name, value) in std::env::vars() {
+    if value.trim().is_empty() {
+      continue;
+    }
+    if let Some(hint) = aperio_config::removed::server_env_hint(&name) {
+      refused.push(format!("{name} is set, but it was {hint}"));
     }
   }
-  if refused {
-    std::process::exit(1);
+  if refused.is_empty() {
+    return;
   }
+  refused.sort();
+  for line in &refused {
+    eprintln!("aperio-server: {line}");
+  }
+  eprintln!(
+    "aperio-server: refusing to start until {} environment variable(s) are removed. The environment now holds only: {}.",
+    refused.len(),
+    aperio_config::server_settings::BOOT_ENV
+      .iter()
+      .map(|(k, _)| *k)
+      .collect::<Vec<_>>()
+      .join(", ")
+  );
+  std::process::exit(1);
 }
 
 /// `aperio-server --verify-audit`: verifies the tamper-evident hash chain of
@@ -47,7 +49,7 @@ pub(crate) fn refuse_removed_settings() {
 /// was found). Each file is checked independently; its first line is a
 /// rotation boundary and is not checkable against a rotated-away predecessor.
 pub(crate) fn verify_audit() -> i32 {
-  let data_dir = std::env::var("APERIO_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
+  let data_dir = crate::boot::data_dir();
   let base = std::path::PathBuf::from(&data_dir).join("audit.jsonl");
 
   // Collect rotated generations (.1 newest .. .N oldest), then order oldest →
@@ -142,12 +144,33 @@ pub(crate) async fn bind_listener(
   tokio::net::TcpListener::from_std(socket.into())
 }
 
-/// The asynchronous server proper: sets up logging, reads env config,
-/// registers paths/middleware, and binds the TCP listener.
+/// The asynchronous server proper: reads the boot environment and the
+/// settings, sets up logging, registers paths/middleware, and binds the TCP
+/// listener.
 pub(crate) async fn async_main() {
-  // Initialize tracing with structured JSON output (pino.js style), plus the
-  // optional OpenTelemetry OTLP export layer (APERIO_OTEL). The returned guard
-  // flushes buffered spans on graceful shutdown.
+  // The boot environment and the settings come first: the tracing layers
+  // below read the `otel` section, so the document has to be in force before
+  // logging starts. Failures here are printed, since nothing logs yet.
+  let boot = match crate::boot::Boot::from_env() {
+    Ok(boot) => boot,
+    Err(e) => {
+      eprintln!("aperio-server: {e}");
+      std::process::exit(1);
+    }
+  };
+  let (settings, init) = match crate::boot::load_settings(&boot) {
+    Ok(loaded) => loaded,
+    Err(e) => {
+      eprintln!(
+        "aperio-server: refusing to start: {e}. `aperio-server settings reset` puts a setting, or all of them, back to the default."
+      );
+      std::process::exit(1);
+    }
+  };
+  crate::live::set(settings.clone());
+
+  // Structured JSON logs, plus the optional OpenTelemetry layer (`otel` in
+  // the settings). The returned guard flushes buffered spans on shutdown.
   let log_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
     let level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     tracing_subscriber::EnvFilter::new(level)
@@ -159,7 +182,7 @@ pub(crate) async fn async_main() {
   let Some(StartupBundle {
     state,
     metrics_enabled,
-  }) = build_state().await
+  }) = build_state(boot, settings, init).await
   else {
     // The refusal has been logged by build_state with its reason.
     return;
@@ -180,9 +203,8 @@ pub(crate) async fn async_main() {
 
   let app = build_router(state.clone(), metrics_enabled);
 
-  let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
   // Restore public listeners before requests can mutate their desired state.
-  state.exposes.lock().await.initialize(&state, &host).await;
+  state.exposes.lock().await.initialize(&state).await;
   spawn_background(&state);
 
   serve_until_shutdown(state.clone(), app).await;

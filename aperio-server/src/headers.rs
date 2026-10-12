@@ -90,20 +90,14 @@ impl HeaderTransforms {
   }
 }
 
-/// Reads and compiles the `headers:` section of `aperio-server.yaml`.
-/// A malformed section is a startup error: silently proxying without the
-/// operator's header edits could leak what they meant to strip.
-pub(crate) fn from_config_file() -> HeaderTransforms {
-  let Some(section) = crate::config_file::structured("headers") else {
-    return HeaderTransforms::default();
+/// Compiles the server-wide `headers:` section of the settings.
+pub(crate) fn from_section(section: Option<serde_yaml::Value>) -> Result<HeaderTransforms, String> {
+  let Some(section) = section else {
+    return Ok(HeaderTransforms::default());
   };
-  match serde_yaml::from_value::<HeaderRules>(section) {
-    Ok(rules) => HeaderTransforms::compile(&rules),
-    Err(err) => {
-      tracing::error!("invalid `headers:` section in aperio-server.yaml: {err}");
-      std::process::exit(1);
-    }
-  }
+  serde_yaml::from_value::<HeaderRules>(section)
+    .map(|rules| HeaderTransforms::compile(&rules))
+    .map_err(|e| format!("headers: {e}"))
 }
 
 #[cfg(test)]

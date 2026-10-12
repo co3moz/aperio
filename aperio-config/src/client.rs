@@ -58,19 +58,19 @@ pub struct TunnelDecl {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [300]))]
   pub idle_timeout: Option<u64>,
-  /// Deprecated spelling of the public-port claim (TCP only): the value must
-  /// equal the `key` of an `expose:` entry in the server's aperio-server.yaml.
-  /// Prefer naming the tunnel and letting the server's `expose:` entry point
-  /// at it by `tunnel:` + `token:`, which is revocable and names an owner.
+  /// Deprecated, and matches nothing since 0.13.0: it was the shared-secret
+  /// claim of an `expose:` entry in the server's configuration file, which
+  /// the server no longer reads. Expose listeners name the tunnel and its
+  /// organization instead, and are managed through the server's API.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["k5fj2q-expose-secret"]))]
+  #[schemars(extend("examples" = ["k5fj2q-expose-secret"], "deprecated" = true))]
   pub expose: Option<String>,
 }
 
 /// Header edits applied to one direction of proxied traffic (request or
 /// response): `add` sets headers (replacing any existing value of the same
 /// name), `remove` strips headers by name (case-insensitive).
-#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema, PartialEq)]
 pub struct HeaderDirectives {
   /// Headers to set, name → value; replaces an existing header of the same name.
   #[serde(default)]
@@ -85,7 +85,7 @@ pub struct HeaderDirectives {
 /// Header add/remove rules for proxied HTTP traffic: `request` edits what the
 /// local backend receives, `response` edits what the visitor receives.
 /// Hop-by-hop and tunnel-critical headers stay managed by Aperio regardless.
-#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema, PartialEq)]
 pub struct HeaderRules {
   /// Edits applied to forwarded requests before they reach the local backend.
   #[schemars(extend("examples" = [{"add": {"X-Forwarded-Env": "staging"}, "remove": ["X-Internal-Debug"]}]))]
@@ -665,7 +665,7 @@ pub struct ServiceEntry {
   #[schemars(extend("examples" = [true, {"hsts": true, "frame_options": "SAMEORIGIN"}]))]
   pub security_headers: Option<SecurityHeaders>,
   /// Let the server cache this service's GET responses (per their
-  /// `Cache-Control`); effective only when the server enables APERIO_CACHE.
+  /// `Cache-Control`); effective only when the server has `cache.enabled`.
   #[schemars(extend("examples" = [true]))]
   pub cache: Option<bool>,
   /// Keep serving this service's cached responses (marked, even past their

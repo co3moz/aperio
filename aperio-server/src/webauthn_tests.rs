@@ -23,10 +23,6 @@ use webauthn_authenticator_rs::softpasskey::SoftPasskey;
 const ORIGIN: &str = "https://tunnel.example.com";
 const RP_ID: &str = "tunnel.example.com";
 
-/// Serializes `build_webauthn`'s env-var access across the parallel test
-/// threads (`APERIO_WEBAUTHN_ORIGIN` is process-global).
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 fn origin_url() -> Url {
   Url::parse(ORIGIN).unwrap()
 }
@@ -113,51 +109,49 @@ async fn register_full(
 }
 
 // ---------------------------------------------------------------------------
-// build_webauthn (env-driven setup)
+// build_webauthn (`dashboard.webauthn`)
 // ---------------------------------------------------------------------------
+
+/// Puts `dashboard.webauthn.origin` in force on this thread.
+fn origin(value: &str) {
+  let mut settings = aperio_config::server_settings::ServerSettings::default();
+  settings.dashboard.webauthn.origin = Some(value.to_string());
+  crate::live::set(settings);
+}
 
 #[test]
 fn build_webauthn_unset_is_none() {
-  let _g = ENV_LOCK.lock().unwrap();
-  unsafe { std::env::remove_var("APERIO_WEBAUTHN_ORIGIN") };
+  crate::live::reset();
   assert!(build_webauthn().is_none());
 }
 
 #[test]
 fn build_webauthn_empty_is_none() {
-  let _g = ENV_LOCK.lock().unwrap();
-  unsafe { std::env::set_var("APERIO_WEBAUTHN_ORIGIN", "   ") };
+  origin("   ");
   assert!(build_webauthn().is_none());
-  unsafe { std::env::remove_var("APERIO_WEBAUTHN_ORIGIN") };
 }
 
 #[test]
 fn build_webauthn_invalid_url_is_none() {
-  let _g = ENV_LOCK.lock().unwrap();
-  unsafe { std::env::set_var("APERIO_WEBAUTHN_ORIGIN", "not a url") };
+  origin("not a url");
   assert!(build_webauthn().is_none());
-  unsafe { std::env::remove_var("APERIO_WEBAUTHN_ORIGIN") };
 }
 
 #[test]
 fn build_webauthn_ip_origin_is_none() {
-  let _g = ENV_LOCK.lock().unwrap();
   // An IP address has no domain, so it cannot be an RP ID.
-  unsafe { std::env::set_var("APERIO_WEBAUTHN_ORIGIN", "https://127.0.0.1:8443") };
+  origin("https://127.0.0.1:8443");
   assert!(build_webauthn().is_none());
-  unsafe { std::env::remove_var("APERIO_WEBAUTHN_ORIGIN") };
 }
 
 #[test]
 fn build_webauthn_valid_is_some() {
-  let _g = ENV_LOCK.lock().unwrap();
-  unsafe { std::env::set_var("APERIO_WEBAUTHN_ORIGIN", ORIGIN) };
+  origin(ORIGIN);
   assert!(build_webauthn().is_some());
-  unsafe { std::env::remove_var("APERIO_WEBAUTHN_ORIGIN") };
 }
 
 // ---------------------------------------------------------------------------
-// Disabled (APERIO_WEBAUTHN_ORIGIN unset) => 501 for every ceremony handler
+// Disabled (`dashboard.webauthn.origin` unset) => 501 for every ceremony handler
 // ---------------------------------------------------------------------------
 
 #[tokio::test]

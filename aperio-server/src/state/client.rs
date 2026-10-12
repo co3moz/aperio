@@ -548,7 +548,7 @@ pub(crate) struct ServiceState {
   /// (same token, explicit client id required).
   pub(crate) tunnels: Vec<crate::protocol::TunnelDecl>,
   /// The client opted its service into the server-side response cache
-  /// (`cache: true` via Ping). Effective only with APERIO_CACHE on.
+  /// (`cache: true` via Ping). Effective only with cache.enabled on.
   pub(crate) cache: bool,
   /// Ensures the "cache requested but the server cache is disabled" warning
   /// logs once per connection, not on every heartbeat.
@@ -558,7 +558,7 @@ pub(crate) struct ServiceState {
   pub(crate) resilience: bool,
   /// Client-declared request body cap for this service, in bytes (via Ping).
   /// Enforced before dispatch with an early 413; never loosens the global
-  /// APERIO_MAX_BODY_SIZE limit.
+  /// limits.request_body limit.
   pub(crate) max_request_body: Option<u64>,
   /// Client-declared per-service response timeout, in seconds (via Ping).
   /// Overrides the global gateway response timeout for this service's

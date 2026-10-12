@@ -14,6 +14,7 @@ pub(crate) mod inbox;
 pub(crate) mod orgs;
 pub(crate) mod scaling;
 pub(crate) mod sessions;
+pub(crate) mod settings;
 pub(crate) mod stats;
 pub(crate) mod tokens;
 pub(crate) mod uptime;
@@ -100,6 +101,7 @@ fn initialize_db(conn: Connection) -> rusqlite::Result<Connection> {
      CREATE TABLE IF NOT EXISTS admin_keys (id TEXT PRIMARY KEY, data TEXT NOT NULL);
      CREATE TABLE IF NOT EXISTS scaling (id TEXT PRIMARY KEY, data TEXT NOT NULL);
      CREATE TABLE IF NOT EXISTS expose_config (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+     CREATE TABLE IF NOT EXISTS settings (id TEXT PRIMARY KEY, data TEXT NOT NULL);
      CREATE TABLE IF NOT EXISTS expose_sessions (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, ended_at INTEGER NOT NULL, data TEXT NOT NULL);
      CREATE INDEX IF NOT EXISTS expose_sessions_org_time ON expose_sessions(org_id, ended_at);",
   )?;

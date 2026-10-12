@@ -306,12 +306,11 @@ jobs:
   # The Helm chart.
   #
   # Linting a chart proves it renders. What is worth proving here is the one
-  # claim the chart makes: that `values.config` is the *server's own*
-  # configuration and not a second vocabulary. So the rendered ConfigMap is
-  # fed to `aperio-server --check-config`, which is the same validator an
-  # operator would run against a hand-written file. A key that stops being
-  # accepted, or a block that stops being materialized, fails here rather than
-  # on somebody's cluster.
+  # claim the chart makes: that `values.initSettings` is the *server's own*
+  # settings document and not a second vocabulary. So the rendered ConfigMap
+  # is fed to `aperio-server check`, which is the same validator a change gets
+  # and an operator would run against a hand-written document. A setting that
+  # stops being accepted fails here rather than on somebody's cluster.
   chart:
     name: Helm chart
     runs-on: ubuntu-24.04
@@ -362,34 +361,32 @@ jobs:
       - name: Build the server
         run: cargo build --locked -p aperio-server
 
-      # The claim under test: what the chart writes is a configuration the
-      # server accepts, blocks and all.
-      - name: The rendered config is a configuration the server accepts
+      # The claim under test: what the chart writes is a first-start document
+      # the server accepts, sections and all.
+      - name: The rendered document is one the server accepts
         run: |
           set -euo pipefail
           cat > /tmp/values.yaml <<'YAML'
-          config:
-            host: 0.0.0.0
-            port: 8080
-            log_level: info
-            trusted_proxies: ["10.0.0.0/8"]
-            cache: { enabled: true, max_bytes: 268435456 }
-            alert: { error_rate: 5 }
-            retention: { audit_days: 30 }
-            backup: { interval: 86400, dir: /var/lib/aperio/backups }
+          initSettings:
+            proxy: { trusted: ["10.0.0.0/8"] }
+            cache: { enabled: true, size: 256MB }
+            alerts: { error_rate: 0.05 }
+            retention: { audit: 30d }
+            backup: { interval: 1d, dir: /var/lib/aperio/backups }
           YAML
           helm template a tools/charts/aperio-server -f /tmp/values.yaml \
             | python3 -c "
           import sys, yaml
           docs = [d for d in yaml.safe_load_all(sys.stdin) if d]
           cm = [d for d in docs if d['kind'] == 'ConfigMap'][0]
-          open('/tmp/aperio-server.yaml', 'w').write(cm['data']['aperio-server.yaml'])
+          open('/tmp/server-init.yaml', 'w').write(cm['data']['server-init.yaml'])
           "
-          cat /tmp/aperio-server.yaml
-          APERIO_SERVER_TOKEN=apr_ci \
-          APERIO_SERVER_CONFIG=/tmp/aperio-server.yaml \
-          APERIO_DATA_DIR=/tmp/aperio-data \
-            ./target/debug/aperio-server --check-config
+          cat /tmp/server-init.yaml
+          ./target/debug/aperio-server check /tmp/server-init.yaml
+
+      # The packages' shipped first-start document, the same way.
+      - name: The packaged first-start document is one the server accepts
+        run: ./target/debug/aperio-server check tools/packaging/etc/server-init.yaml
 
   # ---------------------------------------------------------------------------
   # Release-cache warming, for every release target.

@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { EXPLAIN_INELIGIBLE, EXPLAIN_MESSAGES, EXPLAIN_SETTINGS } from './explainMessages'
+import schemas from './__schemas.json'
 
 const SOURCE = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -26,12 +27,28 @@ const SOURCE = join(
 )
 const rust = readFileSync(SOURCE, 'utf8')
 
+/** Every `section.field` of the server's settings: a path (`access.gate`) is
+ *  written the way a code is, and names a setting instead. */
+const settingPaths = (() => {
+  type Node = { $ref?: string; properties?: Record<string, unknown> }
+  const server = (schemas as unknown as {
+    server: { properties: Record<string, Node>; $defs: Record<string, Node> }
+  }).server
+  const paths = new Set<string>()
+  for (const [section, node] of Object.entries(server.properties)) {
+    const def = node.$ref ? server.$defs[node.$ref.split('/').pop() ?? ''] : node
+    for (const field of Object.keys(def?.properties ?? {})) paths.add(`${section}.${field}`)
+  }
+  return paths
+})()
+
 /** Every `"a.b"` string literal in the handler, which is how a code is written. */
 const codes = new Set(
   [...rust.matchAll(/"([a-z_]+\.[a-z_0-9]+)"/g)]
     .map((m) => m[1])
     // The `#[path = "..."]` attribute wiring in the test module.
-    .filter((c) => !c.endsWith('.rs')),
+    .filter((c) => !c.endsWith('.rs'))
+    .filter((c) => !settingPaths.has(c)),
 )
 
 describe('the explain message catalogue', () => {

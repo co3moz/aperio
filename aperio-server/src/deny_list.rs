@@ -1,5 +1,5 @@
 //! Server-wide source-IP deny list (the `denied_ips:` key of
-//! `aperio-server.yaml`, or `APERIO_DENIED_IPS`).
+//! the `security.denied_ips` setting).
 //!
 //! The inverse of the allowlists: `allowed_ips` on a token or a service says
 //! who may in, and `admin_allowed_ips` fences the admin surface, but until
@@ -53,48 +53,15 @@ impl DenyList {
   }
 }
 
-/// Reads `denied_ips:` from the live config document, falling back to
-/// `APERIO_DENIED_IPS`. Reading the document rather than the materialized
-/// environment variable is what makes the list hot-reloadable: blocking an
-/// address in the middle of an incident should not need a restart.
-///
-/// An invalid entry leaves the previous list in place rather than applying a
-/// partial one, and says so: silently dropping one range from a block list is
-/// the failure mode where somebody stays reachable while the operator
-/// believes otherwise.
-pub(crate) fn from_config() -> DenyList {
-  let raw = match crate::config_file::structured("denied_ips") {
-    Some(value) => match value {
-      serde_yaml::Value::Sequence(items) => {
-        let parts: Vec<String> = items
-          .iter()
-          .filter_map(|v| match v {
-            serde_yaml::Value::String(s) => Some(s.clone()),
-            other => other.as_i64().map(|n| n.to_string()),
-          })
-          .collect();
-        parts.join(",")
-      }
-      serde_yaml::Value::String(s) => s,
-      _ => {
-        tracing::error!(
-          "`denied_ips:` in aperio-server.yaml must be a list of IPs or CIDRs; the deny list is unchanged"
-        );
-        return DenyList::default();
-      }
-    },
-    None => std::env::var("APERIO_DENIED_IPS").unwrap_or_default(),
-  };
-  if raw.trim().is_empty() {
-    return DenyList::default();
+/// Compiles `security.denied_ips`. An invalid entry is an error rather than
+/// a partial list: silently dropping one range from a block list is the
+/// failure where somebody stays reachable while the operator believes
+/// otherwise.
+pub(crate) fn from_list(entries: &[String]) -> Result<DenyList, String> {
+  if entries.iter().all(|e| e.trim().is_empty()) {
+    return Ok(DenyList::default());
   }
-  match DenyList::parse(&raw) {
-    Ok(list) => list,
-    Err(e) => {
-      tracing::error!("`denied_ips` is invalid ({e}); no addresses are being blocked");
-      DenyList::default()
-    }
-  }
+  DenyList::parse(&entries.join(",")).map_err(|e| format!("security.denied_ips: {e}"))
 }
 
 #[cfg(test)]

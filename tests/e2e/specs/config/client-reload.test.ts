@@ -11,8 +11,8 @@ import { BaseServerFor, BaseBackendFor } from '../base/fixtures.js'
  *  past what the per-IP bucket refills; the reload is what is under test,
  *  not the limiter. */
 class ReloadServer extends BaseServerFor() {
-  _env() {
-    return { ...super._env(), APERIO_IP_LIMIT_MAX: '100000', APERIO_IP_LIMIT_REFILL: '10000' }
+  _settings() {
+    return { ...super._settings(), limits: { ip_rate: { burst: 100000, per_second: 10000 } } }
   }
 }
 class ReloadBackend extends BaseBackendFor() {}

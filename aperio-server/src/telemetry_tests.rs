@@ -1,5 +1,5 @@
-//! Unit tests for the OTLP/telemetry helpers. These cover the pure env-driven
-//! resolvers, the W3C header extractor/injector adapters, span construction and
+//! Unit tests for the OTLP/telemetry helpers. These cover the resolvers that
+//! read the `otel` settings, the W3C header extractor/injector adapters, span construction and
 //! status recording, plus the (process-global) subscriber `init` in all three
 //! branches. `init` installs a global default subscriber, so it can succeed at
 //! most once per test binary; the disabled and error branches are exercised via
@@ -9,83 +9,14 @@
 use super::*;
 use tracing_subscriber::EnvFilter;
 
-/// Serializes every test that mutates process-global environment variables or
-/// the global tracing/propagator state.
+/// Serializes every test that touches the global tracing/propagator state.
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// The full set of env vars the resolvers read, saved/restored around a test so
-/// tests never leak state into one another.
-const KEYS: &[&str] = &[
-  "APERIO_OTEL",
-  "APERIO_OTEL_ENDPOINT",
-  "OTEL_EXPORTER_OTLP_ENDPOINT",
-  "APERIO_OTEL_PROTOCOL",
-  "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
-  "OTEL_EXPORTER_OTLP_PROTOCOL",
-  "APERIO_OTEL_SERVICE_NAME",
-  "OTEL_SERVICE_NAME",
-  "APERIO_OTEL_SAMPLE_RATE",
-];
-
-/// Snapshot of the telemetry env vars; restores them (or removes them) on drop.
-struct EnvSnapshot {
-  saved: Vec<(&'static str, Option<String>)>,
-}
-
-impl EnvSnapshot {
-  fn take() -> Self {
-    let saved = KEYS.iter().map(|k| (*k, std::env::var(k).ok())).collect();
-    // Start every env-driven test from a clean slate.
-    for k in KEYS {
-      unsafe { std::env::remove_var(k) };
-    }
-    Self { saved }
-  }
-}
-
-impl Drop for EnvSnapshot {
-  fn drop(&mut self) {
-    for (k, v) in &self.saved {
-      match v {
-        Some(val) => unsafe { std::env::set_var(k, val) },
-        None => unsafe { std::env::remove_var(k) },
-      }
-    }
-  }
-}
-
-fn set(key: &str, val: &str) {
-  unsafe { std::env::set_var(key, val) };
-}
-
-// --------------------------------------------------------------------------
-// env_flag
-// --------------------------------------------------------------------------
-
-#[test]
-fn env_flag_recognizes_truthy_and_falsy_values() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
-
-  assert!(!env_flag("APERIO_OTEL"), "unset is false");
-
-  set("APERIO_OTEL", "1");
-  assert!(env_flag("APERIO_OTEL"), "\"1\" is true");
-
-  set("APERIO_OTEL", "true");
-  assert!(env_flag("APERIO_OTEL"), "\"true\" is true");
-
-  set("APERIO_OTEL", "TRUE");
-  assert!(env_flag("APERIO_OTEL"), "case-insensitive true");
-
-  set("APERIO_OTEL", "0");
-  assert!(!env_flag("APERIO_OTEL"), "\"0\" is false");
-
-  set("APERIO_OTEL", "yes");
-  assert!(!env_flag("APERIO_OTEL"), "arbitrary strings are false");
-
-  set("APERIO_OTEL", "");
-  assert!(!env_flag("APERIO_OTEL"), "empty is false");
+/// Edits this thread's `otel` settings in place.
+fn otel(edit: impl FnOnce(&mut aperio_config::server_settings::Otel)) {
+  let mut settings = (*crate::live::current()).clone();
+  edit(&mut settings.otel);
+  crate::live::set(settings);
 }
 
 // --------------------------------------------------------------------------
@@ -94,60 +25,39 @@ fn env_flag_recognizes_truthy_and_falsy_values() {
 
 #[test]
 fn resolve_endpoint_defaults_when_unset() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
+  crate::live::reset();
   assert_eq!(resolve_target().endpoint, "http://localhost:4318/v1/traces");
 }
 
 #[test]
 fn resolve_endpoint_appends_signal_path_to_base_url() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
-  set("APERIO_OTEL_ENDPOINT", "http://collector:4318");
+  otel(|o| o.endpoint = Some("http://collector:4318".into()));
   assert_eq!(resolve_target().endpoint, "http://collector:4318/v1/traces");
 }
 
 #[test]
 fn resolve_endpoint_strips_trailing_slash_before_appending() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
-  set("APERIO_OTEL_ENDPOINT", "http://collector:4318/");
+  otel(|o| o.endpoint = Some("http://collector:4318/".into()));
   assert_eq!(resolve_target().endpoint, "http://collector:4318/v1/traces");
 }
 
 #[test]
 fn resolve_endpoint_keeps_existing_signal_path() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
-  set("APERIO_OTEL_ENDPOINT", "http://collector:4318/v1/traces");
+  otel(|o| o.endpoint = Some("http://collector:4318/v1/traces".into()));
   assert_eq!(resolve_target().endpoint, "http://collector:4318/v1/traces");
 }
 
 #[test]
-fn resolve_endpoint_trims_and_falls_back_to_conventional_when_aperio_unset() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
-  // Aperio var unset -> conventional var wins; surrounding whitespace trimmed.
-  set("OTEL_EXPORTER_OTLP_ENDPOINT", "  http://conv:4318  ");
+fn resolve_endpoint_trims_surrounding_whitespace() {
+  otel(|o| o.endpoint = Some("  http://conv:4318  ".into()));
   assert_eq!(resolve_target().endpoint, "http://conv:4318/v1/traces");
 }
 
 #[test]
 fn resolve_endpoint_blank_value_falls_through_to_default() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
   // A present-but-blank value trims to empty -> filtered out -> default.
-  set("APERIO_OTEL_ENDPOINT", "   ");
+  otel(|o| o.endpoint = Some("   ".into()));
   assert_eq!(resolve_target().endpoint, "http://localhost:4318/v1/traces");
-}
-
-#[test]
-fn resolve_endpoint_prefers_aperio_var_over_conventional() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
-  set("APERIO_OTEL_ENDPOINT", "http://aperio:4318");
-  set("OTEL_EXPORTER_OTLP_ENDPOINT", "http://conv:4318");
-  assert_eq!(resolve_target().endpoint, "http://aperio:4318/v1/traces");
 }
 
 // --------------------------------------------------------------------------
@@ -156,8 +66,7 @@ fn resolve_endpoint_prefers_aperio_var_over_conventional() {
 
 #[test]
 fn resolve_target_defaults_to_http() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
+  crate::live::reset();
   let target = resolve_target();
   assert_eq!(target.protocol, OtlpProtocol::Http);
   assert_eq!(target.note, None);
@@ -165,9 +74,7 @@ fn resolve_target_defaults_to_http() {
 
 #[test]
 fn resolve_target_infers_grpc_from_the_grpc_port() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
-  set("APERIO_OTEL_ENDPOINT", "http://collector:4317");
+  otel(|o| o.endpoint = Some("http://collector:4317".into()));
   let target = resolve_target();
   assert_eq!(target.protocol, OtlpProtocol::Grpc);
   // gRPC takes the bare base URL, never the HTTP signal path.
@@ -178,9 +85,7 @@ fn resolve_target_infers_grpc_from_the_grpc_port() {
 
 #[test]
 fn resolve_target_defaults_the_endpoint_to_the_chosen_transports_port() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
-  set("APERIO_OTEL_PROTOCOL", "grpc");
+  otel(|o| o.protocol = Some("grpc".into()));
   let target = resolve_target();
   assert_eq!(target.protocol, OtlpProtocol::Grpc);
   assert_eq!(target.endpoint, "http://localhost:4317");
@@ -188,32 +93,30 @@ fn resolve_target_defaults_the_endpoint_to_the_chosen_transports_port() {
 
 #[test]
 fn resolve_target_strips_the_signal_path_for_grpc() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
-  set("APERIO_OTEL_PROTOCOL", "grpc");
-  set("APERIO_OTEL_ENDPOINT", "http://collector:4317/v1/traces");
+  otel(|o| {
+    o.protocol = Some("grpc".into());
+    o.endpoint = Some("http://collector:4317/v1/traces".into());
+  });
   assert_eq!(resolve_target().endpoint, "http://collector:4317");
 }
 
 #[test]
-fn resolve_target_accepts_the_spec_spelling_and_prefers_the_aperio_var() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
-  set("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf");
+fn resolve_target_accepts_the_spec_spelling() {
+  otel(|o| o.protocol = Some("http/protobuf".into()));
   assert_eq!(resolve_target().protocol, OtlpProtocol::Http);
 
-  set("APERIO_OTEL_PROTOCOL", "grpc");
+  otel(|o| o.protocol = Some("grpc".into()));
   assert_eq!(resolve_target().protocol, OtlpProtocol::Grpc);
 }
 
 #[test]
 fn resolve_target_notes_a_protocol_pinned_against_the_port() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
   // Explicit wins over inference, but the mismatch is worth saying out loud:
   // the failure mode it usually precedes is every span silently dropped.
-  set("APERIO_OTEL_PROTOCOL", "http");
-  set("APERIO_OTEL_ENDPOINT", "http://collector:4317");
+  otel(|o| {
+    o.protocol = Some("http".into());
+    o.endpoint = Some("http://collector:4317".into());
+  });
   let target = resolve_target();
   assert_eq!(target.protocol, OtlpProtocol::Http);
   assert_eq!(target.endpoint, "http://collector:4317/v1/traces");
@@ -226,12 +129,12 @@ fn resolve_target_notes_a_protocol_pinned_against_the_port() {
 
 #[test]
 fn resolve_target_falls_back_and_explains_an_unsupported_protocol() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
   // `http/json` is a real OTLP encoding, just not one this build carries, it
   // must not be quietly treated as protobuf.
-  set("APERIO_OTEL_PROTOCOL", "http/json");
-  set("APERIO_OTEL_ENDPOINT", "http://collector:4317");
+  otel(|o| {
+    o.protocol = Some("http/json".into());
+    o.endpoint = Some("http://collector:4317".into());
+  });
   let target = resolve_target();
   assert_eq!(
     target.protocol,
@@ -357,34 +260,25 @@ fn endpoint_host_port_rejects_missing_authority() {
 
 #[test]
 fn resolve_service_name_defaults_when_unset() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
+  crate::live::reset();
   assert_eq!(resolve_service_name(), "aperio-server");
 }
 
 #[test]
-fn resolve_service_name_prefers_aperio_var() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
-  set("APERIO_OTEL_SERVICE_NAME", "my-svc");
-  set("OTEL_SERVICE_NAME", "other");
+fn resolve_service_name_reads_the_setting() {
+  otel(|o| o.service_name = "my-svc".into());
   assert_eq!(resolve_service_name(), "my-svc");
 }
 
 #[test]
-fn resolve_service_name_falls_back_to_conventional_when_aperio_unset() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
-  // Aperio var unset -> conventional var wins; surrounding whitespace trimmed.
-  set("OTEL_SERVICE_NAME", "  conv-svc  ");
+fn resolve_service_name_trims_surrounding_whitespace() {
+  otel(|o| o.service_name = "  conv-svc  ".into());
   assert_eq!(resolve_service_name(), "conv-svc");
 }
 
 #[test]
 fn resolve_service_name_blank_value_falls_through_to_default() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
-  set("APERIO_OTEL_SERVICE_NAME", "   ");
+  otel(|o| o.service_name = "   ".into());
   assert_eq!(resolve_service_name(), "aperio-server");
 }
 
@@ -394,8 +288,7 @@ fn resolve_service_name_blank_value_falls_through_to_default() {
 
 #[test]
 fn build_provider_succeeds_with_default_endpoint() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
+  crate::live::reset();
   let provider =
     build_provider(&resolve_target()).expect("provider should build without a live collector");
   // Shutting the freshly-built provider down should not error.
@@ -408,9 +301,7 @@ const BAD_ENDPOINT: &str = "http://exa mple:4318";
 
 #[test]
 fn build_provider_errors_on_unparseable_endpoint() {
-  let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
-  set("APERIO_OTEL_ENDPOINT", BAD_ENDPOINT);
+  otel(|o| o.endpoint = Some(BAD_ENDPOINT.into()));
   let err = build_provider(&resolve_target()).expect_err("invalid endpoint must fail to build");
   assert!(
     err.contains("OTLP/HTTP span exporter build failed"),
@@ -475,7 +366,7 @@ fn header_injector_collects_key_value_pairs() {
 fn request_span_and_trace_headers_round_trip_with_propagator() {
   use opentelemetry::trace::TracerProvider as _;
   let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
+  crate::live::reset();
   // Install the real W3C propagator so extraction/injection actually run.
   global::set_text_map_propagator(TraceContextPropagator::new());
 
@@ -553,7 +444,7 @@ fn otel_guard_shutdown_is_a_noop_when_disabled() {
 #[test]
 fn otel_guard_shutdown_flushes_a_provider() {
   let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
+  crate::live::reset();
   let provider = build_provider(&resolve_target()).expect("provider builds");
   OtelGuard(Some(provider)).shutdown();
 }
@@ -565,13 +456,15 @@ fn otel_guard_shutdown_flushes_a_provider() {
 #[test]
 fn init_installs_subscriber_across_all_branches() {
   let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _env = EnvSnapshot::take();
+  crate::live::reset();
 
   // 1. Enabled + reachable-looking endpoint: build_provider() -> Ok, so the
   //    OTLP export layer is installed. This is the first init(), so its
   //    terminal .init() succeeds and sets the process-global subscriber.
-  set("APERIO_OTEL", "1");
-  set("APERIO_OTEL_ENDPOINT", "http://localhost:4318");
+  otel(|o| {
+    o.enabled = true;
+    o.endpoint = Some("http://localhost:4318".into());
+  });
   let guard = init(EnvFilter::new("info"));
 
   // The global tracer provider must be the real one. `emit_phase_spans` builds
@@ -596,7 +489,7 @@ fn init_installs_subscriber_across_all_branches() {
   //    already-installed global .init(). catch_unwind lets the body's coverage
   //    counters settle.
   let disabled = std::panic::catch_unwind(|| {
-    unsafe { std::env::remove_var("APERIO_OTEL") };
+    otel(|o| o.enabled = false);
     let _ = init(EnvFilter::new("info"));
   });
   assert!(
@@ -607,8 +500,10 @@ fn init_installs_subscriber_across_all_branches() {
   // 3. Enabled-but-broken branch: force build_provider() to fail with an
   //    unparseable endpoint so init takes the Err arm, then panics at .init().
   let errored = std::panic::catch_unwind(|| {
-    unsafe { std::env::set_var("APERIO_OTEL", "1") };
-    unsafe { std::env::set_var("APERIO_OTEL_ENDPOINT", BAD_ENDPOINT) };
+    otel(|o| {
+      o.enabled = true;
+      o.endpoint = Some(BAD_ENDPOINT.into());
+    });
     let _ = init(EnvFilter::new("info"));
   });
   assert!(errored.is_err(), "third init must panic on double-install");
@@ -680,22 +575,20 @@ fn probe_does_not_panic_on_an_unusable_endpoint() {
 
 #[test]
 fn the_sample_rate_defaults_to_every_trace_and_refuses_nonsense() {
-  let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-  let _env = EnvSnapshot::take();
-
   // Unset: what tracing did before the knob existed.
+  crate::live::reset();
   assert_eq!(resolve_sample_rate(), 1.0);
 
-  for (raw, expected) in [("0.01", 0.01), ("1", 1.0), ("0", 0.0), (" 0.5 ", 0.5)] {
-    unsafe { std::env::set_var("APERIO_OTEL_SAMPLE_RATE", raw) };
-    assert_eq!(resolve_sample_rate(), expected, "{raw}");
+  for rate in [0.01, 1.0, 0.0, 0.5] {
+    otel(|o| o.sample_rate = rate);
+    assert_eq!(resolve_sample_rate(), rate, "{rate}");
   }
 
   // Nonsense falls back to tracing everything rather than to tracing nothing:
   // a typo that silently turns off observability is the wrong way to fail.
-  for raw in ["0.5%", "half", "-1", "2", "NaN", ""] {
-    unsafe { std::env::set_var("APERIO_OTEL_SAMPLE_RATE", raw) };
-    assert_eq!(resolve_sample_rate(), 1.0, "{raw}");
+  for rate in [-1.0, 2.0, f64::NAN, f64::INFINITY] {
+    otel(|o| o.sample_rate = rate);
+    assert_eq!(resolve_sample_rate(), 1.0, "{rate}");
   }
 }
 
@@ -829,7 +722,7 @@ fn a_provider_builds_for_both_transports_and_both_sampling_modes() {
   // wants a runtime handle at hand, so one is entered, the way `init` runs
   // inside the server's own runtime.
   let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-  let _g = EnvSnapshot::take();
+  crate::live::reset();
   let rt = tokio::runtime::Builder::new_multi_thread()
     .worker_threads(1)
     .enable_all()
@@ -850,7 +743,7 @@ fn a_provider_builds_for_both_transports_and_both_sampling_modes() {
     OtelGuard(Some(provider)).shutdown();
   }
   // A fractional rate picks the ratio-based sampler branch.
-  set("APERIO_OTEL_SAMPLE_RATE", "0.25");
+  otel(|o| o.sample_rate = 0.25);
   let target = OtlpTarget {
     protocol: OtlpProtocol::Http,
     endpoint: "http://127.0.0.1:4318/v1/traces".to_string(),

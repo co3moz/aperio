@@ -5,12 +5,15 @@ server and its clients.
 
 ## Configuration across an upgrade
 
-A configuration file does not declare the release it was written for, and no
-layer translates an old spelling into a new one. A key that was removed or
-renamed is reported by name when the client reads the file, with what replaced
-it, instead of the generic "not a setting" a typo gets. The
-[CHANGELOG](../CHANGELOG.md) lists every such key under the release that moved
-it, marked **Breaking**.
+A client file does not declare the release it was written for, and no layer
+translates an old spelling into a new one. A key that was removed or renamed
+is reported by name when the client reads the file, with what replaced it,
+instead of the generic "not a setting" a typo gets. On the server, a variable
+that moved into the settings refuses the start and names the setting, and a
+stored settings document this build cannot read stops the start with the
+setting named; `aperio-server settings reset` puts it back. The
+[CHANGELOG](../CHANGELOG.md) lists every such change under the release that
+made it, marked **Breaking**.
 
 ## Client ↔ server compatibility
 
@@ -52,6 +55,69 @@ since a refused client reconnects on its own.
 The versioned JSON Schemas (`aperio-client.<tag>.json`) are attached to each
 GitHub Release, so an editor validates the exact keys a given version accepts.
 
+## Upgrading to 0.13.0: the server's settings move into its database
+
+The server no longer reads `aperio-server.yaml`, and reads only its boot
+settings from the environment: `APERIO_SERVER_TOKEN`, `HOST`, `PORT`,
+`APERIO_DATA_DIR`, `LOG_LEVEL`, `APERIO_REUSEPORT`, `APERIO_BACKUP_KEY` /
+`APERIO_BACKUP_KEY_FILE`, and the new `APERIO_INIT_FILE`. Every other setting
+lives in the database and is changed from the dashboard (**Settings**) or with
+`PUT /aperio/api/settings`, without a restart. See
+[Configuration](configuration.md#server-settings).
+
+**Nothing is carried over silently, and nothing is lost silently either.** A
+0.13 server that still finds one of the old variables in its environment
+refuses to start and prints each one with the setting that replaced it
+(`APERIO_TRUSTED_PROXIES is set, but it was moved into the settings as
+proxy.trusted`). Moving a deployment over is four steps:
+
+1. **Write the settings down as a document.** Take what `aperio-server.yaml`,
+   the environment and the dashboard's overrides (`settings.json` in the data
+   directory) say, and write it under `settings:` in the new spellings. The
+   [reference](configuration.md#settings-reference) has every path; the common
+   ones:
+
+   | 0.12 | 0.13 |
+   | --- | --- |
+   | `trusted_proxies`, `trust_proxy`, `real_ip_header` | `proxy.trusted`, `proxy.trust`, `proxy.real_ip_header` |
+   | `server.auth` / `server_auth` | `access.gate` |
+   | `default_access`, `ignore_client_auth` | `access.default`, `access.ignore_client_auth` |
+   | `admin_allowed_ips`, `denied_ips`, `secure_cookies` | `security.admin_allowed_ips`, `security.denied_ips`, `security.secure_cookies` |
+   | `max_body_size`, `max_concurrent_requests`, `max_tunnels` | `limits.request_body`, `limits.concurrent_requests`, `limits.tunnels` |
+   | `gateway_timeout`, `gateway_response_timeout` | `gateway.timeout`, `gateway.response_timeout` |
+   | `lb_strategy`, `random_subdomain` | `routing.lb_strategy`, `routing.random_subdomain` |
+   | `cache: true`, `cache.max_bytes` | `cache.enabled: true`, `cache.size` |
+   | `oidc_issuer`, `oidc_*` | `oidc.issuer`, `oidc.*` |
+   | `alert_error_rate: 5` (percent) | `alerts.error_rate: 0.05` (a fraction) |
+   | `alert_rules:` | `alerts.rules:` |
+   | `504_page`, `503_page` (a file path) | `pages.unavailable`, `pages.maintenance` (the HTML itself) |
+   | `expose:` | expose listeners, from the dashboard's Tunnels page or the API ([Public exposes](public-exposes.md)) |
+
+   Durations and sizes may keep their bare numbers (seconds and bytes), or
+   take a unit: `30s`, `5m`, `10MB`. The lists (`routes`, `rate_limits`,
+   `waf`, `fallbacks`, `error_pages`, `maintenance_windows`, `headers`) keep
+   their shape.
+
+2. **Check it** with the new binary: `aperio-server check server-init.yaml`.
+   It runs the checks a change gets and names the first setting it refuses.
+
+3. **Start 0.13 with `APERIO_INIT_FILE=server-init.yaml`, and without the old
+   variables.** An upgraded data directory has tokens and users but no
+   settings yet, so the document is read on this first start and stored; the
+   tokens, users, statistics and the rest of the store are untouched. Put only
+   `settings:` in this document: another section (`tokens:`, say) would
+   replace that store.
+
+4. **Retire the file.** From the second start the database holds the settings
+   and the document is not read again. Keep it in git as the record of what
+   the server started with, and use `GET /aperio/api/export?include=settings`
+   for what it runs now.
+
+`aperio-server --check-config`, `--print-config`, `--print-schema`,
+`--verify-audit` and `--decrypt-backup` are subcommands now: `aperio-server
+check <file>`, `settings show`, `schema`, `audit verify` and
+`backup decrypt`. The flags are refused rather than ignored.
+
 ## Upgrading to 0.12.0: what an OIDC login is, and a wider default
 
 Two configuration changes. Neither needs a coordinated cutover.
@@ -77,7 +143,8 @@ while any user still carries `*`; narrow them by hand.
 
 **`max_tunnels` defaults to 64, up from 10.** A client holds one connection
 per service and a reload briefly wants two, so ten refused ordinary fleets as
-full. Write `max_tunnels: 10` if ten was meant as a fence.
+full. Set it to 10 (`limits.tunnels` since 0.13.0) if ten was meant as a
+fence.
 
 ## Upgrading to 0.10.0: routes are closed by default
 
@@ -107,40 +174,41 @@ about exactly this, once per connection, naming the line to write.
 password, or OIDC. Those were always reachable after a login and are untouched:
 the posture decides what an *unstated* route means, nothing else.
 
-**To postpone it**, set `default_access: allow` (`APERIO_DEFAULT_ACCESS`). That
-restores the previous behaviour exactly. It is a supported posture rather than
+**To postpone it**, set `access.default: allow`. That restores the previous
+behaviour exactly. It is a supported posture rather than
 a migration flag, so there is no deadline attached to it.
 
 ## Recommended upgrade procedure
 
 1. **Read the [CHANGELOG](../CHANGELOG.md).** Breaking changes are called out
    under the release's `Changed` section.
-2. **Validate the config against the new binary.** `aperio-server --check-config`
-   flags anything the new version would reject or silently default. Point it at
-   the file the service reads (`APERIO_SERVER_CONFIG=/etc/aperio/aperio-server.yaml
-   aperio-server --check-config`), and export the token it requires first, or it
-   fails on the missing credential rather than on the config.
-3. **Back up the store.** Take a snapshot (`APERIO_BACKUP_*` (yaml `backup_*`) or a logical
+2. **Check the settings against the new binary.** Export them
+   (`GET /aperio/api/export?include=settings`) and run
+   `aperio-server check` on the export with the new binary: it names anything
+   the new version would refuse.
+3. **Back up the store.** Take a snapshot (the `backup` settings, or a logical
    `/aperio/api/export`) so a rollback has a known-good state. The logical dump
    carries the configuration by default; add `?include=` to name the sections,
-   `tokens,webhooks,users,organizations,scaling,settings_overrides,statistics,uptime,activity,inbox,admin_keys`
+   `settings,tokens,webhooks,users,organizations,scaling,exposes,statistics,uptime,activity,inbox,admin_keys`
    is everything the store holds. The SQLite schema
    is created idempotently; new columns are additive with serde defaults, so an
    older store loads cleanly into a newer server.
-4. **Roll the server forward.** With `APERIO_REUSEPORT=1` (yaml `reuseport`) you can start the new
+4. **Roll the server forward.** With `APERIO_REUSEPORT=1` you can start the new
    process alongside the old one and drain the old one for a
    [zero-downtime restart](development.md#zero-downtime-restarts); otherwise a
    normal restart broadcasts a graceful shutdown so clients reconnect promptly.
 5. **Roll the clients forward.** On a patch release this can happen at any
    pace. On a minor release the old clients are refused until they are
    upgraded, so do it right after the server; each one reconnects by itself.
-6. **Verify.** `aperio-server --verify-audit` confirms the audit chain survived,
+6. **Verify.** `aperio-server audit verify` confirms the audit chain survived,
    and the dashboard shows every client reconnected and healthy.
 
 ## Downgrade
 
 Downgrading the server is generally safe because store changes are additive: a
 newer store opened by an older server ignores columns it does not know. Across
+0.13.0 the settings are the exception: a 0.12 server does not read them from
+the database, so give it back its `aperio-server.yaml` and environment. Across
 a minor release the clients have to be downgraded with it, since a client pairs
 only with a server of its own minor. Always keep the pre-upgrade backup until the
 new version has run cleanly for a while.

@@ -4,8 +4,7 @@ Aperio is usually not the outermost thing on the box. Traefik, Caddy, or nginx t
 
 Choose a wildcard route or one of the dynamic routing options below.
 
-> **Configuration:** Server settings go in `aperio-server.yaml` (for example, `edge.token` maps to `APERIO_EDGE_TOKEN`). File values override environment variables. See [Configuration](configuration.md#grouped-keys) for the full mapping.
-
+> **Configuration:** Server settings live in the server's database and are changed from the dashboard (**Settings**), with `PUT /aperio/api/settings`, or in a first-start document (`APERIO_INIT_FILE`); they are written as paths such as `cache.enabled`. Client settings go in `aperio.yaml`. See [Configuration](configuration.md#server-settings).
 ## 1. One wildcard domain: nothing to integrate
 
 If every tunnel hostname lives under a single domain you control, the edge never needs to know individual names. Give it one wildcard route and one wildcard certificate (DNS-01), and you are done.
@@ -22,7 +21,7 @@ labels:
   - "traefik.http.services.aperio.loadbalancer.server.port=8080"
 ```
 
-This is the natural fit for `APERIO_RANDOM_SUBDOMAIN` (yaml `random_subdomain`) preview environments, where every hostname is `<random>.example.com` by construction. No polling, no extra endpoint, no coupling.
+This is the natural fit for `routing.random_subdomain` (yaml `random_subdomain`) preview environments, where every hostname is `<random>.example.com` by construction. No polling, no extra endpoint, no coupling.
 
 The rest of this article is for the case this cannot cover: **hostnames that are not under one wildcard**, typically customer domains pointed at your server by CNAME. Those need a per-host route and a per-host certificate.
 
@@ -31,19 +30,19 @@ The rest of this article is for the case this cannot cover: **hostnames that are
 Both remaining options are served by two endpoints on the Aperio server, and both are **off until you set a token** there:
 
 ```yaml
-# aperio-server.yaml
+# settings
 edge:
-  token: a-long-random-secret        # env: APERIO_EDGE_TOKEN, enables the endpoints
-  service_url: http://aperio:8080    # env: APERIO_EDGE_SERVICE_URL, Traefik only
+  token: a-long-random-secret        # enables the endpoints
+  service_url: http://aperio:8080    # Traefik only
 ```
 
 | Env variable | yaml key | Meaning |
 | --- | --- | --- |
-| `APERIO_EDGE_TOKEN` | `edge.token` | Credential the edge presents. Unset = the endpoints answer `404 edge integration is not enabled`. |
-| `APERIO_EDGE_SERVICE_URL` | `edge.service_url` | The URL the edge should forward matched traffic to, i.e. this server as the edge sees it. |
-| `APERIO_EDGE_ENTRYPOINTS` | `edge.entrypoints` | Comma-separated Traefik entry points for the generated routers (e.g. `websecure`). |
-| `APERIO_EDGE_CERT_RESOLVER` | `edge.cert_resolver` | Traefik certificate resolver named on the generated routers. |
-| `APERIO_EDGE_INCLUDE_OFFLINE` | `edge.include_offline` | Also publish hostnames a token permits but no client is serving. Off by default, see the warning below. |
+| `edge.token` | `edge.token` | Credential the edge presents. Unset = the endpoints answer `404 edge integration is not enabled`. |
+| `edge.service_url` | `edge.service_url` | The URL the edge should forward matched traffic to, i.e. this server as the edge sees it. |
+| `edge.entrypoints` | `edge.entrypoints` | Comma-separated Traefik entry points for the generated routers (e.g. `websecure`). |
+| `edge.cert_resolver` | `edge.cert_resolver` | Traefik certificate resolver named on the generated routers. |
+| `edge.include_offline` | `edge.include_offline` | Also publish hostnames a token permits but no client is serving. Off by default, see the warning below. |
 
 The token is accepted as `Authorization: Bearer <token>` or as a `?token=` query parameter, because Caddy's `ask` cannot send headers.
 
@@ -123,11 +122,11 @@ Traefik polls (it does not long-poll or subscribe), so the document is fetched e
 
 Both endpoints report the hostnames of **connected** clients, including a client whose backend is currently failing its health probe. That is deliberate: such a client still owns its hostname, and withdrawing the route (or letting the certificate lapse) would turn a recoverable `504` into a TLS failure, or worse, hand the name to a wildcard route belonging to something else.
 
-`APERIO_EDGE_INCLUDE_OFFLINE=1` additionally publishes hostnames a token *permits* but nobody is serving yet, so a certificate can exist before the first client ever connects. Weigh it carefully in multi-tenant setups: it lets a tenant provoke an ACME request for any hostname its token covers, which is a way to burn rate limits at your expense. It is off by default. Combine it with a [per-organization hostname allowlist](organizations.md) if you enable it.
+`edge.include_offline: true` additionally publishes hostnames a token *permits* but nobody is serving yet, so a certificate can exist before the first client ever connects. Weigh it carefully in multi-tenant setups: it lets a tenant provoke an ACME request for any hostname its token covers, which is a way to burn rate limits at your expense. It is off by default. Combine it with a [per-organization hostname allowlist](organizations.md) if you enable it.
 
 ## Security
 
-- The endpoints do nothing without `APERIO_EDGE_TOKEN`: no token, `404 edge integration is not enabled`, no inventory in the answer. The two paths are reserved either way, so a request for them is never forwarded to a client's backend.
+- The endpoints do nothing without `edge.token`: no token, `404 edge integration is not enabled`, no inventory in the answer. The two paths are reserved either way, so a request for them is never forwarded to a client's backend.
 - They expose the hostname inventory, so treat the token as a real credential and prefer a private network between the edge and Aperio.
 - They live outside the dashboard session middleware, so they keep working with the dashboard disabled, and they are never reachable with a dashboard session alone.
 - No mutation is possible through them: both are read-only.

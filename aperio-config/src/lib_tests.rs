@@ -184,76 +184,6 @@ fn schema_json_outputs_are_valid_json() {
   assert_ne!(client, server);
 }
 
-#[test]
-fn every_server_group_child_matches_a_flat_key() {
-  // The grouped and flat spellings must stay two ways of writing the same
-  // setting: `alert: { window: 60 }` has to land on APERIO_ALERT_WINDOW, the
-  // very variable `alert_window:` maps to. This walks the generated schema so
-  // a group child added without its flat counterpart (or renamed on one side
-  // only) fails here rather than silently reaching no env var.
-  let schema: serde_json::Value = serde_json::from_str(&server_schema_json()).unwrap();
-  let defs = &schema["$defs"];
-  let props = schema["properties"]
-    .as_object()
-    .expect("the server schema has properties");
-
-  /// Property names of a schema node, following a single `$ref` and the
-  /// `anyOf`/`oneOf` a nullable or untagged field generates.
-  fn properties(node: &serde_json::Value, defs: &serde_json::Value) -> Vec<String> {
-    if let Some(reference) = node["$ref"].as_str() {
-      let name = reference.rsplit('/').next().unwrap_or_default();
-      return properties(&defs[name], defs);
-    }
-    if let Some(obj) = node["properties"].as_object() {
-      return obj.keys().cloned().collect();
-    }
-    for key in ["anyOf", "oneOf"] {
-      if let Some(items) = node[key].as_array() {
-        let mut out: Vec<String> = Vec::new();
-        for item in items {
-          out.extend(properties(item, defs));
-        }
-        if !out.is_empty() {
-          return out;
-        }
-      }
-    }
-    Vec::new()
-  }
-
-  for group in SERVER_GROUPS {
-    let node = props
-      .get(group.key)
-      .unwrap_or_else(|| panic!("`{}` is in SERVER_GROUPS but not in the schema", group.key));
-    let children = properties(node, defs);
-    assert!(
-      !children.is_empty(),
-      "`{}` has no children in the schema",
-      group.key
-    );
-    for child in children {
-      if group.self_key == Some(child.as_str()) {
-        assert!(
-          props.contains_key(group.key),
-          "`{}.{}` stands for the group's own key",
-          group.key,
-          child
-        );
-        continue;
-      }
-      let flat = format!("{}_{}", group.key, child);
-      assert!(
-        props.contains_key(&flat),
-        "`{}.{}` has no flat counterpart `{}`: the block would reach APERIO_{} while nothing else does",
-        group.key,
-        child,
-        flat,
-        flat.to_uppercase()
-      );
-    }
-  }
-}
-
 /// Environment variables whose name predates the naming standard: each does
 /// have a yaml key, it simply is not the one the mechanical mapping would
 /// produce. Renaming them would break existing deployments for no functional
@@ -272,16 +202,10 @@ const ENV_ALIASES: &[(&str, &str)] = &[
   ("APERIO_BREAKER_OPEN_FOR", "circuit_breaker.open_for"),
 ];
 
-/// Environment variables the rule deliberately exempts, with the reason.
-/// Everything else read from the environment must have a yaml key.
+/// Environment variables the client rule deliberately exempts, with the
+/// reason. Everything else the client reads from the environment must have a
+/// yaml key.
 const ENV_EXEMPT: &[(&str, &str)] = &[
-  // Bootstrap: selects the yaml file itself, so it cannot live inside it.
-  ("APERIO_SERVER_CONFIG", "names the config file"),
-  // Third-party spellings the OpenTelemetry spec defines; `env_name` would
-  // prefix any yaml key with APERIO_, so these are unreachable by construction
-  // and exist only as fallbacks behind APERIO_OTEL_*, which do have keys.
-  ("OTEL_EXPORTER_OTLP_ENDPOINT", "OpenTelemetry spec fallback"),
-  ("OTEL_SERVICE_NAME", "OpenTelemetry spec fallback"),
   // Standard tracing override, not a setting of ours.
   ("RUST_LOG", "tracing's own override"),
   // Not settings: process/toolchain environment.
@@ -315,7 +239,13 @@ fn env_vars_read(crate_dir: &str) -> std::collections::BTreeSet<String> {
       // Direct reads, plus the client's `env_str`/`env_parse`/`env_bool`
       // helpers, scanning only for `env::var` would find the helper's own
       // parameter and silently pass the whole client crate.
-      for pattern in ["env::var(\"", "env_str(\"", "env_parse(\"", "env_bool(\""] {
+      for pattern in [
+        "env::var(\"",
+        "env_str(\"",
+        "env_parse(\"",
+        "env_bool(\"",
+        "env_nonempty(\"",
+      ] {
         for (i, _) in src.match_indices(pattern) {
           let rest = &src[i + pattern.len()..];
           if let Some(end) = rest.find('"') {
@@ -384,66 +314,46 @@ fn group_children(node: &serde_json::Value, defs: &serde_json::Value) -> Vec<Str
 
 #[test]
 fn every_environment_variable_has_a_yaml_key() {
-  // Project rule: yaml is the primary configuration surface and every setting
-  // must be reachable from it. A setting that exists only in the environment
-  // is invisible to the JSON Schema, so editors neither complete nor validate
-  // it and an operator reading the config file cannot see it at all. This
-  // scans both binaries for what they actually read and fails on anything the
-  // schemas do not declare, so the gap cannot reopen silently.
+  // Project rule: yaml is the client's primary configuration surface and
+  // every setting must be reachable from it. A setting that exists only in
+  // the environment is invisible to the JSON Schema, so editors neither
+  // complete nor validate it and an operator reading the config file cannot
+  // see it at all. This scans the client for what it actually reads and
+  // fails on anything the schema does not declare.
   let exempt: std::collections::BTreeSet<&str> = ENV_EXEMPT
     .iter()
     .map(|(k, _)| *k)
     .chain(ENV_ALIASES.iter().map(|(k, _)| *k))
     .collect();
-  let server_groups: Vec<&str> = SERVER_GROUPS.iter().map(|g| g.key).collect();
-
-  let mut missing: Vec<String> = Vec::new();
-  for (crate_dir, schema, groups) in [
-    (
-      "../aperio-server/src",
-      server_schema_json(),
-      server_groups.clone(),
-    ),
-    (
-      "../aperio-client/src",
-      schema_json(),
-      // The client's nested blocks: their children map to
-      // APERIO_<BLOCK>_<CHILD> exactly as the server's groups do.
-      // `circuit_breaker` is the one exception to the mechanical rule: its
-      // variables are APERIO_BREAKER_*, since APERIO_CIRCUIT_BREAKER_FAILURES
-      // is a mouthful for no added clarity, so the alias is declared below.
-      vec![
-        "health",
-        "server",
-        "scaling",
-        "security_headers",
-        "retry",
-        "circuit_breaker",
-        // `connections:` is a scalar or a `{min, max}` block, so its children
-        // are reachable as APERIO_CONNECTIONS_MIN / _MAX like any other
-        // grouped key.
-        "connections",
-        "otel_bridge",
-      ],
-    ),
-  ] {
-    let declared = schema_env_names(&schema, &groups);
-    let read = env_vars_read(crate_dir);
-    // A scan that finds nothing would pass vacuously; both crates read dozens
-    // of variables, so anything near zero means the scanner broke, not that
-    // the code got clean.
-    assert!(
-      read.len() > 20,
-      "only {} environment reads found in {crate_dir}, the scanner is broken",
-      read.len()
-    );
-    for var in read {
-      if exempt.contains(var.as_str()) || declared.contains(&var) {
-        continue;
-      }
-      missing.push(format!("{crate_dir}: {var}"));
-    }
-  }
+  // The client's nested blocks: their children map to APERIO_<BLOCK>_<CHILD>.
+  // `circuit_breaker` is the one exception to the mechanical rule: its
+  // variables are APERIO_BREAKER_*, since APERIO_CIRCUIT_BREAKER_FAILURES is
+  // a mouthful for no added clarity, so the alias is declared above.
+  let groups = vec![
+    "health",
+    "server",
+    "scaling",
+    "security_headers",
+    "retry",
+    "circuit_breaker",
+    // `connections:` is a scalar or a `{min, max}` block, so its children are
+    // reachable as APERIO_CONNECTIONS_MIN / _MAX like any other grouped key.
+    "connections",
+    "otel_bridge",
+  ];
+  let declared = schema_env_names(&schema_json(), &groups);
+  let read = env_vars_read("../aperio-client/src");
+  // A scan that finds nothing would pass vacuously; the client reads dozens
+  // of variables, so anything near zero means the scanner broke.
+  assert!(
+    read.len() > 20,
+    "only {} environment reads found in the client, the scanner is broken",
+    read.len()
+  );
+  let missing: Vec<String> = read
+    .into_iter()
+    .filter(|var| !exempt.contains(var.as_str()) && !declared.contains(var))
+    .collect();
   assert!(
     missing.is_empty(),
     "environment variables with no yaml key (add the field, or exempt it with a reason in ENV_EXEMPT):\n  {}",
@@ -493,6 +403,32 @@ fn every_environment_variable_has_a_yaml_key() {
   }
 }
 
+/// The server's environment is its boot settings, the few it needs before the
+/// database opens, and nothing else: everything else is a setting in the
+/// database, and a variable read beside them would be a second, invisible
+/// surface. Both directions, so a boot setting nobody reads is caught too.
+#[test]
+fn the_server_reads_exactly_its_boot_settings_from_the_environment() {
+  let boot: std::collections::BTreeSet<String> = crate::server_settings::BOOT_ENV
+    .iter()
+    .map(|(k, _)| k.to_string())
+    .collect();
+  let read = env_vars_read("../aperio-server/src");
+  let stray: Vec<&String> = read
+    .iter()
+    .filter(|v| !boot.contains(*v) && !ENV_EXEMPT.iter().any(|(k, _)| k == v))
+    .collect();
+  assert!(
+    stray.is_empty(),
+    "the server reads environment variables that are not boot settings (make them settings, or add them to BOOT_ENV with a reason): {stray:?}"
+  );
+  let unread: Vec<&String> = boot.iter().filter(|v| !read.contains(*v)).collect();
+  assert!(
+    unread.is_empty(),
+    "boot settings the server never reads: {unread:?}"
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Schema guidance: what an editor has to work with.
 // ---------------------------------------------------------------------------
@@ -538,6 +474,16 @@ fn is_structured(prop: &serde_json::Value) -> bool {
   }
 }
 
+/// A property whose type is a struct of its own, documented field by field.
+fn is_section(schema: &serde_json::Value, prop: &serde_json::Value) -> bool {
+  prop
+    .get("$ref")
+    .and_then(|r| r.as_str())
+    .and_then(|r| r.rsplit('/').next())
+    .and_then(|name| schema["$defs"][name].get("properties"))
+    .is_some()
+}
+
 /// A key on its way out. An example would invite writing it.
 fn is_deprecated(prop: &serde_json::Value) -> bool {
   prop.get("deprecated") == Some(&serde_json::Value::Bool(true))
@@ -555,7 +501,7 @@ fn is_deprecated(prop: &serde_json::Value) -> bool {
 ///
 /// So: a description always, an example on anything whose *shape* cannot be
 /// guessed from its type, and an example or a default on the rest.
-fn assert_schema_is_self_documenting(label: &str, schema: serde_json::Value) {
+fn assert_schema_is_self_documenting(label: &str, schema: serde_json::Value, sections: bool) {
   let mut missing_description = Vec::new();
   let mut missing_example = Vec::new();
   for (path, prop) in schema_properties(&schema) {
@@ -571,6 +517,12 @@ fn assert_schema_is_self_documenting(label: &str, schema: serde_json::Value) {
     }
     let has_example = prop.get("examples").is_some();
     let has_default = prop.get("default").is_some();
+    // A section of a settings document is a named group of documented
+    // fields, which is what an editor completes; its example would be the
+    // section's own fields again.
+    if sections && is_section(&schema, prop) {
+      continue;
+    }
     if is_structured(prop) {
       if !has_example {
         missing_example.push(format!("{path} (structured)"));
@@ -598,14 +550,19 @@ fn the_client_schema_documents_every_key() {
   assert_schema_is_self_documenting(
     "aperio.yaml",
     serde_json::to_value(schemars::schema_for!(FileConfig)).unwrap(),
+    false,
   );
 }
 
 #[test]
-fn the_server_schema_documents_every_key() {
+fn the_server_settings_schema_documents_every_key() {
   assert_schema_is_self_documenting(
-    "aperio-server.yaml",
-    serde_json::to_value(schemars::schema_for!(ServerFileConfig)).unwrap(),
+    "server settings",
+    serde_json::to_value(schemars::schema_for!(
+      crate::server_settings::ServerSettings
+    ))
+    .unwrap(),
+    true,
   );
 }
 
@@ -730,10 +687,13 @@ fn the_client_schema_examples_use_keys_that_exist() {
 }
 
 #[test]
-fn the_server_schema_examples_use_keys_that_exist() {
+fn the_server_settings_examples_use_keys_that_exist() {
   assert_example_keys_exist(
-    "aperio-server.yaml",
-    &serde_json::to_value(schemars::schema_for!(ServerFileConfig)).unwrap(),
+    "server settings",
+    &serde_json::to_value(schemars::schema_for!(
+      crate::server_settings::ServerSettings
+    ))
+    .unwrap(),
   );
 }
 
@@ -745,10 +705,51 @@ fn the_client_schema_examples_are_valid_config() {
   );
 }
 
+/// The server's examples sit one level down, on the fields of each section,
+/// so the document is built section by section and parsed as a whole.
 #[test]
-fn the_server_schema_examples_are_valid_config() {
-  assert_examples_parse::<ServerFileConfig>(
-    "aperio-server.yaml",
-    serde_json::to_value(schemars::schema_for!(ServerFileConfig)).unwrap(),
-  );
+fn the_server_settings_examples_are_valid_settings() {
+  let schema = serde_json::to_value(schemars::schema_for!(
+    crate::server_settings::ServerSettings
+  ))
+  .unwrap();
+  let mut doc = serde_json::Map::new();
+  let mut count = 0;
+  for (key, prop) in schema["properties"].as_object().unwrap() {
+    if let Some(example) = prop
+      .get("examples")
+      .and_then(|e| e.as_array())
+      .and_then(|e| e.first())
+    {
+      doc.insert(key.clone(), example.clone());
+      count += 1;
+      continue;
+    }
+    let Some(fields) = prop
+      .get("$ref")
+      .and_then(|r| r.as_str())
+      .and_then(|r| r.rsplit('/').next())
+      .and_then(|name| schema["$defs"][name].get("properties"))
+      .and_then(|p| p.as_object())
+    else {
+      continue;
+    };
+    let mut section = serde_json::Map::new();
+    for (field, spec) in fields {
+      if let Some(example) = spec
+        .get("examples")
+        .and_then(|e| e.as_array())
+        .and_then(|e| e.first())
+      {
+        section.insert(field.clone(), example.clone());
+        count += 1;
+      }
+    }
+    doc.insert(key.clone(), serde_json::Value::Object(section));
+  }
+  assert!(count > 10, "only {count} examples collected");
+  let yaml = serde_yaml::to_string(&serde_json::Value::Object(doc)).unwrap();
+  if let Err(e) = crate::server_settings::ServerSettings::from_yaml(&yaml) {
+    panic!("a document built from the settings' own examples does not parse: {e}\n\n{yaml}");
+  }
 }

@@ -49,7 +49,7 @@ async fn visitor_gate_allows_without_auth() {
 #[tokio::test]
 async fn visitor_gate_denies_when_auth_configured() {
   let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  cfg.visitor_auth = crate::test_support::basic_gate("user:secret");
   let state = Arc::new(test_state_with(cfg));
   let uri: axum::http::Uri = "/private".parse().unwrap();
   let gate = check_visitor_gate(
@@ -74,7 +74,7 @@ async fn visitor_gate_denies_when_auth_configured() {
 #[tokio::test]
 async fn visitor_gate_traversal_requires_session() {
   let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  cfg.visitor_auth = crate::test_support::basic_gate("user:secret");
   let state = Arc::new(test_state_with(cfg));
   let uri: axum::http::Uri = "/a/../b".parse().unwrap();
   let gate = check_visitor_gate(
@@ -353,7 +353,7 @@ async fn closed_by_default_leaves_a_configured_gate_exactly_as_it_was() {
   // has stated something, so nothing about it changes.
   let mut cfg = test_config();
   cfg.default_access = crate::settings::DefaultAccess::Deny;
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  cfg.visitor_auth = crate::test_support::basic_gate("user:secret");
   let state = Arc::new(test_state_with(cfg));
   let uri: axum::http::Uri = "/private".parse().unwrap();
   let gate = check_visitor_gate(
@@ -382,7 +382,7 @@ async fn a_session_from_one_organization_does_not_open_another_ones_gated_site()
   // read-only one, therefore walked past the gate on every hostname on the
   // server, including hostnames served for other tenants.
   let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  cfg.visitor_auth = crate::test_support::basic_gate("user:secret");
   let state = Arc::new(test_state_with(cfg));
   let org = state
     .org_store
@@ -448,7 +448,7 @@ async fn a_master_session_still_reaches_every_gated_site() {
   // dashboard login behaves exactly as it did, which is what keeps this a fix
   // for the cross-tenant case rather than a change for everyone.
   let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  cfg.visitor_auth = crate::test_support::basic_gate("user:secret");
   let state = Arc::new(test_state_with(cfg));
   let token =
     crate::test_support::seed_session(&state, crate::store::users::Role::Admin, None, None).await;
@@ -467,7 +467,7 @@ async fn a_fenced_session_without_a_host_header_is_refused() {
   // A fenced organization has no claim on a request that names no hostname,
   // and admitting it would be the same hole wearing a missing header.
   let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  cfg.visitor_auth = crate::test_support::basic_gate("user:secret");
   let state = Arc::new(test_state_with(cfg));
   let org = state
     .org_store
@@ -528,7 +528,7 @@ async fn the_gate_says_who_it_let_in() {
 
   // A session carries the name behind it, which is the answer worth having.
   let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  cfg.visitor_auth = crate::test_support::basic_gate("user:secret");
   let state = Arc::new(test_state_with(cfg));
   let token = crate::test_support::seed_session(
     &state,
@@ -974,7 +974,7 @@ pub(crate) async fn a_query_token_cookie_is_scoped_to_the_route_that_admitted_it
   // by the operator's own password.
   let mut cfg = test_config();
   // The server's own gate covers everything this client does not.
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("admin:server-password");
+  cfg.visitor_auth = crate::test_support::basic_gate("admin:server-password");
   let state = Arc::new(test_state_with(cfg));
 
   let setting = serde_yaml::from_str::<aperio_config::AuthSetting>(

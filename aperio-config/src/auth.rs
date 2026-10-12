@@ -46,7 +46,7 @@ pub struct OtelBridge {
 /// The variants are ordered for `untagged`: a YAML scalar can only be the
 /// first, a mapping only the second, a sequence only the third, so a value is
 /// never read as the wrong shape.
-#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, PartialEq)]
 #[serde(untagged)]
 pub enum AuthSetting {
   /// `auth: "user:password"`, the spelling that predates the method grammar.
@@ -239,10 +239,9 @@ impl AuthSetting {
   /// The single `user:password` this policy is equivalent to, when it is
   /// equivalent to one.
   ///
-  /// This is what travels to a server that predates the grammar, and what the
-  /// existing scalar surfaces (`APERIO_SERVER_AUTH`, the dashboard's editable
-  /// value) still read. `None` means the policy says something the scalar
-  /// cannot: no credential at all, several of them, or another method.
+  /// This is what the scalar field of a service declaration still carries.
+  /// `None` means the policy says something the scalar cannot: no credential
+  /// at all, several of them, or another method.
   pub fn as_single_credential(&self) -> Option<&str> {
     match self {
       AuthSetting::Credentials(creds) => Some(creds.as_str()),

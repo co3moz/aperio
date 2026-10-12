@@ -9,7 +9,6 @@ use super::*;
 use axum::Router;
 use axum::http::StatusCode;
 use axum::routing::get;
-use std::sync::Mutex;
 use tokio::net::TcpListener;
 
 #[test]
@@ -329,62 +328,40 @@ async fn build_runtime_errors_when_userinfo_missing() {
   );
 }
 
-// --- load_from_env ----------------------------------------------------------
+// --- load --------------------------------------------------------------------
 
-/// Serializes the env-mutating test below against any other env access.
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-const ENV_KEYS: [&str; 6] = [
-  "APERIO_OIDC_ISSUER",
-  "APERIO_OIDC_ALLOWED_EMAILS",
-  "APERIO_OIDC_SCOPES",
-  "APERIO_OIDC_REDIRECT_URL",
-  "APERIO_OIDC_CLIENT_ID",
-  "APERIO_OIDC_CLIENT_SECRET",
-];
-
-fn clear_env() {
-  for k in ENV_KEYS {
-    // SAFETY: env-mutating tests run serialized under ENV_LOCK.
-    unsafe { std::env::remove_var(k) };
-  }
-}
-
-// The std mutex guard is intentionally held across `.await` to serialize the
-// process-global env mutations; the awaits inside never re-enter ENV_LOCK.
-#[allow(clippy::await_holding_lock)]
 #[tokio::test]
-async fn load_from_env_covers_none_and_success() {
-  let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+async fn load_covers_none_and_success() {
+  use aperio_config::server_settings::Oidc;
 
   // 1) Issuer unset -> None.
-  clear_env();
-  assert!(load_from_env(&open_policy()).await.is_none());
+  assert!(load(&Oidc::default(), &open_policy()).await.is_none());
 
   // 2) Issuer present but whitespace-only -> None.
-  unsafe { std::env::set_var("APERIO_OIDC_ISSUER", "   ") };
-  assert!(load_from_env(&open_policy()).await.is_none());
+  let blank = Oidc {
+    issuer: Some("   ".into()),
+    ..Oidc::default()
+  };
+  assert!(load(&blank, &open_policy()).await.is_none());
 
-  // 3) Fully configured -> Some, using a live mock IdP. Leave SCOPES unset to
-  //    exercise the default-scopes branch, and set a redirect override.
+  // 3) Fully configured -> Some, using a live mock IdP. Leave the scopes at
+  //    their default, and set a redirect override.
   let base = spawn_idp_self(good_doc).await;
-
-  clear_env();
-  unsafe {
-    std::env::set_var("APERIO_OIDC_ISSUER", &base);
-    std::env::set_var("APERIO_OIDC_CLIENT_ID", "cid");
-    std::env::set_var("APERIO_OIDC_CLIENT_SECRET", "csecret");
+  let full = Oidc {
+    issuer: Some(base.clone()),
+    client_id: Some("cid".into()),
+    client_secret: Some("csecret".into()),
     // Includes blanks and mixed case to exercise trim/lowercase/filter.
-    std::env::set_var("APERIO_OIDC_ALLOWED_EMAILS", " Boss@Corp.com , ,*@team.io ");
-    std::env::set_var("APERIO_OIDC_REDIRECT_URL", "https://app.example/cb");
-  }
-
-  let rt = load_from_env(&open_policy())
+    allowed_emails: vec![" Boss@Corp.com ".into(), " ".into(), "*@team.io".into()],
+    redirect_url: Some("https://app.example/cb".into()),
+    ..Oidc::default()
+  };
+  let rt = load(&full, &open_policy())
     .await
     .expect("should load runtime");
   assert_eq!(rt.token_endpoint, format!("{base}/token"));
   assert_eq!(rt.userinfo_endpoint, format!("{base}/userinfo"));
-  // Default scopes applied when APERIO_OIDC_SCOPES is unset.
+  // Default scopes applied when none are written.
   assert_eq!(rt.scopes, "openid email profile");
   // Emails trimmed, lowercased, blanks filtered out.
   assert_eq!(
@@ -395,8 +372,6 @@ async fn load_from_env_covers_none_and_success() {
     rt.redirect_url_override.as_deref(),
     Some("https://app.example/cb")
   );
-
-  clear_env();
 }
 
 #[tokio::test]

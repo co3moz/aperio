@@ -245,7 +245,7 @@ aperio-client api edge-traefik                    # Traefik dynamic configuratio
 aperio-client api edge-ask app.example.com        # does this server serve it?
 ```
 
-Both need `APERIO_EDGE_TOKEN` on the server, and present it as the ordinary API credential: `--api-key` (or `APERIO_API_KEY` / `server.api_key`), sent as `Authorization: Bearer`. See [Edge proxy](edge-proxy.md).
+Both need `edge.token` on the server, and present it as the ordinary API credential: `--api-key` (or `APERIO_API_KEY` / `server.api_key`), sent as `Authorization: Bearer`. See [Edge proxy](edge-proxy.md).
 
 ### Settings, backup, and purging
 

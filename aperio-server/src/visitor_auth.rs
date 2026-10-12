@@ -151,26 +151,6 @@ impl Policy {
     Policy { methods }
   }
 
-  /// The policy a bare `user:password` describes, which is what the
-  /// environment variable, the CLI flag and the dashboard's editable field
-  /// carry.
-  ///
-  /// Only an empty value means "no gate". A value that is present but could
-  /// never match a login, `APERIO_SERVER_AUTH=secret` with no separator,
-  /// still gates and admits nobody: that is what it has always done, and the
-  /// alternative would be a typo in one environment variable quietly opening
-  /// every route on the server.
-  pub(crate) fn from_credentials(raw: &str) -> Policy {
-    if raw.trim().is_empty() {
-      return Policy::default();
-    }
-    Policy {
-      methods: vec![Method::Basic {
-        users: vec![raw.to_string()],
-      }],
-    }
-  }
-
   /// True when nothing here stands between a visitor and the route: either no
   /// method was configured at all, or one of them is the open gate.
   pub(crate) fn admits_everyone(&self) -> bool {
@@ -197,18 +177,6 @@ impl Policy {
       }
     }
     ok
-  }
-
-  /// The single `user:password` this policy is equivalent to, when it is
-  /// equivalent to one. What the scalar surfaces still read and show.
-  pub(crate) fn as_single_credential(&self) -> Option<&str> {
-    match self.methods.as_slice() {
-      [Method::Basic { users }] => match users.as_slice() {
-        [only] => Some(only.as_str()),
-        _ => None,
-      },
-      _ => None,
-    }
   }
 
   /// The methods in force, for the startup summary and the tests.
@@ -315,29 +283,9 @@ impl Policy {
   }
 }
 
-/// Reads the server's default gate from `aperio-server.yaml`, as either
-/// `server: { auth: ... }` or the flat `server_auth:`.
-///
-/// Read as a structured section rather than through the generic scalar
-/// materialization, because a block cannot become an environment variable and
-/// the generic path deliberately skips mappings. A section that does not
-/// parse refuses the start: an operator who wrote a gate and got no gate is
-/// the failure this is here to prevent, and it is exactly what a silent
-/// fallback to `APERIO_SERVER_AUTH` would produce.
-pub(crate) fn block_from_config_file() -> Option<AuthSetting> {
-  let value = crate::config_file::structured("server")
-    .and_then(|server| server.get("auth").cloned())
-    .or_else(|| crate::config_file::structured("server_auth"))?;
-  let parsed: Result<AuthSetting, String> =
-    serde_yaml::from_value(value).map_err(|e| e.to_string());
-  match parsed.and_then(|setting| aperio_config::validate_auth_setting(&setting).map(|()| setting))
-  {
-    Ok(setting) => Some(setting),
-    Err(err) => {
-      tracing::error!("invalid `auth:` in aperio-server.yaml: {err}");
-      std::process::exit(1);
-    }
-  }
+/// Validates the server's default gate (`access.gate` in the settings).
+pub(crate) fn validate_gate(setting: &AuthSetting) -> Result<(), String> {
+  aperio_config::validate_auth_setting(setting).map_err(|e| format!("access.gate: {e}"))
 }
 
 #[cfg(test)]

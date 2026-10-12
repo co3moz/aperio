@@ -6,8 +6,8 @@ import { BaseServerFor } from './fixtures.js'
 /** This file's own server, with the login fence on: its specs change it,
  *  and the fence would refuse the other files' cross-hostname logins. */
 class FencedServer extends BaseServerFor() {
-  _env() {
-    return { ...super._env(), APERIO_DASHBOARD_FENCED_LOGIN: '1' }
+  _settings() {
+    return { ...super._settings(), dashboard: { fenced_login: true } }
   }
 }
 

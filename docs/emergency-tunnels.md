@@ -133,49 +133,56 @@ A `protocol: udp` (or `tcp/udp`) declaration binds a local **UDP** socket on the
 
 ## Public expose
 
-A tunnel normally needs a binder peer. An `expose:` entry in the server's `aperio-server.yaml` cuts the binder out: the server itself opens a raw public TCP port and relays every accepted connection into a declared tunnel, useful for exposing SSH or a game server without running `--bind-tunnels` anywhere.
+A tunnel normally needs a binder peer. An expose listener cuts the binder out:
+the server itself opens a public TCP or UDP port and relays every accepted
+connection or datagram session into a declared tunnel, useful for exposing SSH
+or a game server without running `--bind-tunnels` anywhere.
+
+Listeners are managed resources: create one from the dashboard's Tunnels page,
+or with the API, naming the tunnel and the organization whose client may claim
+it.
+
+```bash
+aperio-client api expose create --file ssh-expose.json
+```
+
+```json
+{
+  "spec": {
+    "org_id": "master",
+    "tunnel": "ssh",
+    "listener": { "address": "0.0.0.0", "port": 2222, "protocol": "tcp" },
+    "enabled": true,
+    "limits": {
+      "protocol": "tcp",
+      "max_connections": 256,
+      "open_timeout_secs": 10,
+      "drain_timeout_secs": 30
+    }
+  }
+}
+```
 
 ```yaml
-# aperio-server.yaml
-expose:
-  - protocol: tcp
-    port: 2222
-    tunnel: ssh                   # the tunnel's name
-    org: bastion                  # the organization whose client may claim it
-
 # client aperio.yaml
 tunnels:
   - name: ssh
     target: 127.0.0.1:22
 ```
 
-The claim is settled by **identity**: the port accepts the named tunnel only from a client of the named organization. A tunnel name is unique inside an organization and nowhere else, which is exactly why the organization has to be part of the claim. `org:` may also be written as a prefix on the name, which says the same thing once and reads the way the dashboard shows it:
+The claim is settled by **identity**: the port accepts the named tunnel only
+from a client of the named organization. A tunnel name is unique inside an
+organization and nowhere else, which is exactly why the organization has to be
+part of the claim. The same `<org>@<name>` spelling works as a `bind-tunnels:`
+key, so a binder that can see two organizations can say which `postgres` it
+means.
 
-```yaml
-expose:
-  - port: 2222
-    tunnel: bastion@ssh
-```
-
-Omitting the organization means the master one. The same `<org>@<name>` spelling works as a `bind-tunnels:` key, so a binder that can see two organizations can say which `postgres` it means.
-
-`token:` was the earlier way to say this and still works, unchanged, for the files that use it. It is the weaker one: a token name is not unique, nothing stops two organizations from each having one called `ci`, and a rule naming it could match a client of either, with which of them got the port coming down to the order of a hash map. Prefer `org:`.
-
-The older spelling, a shared secret repeated in both files, still works:
-
-```yaml
-expose:
-  - port: 2222
-    key: a-long-random-shared-secret   # minimum 8 characters
-
-tunnels:
-  - target: 127.0.0.1:22
-    expose: a-long-random-shared-secret
-```
-
-It names no owner and cannot be revoked, which is why `tunnel:` + `org:` is preferred. The key travels only inside the tunnel handshake and is never revealed through tunnel discovery.
-
-Deliberate limits: the connection goes to the **first** healthy client that matches (no load balancing), TCP only (a public UDP port is an amplification surface and a separate decision), and `encrypt: true` tunnels are excluded, since a raw public socket cannot run the client-side handshake. Remember the exposed port is **public**: anyone who can reach it talks straight to your backend, so keep the real authentication (SSH keys, database passwords) on the backend itself.
+Remember the exposed port is **public**: anyone who can reach it talks straight
+to your backend, so keep the real authentication (SSH keys, database
+passwords) on the backend itself, restrict `allowed_ips` where you can, and
+note that `encrypt: true` tunnels cannot be exposed, since a raw public socket
+cannot run the client-side handshake. Allocations, limits, sessions and
+draining are described in [Public exposes](public-exposes.md).
 
 ## Limitations
 

@@ -2,17 +2,16 @@
 
 Several clients can be connected to one Aperio server at the same time. When a public request arrives, the server narrows the pool in stages (eligibility, hostname, path), then applies the strategy, the per-candidate visitor IP filter, outlier-ejection state and any canary split.
 
-> **Configuration:** Server settings such as `lb_strategy` and `require_hostname_bind` go in `aperio-server.yaml`; file values override environment variables. Client settings go in `aperio.yaml`, with CLI arguments taking precedence. Use grouped YAML keys where offered. See [Configuration](configuration.md#grouped-keys) for names and precedence.
-
+> **Configuration:** Server settings live in the server's database and are changed from the dashboard (**Settings**), with `PUT /aperio/api/settings`, or in a first-start document (`APERIO_INIT_FILE`); they are written as paths such as `cache.enabled`. Client settings go in `aperio.yaml`. See [Configuration](configuration.md#server-settings).
 ## Eligibility
 
-Clients are skipped when they are unhealthy (no heartbeat within `APERIO_CLIENT_DOWN_THRESHOLD`, default 15 s), when their own backend health probe is failing, when they are draining for shutdown, when they were disabled from the dashboard, or when the server refused their `server_side:` declaration. In-flight requests always finish.
+Clients are skipped when they are unhealthy (no heartbeat within `gateway.client_down_threshold`, default 15 s), when their own backend health probe is failing, when they are draining for shutdown, when they were disabled from the dashboard, or when the server refused their `server_side:` declaration. In-flight requests always finish.
 
 ## Hostname binds
 
 A client can claim one or more hostnames, via `--host`, hostnames granted by its token, or an automatic random subdomain. Clients whose binds contain the request's `Host` header (case-insensitive, port ignored) win. If none match, clients *without* any hostname bind act as a fallback pool.
 
-For strict multi-tenant setups, set `APERIO_REQUIRE_HOSTNAME_BIND=1`: clients without a hostname bind then never receive traffic, and unmatched requests fail with 504.
+For strict multi-tenant setups, set `routing.require_hostname_bind: true`: clients without a hostname bind then never receive traffic, and unmatched requests fail with 504.
 
 ```
 a.example.com  ──▶  client A (--host a.example.com)
@@ -26,7 +25,7 @@ Within the hostname pool, the longest matching path bind wins. Binds match on se
 
 ## Strategies
 
-`APERIO_LB_STRATEGY` decides how a client is picked from the final pool:
+`routing.lb_strategy` decides how a client is picked from the final pool:
 
 - **`round-robin`** (default), clients with identical binds share traffic evenly.
 - **`primary-standby`**, only the clients with the lowest announced priority (`--priority`, 0 = primary) receive traffic. Standby tiers take over automatically when every more-primary client is unhealthy, draining, disabled, or gone, and hand back when a primary returns. The dashboard marks standby clients with a `standby N` badge.
@@ -58,7 +57,7 @@ Proxied WebSockets are not split. A socket is one long-lived connection rather t
 
 ## Random subdomains
 
-With `APERIO_RANDOM_SUBDOMAIN="*.example.com"` on the server (fronted by a wildcard DNS/proxy route), every connecting client is automatically assigned a hostname like `a1b2c3d4e5.example.com`. Assignments are additive, declared and token-granted binds keep working alongside, and they are per-connection except when the client sends an instance group and the token granted binds: then the label is derived from both, so every parallel connection of one process shares the same random hostname rather than getting one each.
+With `routing.random_subdomain="*.example.com"` on the server (fronted by a wildcard DNS/proxy route), every connecting client is automatically assigned a hostname like `a1b2c3d4e5.example.com`. Assignments are additive, declared and token-granted binds keep working alongside, and they are per-connection except when the client sends an instance group and the token granted binds: then the label is derived from both, so every parallel connection of one process shares the same random hostname rather than getting one each.
 
 The value is a pattern: the `*` in the leftmost label is replaced with a random label. `example.com` is shorthand for `*.example.com`, and `*-test.example.com` yields `<random>-test.example.com`, same subdomain level, so one wildcard TLS certificate covers the generated hostnames.
 
@@ -73,7 +72,7 @@ Related: [In-Flight Failover](failover.md) covers what happens when the chosen c
 Active health probing (`APERIO_TARGET_HEALTH`) pulls a service from
 rotation when its own `/health` check fails. Passive outlier ejection is the
 complement: it reacts to how a service behaves under **real traffic**. When
-`APERIO_OUTLIER_EJECTION=1`, a service that returns too many server errors,
+`outlier.enabled: true`, a service that returns too many server errors,
 times out, or drops connections in a short window is temporarily removed from
 the routing pool, even while its `/health` probe still reports green.
 
@@ -86,10 +85,10 @@ connection, which is the ordinary shape, the two are the same thing.
 
 | Variable | Meaning | Default |
 | --- | --- | --- |
-| `outlier_ejection` (env `APERIO_OUTLIER_EJECTION`) | Enable passive ejection. | off |
-| `outlier_max_failures` (env `APERIO_OUTLIER_MAX_FAILURES`) | Failures within the window that trigger an ejection. | `5` |
-| `outlier_window` (env `APERIO_OUTLIER_WINDOW`) | Seconds the failures are counted over. | `30` |
-| `outlier_eject_secs` (env `APERIO_OUTLIER_EJECT_SECS`) | How long an ejected service stays out before automatic re-admission. | `30` |
+| `outlier_ejection` (env `outlier.enabled`) | Enable passive ejection. | off |
+| `outlier_max_failures` (env `outlier.max_failures`) | Failures within the window that trigger an ejection. | `5` |
+| `outlier_window` (env `outlier.window`) | Seconds the failures are counted over. | `30` |
+| `outlier_eject_secs` (env `outlier.eject_for`) | How long an ejected service stays out before automatic re-admission. | `30` |
 
 Ejection is **per-route fail-open**: if every candidate for a route is ejected,
 the route keeps serving from the struggling pool rather than returning no route

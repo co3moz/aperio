@@ -84,11 +84,10 @@ deadline. `disconnect` ends one selected session. Unexpected listener task
 exits get at most three automatic recovery attempts; an exhausted listener
 requires an explicit retry. Intentional stops are not recovered.
 
-File-owned `expose:` entries remain controlled by the server YAML. They appear
-read-only in the UI, do not travel in API backups and cannot be overwritten by
-API imports. Legacy token/key matching stays internal; management responses
-never contain those secrets. Configuration reload stages the complete expose
-change and retains working rules on validation or bind failure.
+Every listener is a managed resource; since 0.13.0 the server reads no
+configuration file, so there are no file-owned entries. A change stages the
+complete expose document and retains working rules on validation or bind
+failure.
 
 ## CLI and API
 
@@ -151,7 +150,7 @@ lock. Identical existing identities are skipped; differing specs are reported
 as conflicts and never silently overwritten. Policy imports require a server
 administrator. Delegated users use `--omit-policies` and the destination's
 existing allocation. Import requires create permission in every destination
-organization and cannot bypass quotas or file ownership.
+organization and cannot bypass quotas.
 
 `GET /exposes/export` produces `{version, resources, policies}`. Import accepts
 `{backup, org_map, preview, revision}` at `POST /exposes/import`. A successful
@@ -162,8 +161,7 @@ Dynamic rules are persisted before a successful mutation response. Corrupt
 stored configuration is preserved and blocks further mutation until recovery;
 it is not replaced by an empty document. A volatile database is explicitly
 reported in the API and UI. Bind failure on startup is reported per resource,
-allowing unrelated saved listeners to start. Invalid file exposes do not hide
-API-owned saved resources.
+allowing unrelated saved listeners to start.
 
 Recent completed session metadata is retained for seven days, at most 256
 records per organization and 2048 globally. It includes peer, target, byte and
@@ -194,7 +192,7 @@ close or the configured public listener drain deadline. `TcpClose` keeps its
 immediate-close meaning. UDP uses the UdpOpen/UdpDatagram/UdpClose messages.
 
 
-## YAML and deployment examples
+## Deployment examples
 
 A DNS tunnel can serve both transports on port 1053. Declare the target on the
 client (use the actual DNS server address):
@@ -206,38 +204,38 @@ tunnels:
     target: 127.0.0.1:53
 ```
 
-For operator-owned server listeners:
+Then create two listeners, one per transport, from the Tunnels page or with
+`aperio-client api expose create --file`. The UDP one:
 
-```yaml
-expose:
-  - tunnel: master@dns
-    protocol: tcp
-    address: 0.0.0.0
-    port: 1053
-    advertised_host: dns.example.com
-    allowed_ips: [192.0.2.0/24]
-  - tunnel: master@dns
-    protocol: udp
-    address: 0.0.0.0
-    port: 1053
-    advertised_host: dns.example.com
-    allowed_ips: [192.0.2.0/24]
-    limits:
-      protocol: udp
-      max_sessions: 128
-      max_sessions_per_ip: 8
-      idle_timeout_secs: 30
-      max_datagram_bytes: 4096
-      queue_packets: 16
-      queue_bytes: 65536
-      new_sessions_per_second: 16
-      ingress_bytes_per_second: 1048576
-      egress_bytes_per_second: 1048576
+```json
+{
+  "spec": {
+    "org_id": "master",
+    "tunnel": "dns",
+    "listener": { "address": "0.0.0.0", "port": 1053, "protocol": "udp" },
+    "enabled": true,
+    "advertised_host": "dns.example.com",
+    "allowed_ips": ["192.0.2.0/24"],
+    "limits": {
+      "protocol": "udp",
+      "max_sessions": 128,
+      "max_sessions_per_ip": 8,
+      "idle_timeout_secs": 30,
+      "max_datagram_bytes": 4096,
+      "queue_packets": 16,
+      "queue_bytes": 65536,
+      "new_sessions_per_second": 16,
+      "ingress_bytes_per_second": 1048576,
+      "egress_bytes_per_second": 1048576
+    }
+  }
+}
 ```
 
-Use a real authorized source range instead of the documentation range above.
-For dynamic listeners, create the equivalent two rules in Tunnels; omit them
-from YAML so the dashboard owns their configuration. Publish **both** container
+and the TCP one the same with `"protocol": "tcp"` in the listener and TCP
+limits. Use a real authorized source range instead of the documentation range
+above. A first-start document can carry the listeners too, in its `exposes`
+section, as an export of them writes it. Publish **both** container
 transports, for example with Docker Compose:
 
 ```yaml

@@ -22,6 +22,7 @@ import { TOOLS_PANES, ToolsDialog, isToolsPage, type ToolsPage } from './compone
 import { SETTING_FIELDS, type FieldSpec } from '@/lib/settingsCatalog'
 import type { PaneFocus } from '@/lib/paneFocus'
 import type { SettingsPayload } from './lib/api'
+import { getAt } from '@/lib/configSchema'
 import { logoDataUri } from '@/lib/logo'
 import { ActivityChart } from './components/ActivityChart'
 import { DOCS_BASE, GetStartedCard } from './components/GetStartedCard'
@@ -55,7 +56,7 @@ import { useLiveData } from './hooks/useLiveData'
 import { usePoll } from './hooks/usePoll'
 import { useStream } from './hooks/useStream'
 import { api, logout, type Role } from './lib/api'
-import { formatBytes, formatUptime, NO_VALUE } from './lib/format'
+import { formatUptime, NO_VALUE } from './lib/format'
 import { readParams, writeParams } from './lib/url'
 import { useThemeMode } from './theme'
 import { useI18n } from '@/i18n'
@@ -132,25 +133,16 @@ const ACTIONS: {
 ]
 
 /**
- * What a setting is set to right now, as one short string.
- *
- * An override is what the server is actually running; the env default is what
- * it falls back to. Both are worth showing and they are not the same claim,
- * so an overridden value says so.
+ * What a setting is set to right now, as one short string. A size or a
+ * duration reads as the server writes it (`10MB`, `30s`), and a structured
+ * value as its yaml would start, which is enough to recognize it.
  */
 function describeSetting(payload: SettingsPayload, field: FieldSpec): string {
-  const override = payload.overrides[field.key]
-  const value = override ?? payload.defaults[field.key]
+  const value = getAt(payload.settings, field.key)
   if (value === undefined || value === null || value === '') return NO_VALUE
-  const text =
-    typeof value === 'boolean'
-      ? value
-        ? 'on'
-        : 'off'
-      : field.kind === 'bytes'
-        ? formatBytes(Number(value))
-        : String(value)
-  return override !== undefined && override !== null ? `${text} *` : text
+  if (typeof value === 'boolean') return value ? 'on' : 'off'
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
 }
 
 function loadHistory(): number[] {

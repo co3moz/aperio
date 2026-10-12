@@ -1,7 +1,7 @@
 import { Test } from 'nole'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BaseServerFor, BaseBackendFor, BaseClientFor, HOST } from './fixtures.js'
@@ -62,10 +62,13 @@ class ProxiedEnvClient extends BaseClientFor(
  * killed and reported as "kept running", which says what went wrong.
  */
 async function startAndAwaitExit(
-  env: Record<string, string>,
+  outbound: Record<string, unknown>,
   budgetMs = 15_000,
+  env: Record<string, string> = {},
 ): Promise<{ exited: boolean; code: number | null; out: string }> {
   const dir = await mkdtemp(join(tmpdir(), 'aperio-e2e-egress-'))
+  const init = join(dir, 'server-init.json')
+  await writeFile(init, JSON.stringify({ settings: { outbound } }))
   const proc = spawn(SERVER_BIN, [], {
     env: {
       ...process.env,
@@ -74,6 +77,7 @@ async function startAndAwaitExit(
       // The bare name, as the standard has it for host/port/log_level.
       PORT: String(await freePort()),
       APERIO_SERVER_TOKEN: 'e2e-egress-token-long-enough',
+      APERIO_INIT_FILE: init,
       ...env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -98,13 +102,12 @@ export class OutboundPolicyUnderAProxySpec extends Test({ timeout: 90_000 }) {
     // It used to be read by the HTTP client, so a deployment could be proxying
     // its callbacks with nothing saying so. Now nothing reads it, and the
     // server says as much rather than let a working route vanish in silence.
-    const res = await startAndAwaitExit(
-      { APERIO_OUTBOUND_BLOCK_PRIVATE: '1', HTTPS_PROXY: 'http://proxy.invalid:3128' },
-      6_000,
-    )
+    const res = await startAndAwaitExit({ block_private: true }, 6_000, {
+      HTTPS_PROXY: 'http://proxy.invalid:3128',
+    })
     assert.equal(res.exited, false, `the server refused instead of starting:\n${res.out}`)
-    assert.match(res.out, /HTTPS_PROXY[^"]*no longer used/, res.out)
-    assert.match(res.out, /APERIO_OUTBOUND_PROXY/, res.out)
+    assert.match(res.out, /HTTPS_PROXY[^"]*not used/, res.out)
+    assert.match(res.out, /outbound\.proxy/, res.out)
   }
 
   async aConfiguredProxyNamesWhatThePolicyCanStillCover() {
@@ -112,10 +115,7 @@ export class OutboundPolicyUnderAProxySpec extends Test({ timeout: 90_000 }) {
     // told which part of it a proxy takes away, rather than left believing all
     // of it is in force.
     const res = await startAndAwaitExit(
-      {
-        APERIO_OUTBOUND_BLOCK_PRIVATE: '1',
-        APERIO_OUTBOUND_PROXY: 'proxy.invalid:3128',
-      },
+      { block_private: true, proxy: 'proxy.invalid:3128' },
       6_000,
     )
     assert.equal(res.exited, false, `the server refused instead of starting:\n${res.out}`)
@@ -128,19 +128,19 @@ export class OutboundPolicyUnderAProxySpec extends Test({ timeout: 90_000 }) {
     // A server told to go through a proxy is on a network where going direct
     // does not work, so dropping an unreadable value would produce a failure
     // whose cause is a typo somewhere else.
-    const res = await startAndAwaitExit({ APERIO_OUTBOUND_PROXY: 'https://proxy.invalid:3128' })
+    const res = await startAndAwaitExit({ proxy: 'https://proxy.invalid:3128' })
     assert.ok(res.exited, `an https:// proxy should refuse the start:\n${res.out}`)
-    assert.match(res.out, /APERIO_OUTBOUND_PROXY is invalid/, res.out)
+    assert.match(res.out, /outbound\.proxy/, res.out)
   }
 
   async aProxyWithoutAPolicyIsNotTheServersBusiness() {
-    const res = await startAndAwaitExit({ APERIO_OUTBOUND_PROXY: 'proxy.invalid:3128' }, 6_000)
+    const res = await startAndAwaitExit({ proxy: 'proxy.invalid:3128' }, 6_000)
     assert.equal(res.exited, false, `the server refused a proxy alone:\n${res.out}`)
     assert.doesNotMatch(res.out, /cannot cover/, res.out)
   }
 
   async aPolicyWithoutAProxyStillComesUpUnqualified() {
-    const res = await startAndAwaitExit({ APERIO_OUTBOUND_BLOCK_PRIVATE: '1' }, 6_000)
+    const res = await startAndAwaitExit({ block_private: true }, 6_000)
     assert.equal(res.exited, false, `the policy alone stopped the start:\n${res.out}`)
     assert.match(res.out, /Outbound callback policy active/, res.out)
     // No qualification, because nothing is taken away when the server dials.

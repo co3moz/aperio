@@ -192,6 +192,20 @@ impl Caller {
   }
 }
 
+/// Seconds since the request's dashboard session was signed in, `None` when
+/// the request carries no session (an admin key, or nothing). What a
+/// security-relevant change reads to ask for a recent sign-in.
+pub(crate) async fn session_age(state: &AppState, headers: &HeaderMap) -> Option<u64> {
+  let token = session_cookie(headers, state.config().secure_cookies)?;
+  let created = state
+    .sessions
+    .lock()
+    .await
+    .get(token)
+    .map(|i| i.created_at)?;
+  Some(crate::store::sessions::now_secs().saturating_sub(created))
+}
+
 /// Resolves the request's credential: a valid admin-plane session cookie
 /// first, then a programmatic admin key. `None` when neither is presented or
 /// neither is valid, which includes the session of a disabled account.

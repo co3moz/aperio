@@ -15,6 +15,7 @@ rust-version = "1.88"
 
 [dependencies]
 rust-embed = "8"
+clap = { version = "4", features = ["derive", "wrap_help"] }
 # Only present to expose the `vendored` switch of the openssl that
 # webauthn-rs already pulls in: the release workflow compiles OpenSSL from
 # source (feature `vendored-openssl` below) so cross-compiled and
@@ -33,9 +34,9 @@ http-body-util = "0.1"
 tower-http = { version = "0.6", features = ["trace", "cors", "fs", "catch-panic"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-# The optional aperio-server.yaml config file (same crate the client uses).
+# Settings documents (APERIO_INIT_FILE, `aperio-server apply`) are yaml.
 serde_yaml = "0.9"
-# Shared config schema: `--print-schema` emits the aperio-server.yaml JSON schema.
+# The settings document's types: `aperio-server schema` emits its JSON schema.
 aperio-config = { path = "../aperio-config", features = ["openapi"] }
 base64 = "0.22"
 # The AES-256-GCM used for encrypted backups (`backup_crypto.rs`). Already in
@@ -91,7 +92,7 @@ reqwest = { version = "0.13", default-features = false, features = [
 tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 url = "2.5"
 flate2 = "1"
-# OpenTelemetry OTLP trace export (opt-in via APERIO_OTEL). Both transports the
+# OpenTelemetry OTLP trace export (opt-in via `otel.enabled`). Both transports the
 # OTLP spec defines are built in and picked by `otel.protocol`: HTTP/protobuf
 # over reqwest+rustls (the default), and gRPC over tonic for collectors that
 # only listen on 4317.

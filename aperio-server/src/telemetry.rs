@@ -1,4 +1,4 @@
-//! OpenTelemetry (OTLP) trace export, opt-in via `APERIO_OTEL`.
+//! OpenTelemetry (OTLP) trace export, opt-in via `otel.enabled`.
 //!
 //! When enabled, every proxied request becomes a `proxy.request` span exported
 //! to a collector over OTLP, protobuf over HTTP by default, or gRPC when
@@ -51,13 +51,6 @@ pub(crate) fn otel_enabled() -> bool {
   OTEL_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// True for `1`/`true` (case-insensitive) environment values.
-fn env_flag(key: &str) -> bool {
-  std::env::var(key)
-    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-    .unwrap_or(false)
-}
-
 /// The OTLP transport carrying the spans. Both are the same protobuf payload;
 /// they differ in framing, in the port collectors listen on, and in whether the
 /// `/v1/traces` signal path belongs in the URL.
@@ -96,19 +89,17 @@ struct OtlpTarget {
 const OTLP_GRPC_PORT: u16 = 4317;
 const OTLP_HTTP_PORT: u16 = 4318;
 
-/// Reads the explicitly configured transport: `APERIO_OTEL_PROTOCOL` first,
-/// then the conventional `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` /
-/// `OTEL_EXPORTER_OTLP_PROTOCOL`. Returns the parse failure as an
-/// `Err(message)` so the caller can fall back *and* say why.
+/// Reads the explicitly configured transport, `otel.protocol`. Returns the
+/// parse failure as an `Err(message)` so the caller can fall back *and* say
+/// why.
 fn configured_protocol() -> Result<Option<OtlpProtocol>, String> {
-  let Some(raw) = [
-    "APERIO_OTEL_PROTOCOL",
-    "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
-    "OTEL_EXPORTER_OTLP_PROTOCOL",
-  ]
-  .iter()
-  .find_map(|k| std::env::var(k).ok().filter(|v| !v.trim().is_empty()))
-  .map(|v| v.trim().to_ascii_lowercase()) else {
+  let Some(raw) = crate::live::current()
+    .otel
+    .protocol
+    .as_deref()
+    .map(|v| v.trim().to_ascii_lowercase())
+    .filter(|v| !v.is_empty())
+  else {
     return Ok(None);
   };
   match raw.as_str() {
@@ -127,17 +118,17 @@ fn configured_protocol() -> Result<Option<OtlpProtocol>, String> {
 /// meaningful alone: the default endpoint depends on the protocol, and the
 /// default protocol depends on the endpoint's port.
 ///
-/// Honors `APERIO_OTEL_ENDPOINT` first, then the conventional
-/// `OTEL_EXPORTER_OTLP_ENDPOINT`. With no protocol configured, port 4317 means
-/// gRPC and anything else means HTTP.
+/// Reads `otel.endpoint`. With no protocol configured, port 4317 means gRPC
+/// and anything else means HTTP.
 fn resolve_target() -> OtlpTarget {
   let (explicit, mut note) = match configured_protocol() {
     Ok(protocol) => (protocol, None),
     Err(message) => (None, Some(format!("{message}; falling back to the port"))),
   };
-  let raw = std::env::var("APERIO_OTEL_ENDPOINT")
-    .ok()
-    .or_else(|| std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok())
+  let raw = crate::live::current()
+    .otel
+    .endpoint
+    .as_deref()
     .map(|v| v.trim().to_string())
     .filter(|v| !v.is_empty());
   let port = raw
@@ -386,7 +377,7 @@ fn speaks_http2(host: &str, port: u16) -> std::io::Result<bool> {
   Ok(header[3] == FRAME_TYPE_SETTINGS)
 }
 
-/// Fraction of traces to record, from `APERIO_OTEL_SAMPLE_RATE`.
+/// Fraction of traces to record, from `otel.sample_rate`.
 ///
 /// Tracing has no free setting: every request builds a span tree and hands it
 /// to an exporter. `1.0` (the default, and what this did before the knob
@@ -398,28 +389,17 @@ fn speaks_http2(host: &str, port: u16) -> std::io::Result<bool> {
 /// disabling tracing: somebody who wrote `0.5%` meant to sample, and a config
 /// typo that quietly turns off observability is the wrong way to fail.
 pub(crate) fn resolve_sample_rate() -> f64 {
-  match std::env::var("APERIO_OTEL_SAMPLE_RATE") {
-    Ok(raw) => match raw.trim().parse::<f64>() {
-      Ok(v) if v.is_finite() && (0.0..=1.0).contains(&v) => v,
-      _ => {
-        eprintln!(
-          "aperio-server: APERIO_OTEL_SAMPLE_RATE='{}' is not a fraction between 0 and 1; tracing every request",
-          raw.trim()
-        );
-        1.0
-      }
-    },
-    Err(_) => 1.0,
+  let rate = crate::live::current().otel.sample_rate;
+  if rate.is_finite() && (0.0..=1.0).contains(&rate) {
+    rate
+  } else {
+    1.0
   }
 }
 
-/// Service name reported on every span (`APERIO_OTEL_SERVICE_NAME`, then
-/// `OTEL_SERVICE_NAME`, defaulting to `aperio-server`).
+/// Service name reported on every span (`otel.service_name`).
 fn resolve_service_name() -> String {
-  std::env::var("APERIO_OTEL_SERVICE_NAME")
-    .ok()
-    .or_else(|| std::env::var("OTEL_SERVICE_NAME").ok())
-    .map(|v| v.trim().to_string())
+  Some(crate::live::current().otel.service_name.trim().to_string())
     .filter(|v| !v.is_empty())
     .unwrap_or_else(|| "aperio-server".to_string())
 }
@@ -477,7 +457,7 @@ fn build_provider(target: &OtlpTarget) -> Result<SdkTracerProvider, String> {
 }
 
 /// Installs the tracing subscriber: the JSON stdout layer always, plus the
-/// OTLP export layer when `APERIO_OTEL` is enabled. Returns a guard that flushes
+/// OTLP export layer when `otel.enabled` is enabled. Returns a guard that flushes
 /// the exporter on shutdown.
 pub(crate) fn init(log_filter: EnvFilter) -> OtelGuard {
   let fmt_layer = tracing_subscriber::fmt::layer()
@@ -486,7 +466,7 @@ pub(crate) fn init(log_filter: EnvFilter) -> OtelGuard {
     .with_span_list(false)
     .flatten_event(true);
 
-  if !env_flag("APERIO_OTEL") {
+  if !crate::live::current().otel.enabled {
     tracing_subscriber::registry()
       .with(log_filter)
       .with(fmt_layer)
@@ -535,7 +515,7 @@ pub(crate) fn init(log_filter: EnvFilter) -> OtelGuard {
         .with(log_filter)
         .with(fmt_layer)
         .init();
-      tracing::error!("APERIO_OTEL is set but tracing export could not start: {e}");
+      tracing::error!("otel.enabled is on but tracing export could not start: {e}");
       OtelGuard(None)
     }
   }

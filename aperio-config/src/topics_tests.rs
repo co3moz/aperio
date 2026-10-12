@@ -104,20 +104,55 @@ fn every_schema_example_is_a_configuration_the_parser_accepts() {
   // `auth` key whose removal was 0.6.0's Security entry, and the block is
   // deny_unknown_fields, so pasting the example was fatal.
   let client = examples_accepted_by::<FileConfig>(&schema_json(), "client");
-  let server = examples_accepted_by::<ServerFileConfig>(&server_schema_json(), "server");
+  let server = settings_examples_accepted();
   assert!(client > 80, "the client walk found only {client} examples");
-  assert!(server > 60, "the server walk found only {server} examples");
+  assert!(
+    server > 10,
+    "the settings walk found only {server} examples"
+  );
+}
+
+/// The same walk over the server's settings document, where a field's
+/// example is written inside its section.
+fn settings_examples_accepted() -> usize {
+  let root: serde_json::Value =
+    serde_json::from_str(&server_schema_json()).expect("the schema is JSON");
+  let mut checked = 0;
+  let mut accept = |doc: serde_json::Value, what: &str| {
+    if let Err(e) = serde_json::from_value::<crate::server_settings::ServerSettings>(doc.clone()) {
+      panic!("the settings example for `{what}` is a document the server refuses: {e}\n{doc}");
+    }
+    checked += 1;
+  };
+  for (key, prop) in root["properties"].as_object().expect("root properties") {
+    for example in prop["examples"].as_array().into_iter().flatten() {
+      accept(serde_json::json!({ key: example }), key);
+    }
+    let section = prop["$ref"]
+      .as_str()
+      .and_then(|r| r.rsplit('/').next())
+      .and_then(|name| root["$defs"][name]["properties"].as_object());
+    for (field, spec) in section.into_iter().flatten() {
+      for example in spec["examples"].as_array().into_iter().flatten() {
+        accept(
+          serde_json::json!({ key: { field: example } }),
+          &format!("{key}.{field}"),
+        );
+      }
+    }
+  }
+  checked
 }
 
 /// Every configuration file under docs/examples parses with the type it is
 /// written for, and every key a client file writes is a key the schema knows.
 ///
-/// The examples are the copy-and-adapt surface: a pair that does not parse, or
-/// a key that drifted from the struct it once matched, is a broken deployment
-/// handed out as documentation. The server file's top level tolerates unknown
-/// keys by design (they pass through as environment variables), so for it the
-/// parse alone is the check; the client has no such pass-through, so an
-/// unknown key there is a typo and is treated as one.
+/// The examples are the copy-and-adapt surface: a file that does not parse,
+/// or a key that drifted from the struct it once matched, is a broken
+/// deployment handed out as documentation. A `server-init.yaml` is a
+/// first-start document: its `settings:` must parse as the settings, and its
+/// other sections must be ones the document has (the server's own tests read
+/// the whole file the way the server does).
 #[test]
 fn every_docs_example_file_is_a_valid_configuration() {
   let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/examples");
@@ -145,10 +180,26 @@ fn every_docs_example_file_is_a_valid_configuration() {
       }
       let text = std::fs::read_to_string(&file).unwrap();
       let shown = format!("{}/{name}", folder.file_name().unwrap().to_string_lossy());
-      if name == "aperio-server.yaml" {
+      if name == "server-init.yaml" {
         servers += 1;
-        if let Err(e) = serde_yaml::from_str::<ServerFileConfig>(&text) {
-          problems.push(format!("{shown}: {e}"));
+        let document: serde_yaml::Mapping = match serde_yaml::from_str(&text) {
+          Ok(d) => d,
+          Err(e) => {
+            problems.push(format!("{shown}: {e}"));
+            continue;
+          }
+        };
+        for (key, value) in &document {
+          let key = key.as_str().unwrap_or_default();
+          if key == "settings" {
+            if let Err(e) =
+              serde_yaml::from_value::<crate::server_settings::ServerSettings>(value.clone())
+            {
+              problems.push(format!("{shown}: settings: {e}"));
+            }
+          } else if !crate::server_settings::DOCUMENT_SECTIONS.contains(&key) {
+            problems.push(format!("{shown}: unknown section `{key}`"));
+          }
         }
         continue;
       }
@@ -184,5 +235,5 @@ fn every_docs_example_file_is_a_valid_configuration() {
   // The walk found the tree: both counts move when a folder is added, and a
   // path mistake here must fail loudly rather than check nothing.
   assert!(clients >= 29, "only {clients} client files found");
-  assert!(servers >= 29, "only {servers} server files found");
+  assert!(servers >= 18, "only {servers} first-start documents found");
 }
