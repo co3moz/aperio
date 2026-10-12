@@ -10,3 +10,14 @@ settings:
   # proxy:
   #   trusted:
   #     - 127.0.0.1
+  #
+  # Or serve HTTPS directly, with a certificate from Let's Encrypt, instead
+  # of a proxy. Set HOST=0.0.0.0 in aperio-server.env, and have the name
+  # point here with port 443 reachable: that is where the authority checks.
+  # tls:
+  #   enabled: true
+  #   redirect_http: true
+  #   acme:
+  #     enabled: true
+  #     email: ops@example.com
+  #     hostnames: [tunnel.example.com]

@@ -136,8 +136,15 @@ pub(crate) async fn serve(
   let tcp = match crate::bind_listener(&host, plan.port, reuseport).await {
     Ok(tcp) => tcp,
     Err(e) => {
+      // The usual cause is the port itself, and the error alone says only
+      // "permission denied".
+      let hint = if e.kind() == std::io::ErrorKind::PermissionDenied && plan.port < 1024 {
+        "; a port below 1024 takes root or the CAP_NET_BIND_SERVICE capability, which the packaged unit grants"
+      } else {
+        ""
+      };
       error!(
-        "Failed to bind the HTTPS listener on {host}:{}: {e}",
+        "Failed to bind the HTTPS listener on {host}:{}: {e}{hint}",
         plan.port
       );
       std::process::exit(1);
