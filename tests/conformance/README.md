@@ -56,19 +56,24 @@ than tolerated in the results, so the report says what was actually run.
 host's network namespace and dials `127.0.0.1`; on Docker Desktop it reaches
 the host as `host.docker.internal`.
 
-That difference is why the tunnel is bound on a **path** here rather than a
-hostname. Autobahn dials a URL, and the authority of that URL is the `Host`
-header the server routes on, so a hostname bind would mean teaching the
-container to resolve a name that exists nowhere and getting the answer right
-on two platforms. Bound on `/`, what the machine is called stops mattering.
+That difference is why the tunnel serves **every hostname** (`*`) on `/`
+here rather than a hostname of its own. Autobahn dials a URL, and the
+authority of that URL is the `Host` header the server routes on, so a
+hostname bind would mean teaching the container to resolve a name that exists
+nowhere and getting the answer right on two platforms. With `*`, what the
+machine is called stops mattering.
 
-The HTML report lands in `reports/` and is published as a CI artifact.
+The HTML report lands in `reports/`.
 
-## In CI
+## Where each one runs
 
-[`chore.yml`](../../.github/workflows/chore.yml) runs this on demand, not
-per push: it is minutes long and the thing it checks changes rarely. A failure is a bug in the relay, not a flaky
-test.
+Autobahn runs **locally, before a release**, and nowhere in CI: it needs
+Docker, and the run belongs to the release checklist in `AGENTS.md`. Where
+Docker lives only in WSL, run the script there, against Linux binaries built
+in the same tree. h2spec needs nothing installed, so
+[`chore.yml`](../../.github/workflows/chore.yml) runs it on demand, not per
+push: it is minutes long and the thing it checks changes rarely. A failure in
+either is a bug in the relay, not a flaky test.
 
 ## h2spec (HTTP/2)
 

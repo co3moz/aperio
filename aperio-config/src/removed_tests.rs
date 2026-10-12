@@ -90,6 +90,51 @@ fn a_document_in_the_old_shape_is_told_where_the_section_went() {
   assert!(!err.contains("moved into"), "{err}");
 }
 
+#[test]
+fn a_0_12_server_file_pasted_under_settings_is_told_key_by_key() {
+  // The likeliest first try at the upgrade: the old flat keys as they were.
+  for (old, says) in [
+    ("cache_max_bytes: 64MB", "`cache.size`"),
+    ("trust_proxy: true", "`proxy.trust`"),
+    ("oidc_issuer: https://id.example.com", "`oidc.issuer`"),
+    ("stream_pause_bytes: 2MB", "`advanced.stream.pause_at`"),
+    ("port: 8080", "PORT"),
+    ("version: 0.12.0", "delete it"),
+    ("login_lockout: {threshold: 5}", "`security.login_lockout`"),
+  ] {
+    let err = crate::server_settings::ServerSettings::from_yaml(&format!("{old}\n")).unwrap_err();
+    assert!(err.contains(says), "{old}: {err}");
+  }
+  // The same word inside a section is a typo there, not the old key.
+  let err = crate::server_settings::ServerSettings::from_yaml("tls: {version: 1}\n").unwrap_err();
+  assert!(err.contains("unknown field `version`"), "{err}");
+  assert!(!err.contains("delete it"), "{err}");
+}
+
+#[test]
+fn every_key_of_the_0_12_server_file_is_answered() {
+  // A sample across the flat keys the 0.12 server read from its file, each
+  // of which a 0.13 document refuses: none is left with the bare refusal.
+  for key in [
+    "access_log_sample_rate",
+    "alert_rules",
+    "backup_dir",
+    "dashboard_hostname",
+    "expose",
+    "ip_limit_refill",
+    "max_body_size",
+    "outlier_ejection",
+    "server",
+    "trusted_proxies",
+    "webhook_retry_schedule",
+  ] {
+    assert!(
+      REMOVED_SETTINGS.iter().any(|r| r.key == key),
+      "`{key}` has no hint"
+    );
+  }
+}
+
 /// Every path the client and server schemas accept, with `*` for a map key.
 fn schema_paths(root: &serde_json::Value) -> Vec<String> {
   fn visit(
@@ -172,6 +217,7 @@ fn every_setting_a_hint_points_at_exists() {
     let root = key.split('.').next().unwrap_or(key);
     for (i, quoted) in hint.split('`').enumerate() {
       let looks_like_a_path = i % 2 == 1
+        && quoted.starts_with(|c: char| c.is_ascii_lowercase())
         && quoted.contains('.')
         && quoted
           .chars()

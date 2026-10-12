@@ -139,7 +139,7 @@ The store only grows additively, so an older server can usually open a newer sto
 The server reads no configuration file and only its [boot settings](configuration.md#boot-environment) from the environment; every other setting lives in the database. A 0.13 server that finds an old variable refuses to start and names the setting that replaced it. Moving a deployment over:
 
 1. Write the old file, environment and dashboard overrides (`settings.json`) as one document under `settings:`, in the new names.
-2. Check it: `aperio-server check server-init.yaml`.
+2. Check it: `aperio-server check server-init.yaml`. A key still written the 0.12 way is refused naming the one to write, so the old file pasted under `settings:` is a workable first draft.
 3. Start 0.13 once with `APERIO_INIT_FILE=server-init.yaml` and without the old variables. Tokens, users and statistics are untouched.
 4. Keep the file in git as a record; it is not read again.
 

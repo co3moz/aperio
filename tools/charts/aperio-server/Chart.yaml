@@ -4,8 +4,8 @@ description: The Aperio tunnel server, with its SQLite store on a PersistentVolu
 type: application
 # The chart's own version. `appVersion` tracks the release it was written
 # against and is the default image tag.
-version: 0.1.0
-appVersion: "0.9.0"
+version: 0.2.0
+appVersion: "0.13.0"
 home: https://github.com/co3moz/aperio
 sources:
   - https://github.com/co3moz/aperio

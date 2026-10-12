@@ -137,15 +137,16 @@ fn broken(from: &Path, url: &str) -> Option<String> {
   None
 }
 
-/// The text of the changelog's `[Unreleased]` section, the one part of it
-/// that is still being written. A released section links to the pages as
-/// they were at its tag, which is where a reader of it finds them.
-fn unreleased(changelog: &str) -> String {
-  let Some(start) = changelog.find("## [Unreleased]") else {
+/// The changelog's newest section: `[Unreleased]`, or the version about to
+/// be tagged, whichever is on top. That is the one still being written; an
+/// older section links to the pages as they were at its tag, which is where
+/// a reader of it finds them.
+fn newest_section(changelog: &str) -> String {
+  let Some(start) = changelog.find("\n## [") else {
     return String::new();
   };
-  let rest = &changelog[start + 3..];
-  let end = rest.find("\n## [").unwrap_or(rest.len());
+  let rest = &changelog[start + 1..];
+  let end = rest[3..].find("\n## [").map_or(rest.len(), |i| i + 3);
   rest[..end].to_string()
 }
 
@@ -182,7 +183,11 @@ fn every_link_in_the_documentation_leads_somewhere() {
     broken_links(page, &read(page), &mut problems);
   }
   let changelog = root.join("CHANGELOG.md");
-  broken_links(&changelog, &unreleased(&read(&changelog)), &mut problems);
+  broken_links(
+    &changelog,
+    &newest_section(&read(&changelog)),
+    &mut problems,
+  );
   assert!(
     problems.is_empty(),
     "links that lead nowhere:\n  {}",
