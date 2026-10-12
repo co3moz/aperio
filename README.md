@@ -153,7 +153,7 @@ Click a feature for the details.
 
 - [Metrics, traces & logs](docs/observability.md), Prometheus, OpenTelemetry, webhooks, access and audit logs.
 
-Full index: [docs/](docs/README.md). The [Complete Guide](docs/book/aperio.tex) brings the topics and reference tables together. Releases include a [built PDF](https://github.com/co3moz/aperio/releases/latest/download/aperio-guide.pdf).
+Full index: [docs/](docs/README.md).
 
 ## Security
 

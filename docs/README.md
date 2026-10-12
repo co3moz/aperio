@@ -2,8 +2,6 @@
 
 Focused guides to Aperio's features and operations. For an overview and quick start, see the [main README](../README.md).
 
-Prefer one long read? [**The Complete Guide**](book/aperio.tex) covers the topics below and includes generated reference tables. Every release includes a [built PDF](https://github.com/co3moz/aperio/releases/latest/download/aperio-guide.pdf). To build it locally, run `cd docs/book && tectonic aperio.tex` or run `pdflatex aperio.tex` twice from `docs/book`. `pdflatex` needs a full TeX Live installation with `tcolorbox` and TikZ.
-
 ## Getting Started
 
 - [Getting Started](getting-started.md), expose your first local service in five minutes, with Docker or the CLI.

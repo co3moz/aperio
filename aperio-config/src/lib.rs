@@ -42,7 +42,6 @@ pub mod reference;
 pub mod resilience;
 pub mod rules;
 pub mod sites;
-pub mod surfaces;
 
 pub use auth::*;
 pub use client::*;

@@ -18,8 +18,8 @@
 - [ ] `npm --prefix tests/e2e test` passes (skip only for a dashboard-only change)
 - [ ] Dashboard change: `npm run check-i18n`, `tsc -b`, `lint`, `test`, `build` pass
 - [ ] `CHANGELOG.md` updated in this same commit, or the change is purely internal
-- [ ] A new setting reaches **all** its surfaces: yaml field with a doc comment,
-      environment variable, `docs/configuration.md`, `docs/book/aperio.tex`
+- [ ] A new setting has a doc comment, and `docs/reference.md` and the
+      dashboard's schema snapshot are regenerated
 - [ ] A removed or renamed key has a hint in `aperio-config/src/removed.rs`
       and a Breaking line in `CHANGELOG.md`
 - [ ] A wire change (frame, handshake header, Ping shape) lands only in a minor
