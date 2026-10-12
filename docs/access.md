@@ -34,7 +34,7 @@ A `method:` this build does not know stops the start, so a gate is never silentl
 
 **One route, one policy.** Clients serving the same hostname and path have to declare the same `access`, `allowed_ips` and `denied`. A client that disagrees with one already serving the route is kept out of it, and both logs say which setting differs; it joins as soon as they agree.
 
-**Closed by default.** The server's `access` is `deny` unless set: a route is served because something said so. An undeclared route answers like an unclaimed hostname, so its existence does not leak. Two exceptions: the server's own signed-in users reach it, and a service with `cache.offline` answers from its cache. Set the server's `access` to `public` to serve undeclared routes to everyone, or to a method to gate them.
+**Closed by default.** The server's `access` is `deny` unless set: a route is served because something said so. An undeclared route answers like an unclaimed hostname, and like a visitor `allowed_ips` turns away, `504 Nothing is published at this address`, so its existence does not leak; the client's log says which service was refused and what to write. Two exceptions: the server's own signed-in users reach it, and a service with `cache.offline` answers from its cache. Set the server's `access` to `public` to serve undeclared routes to everyone, or to a method to gate them.
 
 `allowed_ips:` on a service limits its visitors to IPs or CIDRs, checked by the server before dispatch.
 

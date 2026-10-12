@@ -921,6 +921,58 @@ pub(crate) async fn handler_denied_visitor_stealth_504() {
   assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
 }
 
+/// Every way of reaching nothing is one answer, word for word: a hostname
+/// nobody serves, a visitor every candidate fences out, a route the closed
+/// posture refuses, and a hostname nobody serves under that posture. A
+/// stranger who could tell them apart would learn that a route exists, and
+/// these used to be three texts, one of them claiming no client was
+/// connected while the client serving the closed route was.
+#[tokio::test]
+async fn nothing_published_is_one_answer_whatever_the_reason() {
+  async fn answer(state: Arc<AppState>) -> (StatusCode, String) {
+    let resp = run(state, get("/page")).await;
+    let status = resp.status();
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+      .await
+      .unwrap();
+    (status, String::from_utf8_lossy(&body).into_owned())
+  }
+  let closed = || {
+    let mut cfg = test_config();
+    cfg.default_access = crate::settings::DefaultAccess::Deny;
+    connected(cfg)
+  };
+
+  let unclaimed = connected(test_config());
+  mark_connected(&unclaimed).await;
+
+  let fenced = connected(test_config());
+  mark_connected(&fenced).await;
+  let mut c = mock_client(None, None);
+  c.sole_mut().allowed_ips = vec!["10.0.0.0/8".to_string()];
+  fenced.clients.write().await.insert("c1".to_string(), c);
+
+  let undeclared = closed();
+  mark_connected(&undeclared).await;
+  let _rx = insert_live_client(&undeclared, "c1").await;
+
+  let unclaimed_when_closed = closed();
+  mark_connected(&unclaimed_when_closed).await;
+
+  for (what, state) in [
+    ("a hostname nobody serves", unclaimed),
+    ("a visitor every candidate fences out", fenced),
+    ("a route the closed posture refuses", undeclared),
+    ("a hostname nobody serves, closed", unclaimed_when_closed),
+  ] {
+    assert_eq!(
+      answer(state).await,
+      (StatusCode::GATEWAY_TIMEOUT, NOT_PUBLISHED.to_string()),
+      "{what}"
+    );
+  }
+}
+
 #[tokio::test]
 pub(crate) async fn handler_denied_visitor_redirect_302() {
   let state = connected(test_config());

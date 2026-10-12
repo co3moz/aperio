@@ -218,7 +218,7 @@ pub(crate) async fn proxy_http_request(
       return gateway_timeout_response(
         &state,
         extract_request_host(&headers).as_deref(),
-        "504 Gateway Timeout - No client connected in time",
+        crate::proxy::NOT_PUBLISHED,
       );
     }
   }
@@ -517,7 +517,7 @@ pub(crate) async fn proxy_http_request(
       return gateway_timeout_response(
         &state,
         request_host.as_deref(),
-        "504 Gateway Timeout - Client disconnected before request dispatch",
+        crate::proxy::NOT_PUBLISHED,
       );
     }
   };
