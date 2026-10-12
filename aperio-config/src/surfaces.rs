@@ -1,12 +1,10 @@
-//! Which settings are deliberately absent from a documentation table, and why.
+//! Which settings are deliberately absent from the book's reference table,
+//! and why.
 //!
-//! Rules 15 to 17 in `AGENTS.md` say a setting reaches its schema, the table
-//! in `docs/configuration.md` and the reference table in
-//! `docs/book/aperio.tex`, all in the same commit. The client's environment
-//! variables are derived from its schema (`layers::client_env`), so that
-//! surface cannot drift; the two tables are written by hand, and the drift
+//! `docs/reference.md` is generated from the schemas (`reference.rs`), so it
+//! cannot miss a setting. The book's table is written by hand, and the drift
 //! there is invisible by eye: the one that had happened by 2026-08-18 was a
-//! single key missing from the book.
+//! single key missing from it.
 //!
 //! `surfaces_tests.rs` holds them to it. This module is the part that cannot
 //! be derived, the handful of keys that are absent on purpose. It is
@@ -21,17 +19,6 @@ pub struct Exempt {
   /// Why it is not in that table. Read by a person, not by the test.
   pub why: &'static str,
 }
-
-/// Keys absent from `docs/configuration.md`.
-///
-/// Rule 16 exempts a list of mappings from having an environment variable,
-/// and the same shape is what keeps these out of a table whose rows are
-/// `key | description | default`: a rule with five fields of its own does not
-/// fit in a cell, so it is written up where it can be shown as yaml.
-pub const NOT_IN_CONFIGURATION_MD: &[Exempt] = &[Exempt {
-  key: "alerts.rules",
-  why: "a list of mappings, each with a metric, a bound and a window; written up with examples in docs/observability.md",
-}];
 
 /// Keys absent from the book's reference table (`docs/book/aperio.tex`).
 ///

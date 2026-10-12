@@ -38,6 +38,7 @@ pub mod changelog;
 pub mod client;
 pub mod file;
 pub mod hop_by_hop;
+pub mod reference;
 pub mod resilience;
 pub mod rules;
 pub mod sites;

@@ -180,15 +180,6 @@ fn check(table: &str, text: &str, exempt: &[Exempt]) {
 }
 
 #[test]
-fn every_setting_is_in_the_configuration_table() {
-  check(
-    "docs/configuration.md",
-    &doc("docs/configuration.md"),
-    NOT_IN_CONFIGURATION_MD,
-  );
-}
-
-#[test]
 fn every_setting_is_in_the_books_reference_table() {
   // The surface that drifts first: it is the one nobody has open while
   // editing Rust. `depends_on` was missing from it when this check was
@@ -212,7 +203,7 @@ fn every_exemption_is_for_a_key_that_exists_and_gives_a_reason() {
     .into_iter()
     .chain(setting_paths())
     .collect();
-  for exempt in NOT_IN_CONFIGURATION_MD.iter().chain(NOT_IN_BOOK) {
+  for exempt in NOT_IN_BOOK {
     assert!(
       all.contains(&fold(exempt.key)),
       "`{}` is exempted from a documentation table but is not a setting; \

@@ -85,6 +85,11 @@ impl EnvSetting {
       _ => self.path.clone(),
     }
   }
+
+  /// The key's own schema node, which carries its description.
+  pub(crate) fn schema(&self) -> &Json {
+    &self.schema
+  }
 }
 
 /// The keys of a service that say where its traffic comes from and goes to.
