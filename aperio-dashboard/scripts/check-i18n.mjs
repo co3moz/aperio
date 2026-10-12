@@ -26,7 +26,7 @@
 // Exits non-zero when any FATAL problem is found, so CI catches drift.
 
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 
@@ -59,8 +59,11 @@ function parse(file, text) {
   )
 }
 
+// Compared as directory and name rather than as a `/`-joined string: on
+// Windows the paths use `\`, and a slash test there excluded no dictionary,
+// so every key counted as its own reference and no stale key was ever found.
 const isDictFile = (file) =>
-  file.startsWith(I18N_DIR + '/') && LANGS.some((l) => file.endsWith(`/${l}.ts`))
+  dirname(file) === I18N_DIR && LANGS.some((l) => basename(file) === `${l}.ts`)
 
 /**
  * The reference key set: the `.text` of every string / no-substitution template
