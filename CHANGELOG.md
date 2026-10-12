@@ -129,6 +129,8 @@ project follows semantic versioning per release tag.
 
 ### Fixed
 
+- **Three log lines name settings the way they are written now.** The startup capacity warning, the server's note when a client opens more connections than permitted, and the client's when one of its connections stands down still said `max_ws_connections`, `max_tunnels` and `max_connections_per_service`; they say `limits.websockets`, `limits.tunnels` and `limits.connections_per_service`.
+
 - **The dashboard's "add client" command and the GitHub Action named variables that did not exist.** Both passed the target as `APERIO_CLIENT_TARGET` (and the wizard the binds as `APERIO_HOSTNAME_BIND` and `APERIO_PATH_BIND`), which no client ever read, so the container started with nothing to expose. They use `APERIO_TARGET`, `APERIO_HOSTNAME` and `APERIO_PATH`, and the Action, whose ephemeral token may publish, declares the preview `APERIO_ACCESS=public`.
 
 - **A target in a file was not read the way the command line reads it.** `aperio-client 3000` meant `http://localhost:3000`, while `target: 3000` in a file, an example the schema itself gave, was passed on unchanged. A target is normalized wherever it is written.

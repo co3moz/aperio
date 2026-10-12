@@ -351,7 +351,7 @@ impl ConnCtx {
         ceiling,
         match perms.max_connections {
           Some(_) => "the token's own, at or below the server's",
-          None => "the server's max_connections_per_service",
+          None => "the server's limits.connections_per_service",
         }
       );
       return false;

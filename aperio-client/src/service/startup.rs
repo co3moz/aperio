@@ -116,7 +116,7 @@ pub(crate) async fn prepare(
   {
     warn!(
       "[{}] The server permits {} parallel connection(s) for this service; \
-     connection {} stands down. Raise max_connections_per_service on the server \
+     connection {} stands down. Raise limits.connections_per_service on the server \
      (or the token's max_connections) to use more.",
       label, permitted, connection_index
     );
