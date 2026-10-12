@@ -16,10 +16,12 @@
  *   node scripts/capture-docs-images.mjs            # build first if needed
  *   node scripts/capture-docs-images.mjs --keep     # leave the instance up
  *
- * Requires the debug binaries (`cargo build --workspace`) and Playwright's
- * chromium (`npx playwright install chromium`).
+ * Requires the debug binaries (`cargo build --workspace`; `APERIO_SERVER_BIN`
+ * and `APERIO_CLIENT_BIN` point elsewhere) and Playwright's chromium
+ * (`npx playwright install chromium`), or a browser already installed, named
+ * as its Playwright channel in `APERIO_CAPTURE_BROWSER` (`msedge`, `chrome`).
  */
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { request as httpRequest } from 'node:http'
 import { chromium } from '@playwright/test'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
@@ -32,7 +34,26 @@ const REPO = resolve(HERE, '../..')
 const IMAGES = join(REPO, 'docs/images')
 const KEEP = process.argv.includes('--keep')
 const BIN_EXT = process.platform === 'win32' ? '.exe' : ''
-const binary = (name) => join(REPO, `target/debug/${name}${BIN_EXT}`)
+
+/** Where cargo put the binaries, the way the e2e harness finds it: a target
+ *  directory set in `~/.cargo/config.toml` is as common as the default, and
+ *  a capture that only looked in `<repo>/target` found nothing there. */
+function targetDir() {
+  if (process.env.CARGO_TARGET_DIR) return process.env.CARGO_TARGET_DIR
+  try {
+    const meta = execFileSync('cargo', ['metadata', '--format-version', '1', '--no-deps'], {
+      cwd: REPO,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    return JSON.parse(meta).target_directory
+  } catch {
+    return join(REPO, 'target')
+  }
+}
+const TARGET = targetDir()
+const binary = (name) =>
+  process.env[`APERIO_${name.split('-')[1].toUpperCase()}_BIN`] || join(TARGET, `debug/${name}${BIN_EXT}`)
 
 // Ports well away from the defaults, so a capture cannot collide with the
 // instance someone is already running on this machine.
