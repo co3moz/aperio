@@ -199,7 +199,9 @@ pub(crate) async fn tcp_ws_handler(
   };
   let peer_addr = std::net::SocketAddr::new(caller_ip, addr.port());
   let log = RelayIdentity::new(peer_addr, requested_name.clone(), &perms);
-  ws.on_upgrade(move |socket| async move {
+  // The release goes on this handshake as on every other: a binder is a
+  // client, and refuses a server that does not say what it is.
+  let mut response = ws.on_upgrade(move |socket| async move {
     // Recorded inside the upgrade rather than before it, and the pairing is
     // the reason: `on_upgrade` does not run when the handshake never
     // completes, so an `opened` outside it would have no `closed` to answer
@@ -230,7 +232,9 @@ pub(crate) async fn tcp_ws_handler(
       &edge.token_name,
       crate::store::tokens::now_secs(),
     );
-  })
+  });
+  crate::tunnel::ws::announce_release(&mut response);
+  response
 }
 
 /// One consumer connection's identity, carried into the relay so the edge can
@@ -334,7 +338,10 @@ pub(crate) async fn udp_ws_handler(
 
   let peer_addr = std::net::SocketAddr::new(caller_ip, addr.port());
   let log = RelayIdentity::new(peer_addr, requested_name.clone(), &perms);
-  ws.on_upgrade(move |socket| relay_udp_consumer(state, socket, client_id, client_tx, target, log))
+  let mut response = ws
+    .on_upgrade(move |socket| relay_udp_consumer(state, socket, client_id, client_tx, target, log));
+  crate::tunnel::ws::announce_release(&mut response);
+  response
 }
 
 /// What the relay access log needs to know about a connection, gathered at
