@@ -354,10 +354,23 @@ pub async fn run() {
   };
 
   // The device key is a process identity: resolved from the full layering
-  // once, before any connection announces it.
+  // once, before any connection announces it. It follows the id's rule: a
+  // client reading a config file keeps one beside its id by default, so a
+  // server enforcing token pinning recognizes this machine with nothing
+  // configured. With no config file there is nowhere sensible to keep it.
+  let default_key_file = match (config_files.first(), home.as_deref()) {
+    (Some(config), Some(home)) if settings.device_key_file.is_none() => Some(
+      client_id::default_key_file(home, config)
+        .to_string_lossy()
+        .into_owned(),
+    ),
+    _ => None,
+  };
+  let key_file_is_default = default_key_file.is_some();
   service::set_device_key_sources(
     settings.device_key.clone(),
-    settings.device_key_file.clone(),
+    settings.device_key_file.clone().or(default_key_file),
+    key_file_is_default,
   );
 
   if let Some(path) = settings.pid_file.clone() {

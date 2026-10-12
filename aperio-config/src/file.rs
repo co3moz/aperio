@@ -177,7 +177,10 @@ pub struct FileConfig {
   #[schemars(extend("x-reload" = "restart", "examples" = ["9f8c1d2e3a4b5c6d7e8f9a0b1c2d3e4f9f8c1d2e3a4b5c6d7e8f9a0b1c2d3e4f"]))]
   pub device_key: Option<String>,
   /// File holding the device key; a random one is generated and kept there
-  /// on the first run. Ignored when `device_key` is set directly.
+  /// on the first run. Ignored when `device_key` is set directly. Default:
+  /// beside the kept `client_id`, under `~/.aperio/clients/`, for a client
+  /// that reads a config file; a client with none announces no key unless
+  /// one is given.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("x-reload" = "restart", "examples" = ["/var/lib/aperio/device.key"]))]
   pub device_key_file: Option<String>,

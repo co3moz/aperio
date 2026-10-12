@@ -1756,7 +1756,10 @@ With \code{security.token\_pinning: true}, the first client device key seen for
 a token is pinned, and a later connection presenting a different key, or
 none at all, is refused. A leaked token replayed from another machine
 cannot serve. Enabling it means every client must carry a device key, so
-it is a deployment-wide decision.
+it is a deployment-wide decision. A client reading a config file carries
+one without being told, kept beside its \code{client\_id}; a client
+configured by its environment alone, as a container is, is given one with
+\code{APERIO\_DEVICE\_KEY}.
 
 \section{Admin keys}
 
@@ -3976,7 +3979,7 @@ Top-level keys: what the client as a whole is, and how it reaches its server.
 \rowsep
 \code{APERIO\_DEVICE\_KEY} &  & \code{device\_key} & Explicit device key announced for trust-on-first-use token pinning (server \code{security.token\_pinning}): pins the token to this device so a leaked token replayed elsewhere is rejected. Default: none announced. \\
 \rowsep
-\code{APERIO\_DEVICE\_KEY\_FILE} &  & \code{device\_key\_file} & Path holding the device key, its contents are used, or a fresh random key is generated and persisted there (owner-only \code{0600}) on first run. Ignored when \code{APERIO\_DEVICE\_KEY} is set. \\
+\code{APERIO\_DEVICE\_KEY\_FILE} &  & \code{device\_key\_file} & Path holding the device key, its contents are used, or a fresh random key is generated and persisted there (owner-only \code{0600}) on first run. Ignored when \code{APERIO\_DEVICE\_KEY} is set. Default: beside the kept \code{client\_id} under \code{\textasciitilde/.aperio/clients/}, for a client reading a config file; none otherwise. \\
 \rowsep
 \code{APERIO\_IDLE\_TIMEOUT} &  & \code{idle\_timeout} & Retire this client after it has served nothing for this long (e.g. \code{5m}); unset = never. The scale-in half of \code{scaling:}, see Autoscaling. The shutdown is graceful, and the clock only starts after the first request. Every kind of traffic counts, not just buffered HTTP requests: each relayed frame of a WebSocket, TCP or UDP session re-stamps the clock in both directions, and retirement is held back while any request is still in flight (a slow backend, or a response streaming for longer than the window), so a live session is never cut mid-traffic. \\
 \rowsep

@@ -117,9 +117,9 @@ The client deliberately does not fully trust the server: it only connects to its
 
 `security.token_pinning: true` binds each dynamic token to a single client device. On the first connection, the server pins the device key the client announces; any later connection presenting a **different** (or missing) key for that token is rejected, and a `token_pin_mismatch` audit + webhook event fires. This means a token leaked into a CI log or a config dump cannot be replayed from another machine without also stealing that machine's device key.
 
-The client announces its device key when one is configured:
+A client reading a config file announces a device key with nothing configured: it generates one on its first run and keeps it beside its `client_id`, under `~/.aperio/clients/`, so a server that turns pinning on recognizes the machine. A client with no config file (one configured by the environment alone, as a container usually is) announces none unless told, since a key it could not keep would change at every start and pin the token to a machine that forgets itself. Either way it can be given:
 
-- `APERIO_DEVICE_KEY`, an explicit value you manage (and copy to another box yourself if you deliberately move the token there).
+- `APERIO_DEVICE_KEY`, an explicit value you manage (and copy to another box yourself if you deliberately move the token there), which is what a container sets.
 - `APERIO_DEVICE_KEY_FILE`, a file path; the client reads it, generating and persisting a fresh random key there on first run.
 
 Two consequences follow from the single-device binding, and are intentional:

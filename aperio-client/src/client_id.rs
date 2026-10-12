@@ -20,6 +20,12 @@ pub(crate) fn default_file(home: &Path, config: &Path) -> PathBuf {
   ))
 }
 
+/// Where the device key is kept by default: beside the id, under the same
+/// name, so the two halves of this client's identity live and go together.
+pub(crate) fn default_key_file(home: &Path, config: &Path) -> PathBuf {
+  default_file(home, config).with_extension("key")
+}
+
 /// FNV-1a, 64 bits: a stable name for a path, with no dependency to add and
 /// no promise beyond telling two paths apart.
 fn fnv1a(bytes: &[u8]) -> u64 {

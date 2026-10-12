@@ -240,6 +240,8 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
           // default; a fixture keeps it in its own directory instead, so a
           // run leaves nothing in the home of whoever ran it.
           APERIO_CLIENT_ID_FILE: join(this._dir, 'client-id'),
+          // The device key beside it, for the same reason.
+          APERIO_DEVICE_KEY_FILE: join(this._dir, 'device-key'),
           ...(isPublic ? { APERIO_ACCESS: 'public' } : {}),
           APERIO_SERVER_URL: this._serverUrl(),
           APERIO_SERVER_TOKEN: this._serverToken(),

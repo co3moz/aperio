@@ -100,7 +100,7 @@
         "x-reload": "restart"
       },
       "device_key_file": {
-        "description": "File holding the device key; a random one is generated and kept there\non the first run. Ignored when `device_key` is set directly.",
+        "description": "File holding the device key; a random one is generated and kept there\non the first run. Ignored when `device_key` is set directly. Default:\nbeside the kept `client_id`, under `~/.aperio/clients/`, for a client\nthat reads a config file; a client with none announces no key unless\none is given.",
         "type": [
           "string",
           "null"

@@ -64,3 +64,18 @@ fn a_file_holding_something_else_is_replaced_by_an_id() {
   assert_eq!(std::fs::read_to_string(&file).unwrap().trim(), id);
   let _ = std::fs::remove_dir_all(dir);
 }
+
+/// The device key is kept beside the id, under the same name: the two halves
+/// of the client's identity live in one place and go together.
+#[test]
+fn the_default_key_file_sits_beside_the_id() {
+  let home = scratch("key");
+  let config = home.join("aperio.yaml");
+  std::fs::write(&config, "").unwrap();
+  let id = default_file(&home, &config);
+  let key = default_key_file(&home, &config);
+  assert_eq!(id.parent(), key.parent());
+  assert_eq!(id.file_stem(), key.file_stem());
+  assert_eq!(key.extension().and_then(|e| e.to_str()), Some("key"));
+  let _ = std::fs::remove_dir_all(home);
+}
