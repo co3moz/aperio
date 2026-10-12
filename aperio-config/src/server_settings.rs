@@ -15,9 +15,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-  ErrorPageRule, FallbackRule, HeaderRules, MaintenanceWindow, RateLimitRule, RouteRule, WafRule,
-};
+use crate::Site;
 
 /// The environment variables the server still reads, all of them needed
 /// before its database exists. Everything else is a [`ServerSettings`] field.
@@ -119,29 +117,17 @@ pub struct ServerSettings {
   pub shutdown: Shutdown,
   /// The availability history behind the dashboard's Uptime panel.
   pub uptime: Uptime,
-  /// The server's own answer pages.
-  pub pages: Pages,
-  /// Header edits applied to every proxied request and response.
-  pub headers: HeaderRules,
-  /// Client-less routes: a redirect or fixed answer for a hostname/path, or
-  /// policy (timeout, headers, rate limit, canary) for proxied traffic.
-  #[schemars(extend("examples" = [[{"hostname": "old.example.com", "redirect": "https://new.example.com", "permanent": true}]]))]
-  pub routes: Vec<RouteRule>,
-  /// Aggregate request-rate ceilings per hostname and path.
-  #[schemars(extend("examples" = [[{"hostname": "api.example.com", "path": "/api/login", "rps": 5.0, "burst": 10.0}]]))]
-  pub rate_limits: Vec<RateLimitRule>,
-  /// Where to send visitors of a hostname no client serves.
-  #[schemars(extend("examples" = [[{"hostname": "app.example.com", "url": "https://status.example.com", "preserve_path": true}]]))]
-  pub fallbacks: Vec<FallbackRule>,
-  /// A small request firewall evaluated before dispatch.
-  #[schemars(extend("examples" = [[{"path": "^/wp-admin"}, {"header": {"name": "user-agent", "regex": "(?i)sqlmap|nikto"}}, {"path": "^/upload", "max_body": 1048576}]]))]
-  pub waf: Vec<WafRule>,
-  /// Per-hostname answer pages.
-  #[schemars(extend("examples" = [[{"hostname": "app.example.com", "504_page": "./pages/app-504.html"}]]))]
-  pub error_pages: Vec<ErrorPageRule>,
-  /// Recurring windows during which hostnames answer the maintenance page.
-  #[schemars(extend("examples" = [[{"hostname": "*.example.com", "from": "02:00", "to": "04:00", "days": ["sat"], "tz": "Europe/Istanbul"}]]))]
-  pub maintenance_windows: Vec<MaintenanceWindow>,
+  /// What the server does for a hostname, or a path under one, by itself:
+  /// answers without a client, policy on proxied traffic, and what a
+  /// hostname says when nothing serves it. Each setting comes from the most
+  /// specific site that writes it; `hostname: "*"` is every hostname.
+  #[schemars(extend("examples" = [[
+    {"hostname": "*", "headers": {"response": {"remove": ["x-powered-by"]}}, "pages": {"unavailable": "<h1>Nothing is serving this right now</h1>"}},
+    {"hostname": "old.example.com", "redirect": {"url": "https://new.example.com", "permanent": true}},
+    {"hostname": "app.example.com", "path": "/login", "rate_limit": {"rps": 5, "burst": 10}},
+    {"hostname": "app.example.com", "fallback": {"url": "https://status.example.com"}, "maintenance": [{"from": "02:00", "to": "04:00", "days": ["sun"]}]}
+  ]]))]
+  pub sites: Vec<Site>,
 }
 
 #[path = "server_settings/sections.rs"]
@@ -237,7 +223,7 @@ impl ServerSettings {
   pub fn from_yaml(raw: &str) -> Result<ServerSettings, String> {
     serde_yaml::from_str::<Option<ServerSettings>>(raw)
       .map(Option::unwrap_or_default)
-      .map_err(|e| e.to_string())
+      .map_err(|e| crate::removed::with_settings_hint(e.to_string()))
   }
 
   /// The document as a tree, every field present.

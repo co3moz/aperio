@@ -133,7 +133,7 @@ Total memory is bounded by `cache.size` (yaml `cache_max_bytes`) (default 64 MB)
 
 ## Custom error pages
 
-`pages.unavailable: /app/error_504.html` (yaml `504_page`) serves your own HTML (loaded once at startup) on gateway-timeout responses, e.g. a branded "tunnel is offline, check back soon" page. `pages.maintenance` (yaml `503_page`) does the same for the maintenance-mode response.
+A site's `pages.unavailable` serves your own HTML on gateway-timeout responses, e.g. a branded "tunnel is offline, check back soon" page; `pages.maintenance` does the same for the maintenance-mode response. The `*` site's pages are every hostname's, and a hostname's own site can carry its own. See [Sites](configuration.md#sites).
 
 ## Runnable examples
 

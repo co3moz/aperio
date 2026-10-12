@@ -97,43 +97,51 @@ fn metrics_without_a_token_get_one_kept_in_the_data_directory() {
 }
 
 #[test]
-fn a_rule_that_leaves_its_optional_fields_out_builds() {
-  // The rules travel from the document to their modules through yaml, where
-  // an unset optional field would arrive as `null` and be refused as the
-  // wrong type. Each list here leaves most of its fields out on purpose.
+fn sites_that_leave_their_optional_fields_out_build() {
+  // Each site here leaves most of its fields out on purpose: the document
+  // stores them minimal, and what comes back has to build.
   let s = ServerSettings::from_yaml(concat!(
-    "routes:\n",
+    "sites:\n",
     "  - hostname: old.example.com\n",
-    "    redirect: https://new.example.com\n",
-    "  - path: /robots.txt\n",
+    "    redirect: {url: https://new.example.com}\n",
+    "  - hostname: '*'\n",
+    "    path: /robots.txt\n",
     "    respond:\n",
     "      body: \"User-agent: *\"\n",
-    "rate_limits:\n",
-    "  - path: /login\n",
-    "    rps: 5\n",
-    "fallbacks:\n",
+    "  - hostname: '*'\n",
+    "    path: /login\n",
+    "    rate_limit: {rps: 5}\n",
     "  - hostname: app.example.com\n",
-    "    url: https://status.example.com\n",
-    "waf:\n",
-    "  - path: ^/wp-admin\n",
-    "maintenance_windows:\n",
-    "  - hostname: app.example.com\n",
-    "    from: '02:00'\n",
-    "    to: '04:00'\n",
+    "    fallback: {url: https://status.example.com}\n",
+    "    maintenance:\n",
+    "      - {from: '02:00', to: '04:00'}\n",
+    "  - hostname: '*'\n",
+    "    waf:\n",
+    "      - path: ^/wp-admin\n",
+    "    headers:\n",
+    "      response:\n",
+    "        remove: [Server]\n",
     "alerts:\n",
     "  rules:\n",
     "    - name: disk\n",
     "      metric: store_bytes\n",
     "      above: 1000\n",
-    "headers:\n",
-    "  response:\n",
-    "    remove: [Server]\n",
   ))
   .unwrap();
   let c = build_config(&s, "tok", &dir()).unwrap_or_else(|e| panic!("{e}"));
-  assert!(!c.static_routes.is_empty());
-  assert_eq!(c.route_limits.rules.len(), 1);
-  assert!(!c.waf.is_empty());
-  assert!(!c.maintenance_windows.is_empty());
+  assert_eq!(c.sites.all().len(), 5);
+  assert!(c.sites.rate_limit_for(None, "/login", None).is_some());
+  assert!(c.sites.has_waf());
+  assert!(c.sites.has_maintenance());
   assert_eq!(c.alert_rules.rules().len(), 1);
+}
+
+#[test]
+fn a_site_that_cannot_work_refuses_the_whole_document() {
+  let s = ServerSettings::from_yaml("sites:\n  - hostname: app.example.com\n").unwrap();
+  let err = build_config(&s, "tok", &dir()).err().expect("refused");
+  assert!(
+    err.contains("sites[0] (app.example.com): sets nothing"),
+    "{err}"
+  );
 }

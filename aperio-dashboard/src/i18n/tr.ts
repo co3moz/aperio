@@ -857,8 +857,10 @@ export const tr: Record<string, string> = {
   'Where the server may call out to, and honouring client scaling blocks.': 'Sunucunun nereye çağrı yapabileceği ve istemcilerin ölçekleme bloklarına uyulması.',
   'Edge integration': 'Edge entegrasyonu',
   'Publishing the live hostnames to a reverse proxy in front of this server.': 'Bu sunucunun önündeki ters proxy’ye canlı hostname’leri yayınlar.',
-  'Pages & headers': "Sayfalar ve header'lar",
-  'What visitors see on an error, and server-wide header rewriting.': 'Hata durumunda ziyaretçilerin ne gördüğü ve sunucu genelinde header yeniden yazımı.',
+  'Sites':
+    'Siteler',
+  'What the server does for a hostname by itself: answers, policy, fallbacks, pages and maintenance windows.':
+    "Sunucunun bir hostname için kendi başına yaptıkları: yanıtlar, politikalar, fallback'ler, sayfalar ve bakım pencereleri.",
   'Process & maintenance': 'Süreç ve bakım',
   'Startup behaviour, backups, and the public expose ports.': 'Başlangıç davranışı, yedekler ve herkese açık expose portları.',
   'Settings': 'Ayarlar',
@@ -1062,28 +1064,28 @@ export const tr: Record<string, string> = {
     "503: {actor} tarafından konulan bir bakım işareti bu hostname'i kapsıyor ({reason}), unix {until} anında kalkıyor",
   'no maintenance flag covers this hostname':
     "bu hostname'i kapsayan bir bakım işareti yok",
-  'no routes: rules configured':
-    'yapılandırılmış routes: kuralı yok',
-  '{status}: a routes: rule answers this path':
-    "{status}: bir routes: kuralı bu path'i yanıtlıyor",
-  '{status}: a routes: rule answers this path, to {location}':
-    "{status}: bir routes: kuralı bu path'i {location} adresine yönlendirerek yanıtlıyor",
-  'no routes: rule matches this hostname and path':
-    'bu hostname ve path ile eşleşen bir routes: kuralı yok',
+  'no sites configured':
+    'yapılandırılmış site yok',
+  '{status}: a site answers this path by itself':
+    "{status}: bir site bu path'i kendisi yanıtlıyor",
+  '{status}: a site answers this path by itself, to {location}':
+    "{status}: bir site bu path'i {location} adresine yönlendirerek kendisi yanıtlıyor",
+  'no site answers this hostname and path by itself':
+    "bu hostname ve path'i kendisi yanıtlayan bir site yok",
   '200: preview_noindex answers /robots.txt itself, so this path never reaches a client':
     "200: /robots.txt'i preview_noindex kendisi yanıtlıyor, bu yüzden bu path hiçbir istemciye ulaşmaz",
-  'no waf: rules configured':
-    'yapılandırılmış waf: kuralı yok',
-  '403: blocked by a waf: rule ({reason})':
-    '403: bir waf: kuralı engelledi ({reason})',
-  'no waf: rule matches this method and path (header and body rules need a real request)':
-    'bu metod ve path ile eşleşen bir waf: kuralı yok (header ve gövde kuralları gerçek bir istek gerektirir)',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}); this dry run does not spend from it':
-    "bir rate_limits: kuralı bu path'i kapsıyor ({rps} rps, burst {burst}); bu deneme çalıştırması ondan harcamaz",
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it':
-    "bir rate_limits: kuralı bu path'i kapsıyor ({rps} rps, burst {burst}, yalnızca {methods}); bu deneme çalıştırması ondan harcamaz",
-  'no rate_limits: rule covers this path':
-    "bu path'i kapsayan bir rate_limits: kuralı yok",
+  'no site has waf rules':
+    'waf kuralı olan bir site yok',
+  '403: blocked by a waf rule ({reason})':
+    '403: bir waf kuralı engelledi ({reason})',
+  'no waf rule matches this method and path (header and body rules need a real request)':
+    'bu metod ve path ile eşleşen bir waf kuralı yok (header ve gövde kuralları gerçek bir istek gerektirir)',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}); this dry run does not spend from it":
+    "bir site'ın rate_limit'i bu path'i kapsıyor ({rps} rps, burst {burst}); bu deneme çalıştırması ondan harcamaz",
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it":
+    "bir site'ın rate_limit'i bu path'i kapsıyor ({rps} rps, burst {burst}, yalnızca {methods}); bu deneme çalıştırması ondan harcamaz",
+  "no site's rate_limit covers this path":
+    "bu path'i kapsayan bir site rate_limit'i yok",
   "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
     'ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): hizmeti veren istemci bu rota için kendi ziyaretçi parolasını bildirdi, bu sunucunun kendi kapısının önüne geçer',
   "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
@@ -1106,10 +1108,10 @@ export const tr: Record<string, string> = {
     "bu hostname ve path'i sunan bağlı bir istemci yok, ancak {count} tanesi sunabilirdi: {ineligible}",
   'an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once':
     'bu bağ için bir otomatik ölçekleme kaydı hazır, bu yüzden istek hemen yanıtlanmak yerine kapasite istenirken bekletilirdi',
-  '{status}: the fallbacks: rule for this hostname redirects to {url} instead of a 504':
-    '{status}: bu hostname için fallbacks: kuralı 504 yerine {url} adresine yönlendiriyor',
-  '504: nothing serves this route, and no fallbacks: rule covers it':
-    '504: bu rotayı hiçbir şey sunmuyor ve onu kapsayan bir fallbacks: kuralı da yok',
+  "{status}: this hostname's fallback redirects to {url} instead of a 504":
+    "{status}: bu hostname'in fallback'i 504 yerine {url} adresine yönlendiriyor",
+  '504: nothing serves this route, and no site gives it a fallback':
+    '504: bu rotayı hiçbir şey sunmuyor ve hiçbir site ona fallback vermiyor',
   'the request reaches a tunnel client ({clients})':
     'istek bir tünel istemcisine ulaşıyor ({clients})',
   'disabled from the dashboard':

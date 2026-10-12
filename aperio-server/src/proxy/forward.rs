@@ -299,12 +299,17 @@ pub(crate) async fn proxy_http_request(
   let request_host = extract_request_host(&headers);
   let uri_path_owned = uri_str.split('?').next().unwrap_or(&uri_str).to_string();
 
-  // WAF-lite deny rules (`waf:` section): reject path/method/header attacks
-  // with 403 before the request is dispatched or its body read.
+  // A site's `waf` deny rules: reject path/method/header attacks with 403
+  // before the request is dispatched or its body read.
   {
     let cfg = state.config();
-    if !cfg.waf.is_empty()
-      && let Some(reason) = cfg.waf.deny_reason(&method_str, &uri_path_owned, &headers)
+    if cfg.sites.has_waf()
+      && let Some(reason) = cfg.sites.waf_deny(
+        request_host.as_deref(),
+        &method_str,
+        &uri_path_owned,
+        &headers,
+      )
     {
       let reason = reason.to_string();
       log_request_failure(
@@ -321,9 +326,8 @@ pub(crate) async fn proxy_http_request(
     }
   }
 
-  // Per-route rate limit (a route's own `rate_limit:`, else the `rate_limits:`
-  // section): a shared token bucket caps aggregate rps to a matched
-  // host+path+method, protecting expensive endpoints.
+  // A site's `rate_limit`: a shared token bucket caps aggregate rps to a
+  // matched host+path+method, protecting expensive endpoints.
   if !state
     .check_route_rate_limit(request_host.as_deref(), &uri_path_owned, &method_str)
     .await
@@ -401,9 +405,8 @@ pub(crate) async fn proxy_http_request(
   // the split mean nothing precisely when something is going wrong.
   let canary_side = state
     .config()
-    .static_routes
-    .policy_for(request_host.as_deref(), &uri_path_owned)
-    .and_then(|rule| rule.canary.as_ref())
+    .sites
+    .canary_for(request_host.as_deref(), &uri_path_owned)
     .map(|rule| {
       let sent = rule
         .header
@@ -471,23 +474,16 @@ pub(crate) async fn proxy_http_request(
       {
         return resp;
       }
-      // Per-hostname fallback URL (`fallbacks:` section): redirect an
-      // unclaimed hostname to a configured origin/status page instead of 504.
-      // Never for a denied visitor (stealth), the redirect would leak the
-      // route's existence.
+      // A site's `fallback`: redirect an unclaimed hostname to a configured
+      // origin/status page instead of 504. Never for a denied visitor
+      // (stealth), the redirect would leak the route's existence.
       if !denied {
         let cfg = state.config();
-        if !cfg.fallbacks.is_empty()
-          && let Some(rule) = cfg.fallbacks.matched(request_host.as_deref())
-        {
+        if let Some(rule) = cfg.sites.fallback_for(request_host.as_deref()) {
           let path = uri_str.split('?').next().unwrap_or(&uri_str);
           let query = uri_str.split_once('?').map(|(_, q)| q);
-          let location = crate::fallbacks::redirect_location(rule, path, query);
-          let status = if rule.permanent {
-            StatusCode::MOVED_PERMANENTLY
-          } else {
-            StatusCode::FOUND
-          };
+          let location = rule.location(path, query);
+          let status = rule.status();
           log_request_success(
             &state,
             uuid::Uuid::new_v4().to_string(),
@@ -778,16 +774,19 @@ pub(crate) async fn proxy_http_request(
     }
   };
 
-  // WAF-lite body-size rules (`waf:` with `max_body`): reject an oversized
-  // body on a matched route with 413, now that the length is known. Streamed
-  // request bodies (protocol v2) are governed only by the global body limit.
+  // A site's `waf` size rules (`max_body`): reject an oversized body on a
+  // matched route with 413, now that the length is known. Streamed request
+  // bodies are governed only by the global body limit.
   if !stream_request {
     let cfg = state.config();
-    if !cfg.waf.is_empty()
-      && let Some(reason) =
-        cfg
-          .waf
-          .body_reason(&method_str, &uri_path_owned, &headers, body_bytes.len())
+    if cfg.sites.has_waf()
+      && let Some(reason) = cfg.sites.waf_body(
+        request_host.as_deref(),
+        &method_str,
+        &uri_path_owned,
+        &headers,
+        body_bytes.len(),
+      )
     {
       let reason = reason.to_string();
       log_request_failure(
@@ -868,23 +867,14 @@ pub(crate) async fn proxy_http_request(
     })
     .flatten();
 
-  // Server-side `headers.request` rewrite rules (aperio-server.yaml), applied
-  // before the inspector capture so replay and capture match what was sent.
-  // A matching `routes:` policy entry applies after the server-wide rules, so
-  // the narrower rule is the one that gets the last word.
-  let serialized_headers = state
-    .config()
-    .header_rules
-    .request
-    .apply(serialized_headers);
-  let serialized_headers = match state
-    .config()
-    .static_routes
-    .policy_for(request_host.as_deref(), &uri_path_owned)
-  {
-    Some(rule) => rule.header_transforms.request.apply(serialized_headers),
-    None => serialized_headers,
-  };
+  // The matching sites' request header edits, broadest first so the
+  // narrowest has the last word, applied before the inspector capture so
+  // replay and capture match what was sent.
+  let serialized_headers = state.config().sites.request_headers(
+    request_host.as_deref(),
+    &uri_path_owned,
+    serialized_headers,
+  );
 
   // Capture (truncated) request data for the dashboard inspector before the
   // originals are moved into the tunnel message. Streamed bodies are not

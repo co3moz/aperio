@@ -71,7 +71,13 @@ export const SERVER_GROUPS: GroupSpec[] = [
   {
     title: 'Routing & load balancing',
     description: 'How a request finds a client, and which clients are eligible.',
-    keys: ['routing', 'outlier', 'routes', 'fallbacks'],
+    keys: ['routing', 'outlier'],
+  },
+  {
+    title: 'Sites',
+    description:
+      'What the server does for a hostname by itself: answers, policy, fallbacks, pages and maintenance windows.',
+    keys: ['sites'],
   },
   {
     title: 'Failover & retry',
@@ -81,7 +87,7 @@ export const SERVER_GROUPS: GroupSpec[] = [
   {
     title: 'Limits & protection',
     description: 'Ceilings on bodies, concurrency, tunnels, and per-visitor rate.',
-    keys: ['limits', 'gateway', 'rate_limits', 'waf'],
+    keys: ['limits', 'gateway'],
   },
   {
     title: 'Caching',
@@ -129,11 +135,6 @@ export const SERVER_GROUPS: GroupSpec[] = [
     title: 'Edge integration',
     description: 'Publishing the live hostnames to a reverse proxy in front of this server.',
     keys: ['edge'],
-  },
-  {
-    title: 'Pages & headers',
-    description: 'What visitors see on an error, and server-wide header rewriting.',
-    keys: ['pages', 'error_pages', 'maintenance_windows', 'headers'],
   },
   {
     title: 'Process & maintenance',

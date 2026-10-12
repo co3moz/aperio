@@ -46,7 +46,7 @@ pub(crate) fn read_document(path: &str) -> Result<ImportDump, String> {
   let raw = std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
   serde_yaml::from_str::<Option<ImportDump>>(&raw)
     .map(Option::unwrap_or_default)
-    .map_err(|e| format!("{path}: {e}"))
+    .map_err(|e| aperio_config::removed::with_settings_hint(format!("{path}: {e}")))
 }
 
 /// The settings this start runs under, and the rest of the init document

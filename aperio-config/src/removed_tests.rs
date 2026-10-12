@@ -59,3 +59,33 @@ fn every_hint_names_a_release_and_an_action() {
   assert!(client_hint(KeyScope::Service, "public").is_some());
   assert!(client_hint(KeyScope::Top, "hostname_typo").is_none());
 }
+
+#[test]
+fn a_moved_settings_section_is_not_a_live_one() {
+  let schema = serde_json::to_value(schemars::schema_for!(
+    crate::server_settings::ServerSettings
+  ))
+  .unwrap();
+  let live: Vec<&String> = schema["properties"]
+    .as_object()
+    .map(|o| o.keys().collect())
+    .unwrap_or_default();
+  for removed in REMOVED_SETTINGS {
+    assert!(
+      !live.iter().any(|k| *k == removed.key),
+      "`{}` is listed as moved but the settings still have it",
+      removed.key
+    );
+    assert!(removed.hint.contains("0.13.0"), "`{}`", removed.key);
+  }
+}
+
+#[test]
+fn a_document_in_the_old_shape_is_told_where_the_section_went() {
+  let err = crate::server_settings::ServerSettings::from_yaml("rate_limits: []\n").unwrap_err();
+  assert!(err.contains("unknown field `rate_limits`"), "{err}");
+  assert!(err.contains("a site's `rate_limit"), "{err}");
+  // Anything else keeps the plain refusal.
+  let err = crate::server_settings::ServerSettings::from_yaml("limitz: {}\n").unwrap_err();
+  assert!(!err.contains("moved into"), "{err}");
+}

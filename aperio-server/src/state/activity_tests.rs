@@ -172,12 +172,11 @@ fn the_long_ranges_survive_a_restart_and_the_fine_one_does_not() {
 
 #[tokio::test]
 async fn a_route_rate_limit_spends_its_burst_and_then_refuses() {
-  let doc =
-    "rate_limits:\n  - hostname: api.example.com\n    path: /login\n    rps: 1\n    burst: 2\n";
   {
     let mut cfg = crate::test_support::test_config();
-    cfg.route_limits =
-      crate::test_support::rules(doc, "rate_limits", crate::route_limits::from_section);
+    cfg.sites = crate::test_support::sites(
+      "- hostname: api.example.com\n  path: /login\n  rate_limit: {rps: 1, burst: 2}\n",
+    );
     let state = crate::test_support::test_state_with(cfg);
 
     // A path outside every rule never pays.

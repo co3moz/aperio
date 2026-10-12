@@ -33,10 +33,11 @@ Within the hostname pool, the longest matching path bind wins. Binds match on se
 
 ## Canary releases and weighted routing
 
-`canary:` on a `routes:` policy entry splits a route's traffic between two versions of a service:
+`canary:` on a site splits its traffic between two versions of a service:
 
 ```yaml
-routes:
+# settings
+sites:
   - hostname: app.example.com
     canary:
       service: web-v2      # the services: entry running the new version

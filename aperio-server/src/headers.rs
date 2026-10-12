@@ -1,33 +1,13 @@
-//! Server-side header rewrite rules (the `headers:` section of
-//! `aperio-server.yaml`).
+//! Header edits on proxied traffic, as a site's `headers` writes them.
 //!
-//! Mirrors the client's per-service `headers:` config: `request` edits what
-//! tunnel clients (and thus backends) receive, `response` edits what visitors
-//! receive. The server applies its rules to every proxied HTTP request across
-//! all services; hop-by-hop and tunnel-critical headers stay managed by
-//! Aperio regardless (they are stripped after these rules run). WebSocket
-//! upgrades pass through untouched.
+//! Mirrors the client's per-service `headers:`: `request` edits what tunnel
+//! clients (and thus backends) receive, `response` edits what visitors
+//! receive. Hop-by-hop and tunnel-critical headers stay managed by Aperio
+//! regardless (they are stripped after these edits run). WebSocket upgrades
+//! pass through untouched.
 
-use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
-
-/// Header edits for one direction: `add` sets headers (replacing any existing
-/// value of the same name), `remove` strips headers by name
-/// (case-insensitive). Same shape as the client config.
-#[derive(Deserialize, Default, Clone, Debug)]
-pub(crate) struct HeaderDirectives {
-  #[serde(default)]
-  pub(crate) add: HashMap<String, String>,
-  #[serde(default)]
-  pub(crate) remove: Vec<String>,
-}
-
-/// The `headers:` section: request and response direction rules.
-#[derive(Deserialize, Default, Clone, Debug)]
-pub(crate) struct HeaderRules {
-  pub(crate) request: Option<HeaderDirectives>,
-  pub(crate) response: Option<HeaderDirectives>,
-}
+use aperio_config::{HeaderDirectives, HeaderRules};
+use std::collections::HashSet;
 
 /// Compiled form of one direction's rules: removals match case-insensitively,
 /// additions replace any existing header of the same name.
@@ -81,23 +61,13 @@ pub(crate) struct HeaderTransforms {
 }
 
 impl HeaderTransforms {
-  /// Compiles a parsed `headers:` section.
+  /// Compiles a site's `headers`.
   pub(crate) fn compile(rules: &HeaderRules) -> Self {
     HeaderTransforms {
       request: HeaderTransform::compile(rules.request.as_ref()),
       response: HeaderTransform::compile(rules.response.as_ref()),
     }
   }
-}
-
-/// Compiles the server-wide `headers:` section of the settings.
-pub(crate) fn from_section(section: Option<serde_yaml::Value>) -> Result<HeaderTransforms, String> {
-  let Some(section) = section else {
-    return Ok(HeaderTransforms::default());
-  };
-  serde_yaml::from_value::<HeaderRules>(section)
-    .map(|rules| HeaderTransforms::compile(&rules))
-    .map_err(|e| format!("headers: {e}"))
 }
 
 #[cfg(test)]

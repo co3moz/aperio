@@ -3,44 +3,28 @@
 //! The map answers "how is a request routed", which includes routing with no
 //! client behind it, so most of what it reports cannot be seen from the
 //! Clients table. These tests cover the three parts that distinguish it: the
-//! client-less `routes:`, the declared-but-offline binds, and the fact that
-//! server-level routing belongs to master alone.
+//! sites that answer by themselves, the declared-but-offline binds, and the
+//! fact that server-level routing belongs to master alone.
 
 use super::*;
-use crate::static_routes::{RespondRule, RouteRule, StaticRoutes};
 use crate::store::tokens::TokenSpec;
 use crate::store::users::Role;
 use crate::test_support::*;
 use axum::extract::State;
 
-/// A config carrying two client-less routes, one of each action.
+/// A config carrying two sites that answer by themselves, one of each
+/// action, and one that does not answer and so is not on the map.
 fn config_with_routes() -> crate::settings::ServerConfig {
   let mut cfg = test_config();
-  cfg.static_routes = StaticRoutes::compile(vec![
-    RouteRule {
-      hostname: Some("old.example.com".to_string()),
-      path: None,
-      redirect: Some("https://new.example.com".to_string()),
-      permanent: true,
-      preserve_path: false,
-      respond: None,
-      ..Default::default()
-    },
-    RouteRule {
-      hostname: None,
-      path: Some("/robots.txt".to_string()),
-      redirect: None,
-      permanent: false,
-      preserve_path: false,
-      respond: Some(RespondRule {
-        status: 503,
-        content_type: "text/plain".to_string(),
-        body: "away".to_string(),
-      }),
-      ..Default::default()
-    },
-  ])
-  .expect("the rules compile");
+  cfg.sites = sites(concat!(
+    "- hostname: old.example.com\n",
+    "  redirect: {url: \"https://new.example.com\", permanent: true}\n",
+    "- hostname: \"*\"\n",
+    "  path: /robots.txt\n",
+    "  respond: {status: 503, content_type: text/plain, body: away}\n",
+    "- hostname: \"*\"\n",
+    "  timeout: 30s\n",
+  ));
   cfg
 }
 
@@ -87,7 +71,7 @@ async fn a_tenant_sees_its_clients_and_none_of_the_servers_own_routing() {
     .await
     .0;
   assert_eq!(graph.clients.len(), 1, "its own client");
-  assert!(graph.routes.is_empty(), "the routes: section is master's");
+  assert!(graph.routes.is_empty(), "the sites are master's");
   assert!(graph.exposes.is_empty(), "so are the expose ports");
 
   // Master sees the routing it owns, and not the tenant's client.

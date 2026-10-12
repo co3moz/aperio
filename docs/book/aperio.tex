@@ -453,9 +453,9 @@ following stages, in this order. Each stage can end the request.
   \item \textbf{Maintenance mode.} A flag covering the hostname answers
         \code{503} before anything else is looked at, which is why a
         route that is otherwise perfectly healthy can stop serving.
-  \item \textbf{Static routes.} A \code{routes:} rule with a
+  \item \textbf{A site that answers by itself.} A site with a
         \code{redirect} or a \code{respond} answers here, with no client
-        involved. A rule carrying neither is policy rather than an answer
+        involved. A site carrying neither is policy rather than an answer
         and does not end the request.
   \item \textbf{Per-IP rate limit.} A token bucket keyed on the visitor
         address. Exceeding it answers \code{429}.
@@ -471,13 +471,12 @@ following stages, in this order. Each stage can end the request.
         the limit answers \code{429}. Note the ordering: the wait above
         happens \emph{before} a slot is held, so visitors waiting for a
         sleeping service cannot starve healthy ones.
-  \item \textbf{Request firewall.} A \code{waf:} rule matching the
+  \item \textbf{Request firewall.} A site's \code{waf} rule matching the
         method, path or a header answers \code{403}. It runs here rather
         than at the door because a rule may match on the body, which is
         not read until a slot is held.
-  \item \textbf{Per-route rate limit.} The \code{rate\_limits:} rule
-        covering this path, or a \code{rate\_limit} on the matching
-        \code{routes:} entry, spends from its own bucket.
+  \item \textbf{Per-site rate limit.} The \code{rate\_limit} of the most
+        specific site covering this path spends from its own bucket.
   \item \textbf{Route resolution.} The hostname and path select a pool of
         eligible clients; the load-balancing strategy picks one. No pool
         means the stale-cache, fallback and \code{504} chain.
@@ -1185,97 +1184,114 @@ aperio-server settings reset security.admin_allowed_ips
 
 \section{The lists}
 
-Beyond single values the settings carry seven lists of rules. They are
-written as yaml in the dashboard and in a document alike; the examples below
-are the part of a settings document each one is.
+Beyond single values the settings carry two lists: the sites, and the alert
+rules. They are written as yaml in the dashboard and in a document alike; the
+examples below are the part of a settings document each one is.
 
-\subsection{Static routes}
+\subsection{Sites}
+\label{sec:sites}
 
-A hostname or path answered by the server itself, with no client involved.
-Useful for vanity redirects, a placeholder for a service that is not
-deployed yet, or a fixed \code{robots.txt}:
-
-\begin{codecard}[aperioyaml]{settings}
-routes:
-  - hostname: old.example.com
-    redirect: https://new.example.com
-    permanent: true
-    preserve_path: true
-  - hostname: soon.example.com
-    respond:
-      status: 503
-      content_type: text/html
-      body: "<h1>Launching next week</h1>"
-\end{codecard}
-
-Routes match before client routing; maintenance mode still wins over them.
-They serve operator-authored content, so the visitor gate does not apply.
-
-An entry with neither \code{redirect} nor \code{respond} is a \emph{policy}
-rule instead of an answer: it does not end the request, it configures the
-proxied traffic that matches it. \code{timeout} overrides the response
-timeout for that route, \code{headers} adds request and response edits on top
-of the server-wide \code{headers:} section, and \code{rate\_limit} carries the
-same fields as a \code{rate\_limits:} rule without repeating the hostname and
-path:
+A site is everything the server does for a hostname, or a path under one, by
+itself: an answer given without a client, the policy on traffic a client
+serves, and what the hostname says when nothing serves it. Seven lists used
+to say this, each matching a hostname in a way of its own; a site matches
+the same way for all of them.
 
 \begin{codecard}[aperioyaml]{settings}
-routes:
-  - path: /uploads
-    timeout: 600
-    rate_limit:
-      rps: 2
-      methods: [POST]
-  - hostname: cdn.example.com
-    path: /static
+sites:
+  - hostname: "*"                     # every hostname
     headers:
       response:
-        add:
-          cache-control: "public, max-age=3600"
-\end{codecard}
-
-The two kinds are matched independently, each first-match in list order, and
-cannot be combined on one entry: a static answer never reaches a backend, so
-backend policy on it would be silently meaningless, and the settings are
-refused instead.
-
-\subsection{Scheduled maintenance windows}
-
-Maintenance mode is a switch an operator flips, with an optional TTL, which
-covers the unplanned outage. A window that comes round every week is standing
-configuration instead, so it is a setting: it survives a restart, which the
-in-memory runtime flags do not, applies without one, and travels in an
-export.
-
-\begin{codecard}[aperioyaml]{settings}
-maintenance_windows:
-  - hostname: "*.example.com"
-    from: "02:00"
-    to: "04:00"
-    days: [sat, sun]
-    tz: Europe/Istanbul
-    reason: weekly patching
-\end{codecard}
-
-While a window runs, matching hostnames answer exactly as a flag would, with
-\code{Retry-After} pointing at the end of the window. A \code{to} earlier
-than \code{from} wraps past midnight, and \code{days} then names the day the
-window \emph{starts}. The zone is an IANA name rather than a fixed offset, so
-02:00 stays 02:00 across a daylight-saving change.
-
-\subsection{Fallbacks}
-
-Where a static route answers instead of a client, a fallback answers
-instead of a \code{504} when no client is currently serving a hostname:
-
-\begin{codecard}[aperioyaml]{settings}
-fallbacks:
+        remove: [Server, X-Powered-By]
+    waf:
+      - path: "^/\\.git"              # probes for an exposed repository
+    pages:
+      unavailable: "<h1>Nothing is serving this right now</h1>"
+  - hostname: old.example.com
+    redirect:
+      url: https://new.example.com
+      permanent: true
+      preserve_path: true
   - hostname: app.example.com
-    url: https://status.example.com
-  - hostname: "*"
-    url: https://www.example.com
-    preserve_path: true
+    fallback:
+      url: https://status.example.com
+    maintenance:
+      - {from: "02:00", to: "04:00", days: [sun], tz: Europe/Istanbul}
+  - hostname: app.example.com
+    path: /login
+    rate_limit: {rps: 5, burst: 10}
 \end{codecard}
+
+\code{hostname} is exact, a pattern (\code{*.example.com} for any subdomain,
+\code{*-pi.example.com} for one level of a naming convention), or \code{*}
+for every hostname, including a request that carries no \code{Host}.
+\code{path} is a prefix on a segment boundary, so \code{/api} covers
+\code{/api/v1} and not \code{/apix}.
+
+A request takes \textbf{each setting from the most specific site that writes
+it}: an exact hostname before a pattern before \code{*}, then the longest
+\code{path}, then the order the sites were written in. That is why
+\code{/login} above is limited to five a second while the rest of the
+hostname keeps whatever broader limit it has. Three settings add up instead,
+because for them ``most specific wins'' would be the wrong answer:
+\code{headers} layer broadest first, so \code{*} sets what every hostname
+gets and a narrower site has the last word; the \code{waf} rules of every
+matching site apply, since a hostname that adds a rule of its own must not
+escape the scanner blocks \code{*} put up for everybody; and so do the
+\code{maintenance} windows of every matching site, for the same reason.
+
+\begin{longtable}{@{}R{0.18}R{0.74}@{}}
+\toprule
+\textbf{Setting} & \textbf{Effect} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Setting} & \textbf{Effect} \\
+\midrule
+\endhead
+\code{redirect} & Answer with a redirect, without a client: \code{url}, \code{permanent} (\code{301} rather than \code{302}), \code{preserve\_path}. \\
+\rowsep
+\code{respond} & Answer with a fixed response: \code{status} (default \code{200}), \code{content\_type}, \code{body}. A placeholder for a service not deployed yet, or a fixed \code{robots.txt}. \\
+\rowsep
+\code{timeout} & How long to wait for the serving client's answer, over \code{gateway.response\_timeout} and the client's own. \\
+\rowsep
+\code{headers} & \code{request:} and \code{response:} edits, each an \code{add} map and a \code{remove} list, the shape a client service's \code{headers:} has. Applied before the response cache and the inspector see the response. \\
+\rowsep
+\code{rate\_limit} & One bucket shared by every visitor: \code{rps}, \code{burst}, and \code{methods} to count only some verbs. A refused request answers \code{429}. \\
+\rowsep
+\code{canary} & Split the traffic between two versions of a service: \code{service} (the name the new version's client announces), \code{weight} (percent of visitors), and an optional \code{header} and \code{value} to opt in by hand. Decided per visitor by hashing their address, not per request, so one page load never lands on both. \\
+\rowsep
+\code{waf} & A small firewall evaluated before dispatch. A rule ANDs a \code{path} regex, \code{methods} and a \code{header} match, and answers \code{403}; with \code{max\_body} it is a size limit answering \code{413}. \\
+\rowsep
+\code{fallback} & Where to send visitors when no client serves the hostname, instead of a \code{504}; the fields of \code{redirect}. \\
+\rowsep
+\code{pages} & The hostname's own \code{unavailable} (\code{504}) and \code{maintenance} (\code{503}) pages, the HTML itself. The \code{*} site's are the server's. \\
+\rowsep
+\code{maintenance} & Recurring windows during which the hostname answers the maintenance page. \\
+\rowsep
+\bottomrule
+\end{longtable}
+
+A site that answers sits before client routing, maintenance mode still wins
+over it, and the visitor gate does not apply, since it serves
+operator-authored content. Because it never reaches a client it cannot also
+carry policy for a client's traffic: write that on a second site with the
+same hostname and path. A fallback, the pages and the maintenance windows are
+about the whole hostname, so a site with a \code{path} cannot carry them. Any
+site that cannot work, or that sets nothing, is refused when the settings
+are saved, with the site named: a rule an operator believes is up, silently
+dropped, is worse than no rule.
+
+\paragraph{Maintenance windows.} Maintenance mode is a switch an operator
+flips, with an optional TTL, which covers the unplanned outage. A window
+that comes round every week is standing configuration instead, so it is a
+setting: it survives a restart, which the in-memory runtime flags do not,
+applies without one, and travels in an export. While a window runs, the
+hostname answers exactly as a flag would, with \code{Retry-After} pointing at
+the end of the window. A \code{to} earlier than \code{from} wraps past
+midnight, and \code{days} then names the day the window \emph{starts}. The
+zone is an IANA name rather than a fixed offset, so 02:00 stays 02:00 across
+a daylight-saving change.
 
 \subsection{Alert rules}
 \label{sec:alert-rules}
@@ -1348,50 +1364,6 @@ the webhooks and the audit log already configured for those. A malformed
 rule is refused when the settings are saved, with the offending rule named:
 a rule an operator believes is armed, silently dropped, is worse than no
 rule at all.
-
-\subsection{Route rate limits}
-
-Per-route caps, aggregated across all visitors, for endpoints that are
-expensive or attractive to attackers:
-
-\begin{codecard}[aperioyaml]{settings}
-rate_limits:
-  - hostname: app.example.com
-    path: /login
-    rps: 5
-    burst: 10
-  - path: /api/items
-    rps: 2
-    methods: [POST, PUT, DELETE]
-\end{codecard}
-
-An optional \code{methods:} list scopes a rule to those verbs, so a write path
-is throttled while reads of the same route are not. Rules differing only by
-method own separate buckets.
-
-\subsection{Request firewall}
-
-A small rule list evaluated before dispatch. Each rule matches a path
-regex, a set of methods, or a header regex:
-
-\begin{codecard}[aperioyaml]{settings}
-waf:
-  - path: "^/\\.git"                 # block probes for an exposed repository
-  - path: "^/admin"
-    methods: [POST, PUT, DELETE]
-  - header:
-      name: user-agent
-      regex: "(?i)sqlmap|nikto"
-\end{codecard}
-
-\subsection{Per-hostname error pages}
-
-\begin{codecard}[aperioyaml]{settings}
-error_pages:
-  - hostname: app.example.com
-    504_page: ./pages/app-504.html
-    503_page: ./pages/app-503.html
-\end{codecard}
 
 \section{Choosing limits}
 
@@ -2439,9 +2411,8 @@ Every setting the server has, since the screen is built from the same
 schema that parses the settings: a setting added to the server appears there
 without a dashboard release. A save sends the whole document; the server
 checks it, stores it, and puts it in force for the next request, and a value
-it cannot honour is refused with the setting named. The lists (routes, rate
-limits, the firewall, fallbacks, error pages, maintenance windows, alert
-rules, the header rules and the visitor gate) are edited as yaml. Two
+it cannot honour is refused with the setting named. The sites, the alert
+rules and the visitor gate are edited as yaml. Two
 settings reach connected clients immediately: enabling compression is
 offered to them at once, and a new subdomain pattern re-issues their random
 hostnames on the spot.
@@ -3718,23 +3689,6 @@ catalogue these tables are written from.
 \bottomrule
 \end{longtable}
 
-\section{Answer pages (\code{pages})}
-\begin{longtable}{@{}R{0.28}R{0.49}R{0.17}@{}}
-\toprule
-\textbf{Setting} & \textbf{Description} & \textbf{Default} \\
-\midrule
-\endfirsthead
-\toprule
-\textbf{Setting} & \textbf{Description} & \textbf{Default} \\
-\midrule
-\endhead
-\code{pages.maintenance} & HTML answered while a hostname is in maintenance (\code{503}). At most 512KB. &  \\
-\rowsep
-\code{pages.unavailable} & HTML answered when no client serves a route (\code{504}), instead of the plain-text default. At most 512KB. &  \\
-\rowsep
-\bottomrule
-\end{longtable}
-
 \section{Reverse proxy and client IPs (\code{proxy})}
 \begin{longtable}{@{}R{0.28}R{0.49}R{0.17}@{}}
 \toprule
@@ -3954,11 +3908,8 @@ catalogue these tables are written from.
 
 \section{Lists}
 
-The lists \code{rate\_limits}, \code{fallbacks}, \code{waf},
-\code{headers.request}, \code{headers.response}, \code{routes},
-\code{error\_pages}, \code{maintenance\_windows} and \code{alerts.rules} are
-written as yaml in Chapter~\ref{ch:server-config} and in the chapters of the features
-they drive.
+The lists \code{sites} and \code{alerts.rules} are written as yaml in
+Section~\ref{sec:sites} and in the chapters of the features they drive.
 
 \chapter{Client settings reference}
 \label{app:client}
@@ -4002,7 +3953,7 @@ Top-level keys: what the client as a whole is, and how it reaches its server.
 \rowsep
 \code{APERIO\_CLIENT\_ID\_FILE} &  & \code{client\_id\_file} & Where a generated \code{client\_id} is kept. By default a file under \code{\textasciitilde{}/.aperio/clients/} named after the absolute path of the config file the client reads, so two projects on one machine never share an id and the file never lands in a repository. A client started with no config file (a one-liner, or a container configured through the environment) has no default and runs with a fresh id each time; point this at a volume to keep one. A place that cannot be written costs persistence, never the start. Default: under \code{\textasciitilde{}/.aperio/clients/}. \\
 \rowsep
-\code{APERIO\_ALLOW\_SERVER\_FORWARD} &  & \code{allow\_server\_forward} & Answer a \code{forward} check (\code{via: client}) whose endpoint the \textbf{server} wrote, in its own visitor gate or a \code{routes:} policy, rather than one of this client's services. Such a check makes the client call a URL the server chose, from the client's network, so it is refused unless this is set; the checks the client's own \code{access:} declares are always answered. A refused check refuses the visitor. See the forward method. Default: \code{0}. \\
+\code{APERIO\_ALLOW\_SERVER\_FORWARD} &  & \code{allow\_server\_forward} & Answer a \code{forward} check (\code{via: client}) whose endpoint the \textbf{server} wrote, in its own visitor gate or a site's policy, rather than one of this client's services. Such a check makes the client call a URL the server chose, from the client's network, so it is refused unless this is set; the checks the client's own \code{access:} declares are always answered. A refused check refuses the visitor. See the forward method. Default: \code{0}. \\
 \rowsep
 \code{APERIO\_BANDWIDTH} &  & \code{bandwidth} & Link capacity of this client's network, e.g. \code{8mbit}, \code{500kbit}, \code{2MB}, or plain bytes/second. The server paces outgoing tunnel frames (token bucket, 1 s burst) so this client is never pushed faster than its network can drain. It is a \textbf{budget for the whole client process}, not a per-service default: it is divided across the \code{services:} entries and each entry's parallel \code{connections}, so the total never exceeds it. See Sharing the bandwidth budget. Default: unlimited. \\
 \rowsep

@@ -1,7 +1,7 @@
-//! The server's own header rules: both directions applied, an add replacing
-//! case-insensitively, and an absent or malformed section leaving the default.
+//! A site's header edits: both directions applied, and an add replacing an
+//! existing value case-insensitively.
 
-use super::{HeaderRules, HeaderTransform, HeaderTransforms, from_section};
+use super::{HeaderRules, HeaderTransform, HeaderTransforms};
 
 fn headers(list: &[(&str, &str)]) -> Vec<(String, String)> {
   list
@@ -69,32 +69,4 @@ fn empty_transform_is_a_no_op() {
   assert!(t.is_empty());
   let original = headers(&[("a", "1")]);
   assert_eq!(t.apply(original.clone()), original);
-}
-
-#[test]
-fn from_config_file_absent_section_is_default() {
-  {
-    let doc = "other: 1\n";
-    // No `headers:` key → both directions are empty no-ops.
-    let t = from_section(crate::test_support::section(doc, "headers")).unwrap_or_default();
-    assert!(t.request.is_empty());
-    assert!(t.response.is_empty());
-  }
-}
-
-#[test]
-fn from_config_file_parses_the_section() {
-  {
-    let doc =
-      "headers:\n  response:\n    add:\n      X-Frame-Options: DENY\n    remove: [Server]\n";
-    let t = from_section(crate::test_support::section(doc, "headers")).unwrap_or_default();
-    assert!(t.request.is_empty());
-    let out = t
-      .response
-      .apply(vec![("server".to_string(), "nginx".to_string())]);
-    assert_eq!(
-      out,
-      vec![("X-Frame-Options".to_string(), "DENY".to_string())]
-    );
-  }
 }

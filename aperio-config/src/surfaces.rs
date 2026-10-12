@@ -28,16 +28,10 @@ pub struct Exempt {
 /// and the same shape is what keeps these out of a table whose rows are
 /// `key | description | default`: a rule with five fields of its own does not
 /// fit in a cell, so it is written up where it can be shown as yaml.
-pub const NOT_IN_CONFIGURATION_MD: &[Exempt] = &[
-  Exempt {
-    key: "alerts.rules",
-    why: "a list of mappings, each with a metric, a bound and a window; written up with examples in docs/observability.md",
-  },
-  Exempt {
-    key: "maintenance_windows",
-    why: "a list of mappings, each with a schedule and a scope; written up with examples in docs/dashboard.md",
-  },
-];
+pub const NOT_IN_CONFIGURATION_MD: &[Exempt] = &[Exempt {
+  key: "alerts.rules",
+  why: "a list of mappings, each with a metric, a bound and a window; written up with examples in docs/observability.md",
+}];
 
 /// Keys absent from the book's reference table (`docs/book/aperio.tex`).
 ///

@@ -851,8 +851,10 @@ export const ja: Record<string, string> = {
   'Where the server may call out to, and honouring client scaling blocks.': 'サーバーが外部へ呼び出せる先と、クライアントのスケーリング設定の尊重。',
   'Edge integration': 'エッジ連携',
   'Publishing the live hostnames to a reverse proxy in front of this server.': 'このサーバーの前段にあるリバース Proxy へ、稼働中の Hostname を公開します。',
-  'Pages & headers': 'ページと Header',
-  'What visitors see on an error, and server-wide header rewriting.': 'エラー時に訪問者が見るものと、サーバー全体での Header 書き換え。',
+  'Sites':
+    'サイト',
+  'What the server does for a hostname by itself: answers, policy, fallbacks, pages and maintenance windows.':
+    'サーバーが hostname に対して自ら行うこと：応答、ポリシー、fallback、ページ、メンテナンス時間帯。',
   'Process & maintenance': 'プロセスとメンテナンス',
   'Startup behaviour, backups, and the public expose ports.': '起動時の挙動、バックアップ、そして公開 expose ポート。',
   'Settings': '設定',
@@ -1056,28 +1058,28 @@ export const ja: Record<string, string> = {
     '503: {actor} が立てたメンテナンス表示がこの hostname を覆っています（{reason}）。unix {until} に解除されます',
   'no maintenance flag covers this hostname':
     'この hostname を覆うメンテナンス表示はありません',
-  'no routes: rules configured':
-    'routes: ルールは設定されていません',
-  '{status}: a routes: rule answers this path':
-    '{status}: routes: ルールがこの path に応答します',
-  '{status}: a routes: rule answers this path, to {location}':
-    '{status}: routes: ルールがこの path に応答し、{location} へ送ります',
-  'no routes: rule matches this hostname and path':
-    'この hostname と path に一致する routes: ルールはありません',
+  'no sites configured':
+    'site は設定されていません',
+  '{status}: a site answers this path by itself':
+    '{status}: site がこの path に自ら応答します',
+  '{status}: a site answers this path by itself, to {location}':
+    '{status}: site がこの path に自ら応答し、{location} へ送ります',
+  'no site answers this hostname and path by itself':
+    'この hostname と path に自ら応答する site はありません',
   '200: preview_noindex answers /robots.txt itself, so this path never reaches a client':
     '200: preview_noindex が /robots.txt を自分で返すため、この path はクライアントに届きません',
-  'no waf: rules configured':
-    'waf: ルールは設定されていません',
-  '403: blocked by a waf: rule ({reason})':
-    '403: waf: ルールによって遮断されました（{reason}）',
-  'no waf: rule matches this method and path (header and body rules need a real request)':
-    'このメソッドと path に一致する waf: ルールはありません（ header と本文のルールには実際のリクエストが必要です）',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}); this dry run does not spend from it':
-    'rate_limits: ルールがこの path を覆っています（ {rps} rps 、バースト {burst} ）。この試験実行はそこから消費しません',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it':
-    'rate_limits: ルールがこの path を覆っています（ {rps} rps 、バースト {burst} 、{methods} のみ）。この試験実行はそこから消費しません',
-  'no rate_limits: rule covers this path':
-    'この path を覆う rate_limits: ルールはありません',
+  'no site has waf rules':
+    'waf ルールを持つ site はありません',
+  '403: blocked by a waf rule ({reason})':
+    '403: waf ルールによって遮断されました（{reason}）',
+  'no waf rule matches this method and path (header and body rules need a real request)':
+    'このメソッドと path に一致する waf ルールはありません（ header と本文のルールには実際のリクエストが必要です）',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}); this dry run does not spend from it":
+    'site の rate_limit がこの path を覆っています（ {rps} rps 、バースト {burst} ）。この試験実行はそこから消費しません',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it":
+    'site の rate_limit がこの path を覆っています（ {rps} rps 、バースト {burst} 、{methods} のみ）。この試験実行はそこから消費しません',
+  "no site's rate_limit covers this path":
+    'この path を覆う site の rate_limit はありません',
   "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
     '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: 配信しているクライアントがこのルートに独自の訪問者パスワードを宣言しており、サーバー自身の関門に優先します',
   "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
@@ -1100,10 +1102,10 @@ export const ja: Record<string, string> = {
     'この hostname と path を配信している接続中のクライアントはありません。{count} 個は可能でした: {ineligible}',
   'an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once':
     'このバインドには自動スケーリングの記録が構えてあるため、リクエストは即座に応答されず、容量を要求する間だけ保留されます',
-  '{status}: the fallbacks: rule for this hostname redirects to {url} instead of a 504':
-    '{status}: この hostname の fallbacks: ルールが 504 の代わりに {url} へリダイレクトします',
-  '504: nothing serves this route, and no fallbacks: rule covers it':
-    '504: このルートを配信するものがなく、覆う fallbacks: ルールもありません',
+  "{status}: this hostname's fallback redirects to {url} instead of a 504":
+    '{status}: この hostname の fallback が 504 の代わりに {url} へリダイレクトします',
+  '504: nothing serves this route, and no site gives it a fallback':
+    '504: このルートを配信するものがなく、fallback を与える site もありません',
   'the request reaches a tunnel client ({clients})':
     'リクエストはトンネルクライアントに届きます（{clients}）',
   'disabled from the dashboard':

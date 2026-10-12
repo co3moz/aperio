@@ -82,7 +82,7 @@ One `curl -i` while a load test runs is enough to tell them apart:
 |---|---|---|
 | `ip` | Per-visitor token bucket | `limits.ip_rate` (`burst` / `per_second`) |
 | `server-concurrency` | The server's global in-flight ceiling | `limits.concurrent_requests` |
-| `route` | A `rate_limits:` rule, or a `routes:` policy entry's inline `rate_limit:`, matched the hostname and path | the matching rule in the `rate_limits` or `routes` setting |
+| `route` | A site's `rate_limit` matched the hostname and path | the `rate_limit` of the most specific matching site in `sites` |
 | `client-concurrency` | The serving client's own limit, nothing freed before the gateway timeout | `limits.concurrent_requests` in that client's `aperio.yaml` |
 | `token-rate` | The access token's requests-per-second ceiling | `max_rps` on the token |
 | `token-quota` | The access token's daily byte quota | `daily_max_bytes` on the token |

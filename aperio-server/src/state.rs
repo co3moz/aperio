@@ -447,7 +447,7 @@ pub(crate) struct AppState {
   /// In-memory only; drives the `token_new_ip` alert when a token connects
   /// from an address it has not been seen from before this run.
   pub(crate) token_seen_ips: Mutex<HashMap<String, HashSet<IpAddr>>>,
-  /// Per-route request-rate buckets (key = matched `rate_limits:` rule),
+  /// Per-site request-rate buckets (key = the matched site's `rate_limit`),
   /// enforcing the section's aggregate rps/burst per host+path. GC'd on size.
   pub(crate) route_rate: Mutex<HashMap<String, RateLimitState>>,
   pub(crate) active_tunnel_count: AtomicUsize,

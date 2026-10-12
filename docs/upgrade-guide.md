@@ -90,13 +90,20 @@ proxy.trusted`). Moving a deployment over is four steps:
    | `oidc_issuer`, `oidc_*` | `oidc.issuer`, `oidc.*` |
    | `alert_error_rate: 5` (percent) | `alerts.error_rate: 0.05` (a fraction) |
    | `alert_rules:` | `alerts.rules:` |
-   | `504_page`, `503_page` (a file path) | `pages.unavailable`, `pages.maintenance` (the HTML itself) |
+   | `504_page`, `503_page` (a file path) | `pages.unavailable`, `pages.maintenance` of the `*` site (the HTML itself) |
+   | `routes:`, `rate_limits:`, `waf:`, `fallbacks:`, `error_pages:`, `maintenance_windows:`, `headers:` | one `sites:` list, an entry per hostname or path ([Sites](configuration.md#sites)) |
    | `expose:` | expose listeners, from the dashboard's Tunnels page or the API ([Public exposes](public-exposes.md)) |
 
    Durations and sizes may keep their bare numbers (seconds and bytes), or
-   take a unit: `30s`, `5m`, `10MB`. The lists (`routes`, `rate_limits`,
-   `waf`, `fallbacks`, `error_pages`, `maintenance_windows`, `headers`) keep
-   their shape.
+   take a unit: `30s`, `5m`, `10MB`. The seven per-hostname lists become one
+   `sites:` list: an entry names a `hostname` (`*` for every one) and an
+   optional `path`, and carries what used to be spread across them. A
+   `routes:` redirect is `redirect: {url: ...}`, a `rate_limits:` entry is a
+   site's `rate_limit`, a `waf:` rule goes under the site it guards (`*` for
+   all of them), a `fallbacks:` entry is a site's `fallback`, an
+   `error_pages:` entry is a site's `pages` with the HTML itself, a
+   `maintenance_windows:` entry is a site's `maintenance`, and the server-wide
+   `headers:` are the `*` site's.
 
 2. **Check it** with the new binary: `aperio-server check server-init.yaml`.
    It runs the checks a change gets and names the first setting it refuses.

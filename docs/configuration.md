@@ -104,7 +104,7 @@ Top-level keys: what the client as a whole is, and how it reaches its server.
 | `APERIO_NAME` | `--name` | `name` | What to call this client on screen and in the server's logs, e.g. `eu_server_1`. Lowercase letters, digits and `_`, like a service name. **A label, not an address:** `client_id` stays the identity that failover recognizes this process by, because that needs something unique and a name is not. Three replicas an operator would happily call `eu_server` are three processes, and sharing a name must not make the server treat them as one. Unset shows the id. | the client id |
 | `APERIO_CLIENT_ID` | `--client-id` | `client_id` | This client's instance id, a UUID kept across restarts so failover's `wait` mode recognizes the process when it comes back. Unset, one is generated on the first run and kept in `client_id_file`. | kept in `client_id_file` |
 | `APERIO_CLIENT_ID_FILE` |  | `client_id_file` | Where a generated `client_id` is kept. By default a file under `~/.aperio/clients/` named after the absolute path of the config file the client reads, so two projects on one machine never share an id and the file never lands in a repository. A client started with no config file (a one-liner, or a container configured through the environment) has no default and runs with a fresh id each time; point this at a volume to keep one. A place that cannot be written costs persistence, never the start. | under `~/.aperio/clients/` |
-| `APERIO_ALLOW_SERVER_FORWARD` |  | `allow_server_forward` | Answer a `forward` check (`via: client`) whose endpoint the **server** wrote, in its own visitor gate or a `routes:` policy, rather than one of this client's services. Such a check makes the client call a URL the server chose, from the client's network, so it is refused unless this is set; the checks the client's own `access:` declares are always answered. A refused check refuses the visitor. See [the forward method](#the-forward-method). | `0` |
+| `APERIO_ALLOW_SERVER_FORWARD` |  | `allow_server_forward` | Answer a `forward` check (`via: client`) whose endpoint the **server** wrote, in its own visitor gate or a site's policy, rather than one of this client's services. Such a check makes the client call a URL the server chose, from the client's network, so it is refused unless this is set; the checks the client's own `access:` declares are always answered. A refused check refuses the visitor. See [the forward method](#the-forward-method). | `0` |
 | `APERIO_BANDWIDTH` |  | `bandwidth` | Link capacity of this client's network, e.g. `8mbit`, `500kbit`, `2MB`, or plain bytes/second. The server paces outgoing tunnel frames (token bucket, 1 s burst) so this client is never pushed faster than its network can drain. It is a **budget for the whole client process**, not a per-service default: it is divided across the `services:` entries and each entry's parallel `connections`, so the total never exceeds it. See [Sharing the bandwidth budget](#sharing-the-bandwidth-budget). | unlimited |
 | `APERIO_DEVICE_KEY` |  | `device_key` | Explicit device key announced for trust-on-first-use token pinning (server `security.token_pinning`): pins the token to this device so a leaked token replayed elsewhere is rejected. | none announced |
 | `APERIO_DEVICE_KEY_FILE` |  | `device_key_file` | Path holding the device key, its contents are used, or a fresh random key is generated and persisted there (owner-only `0600`) on first run. Ignored when `APERIO_DEVICE_KEY` is set. |  |
@@ -754,10 +754,10 @@ settings:
   cache:
     enabled: true
     size: 256MB
-  rate_limits:
+  sites:
     - hostname: app.example.com
       path: /login
-      rps: 5
+      rate_limit: {rps: 5}
 ```
 
 The document is checked like any change, and one the server refuses stops the start with the setting named. It is read **once**: from the second start on the database holds the settings, and the file is not consulted again, so editing it and restarting changes nothing. That is deliberate, the dashboard and the file would otherwise disagree about which of them is the truth.
@@ -813,7 +813,7 @@ The commands that touch the data directory (`settings`, `apply`, `audit verify`)
 
 ### Settings reference
 
-Every setting, by section, with its default. A blank default is unset. The lists (`rate_limits`, `fallbacks`, `waf`, `headers`, `routes`, `error_pages`, `maintenance_windows`) are described after the tables.
+Every setting, by section, with its default. A blank default is unset. The `sites` list is described after the tables, in [Sites](#sites).
 
 #### Access and the visitor gate (`access`)
 
@@ -981,13 +981,6 @@ Every setting, by section, with its default. A blank default is unset. The lists
 | `outlier.max_failures` | Failures within `outlier.window` that trigger an ejection. | `5` |
 | `outlier.window` | Window the outlier failures are counted over. | `30s` |
 
-#### Answer pages (`pages`)
-
-| Setting | Description | Default |
-| --- | --- | --- |
-| `pages.maintenance` | HTML answered while a hostname is in maintenance (`503`). At most 512KB. |  |
-| `pages.unavailable` | HTML answered when no client serves a route (`504`), instead of the plain-text default. At most 512KB. |  |
-
 #### Reverse proxy and client IPs (`proxy`)
 
 | Setting | Description | Default |
@@ -1080,147 +1073,52 @@ Every setting, by section, with its default. A blank default is unset. The lists
 | --- | --- | --- |
 | `webhooks.retry_schedule` | Waits between webhook redelivery attempts after a transport error / 5xx / 429 (attempt count = schedule length + 1). Empty = no retries. See [Observability](observability.md#delivery-reliability--the-delivery-log). | `["1s", "5s", "25s", "1m"]` |
 
-### Per-route rate limits (`rate_limits:`)
+### Sites
 
-The `rate_limits:` section caps the aggregate request rate to a specific hostname + path prefix, protecting an expensive endpoint (login, export, search) even from many distinct visitors or tokens, a complement to the per-IP (`limits.ip_rate`) and per-token limits. Each rule owns one shared token bucket; rules match first-match in list order (`hostname` unset = any host, `path` unset = any path, matched on a path-segment boundary). A request that would drain an empty bucket gets `429 Too Many Requests`.
-
-An optional `methods:` list scopes a rule to those verbs, so a write path can be limited without throttling reads of the same route. Rules that differ only by method own separate buckets, and a rule without `methods:` covers every verb.
+The `sites` setting is everything the server does for a hostname, or a path under one, by itself: an answer given without a client, the policy on traffic a client serves, and what the hostname says when nothing serves it. Each entry names a `hostname` and, optionally, a `path`, and carries any of the settings below.
 
 ```yaml
 # settings
-rate_limits:
-  - hostname: app.example.com
-    path: /login
-    rps: 5          # sustained requests/second to this route
-    burst: 10       # token-bucket burst (defaults to rps)
-  - path: /export   # any hostname
-    rps: 1
-  - path: /api/items
-    rps: 2
-    methods: [POST, PUT, DELETE]   # reads of /api/items stay unlimited
-```
-
-Like every setting it applies from the next request once saved, and `aperio-server check` validates it in a document. A route that carries its own `rate_limit:` block (see [Client-less routes](#client-less-routes-routes)) is limited by that instead, so the hostname and path do not have to be written twice.
-
-### Per-hostname fallback URLs (`fallbacks:`)
-
-When no client is connected to serve a hostname, the visitor normally gets a `504`. A `fallbacks:` entry turns that into a graceful redirect to an origin/status URL instead, a maintenance page, a static origin, a "back soon" site. A `*` hostname is the catch-all for any otherwise-unclaimed host (an exact hostname match wins over it).
-
-```yaml
-# settings
-fallbacks:
-  - hostname: app.example.com
-    url: https://status.example.com     # 302 by default
-  - hostname: "*"
-    url: https://www.example.com
-    preserve_path: true                 # append the request path + query
-    permanent: true                     # 301 instead of 302
-```
-
-Rejected visitors (IP allowlist denials) never get a fallback redirect, the stealth `504` answer is preserved so the route's existence never leaks. Validated when saved, and by `aperio-server check`.
-
-### WAF-lite (`waf:`)
-
-The `waf:` section is a small request firewall evaluated before a request is dispatched. Each rule ANDs the conditions it lists, a `path` regex, a `methods` list, and/or a `header` name + value regex, and a match answers `403 Forbidden`. A rule with `max_body` is a size limit for its matched route instead of a deny: exceeding it answers `413 Payload Too Large`. It is a coarse first line of defense (path/method/header/body-size filtering), meant to complement, not replace, the rate limits above.
-
-```yaml
-# settings
-waf:
-  - path: "^/\\.git"            # block probes for an exposed repo
-  - path: "^/admin"
-    methods: [POST, PUT, DELETE]
-  - header:
-      name: user-agent
-      regex: "(?i)sqlmap|nikto"
-  - path: "^/upload"
-    max_body: 1048576          # 1 MiB cap on this path
-```
-
-An invalid regex or a rule with no conditions is refused when the settings are saved, naming the rule.
-
-### Server-side header rules (`headers:`)
-
-The `headers` setting is the server-wide counterpart of the client's per-service `headers:` config, applied to every proxied HTTP request across all services (WebSocket upgrades pass through untouched). `headers.request` edits what tunnel clients (and thus backends) receive, `headers.response` edits what visitors receive; `add` sets a header (replacing any existing value of the same name), `remove` strips names case-insensitively. Client rules run too, the server applies its rules on its side of the tunnel, the client applies its own on the backend side. Response edits happen before the response cache and the request inspector see the response, so all views agree. Hop-by-hop and tunnel-critical headers stay managed by Aperio regardless.
-
-```yaml
-# settings
-headers:
-  request:
-    add:
-      X-Proxied-By: aperio
-    remove: [X-Internal-Debug]
-  response:
-    add:
-      Strict-Transport-Security: max-age=63072000
-    remove: [Server, X-Powered-By]
-```
-
-### Client-less routes (`routes:`)
-
-A structured `routes:` list binds a hostname and/or path prefix directly to a server-produced answer, no tunnel client involved. Each rule matches on an exact `hostname` and/or a `path` prefix (bind semantics; first match wins, in list order) and carries exactly one action: `redirect` (302, or 301 with `permanent: true`; `preserve_path: true` appends the request path and query) or `respond` (a fixed response with optional `status`, `content_type`, `body`). Typical uses: vanity redirects, a "coming soon" page for a hostname whose client is not deployed yet, or a fixed `/robots.txt`. Routes match before client routing and maintenance-mode still wins; they serve operator-authored content, so the visitor gate does not apply.
-
-```yaml
-# settings
-routes:
-  - hostname: old.example.com
-    redirect: https://new.example.com
-    permanent: true
-    preserve_path: true
-  - hostname: soon.example.com
-    respond:
-      status: 503
-      body: "<h1>Coming soon</h1>"
-  - path: /robots.txt
-    respond:
-      content_type: text/plain
-      body: "User-agent: *\nDisallow: /\n"
-```
-
-**A route entry can also carry policy instead of an answer.** An entry with neither `redirect` nor `respond` does not end the request; it annotates the proxied traffic that matches it, so per-route settings are written next to the route they govern rather than scattered across the file:
-
-| Field | Effect |
-| --- | --- |
-| `timeout` | Seconds to wait for the serving client's answer on this route. Wins over the client's per-service `response_timeout` and the global `gateway.response_timeout`, since it is the operator's own server-side configuration. |
-| `headers` | `request:` / `response:` edits in the same shape as the server-wide `headers` setting, applied **after** it so the narrower rule gets the last word. A `cache-control` added here is what the visitor, the response cache and the inspector all see. |
-| `rate_limit` | `rps`, optional `burst`, optional `methods:`, exactly as a `rate_limits` rule but without repeating the hostname and path. Wins over any `rate_limits` entry matching the same request. |
-| `canary` | `service` (the `services:` name running the new version), `weight` (percent sent there), optional `header`/`value` for an opt-in canary. Splits the route's traffic per visitor, not per request. See [Canary releases](routing-and-load-balancing.md#canary-releases-and-weighted-routing). |
-
-```yaml
-# settings
-routes:
-  - path: /uploads              # policy: no redirect, no respond
-    timeout: 600                # large uploads need longer than the global 30s
-    rate_limit:
-      rps: 2
-      methods: [POST]           # only the writes are throttled
-  - hostname: cdn.example.com
-    path: /static
+sites:
+  - hostname: "*"                     # every hostname
     headers:
       response:
-        add:
-          cache-control: "public, max-age=3600"
-        remove: [x-powered-by]
-```
-
-Answer rules and policy rules are matched independently, each first-match in list order, so a redirect placed after a policy entry still fires. The two kinds cannot be combined on one entry: a static answer never reaches a backend, so a backend timeout on it could not mean anything, and the settings are refused rather than the field ignored. `aperio-server check` reports the same problem before a deploy.
-
-### Per-hostname error pages (`error_pages:`)
-
-The `error_pages` list overrides the global `pages.unavailable` / `pages.maintenance` per hostname, so each exposed site can carry its own branding on gateway-timeout and maintenance responses. Each entry matches an exact `hostname` (case-insensitive) and points at HTML files via `504_page` and/or `503_page`; hostnames without an entry (and requests without a Host header) keep the global pages. Files are read when the settings are put in force, at startup and on every change; an unreadable file is refused when the settings are saved:
-
-```yaml
-# settings
-error_pages:
+        remove: [Server, X-Powered-By]
+    waf:
+      - path: "^/\\.git"             # probes for an exposed repo, 403
+    pages:
+      unavailable: "<h1>Nothing is serving this right now</h1>"
+  - hostname: old.example.com
+    redirect: {url: https://new.example.com, permanent: true, preserve_path: true}
   - hostname: app.example.com
-    504_page: ./pages/app-504.html
-    503_page: ./pages/app-503.html
+    fallback: {url: https://status.example.com}
+    maintenance:
+      - {from: "02:00", to: "04:00", days: [sun], tz: Europe/Istanbul}
+  - hostname: app.example.com
+    path: /login
+    rate_limit: {rps: 5, burst: 10}
 ```
 
-> **Note:** Create both HTML files at the paths shown before saving the settings. Relative paths resolve from the server's working directory.
+**Which site a request falls under.** `hostname` is exact (`app.example.com`), a pattern (`*.example.com` for any subdomain, `*-pi.example.com` for one level of a naming convention), or `*` for every hostname, including a request that carries no `Host`. `path` is a prefix on a segment boundary: `/api` covers `/api/v1` but not `/apix`. A request takes **each setting from the most specific site that writes it**: an exact hostname before a pattern before `*`, then the longest `path`, then the order the sites were written in. So `/login` above is limited to 5 a second while every other site keeps whatever broader limit it has.
 
-### Maintenance windows (`maintenance_windows`)
+Three settings add up instead, because for them "most specific wins" would be the wrong answer. **`headers`** layer from the broadest site to the narrowest, so `*` sets what every hostname gets and a narrower site has the last word. **`waf`** rules of every matching site apply: a hostname that adds a rule of its own must not escape the scanner blocks `*` put up for everybody. **`maintenance`** windows of every matching site apply, for the same reason.
 
-Recurring windows during which a hostname answers the maintenance page (`503`), written as a list of `hostname`, `from`, `to`, optional `days` and `tz`. See [Dashboard](dashboard.md#maintenance-mode) for the fields and examples.
+| Setting | Effect |
+| --- | --- |
+| `redirect` | Answer every request here with a redirect, without a client: `url`, `permanent` (`301` rather than `302`), `preserve_path` (append the request path and query). |
+| `respond` | Answer with a fixed response: `status` (default `200`), `content_type` (default `text/html; charset=utf-8`), `body`. Typical uses: a "coming soon" page for a hostname whose client is not deployed yet, or a fixed `/robots.txt`. |
+| `timeout` | How long to wait for the serving client's answer (`2m`), over `gateway.response_timeout` and any `timeout` the client declared. |
+| `headers` | `request:` / `response:` edits, each an `add` map (replacing a header of the same name) and a `remove` list (case-insensitive), the same shape as a client service's `headers:`. Client rules run too, on the backend's side of the tunnel. Response edits happen before the response cache and the inspector see the response, so a `cache-control` added here is what all three see. |
+| `rate_limit` | A ceiling on requests per second from every visitor together: `rps`, `burst` (default one second's worth), `methods` (only those verbs count, so a write path can be limited without throttling reads). One shared bucket per site, beside the per-visitor `limits.ip_rate`. A refused request answers `429` and names the limit in its `x-aperio-limit` header. |
+| `canary` | Split the traffic between two versions of a service: `service` (the name the new version's client announces), `weight` (percent of visitors), optional `header`/`value` for opting in by hand. Decided per visitor, not per request. See [Canary releases](routing-and-load-balancing.md#canary-releases-and-weighted-routing). |
+| `waf` | A small firewall evaluated before dispatch. Each rule ANDs the conditions it sets, a `path` regex (matched against the whole request path), `methods`, a `header` with `name` and `regex`, and a match answers `403`. A rule with `max_body` (`1MB`) is a size limit instead and answers `413` when a body exceeds it. A coarse first line of defense, meant to complement the rate limits, not replace a real WAF. |
+| `fallback` | Where to send visitors when no client serves the hostname, instead of a `504`: `url`, `permanent`, `preserve_path`, as for `redirect`. A visitor refused by an allowlist never gets it, so the route's existence does not leak. |
+| `pages` | The hostname's own `unavailable` (`504`) and `maintenance` (`503`) pages, the HTML itself, at most 512KB each. The `*` site's are the server's. A maintenance page fills in `{reason}` and `{until}` where it writes them. |
+| `maintenance` | Recurring windows during which the hostname answers the maintenance page: `from` and `to` (`HH:MM`, a `to` earlier than `from` wraps midnight), optional `days` (`mon`..`sun`, the day a window *starts*), `tz` (an IANA zone, default `UTC`) and `reason`. See [Dashboard](dashboard.md#maintenance-mode) for the runtime flag beside it. |
+
+A site that answers (`redirect` or `respond`) comes before client routing; maintenance still wins over it, and the visitor gate does not apply, since it serves operator-authored content. Because such a site never reaches a client, it cannot also carry `timeout`, `headers`, `rate_limit`, `canary`, `waf` or `fallback`: write those on a second site with the same hostname and path. `fallback`, `pages` and `maintenance` are about the whole hostname, so a site with a `path` cannot carry them.
+
+A site that cannot work is refused when the settings are saved, naming it (`sites[2] (app.example.com/api): waf[0].path: not a regular expression`), and so is a site that sets nothing. `aperio-server check` reports the same before a deploy.
 
 ### Names
 
@@ -1304,7 +1202,7 @@ Three things hold for the whole `/aperio/api/` surface. The credential is a dash
 | `GET /aperio/api/stats` | Live statistics snapshot: counters, persistent stats, and the active client connections. | a dashboard session or admin key (viewer+) |
 | `GET /aperio/api/stats/history` | Chronological traffic buckets (requests, success/failed, bytes, latency) for a rolling window (unit=day|week|month|year + count) or a custom day range (from/to, YYYY-MM-DD). | a dashboard session or admin key (viewer+) |
 | `GET /aperio/api/stream` | Server-Sent Events stream: named `traffic` events (one per proxied request), periodic `stats` events, `notification` events (server events, as webhooks receive them), and, for every topic named in `?topics=a,b` (or `?a&b`), that endpoint's document as an event of the same name, on connect and whenever it changes: `tokens`, `users`, `sessions`, `admin_keys`, `webhooks`, `deliveries`, `inbox`, `maintenance`, `scaling`, `orgs`, `subscribers`, `topology`, `stage_stats`, `uptime`, `route_trends`, `slow_endpoints`, `tunnels`, `audit`, `cache_stats`, `self_health`, `session`. | a dashboard session or admin key (viewer+); each topic takes the role its endpoint takes, refused by name otherwise |
-| `GET /aperio/api/topology` | The routing map: routes, tunnel clients and backends, plus the routing the server owns with no client behind it (static routes:, public expose: ports, offline token-granted binds) and the client-to-client dependencies of bound tunnels. | a dashboard session or admin key (viewer+) |
+| `GET /aperio/api/topology` | The routing map: routes, tunnel clients and backends, plus the routing the server owns with no client behind it (the sites that answer by themselves, public expose ports, offline token-granted binds) and the client-to-client dependencies of bound tunnels. | a dashboard session or admin key (viewer+) |
 | `GET /aperio/api/uptime` | Uptime/SLA summary per service entity: current status, uptime percentages for today / 7 days / 30 days of observed time, and the last 30 daily buckets (seconds up/degraded/down). | a dashboard session or admin key (viewer+) |
 
 #### Tokens
@@ -1354,20 +1252,21 @@ See [public expose configuration, delegation and deployment](public-exposes.md).
 | `GET /aperio/api/maintenance` | Hostnames and patterns currently in maintenance mode (`*` = every hostname, `*.example.com` = every subdomain of it, `*-pi.example.com` = one label's shape). | a dashboard session or admin key (viewer+) |
 | `POST /aperio/api/maintenance` | Turns maintenance mode on/off for a hostname, a `*.example.com` subdomain wildcard, a partial label like `*-pi.example.com`, or `*` (503 page while on). The `*` wildcard is reserved for the master organization, and a named hostname has to be one the caller's organization serves. | a dashboard session or admin key (operator+) |
 
-**Recurring maintenance windows (the `maintenance_windows` setting).** A runtime flag is a switch somebody has to remember to flip; a window is written down, travels in an export, applies when saved and is still there after a restart. Each entry has a `hostname` pattern (`*`, an exact name, or a wildcard matched like a runtime flag's), `from:`/`to:` as `HH:MM`, an optional `days:` list (`mon`..`sun`, empty = every day), an optional IANA `tz:` (default UTC, because 02:00 means 02:00 where the operator lives, in March as well as in July) and an optional `reason:` that reaches the 503 page:
+**Recurring maintenance windows (a site's `maintenance`).** A runtime flag is a switch somebody has to remember to flip; a window is written down, travels in an export, applies when saved and is still there after a restart. A site's `hostname` says where it applies (`*`, an exact name, or a pattern matched like a runtime flag's), and each window has `from:`/`to:` as `HH:MM`, an optional `days:` list (`mon`..`sun`, empty = every day), an optional IANA `tz:` (default UTC, because 02:00 means 02:00 where the operator lives, in March as well as in July) and an optional `reason:` that reaches the 503 page:
 
 ```yaml
 # settings
-maintenance_windows:
+sites:
   - hostname: "*.example.com"
-    from: "02:00"
-    to: "04:00"
-    days: [sat]
-    tz: Europe/Istanbul
-    reason: "weekly database backup"
+    maintenance:
+      - from: "02:00"
+        to: "04:00"
+        days: [sat]
+        tz: Europe/Istanbul
+        reason: "weekly database backup"
 ```
 
-A window whose `to:` is earlier than its `from:` wraps midnight, and then `days:` names the day it starts. First match in file order wins, like every other list here.
+A window whose `to:` is earlier than its `from:` wraps midnight, and then `days:` names the day it starts. The windows of every site matching a hostname apply, the most specific site's first.
 | `POST /aperio/api/purge` | Right-to-erasure: deletes traffic records (logs, inspector captures, stats aggregates, cache, access-log lines) matching a hostname, token label, or visitor IP (admin only). | a dashboard session or admin key, **Admin in master** |
 | `POST /aperio/api/share` | Mints a signed, expiring share link that grants visitors gate-free access to a host/path scope. | a dashboard session or admin key (operator+) |
 

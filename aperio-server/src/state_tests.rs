@@ -466,7 +466,7 @@ async fn test_ip_rate_limit_exhausts() {
 #[tokio::test]
 async fn test_route_rate_limit_default_allows() {
   let state = crate::test_support::test_state();
-  // No `rate_limits:` rules configured → always allowed.
+  // No site carries a `rate_limit` → always allowed.
   assert!(
     state
       .check_route_rate_limit(Some("a.local"), "/x", "GET")
@@ -808,22 +808,14 @@ async fn a_dropped_handler_takes_its_pending_entry_with_it() {
   assert!(state.pending_upgrades.lock().await.is_empty());
 }
 
-// --- inline route rate limits (planned_features #26) ------------------------
+// --- a site's rate limit (planned_features #26) -------------------------------
 
 #[tokio::test]
-async fn an_inline_route_rate_limit_applies_and_respects_its_method_filter() {
+async fn a_site_rate_limit_applies_and_respects_its_method_filter() {
   let mut cfg = crate::test_support::test_config();
-  let rules: Vec<crate::static_routes::RouteRule> = serde_yaml::from_str(
-    r#"
-- path: /upload
-  rate_limit:
-    rps: 1
-    burst: 2
-    methods: [POST]
-"#,
-  )
-  .unwrap();
-  cfg.static_routes = crate::static_routes::StaticRoutes::compile(rules).unwrap();
+  cfg.sites = crate::test_support::sites(
+    "- hostname: \"*\"\n  path: /upload\n  rate_limit: {rps: 1, burst: 2, methods: [POST]}\n",
+  );
   let state = crate::test_support::test_state_with(cfg);
 
   // Two POSTs fit the burst, the third does not.
@@ -837,20 +829,16 @@ async fn an_inline_route_rate_limit_applies_and_respects_its_method_filter() {
 }
 
 #[tokio::test]
-async fn an_inline_route_limit_wins_over_a_rate_limits_entry() {
+async fn the_narrower_sites_rate_limit_wins_over_a_broader_one() {
   let mut cfg = crate::test_support::test_config();
-  let rules: Vec<crate::static_routes::RouteRule> =
-    serde_yaml::from_str("- path: /x\n  rate_limit:\n    rps: 1\n    burst: 1\n").unwrap();
-  cfg.static_routes = crate::static_routes::StaticRoutes::compile(rules).unwrap();
-  cfg.route_limits = crate::route_limits::RouteLimits {
-    rules: crate::route_limits::compile(
-      serde_yaml::from_str("- path: /x\n  rps: 1000\n  burst: 1000\n").unwrap(),
-    ),
-  };
+  cfg.sites = crate::test_support::sites(
+    "- hostname: \"*\"\n  rate_limit: {rps: 1000, burst: 1000}\n\
+     - hostname: \"*\"\n  path: /x\n  rate_limit: {rps: 1, burst: 1}\n",
+  );
   let state = crate::test_support::test_state_with(cfg);
 
-  // The generous `rate_limits:` entry matches too, but the route's own limit
-  // is the one written next to the route, so it is the one that applies.
+  // The generous `*` limit matches too, but the site for `/x` is narrower, so
+  // it is the one that applies.
   assert!(state.check_route_rate_limit(None, "/x", "GET").await);
   assert!(!state.check_route_rate_limit(None, "/x", "GET").await);
 }

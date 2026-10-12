@@ -8,46 +8,53 @@
 # with `GET /aperio/api/export?include=settings`.
 
 settings:
-  # Aggregate requests-per-second ceilings for a route, independent of the
-  # per-visitor IP limit: one visitor under the IP limit times a thousand
-  # visitors is still a thousand times the load on one backend.
-  rate_limits:
-    # The login endpoint takes 5 requests a second across ALL visitors, with
-    # a short burst allowance. A refused request answers 429 and names the
-    # limit that fired in its `x-aperio-limit` header.
+  # Everything the server does for a hostname by itself lives on its site.
+  # A request takes each setting from the most specific site that writes it;
+  # `waf` rules, header edits and maintenance windows add up instead.
+  sites:
+    # Every hostname: scanner probes and scanner user-agents stop at the edge,
+    # answered 403. A hostname with rules of its own still gets these.
+    - hostname: "*"
+      waf:
+        # Nobody serves WordPress here.
+        - path: ^/wp-admin
+        - header:
+            name: user-agent
+            regex: (?i)sqlmap|nikto
+
+    # The API host shares one ceiling across ALL its visitors, independent of
+    # the per-visitor IP limit: one visitor under the IP limit times a
+    # thousand visitors is still a thousand times the load on one backend.
+    - hostname: api.example.com
+      rate_limit:
+        rps: 200
+
+    # The login endpoint takes 5 requests a second, with a short burst. The
+    # narrower site wins over the one above. A refused request answers 429
+    # and names the limit that fired in its `x-aperio-limit` header.
     - hostname: api.example.com
       path: /api/login
-      rps: 5.0
-      burst: 10.0
-    # Everything else on the API host shares a larger ceiling.
+      rate_limit:
+        rps: 5
+        burst: 10
+
+    # Uploads are capped at 1 MB, answered 413 above it.
     - hostname: api.example.com
-      rps: 200.0
+      path: /upload
+      waf:
+        - methods: [POST, PUT]
+          max_body: 1MB
 
-  # WAF-lite: deny or size-cap a request before it is proxied. A rule fires
-  # when every condition it sets matches.
-  waf:
-    # Nobody serves WordPress here, so the scanner probes stop at the edge.
-    - path: ^/wp-admin
-    # Known scanner user-agents are turned away with 403.
-    - header:
-        name: user-agent
-        regex: (?i)sqlmap|nikto
-    # Uploads to this route are capped at 1 MB, answered 413 above it.
-    - path: ^/upload
-      methods: [POST, PUT]
-      max_body: 1048576
-
-  # Where visitors of an unserved hostname go, instead of a gateway error:
-  # the status page, keeping the path they asked for.
-  fallbacks:
+    # When nothing serves the app, its visitors go to the status page,
+    # keeping the path they asked for, rather than getting a gateway error.
+    # Its own 503 page fills in a maintenance flag's `{reason}` and `{until}`.
     - hostname: app.example.com
-      url: https://status.example.com
-      preserve_path: true
-
-  # Per-hostname 503/504 pages, overriding `pages.maintenance` and
-  # `pages.unavailable` for that host. A maintenance flag's `{reason}` and
-  # `{until}` are filled in where the page writes them.
-  error_pages:
-    - hostname: app.example.com
-      503_page: ./pages/app-503.html
-      504_page: ./pages/app-504.html
+      fallback:
+        url: https://status.example.com
+        preserve_path: true
+      pages:
+        maintenance: |
+          <!doctype html>
+          <title>App is under maintenance</title>
+          <h1>503, planned maintenance</h1>
+          <p>{reason}. Back at {until}.</p>

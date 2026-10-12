@@ -30,14 +30,14 @@ async function serverCli(args: string[], env: Record<string, string> = {}) {
 }
 
 const PROBE = (body: string) => [
-  { path: '/reload-probe', respond: { status: 200, body } },
+  { hostname: '*', path: '/reload-probe', respond: { status: 200, body } },
 ]
 
 export class SettingsServer extends AperioServerBase({
   settings: {
     cache: { enabled: false },
     security: { login_lockout: { threshold: 5 } },
-    routes: PROBE('v1'),
+    sites: PROBE('v1'),
   },
 }) {}
 
@@ -70,7 +70,7 @@ export class ServerSettingsSpec extends Test({
     const res = await this.server._putSettings({
       cache: { enabled: true },
       security: { login_lockout: { threshold: 9 } },
-      routes: PROBE('v2-changed'),
+      sites: PROBE('v2-changed'),
     })
     assert.equal(res.status, 200, res.body)
     const doc = await this._doc()
@@ -143,11 +143,13 @@ export class ServerSettingsSpec extends Test({
     }
   }
 
-  async aPerHostnameErrorPageIsServedOnceSaved() {
-    const page = join(this.server._dataDir, 'custom-504.html')
-    await writeFile(page, '<h1>custom err.e2e.local 504</h1>\n')
+  async aHostnamesOwnErrorPageIsServedOnceSaved() {
+    // A list is replaced whole, so the probe site rides along.
     const res = await this.server._putSettings({
-      error_pages: [{ hostname: 'err.e2e.local', '504_page': page }],
+      sites: [
+        ...PROBE('v2-changed'),
+        { hostname: 'err.e2e.local', pages: { unavailable: '<h1>custom err.e2e.local 504</h1>' } },
+      ],
     })
     assert.equal(res.status, 200, res.body)
     await waitFor(

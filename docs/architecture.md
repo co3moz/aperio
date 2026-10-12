@@ -68,11 +68,11 @@ version of this list:
    `proxy.trusted` when configured, otherwise the socket peer.
 2. **Maintenance mode**, a flag covering the hostname answers `503` before
    anything else is looked at.
-3. **Static routes**, a client-less `routes:` entry with a `redirect` or a
-   `respond` answers directly. Because this is above the rate limit, an
-   operator-authored answer costs a visitor nothing from their bucket. A
-   `routes:` entry with neither is policy, not an answer, and does not end the
-   request here.
+3. **A site that answers by itself**, one with a `redirect` or a `respond`,
+   answers directly. Because this is above the rate limit, an
+   operator-authored answer costs a visitor nothing from their bucket. A site
+   with neither carries policy, not an answer, and does not end the request
+   here.
 4. **Per-IP rate limit**, the visitor's token bucket.
 5. **Visitor gate**, the password, OIDC or client-declared login, before
    routing so an unauthenticated visitor never influences client selection.

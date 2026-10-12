@@ -232,7 +232,7 @@ async fn the_monthly_quota_adds_both_directions() {
 
 /// A scheduled window in the settings is consulted.
 ///
-/// The guard is `!cfg.maintenance_windows.is_empty()`, and deleting the `!`
+/// The guard is `cfg.sites.has_maintenance()`, and negating it
 /// survived: under it the window list is only read when it is *empty*, so
 /// every scheduled window ever written is silently ignored. Nothing else
 /// notices, because the runtime flag path still works and that is what the
@@ -241,15 +241,12 @@ async fn the_monthly_quota_adds_both_directions() {
 async fn a_scheduled_window_in_the_settings_puts_the_host_into_maintenance() {
   // A window covering the whole day, every day, so the test does not depend
   // on when it runs.
-  let doc = "maintenance_windows:\n  - hostname: 'app.example.com'\n    from: '00:00'\n    to: '23:59'\n    reason: 'scheduled'\n";
   let mut cfg = crate::test_support::test_config();
-  cfg.maintenance_windows = crate::test_support::rules(
-    doc,
-    "maintenance_windows",
-    crate::maintenance_windows::from_section,
+  cfg.sites = crate::test_support::sites(
+    "- hostname: app.example.com\n  maintenance:\n    - {from: '00:00', to: '23:59', reason: scheduled}\n",
   );
   assert!(
-    !cfg.maintenance_windows.is_empty(),
+    cfg.sites.has_maintenance(),
     "the fixture must actually parse, or this test proves nothing"
   );
   let state = crate::test_support::test_state_with(cfg);
@@ -288,19 +285,12 @@ fn ip_state(max: f64, refill: f64) -> AppState {
   crate::test_support::test_state_with(config)
 }
 
-/// A state carrying one `rate_limits:` rule over every host and path.
+/// A state carrying one site's `rate_limit` over every host and path.
 fn route_state(rps: f64, burst: f64) -> AppState {
   let mut config = crate::test_support::test_config();
-  config.route_limits = crate::route_limits::RouteLimits {
-    rules: vec![crate::route_limits::RateLimitRule {
-      hostname: None,
-      path: None,
-      rps,
-      burst,
-      methods: None,
-      key: "test".to_string(),
-    }],
-  };
+  config.sites = crate::test_support::sites(&format!(
+    "- hostname: \"*\"\n  rate_limit: {{rps: {rps}, burst: {burst}}}\n"
+  ));
   crate::test_support::test_state_with(config)
 }
 
@@ -420,43 +410,28 @@ async fn the_route_bucket_admits_its_burst_and_no_more() {
 /// here so the next sweep's reader finds the answer next to the question.
 #[test]
 fn a_zero_burst_is_refused_by_the_config_before_the_limiter_sees_it() {
-  use crate::static_routes::{RouteRateLimit, RouteRule, StaticRoutes};
-  let err = StaticRoutes::compile(vec![RouteRule {
-    path: Some("/api".to_string()),
-    rate_limit: Some(RouteRateLimit {
-      rps: 5.0,
-      burst: Some(0.0),
-      methods: None,
-    }),
-    ..Default::default()
-  }])
-  .err()
-  .expect("a zero burst is not a burst");
+  let raw: Vec<aperio_config::Site> =
+    serde_yaml::from_str("- hostname: \"*\"\n  path: /api\n  rate_limit: {rps: 5, burst: 0}\n")
+      .unwrap();
+  let err = crate::sites::Sites::compile(&raw)
+    .err()
+    .expect("a zero burst is not a burst");
   assert!(
-    err.contains("`rate_limit.burst` must be positive"),
+    err.contains("`rate_limit.burst` must be a positive number"),
     "the refusal should name the key the operator wrote: {err}"
   );
 }
 
-/// An inline route with `rps` and no `burst` admits `rps` immediate requests,
-/// which is what the documented default promises. The survivor that asked
-/// for this was the `> 0.0` filter in front of the fallback; that filter is
-/// gone, since `compile` refuses a non-positive burst first, and this is the
+/// A site with `rps` and no `burst` admits `rps` immediate requests, which is
+/// what the documented default promises. The survivor that asked for this
+/// was the `> 0.0` filter in front of the fallback; that filter is gone,
+/// since `compile` refuses a non-positive burst first, and this is the
 /// assertion that holds the fallback itself to its word.
 #[tokio::test]
-async fn an_inline_route_without_a_burst_admits_rps_requests_at_once() {
-  use crate::static_routes::{RouteRateLimit, RouteRule, StaticRoutes};
+async fn a_site_without_a_burst_admits_rps_requests_at_once() {
   let mut config = crate::test_support::test_config();
-  config.static_routes = StaticRoutes::compile(vec![RouteRule {
-    path: Some("/api".to_string()),
-    rate_limit: Some(RouteRateLimit {
-      rps: 10.0,
-      burst: None,
-      methods: None,
-    }),
-    ..Default::default()
-  }])
-  .expect("a route with a rate limit and no burst");
+  config.sites =
+    crate::test_support::sites("- hostname: \"*\"\n  path: /api\n  rate_limit: {rps: 10}\n");
   let state = crate::test_support::test_state_with(config);
   for i in 0..10 {
     assert!(
@@ -875,16 +850,20 @@ async fn the_route_limiters_size_failsafe_fires_above_the_threshold_not_at_it() 
   // One over it: the failsafe sweeps every stale bucket and keeps the live
   // one the request just touched.
   assert!(state.check_route_rate_limit(None, "/", "GET").await);
+  let live = state
+    .config()
+    .sites
+    .rate_limit_for(None, "/", None)
+    .expect("the fixture's limit")
+    .key
+    .clone();
   let route = state.route_rate.lock().await;
   assert_eq!(
     route.len(),
     1,
     "a map over the threshold is swept down to what is live"
   );
-  assert!(
-    route.contains_key("test"),
-    "the live bucket is the one kept"
-  );
+  assert!(route.contains_key(&live), "the live bucket is the one kept");
 }
 
 // --- the silent-client reaper (planned_features.md #156) --------------------

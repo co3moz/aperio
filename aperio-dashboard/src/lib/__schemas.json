@@ -2832,22 +2832,6 @@
           "include_offline": false
         }
       },
-      "error_pages": {
-        "description": "Per-hostname answer pages.",
-        "type": "array",
-        "default": [],
-        "examples": [
-          [
-            {
-              "504_page": "./pages/app-504.html",
-              "hostname": "app.example.com"
-            }
-          ]
-        ],
-        "items": {
-          "$ref": "#/$defs/ErrorPageRule"
-        }
-      },
       "failover": {
         "description": "What happens to a request whose client fails or disappears mid-flight.",
         "$ref": "#/$defs/Failover",
@@ -2860,23 +2844,6 @@
           "window": "15s"
         }
       },
-      "fallbacks": {
-        "description": "Where to send visitors of a hostname no client serves.",
-        "type": "array",
-        "default": [],
-        "examples": [
-          [
-            {
-              "hostname": "app.example.com",
-              "preserve_path": true,
-              "url": "https://status.example.com"
-            }
-          ]
-        ],
-        "items": {
-          "$ref": "#/$defs/FallbackRule"
-        }
-      },
       "gateway": {
         "description": "How long the server waits on a client.",
         "$ref": "#/$defs/Gateway",
@@ -2884,14 +2851,6 @@
           "client_down_threshold": "15s",
           "response_timeout": "30s",
           "timeout": "10s"
-        }
-      },
-      "headers": {
-        "description": "Header edits applied to every proxied request and response.",
-        "$ref": "#/$defs/HeaderRules",
-        "default": {
-          "request": null,
-          "response": null
         }
       },
       "identity_headers": {
@@ -2932,27 +2891,6 @@
         "default": {
           "access_events": true,
           "sample_rate": 1
-        }
-      },
-      "maintenance_windows": {
-        "description": "Recurring windows during which hostnames answer the maintenance page.",
-        "type": "array",
-        "default": [],
-        "examples": [
-          [
-            {
-              "days": [
-                "sat"
-              ],
-              "from": "02:00",
-              "hostname": "*.example.com",
-              "to": "04:00",
-              "tz": "Europe/Istanbul"
-            }
-          ]
-        ],
-        "items": {
-          "$ref": "#/$defs/MaintenanceWindow"
         }
       },
       "metrics": {
@@ -3003,35 +2941,12 @@
           "window": "30s"
         }
       },
-      "pages": {
-        "description": "The server's own answer pages.",
-        "$ref": "#/$defs/Pages",
-        "default": {}
-      },
       "proxy": {
         "description": "The reverse proxy or CDN in front of this server, and whose\n`X-Forwarded-For` to believe. Security-relevant.",
         "$ref": "#/$defs/Proxy",
         "default": {
           "trust": false,
           "trusted": []
-        }
-      },
-      "rate_limits": {
-        "description": "Aggregate request-rate ceilings per hostname and path.",
-        "type": "array",
-        "default": [],
-        "examples": [
-          [
-            {
-              "burst": 10,
-              "hostname": "api.example.com",
-              "path": "/api/login",
-              "rps": 5
-            }
-          ]
-        ],
-        "items": {
-          "$ref": "#/$defs/RateLimitRule"
         }
       },
       "request_id": {
@@ -3047,23 +2962,6 @@
         "description": "How long recorded data is kept.",
         "$ref": "#/$defs/Retention",
         "default": {}
-      },
-      "routes": {
-        "description": "Client-less routes: a redirect or fixed answer for a hostname/path, or\npolicy (timeout, headers, rate limit, canary) for proxied traffic.",
-        "type": "array",
-        "default": [],
-        "examples": [
-          [
-            {
-              "hostname": "old.example.com",
-              "permanent": true,
-              "redirect": "https://new.example.com"
-            }
-          ]
-        ],
-        "items": {
-          "$ref": "#/$defs/RouteRule"
-        }
       },
       "routing": {
         "description": "How a request picks among the clients serving its route.",
@@ -3112,6 +3010,61 @@
           "timeout": "10s"
         }
       },
+      "sites": {
+        "description": "What the server does for a hostname, or a path under one, by itself:\nanswers without a client, policy on proxied traffic, and what a\nhostname says when nothing serves it. Each setting comes from the most\nspecific site that writes it; `hostname: \"*\"` is every hostname.",
+        "type": "array",
+        "default": [],
+        "examples": [
+          [
+            {
+              "headers": {
+                "response": {
+                  "remove": [
+                    "x-powered-by"
+                  ]
+                }
+              },
+              "hostname": "*",
+              "pages": {
+                "unavailable": "<h1>Nothing is serving this right now</h1>"
+              }
+            },
+            {
+              "hostname": "old.example.com",
+              "redirect": {
+                "permanent": true,
+                "url": "https://new.example.com"
+              }
+            },
+            {
+              "hostname": "app.example.com",
+              "path": "/login",
+              "rate_limit": {
+                "burst": 10,
+                "rps": 5
+              }
+            },
+            {
+              "fallback": {
+                "url": "https://status.example.com"
+              },
+              "hostname": "app.example.com",
+              "maintenance": [
+                {
+                  "days": [
+                    "sun"
+                  ],
+                  "from": "02:00",
+                  "to": "04:00"
+                }
+              ]
+            }
+          ]
+        ],
+        "items": {
+          "$ref": "#/$defs/Site"
+        }
+      },
       "stream": {
         "description": "Per-stream flow control for streamed responses, WebSockets and TCP.",
         "$ref": "#/$defs/Stream",
@@ -3134,31 +3087,6 @@
         "$ref": "#/$defs/Uptime",
         "default": {
           "tick": "10s"
-        }
-      },
-      "waf": {
-        "description": "A small request firewall evaluated before dispatch.",
-        "type": "array",
-        "default": [],
-        "examples": [
-          [
-            {
-              "path": "^/wp-admin"
-            },
-            {
-              "header": {
-                "name": "user-agent",
-                "regex": "(?i)sqlmap|nikto"
-              }
-            },
-            {
-              "max_body": 1048576,
-              "path": "^/upload"
-            }
-          ]
-        ],
-        "items": {
-          "$ref": "#/$defs/WafRule"
         }
       },
       "webhooks": {
@@ -3877,42 +3805,6 @@
         },
         "additionalProperties": false
       },
-      "ErrorPageRule": {
-        "description": "One `error_pages` entry of the server's settings: per-hostname custom\n504/503 pages overriding the global `504_page`/`503_page` for that host.",
-        "type": "object",
-        "properties": {
-          "503_page": {
-            "description": "Path of the HTML file served on 503 maintenance responses.",
-            "type": [
-              "string",
-              "null"
-            ],
-            "examples": [
-              "./pages/app-503.html"
-            ]
-          },
-          "504_page": {
-            "description": "Path of the HTML file served on 504 gateway-timeout responses.",
-            "type": [
-              "string",
-              "null"
-            ],
-            "examples": [
-              "./pages/app-504.html"
-            ]
-          },
-          "hostname": {
-            "description": "Hostname the pages apply to (matched exactly, case-insensitive).",
-            "type": "string",
-            "examples": [
-              "app.example.com"
-            ]
-          }
-        },
-        "required": [
-          "hostname"
-        ]
-      },
       "Failover": {
         "type": "object",
         "properties": {
@@ -3997,42 +3889,6 @@
           }
         },
         "additionalProperties": false
-      },
-      "FallbackRule": {
-        "description": "One `fallbacks:` entry: where to send visitors of a hostname no client\ncurrently serves, instead of answering with a gateway error.",
-        "type": "object",
-        "properties": {
-          "hostname": {
-            "description": "Hostname to catch, or `*` for every unserved hostname.",
-            "type": "string",
-            "examples": [
-              "app.example.com",
-              "*"
-            ]
-          },
-          "permanent": {
-            "description": "Answer `308` instead of `307`, i.e. let clients cache the redirect.\nDefault: `false`.",
-            "type": "boolean",
-            "default": false
-          },
-          "preserve_path": {
-            "description": "Append the requested path to the target URL. Default: `false`.",
-            "type": "boolean",
-            "default": false
-          },
-          "url": {
-            "description": "URL visitors are redirected to.",
-            "type": "string",
-            "examples": [
-              "https://status.example.com"
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "hostname",
-          "url"
-        ]
       },
       "Gateway": {
         "type": "object",
@@ -4373,12 +4229,12 @@
         },
         "additionalProperties": false
       },
-      "MaintenanceWindow": {
-        "description": "One `maintenance_windows:` entry: a recurring window during which matching\nhostnames answer the maintenance page by themselves.\n\nA list of mappings, so it has no environment-variable equivalent, like\n`routes:` and `rate_limits:`.",
+      "MaintenanceSchedule": {
+        "description": "One recurring maintenance window of a site.",
         "type": "object",
         "properties": {
           "days": {
-            "description": "Weekdays the window runs on (`mon`..`sun`, long names accepted).\nOmitted = every day.",
+            "description": "Weekdays the window runs on (`mon`..`sun`, long names accepted). Unset =\nevery day.",
             "type": [
               "array",
               "null"
@@ -4400,18 +4256,8 @@
               "02:00"
             ]
           },
-          "hostname": {
-            "description": "Hostname or pattern the window applies to, in the same shapes the\nmaintenance API takes (`app.example.com`, `*.example.com`,\n`*-pi.example.com`). Omitted or `*` = every hostname on the server.",
-            "type": [
-              "string",
-              "null"
-            ],
-            "examples": [
-              "*.example.com"
-            ]
-          },
           "reason": {
-            "description": "Shown on the maintenance page and in the dashboard while the window is\nrunning.",
+            "description": "Shown on the maintenance page and in the dashboard while the window\nruns.",
             "type": [
               "string",
               "null"
@@ -4428,7 +4274,7 @@
             ]
           },
           "tz": {
-            "description": "IANA time zone the times are local to. Default: `UTC`. Use a named zone\nrather than a fixed offset so the window stays put across a\ndaylight-saving change.",
+            "description": "IANA time zone the times are local to. Default `UTC`. A named zone\nrather than a fixed offset keeps the window in place across a\ndaylight-saving change.",
             "type": [
               "string",
               "null"
@@ -4729,6 +4575,7 @@
         "additionalProperties": false
       },
       "Pages": {
+        "description": "A site's own answer pages, the HTML itself. The `*` site's are the\nserver's, used wherever no narrower site sets one.",
         "type": "object",
         "properties": {
           "maintenance": {
@@ -4789,70 +4636,35 @@
         },
         "additionalProperties": false
       },
-      "RateLimitRule": {
-        "description": "One `rate_limits:` entry: an aggregate requests-per-second ceiling for a\nhostname and/or path prefix, independent of the per-visitor IP limit.",
+      "Redirect": {
+        "description": "A redirect: a site's own `redirect`, or its `fallback`.",
         "type": "object",
         "properties": {
-          "burst": {
-            "description": "Burst capacity. Default: the `rps` value (one second's worth).",
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "double",
+          "permanent": {
+            "description": "Answer `301` rather than `302`, which lets a browser remember it.\nDefault `false`.",
+            "type": "boolean",
             "examples": [
-              100
+              true
             ]
           },
-          "hostname": {
-            "description": "Hostname the rule applies to (omit for any host).",
-            "type": [
-              "string",
-              "null"
-            ],
+          "preserve_path": {
+            "description": "Append the requested path and query to `url`. Default `false`.",
+            "type": "boolean",
             "examples": [
-              "api.example.com"
+              true
             ]
           },
-          "methods": {
-            "description": "HTTP methods the rule applies to (omit for every method). Lets a write\npath be limited without throttling reads of the same route.",
-            "type": [
-              "array",
-              "null"
-            ],
+          "url": {
+            "description": "Where to send the visitor, an absolute `http(s)` URL.",
+            "type": "string",
             "examples": [
-              [
-                "POST",
-                "PUT",
-                "DELETE"
-              ]
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "path": {
-            "description": "Path prefix the rule applies to (omit for any path).",
-            "type": [
-              "string",
-              "null"
-            ],
-            "examples": [
-              "/api"
-            ]
-          },
-          "rps": {
-            "description": "Sustained requests per second allowed to the route.",
-            "type": "number",
-            "format": "double",
-            "examples": [
-              50
+              "https://new.example.com"
             ]
           }
         },
         "additionalProperties": false,
         "required": [
-          "rps"
+          "url"
         ]
       },
       "RequestId": {
@@ -4877,11 +4689,11 @@
         "additionalProperties": false
       },
       "RespondRule": {
-        "description": "The fixed response of a client-less `respond` route.",
+        "description": "The fixed response of a site that answers by itself.",
         "type": "object",
         "properties": {
           "body": {
-            "description": "Response body.",
+            "description": "The body.",
             "type": [
               "string",
               "null"
@@ -4891,17 +4703,17 @@
             ]
           },
           "content_type": {
-            "description": "`Content-Type` of the response body.",
+            "description": "`Content-Type` of the body. Default `text/html; charset=utf-8`.",
             "type": [
               "string",
               "null"
             ],
             "examples": [
-              "text/html; charset=utf-8"
+              "text/plain"
             ]
           },
           "status": {
-            "description": "HTTP status to answer with. Default: `200`.",
+            "description": "HTTP status to answer with. Default `200`.",
             "type": [
               "integer",
               "null"
@@ -4913,7 +4725,8 @@
             "maximum": 65535,
             "minimum": 0
           }
-        }
+        },
+        "additionalProperties": false
       },
       "Retention": {
         "type": "object",
@@ -5065,236 +4878,6 @@
           }
         },
         "additionalProperties": false
-      },
-      "RouteCanary": {
-        "description": "A `canary:` block inside a `routes:` entry: which service gets the new\nversion's traffic, how much of it, and how somebody opts in by hand.\n\nWeighted routing and a header-based canary are the same mechanism seen from\ntwo angles, which is why they are one block rather than two settings.",
-        "type": "object",
-        "properties": {
-          "header": {
-            "description": "Request header that sends this visitor to the canary whatever the weight\nsays, so a developer can reach the new version on demand.",
-            "type": [
-              "string",
-              "null"
-            ],
-            "examples": [
-              "x-canary"
-            ]
-          },
-          "service": {
-            "description": "Name of the `services:` entry serving the new version. Clients that\nannounce this service name are the canary side; every other client\nserving the route is the stable side.",
-            "type": "string",
-            "examples": [
-              "web-v2"
-            ]
-          },
-          "value": {
-            "description": "Value that header must carry. Unset = any non-empty value.",
-            "type": [
-              "string",
-              "null"
-            ],
-            "examples": [
-              "on"
-            ]
-          },
-          "weight": {
-            "description": "Percentage of visitors sent there without asking, `0` to `100`. Default:\n`0`, which with a `header` set is the opt-in-only shape.\n\nThe split is decided per **visitor**, by hashing their address, not per\nrequest: a per-request coin flip would send one page load's twenty assets\nto both versions, which is a mixture rather than a canary and breaks the\nthing being tested first. The cost is that the split is only as even as\nthe addresses are spread, so at low traffic or behind one large NAT\ntwenty percent may not look like twenty percent.",
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "uint8",
-            "examples": [
-              20
-            ],
-            "maximum": 255,
-            "minimum": 0
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "service"
-        ]
-      },
-      "RouteRateLimit": {
-        "description": "A `rate_limit:` block inside a `routes:` entry: the same token bucket as a\n`rate_limits:` rule, without repeating the hostname and path.",
-        "type": "object",
-        "properties": {
-          "burst": {
-            "description": "Burst capacity. Default: the `rps` value (one second's worth).",
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "double",
-            "examples": [
-              100
-            ]
-          },
-          "methods": {
-            "description": "HTTP methods the limit applies to (omit for every method). Lets a write\npath be limited without throttling reads of the same route.",
-            "type": [
-              "array",
-              "null"
-            ],
-            "examples": [
-              [
-                "POST",
-                "PUT",
-                "DELETE"
-              ]
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "rps": {
-            "description": "Sustained requests per second allowed to the route.",
-            "type": "number",
-            "format": "double",
-            "examples": [
-              50
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "rps"
-        ]
-      },
-      "RouteRule": {
-        "description": "One `routes` entry of the server's settings. Either an *answer* rule, a\nhostname/path match paired with exactly one action (`redirect` or\n`respond`) served without a client, or a *policy* rule, which has neither\naction and instead carries settings (`timeout`, `headers`, `rate_limit`)\nthat apply to proxied traffic matching it. The two kinds are matched\nindependently, each first-match in file order.",
-        "type": "object",
-        "properties": {
-          "canary": {
-            "description": "Split this route's traffic between two versions of a service. Policy\nfield.",
-            "anyOf": [
-              {
-                "$ref": "#/$defs/RouteCanary"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "examples": [
-              {
-                "header": "x-canary",
-                "service": "web-v2",
-                "weight": 20
-              }
-            ]
-          },
-          "headers": {
-            "description": "Header edits for this route only, applied after the server-wide\n`headers:` rules so a route can override them. Policy field.",
-            "anyOf": [
-              {
-                "$ref": "#/$defs/HeaderRules"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "examples": [
-              {
-                "response": {
-                  "add": {
-                    "cache-control": "public, max-age=3600"
-                  }
-                }
-              }
-            ]
-          },
-          "hostname": {
-            "description": "Hostname to match exactly (unset = any hostname).",
-            "type": [
-              "string",
-              "null"
-            ],
-            "examples": [
-              "old.example.com"
-            ]
-          },
-          "path": {
-            "description": "Path prefix to match, with bind semantics (unset = any path).",
-            "type": [
-              "string",
-              "null"
-            ],
-            "examples": [
-              "/robots.txt"
-            ]
-          },
-          "permanent": {
-            "description": "Use a permanent 301 instead of the default 302. Default: `false`.",
-            "type": "boolean",
-            "default": false
-          },
-          "preserve_path": {
-            "description": "Append the request's path and query to the redirect target.\nDefault: `false`.",
-            "type": "boolean",
-            "default": false
-          },
-          "rate_limit": {
-            "description": "Rate limit for this route only, so the hostname and path are written\nonce instead of repeated under `rate_limits:`. Wins over any\n`rate_limits:` entry matching the same request. Policy field.",
-            "anyOf": [
-              {
-                "$ref": "#/$defs/RouteRateLimit"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "examples": [
-              {
-                "burst": 20,
-                "methods": [
-                  "POST"
-                ],
-                "rps": 10
-              }
-            ]
-          },
-          "redirect": {
-            "description": "Redirect target; answers 302 (or 301 with `permanent: true`).",
-            "type": [
-              "string",
-              "null"
-            ],
-            "examples": [
-              "https://new.example.com"
-            ]
-          },
-          "respond": {
-            "description": "Serve a fixed response instead of redirecting.",
-            "anyOf": [
-              {
-                "$ref": "#/$defs/RespondRule"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "examples": [
-              {
-                "body": "Be right back",
-                "content_type": "text/plain",
-                "status": 503
-              }
-            ]
-          },
-          "timeout": {
-            "description": "Seconds to wait for the serving client's answer on this route, overriding\n`gateway.response_timeout` and any per-service `response_timeout` the\nclient declared. Policy field: only valid on an entry that has neither\n`redirect` nor `respond`, since those never reach a backend.",
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "uint64",
-            "examples": [
-              120
-            ],
-            "minimum": 0
-          }
-        }
       },
       "Routing": {
         "type": "object",
@@ -5548,6 +5131,325 @@
         },
         "additionalProperties": false
       },
+      "Site": {
+        "description": "One hostname, or a path under one, and what the server does for it.",
+        "type": "object",
+        "properties": {
+          "canary": {
+            "description": "Split the traffic between two versions of a service.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SiteCanary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "header": "x-canary",
+                "service": "web-v2",
+                "weight": 20
+              }
+            ]
+          },
+          "fallback": {
+            "description": "Where to send visitors when no client serves this hostname, instead of\na `504`. A site with a `path` cannot have one: it is about the hostname.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Redirect"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "preserve_path": true,
+                "url": "https://status.example.com"
+              }
+            ]
+          },
+          "headers": {
+            "description": "Header edits on proxied traffic. Applied after the edits of every\nbroader site that matches, so `*` sets what every hostname gets and a\nnarrower site can override it.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HeaderRules"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "response": {
+                  "add": {
+                    "cache-control": "public, max-age=3600"
+                  }
+                }
+              }
+            ]
+          },
+          "hostname": {
+            "description": "The hostname: exact (`app.example.com`), a pattern (`*.example.com`,\n`*-pi.example.com`), or `*` for every hostname.",
+            "type": "string",
+            "examples": [
+              "app.example.com",
+              "*.example.com",
+              "*"
+            ]
+          },
+          "maintenance": {
+            "description": "Recurring windows during which this hostname answers the maintenance\npage by itself. A site with a `path` cannot have them.",
+            "type": "array",
+            "examples": [
+              [
+                {
+                  "days": [
+                    "sat"
+                  ],
+                  "from": "02:00",
+                  "to": "04:00",
+                  "tz": "Europe/Istanbul"
+                }
+              ]
+            ],
+            "items": {
+              "$ref": "#/$defs/MaintenanceSchedule"
+            }
+          },
+          "pages": {
+            "description": "This hostname's own `504` and `503` pages, over the ones a broader site\nsets. A site with a `path` cannot have them.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Pages"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "unavailable": "<h1>Nothing is serving this right now</h1>"
+              }
+            ]
+          },
+          "path": {
+            "description": "A path prefix under the hostname, on a segment boundary (`/api` covers\n`/api/v1` but not `/apix`). Unset = the whole hostname.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "/api"
+            ]
+          },
+          "rate_limit": {
+            "description": "A ceiling on the requests per second this site takes from every visitor\ntogether, beside the per-visitor limit.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SiteRateLimit"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "burst": 10,
+                "methods": [
+                  "POST"
+                ],
+                "rps": 5
+              }
+            ]
+          },
+          "redirect": {
+            "description": "Answer every request here with a redirect, without a client.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Redirect"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "permanent": true,
+                "url": "https://new.example.com"
+              }
+            ]
+          },
+          "respond": {
+            "description": "Answer every request here with a fixed response, without a client.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RespondRule"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "body": "Be right back",
+                "content_type": "text/plain",
+                "status": 503
+              }
+            ]
+          },
+          "timeout": {
+            "description": "How long to wait for the serving client's answer, over\n`gateway.response_timeout` and any `timeout` the client declared.",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "2m"
+            ]
+          },
+          "waf": {
+            "description": "Requests refused before they reach a client: `403` for a deny rule,\n`413` for a `max_body` rule.",
+            "type": "array",
+            "examples": [
+              [
+                {
+                  "path": "^/wp-admin"
+                },
+                {
+                  "header": {
+                    "name": "user-agent",
+                    "regex": "(?i)sqlmap|nikto"
+                  }
+                }
+              ]
+            ],
+            "items": {
+              "$ref": "#/$defs/WafRule"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "hostname"
+        ]
+      },
+      "SiteCanary": {
+        "description": "A site's `canary`: which service gets the new version's traffic, how much\nof it, and how somebody opts in by hand.\n\nWeighted routing and a header-based canary are the same mechanism seen from\ntwo angles, which is why they are one block rather than two settings.",
+        "type": "object",
+        "properties": {
+          "header": {
+            "description": "Request header that sends this visitor to the canary whatever the weight\nsays, so a developer can reach the new version on demand.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "x-canary"
+            ]
+          },
+          "service": {
+            "description": "Name of the client service serving the new version. Clients announcing\nthis service name are the canary side; every other client serving the\nsite is the stable side.",
+            "type": "string",
+            "examples": [
+              "web-v2"
+            ]
+          },
+          "value": {
+            "description": "Value that header must carry. Unset = any non-empty value.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "on"
+            ]
+          },
+          "weight": {
+            "description": "Percentage of visitors sent there without asking, `0` to `100`. Default\n`0`, which with a `header` set is the opt-in-only shape.\n\nThe split is decided per **visitor**, by hashing their address, not per\nrequest: a per-request coin flip would send one page load's twenty assets\nto both versions, which is a mixture rather than a canary and breaks the\nthing being tested first. The cost is that the split is only as even as\nthe addresses are spread, so at low traffic or behind one large NAT\ntwenty percent may not look like twenty percent.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint8",
+            "examples": [
+              20
+            ],
+            "maximum": 255,
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "service"
+        ]
+      },
+      "SiteRateLimit": {
+        "description": "A site's `rate_limit`: one token bucket shared by every visitor.",
+        "type": "object",
+        "properties": {
+          "burst": {
+            "description": "Burst capacity. Default: the `rps` value, one second's worth.",
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "examples": [
+              100
+            ]
+          },
+          "methods": {
+            "description": "HTTP methods the limit counts (unset = every method), so a write path\ncan be limited without throttling reads of it.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "examples": [
+              [
+                "POST",
+                "PUT",
+                "DELETE"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "rps": {
+            "description": "Sustained requests per second.",
+            "type": "number",
+            "format": "double",
+            "examples": [
+              50
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "rps"
+        ]
+      },
       "Stream": {
         "type": "object",
         "properties": {
@@ -5667,7 +5569,7 @@
         "additionalProperties": false
       },
       "WafHeaderMatch": {
-        "description": "A header match inside a `waf:` rule.",
+        "description": "A header condition inside a `waf` rule.",
         "type": "object",
         "properties": {
           "name": {
@@ -5692,11 +5594,11 @@
         ]
       },
       "WafRule": {
-        "description": "One `waf:` entry: a request is denied with `403` when every set condition\nmatches, or answered `413` when `max_body` is exceeded.",
+        "description": "One `waf` rule of a site: a request is refused with `403` when every\ncondition it sets matches, or with `413` when it has a `max_body` and the\nbody is larger.",
         "type": "object",
         "properties": {
           "header": {
-            "description": "Header condition the request must match.",
+            "description": "A header the request must carry, matching a pattern.",
             "anyOf": [
               {
                 "$ref": "#/$defs/WafHeaderMatch"
@@ -5713,19 +5615,36 @@
             ]
           },
           "max_body": {
-            "description": "Body-size ceiling in bytes for the matched route; makes this a `413`\nsize rule rather than a `403` deny rule.",
-            "type": [
-              "integer",
-              "null"
+            "description": "Largest body the matched requests may carry, which makes this a `413`\nsize rule rather than a `403` deny rule.",
+            "anyOf": [
+              {
+                "description": "A size: 512KB, 10MB or 1GB (binary units). A bare number is bytes.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*([kKmMgG]([iI]?[bB])?|[bB])?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "512KB",
+                  "10MB",
+                  "1GB"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "format": "uint",
             "examples": [
-              1048576
-            ],
-            "minimum": 0
+              "1MB"
+            ]
           },
           "methods": {
-            "description": "HTTP methods the rule applies to (omit for any).",
+            "description": "HTTP methods the rule applies to (unset = any).",
             "type": [
               "array",
               "null"
@@ -5741,7 +5660,7 @@
             }
           },
           "path": {
-            "description": "Regular expression matched against the request path.",
+            "description": "Regular expression matched against the request path. It sees the whole\npath, not the part under the site's `path`.",
             "type": [
               "string",
               "null"

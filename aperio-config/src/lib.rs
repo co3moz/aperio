@@ -25,8 +25,9 @@ pub mod units;
 //   shapes it holds (a service, its policy, a tunnel, a bind).
 // - [`layers`] merges the files, the environment and the command line into
 //   one configuration, and derives the environment's names from the schema.
-// - [`rules`] is the server's rule-shaped entries (routes, waf, ...), which
-//   are lists of small records rather than settings.
+// - [`sites`] is the server's per-hostname rules: answers, policy, pages and
+//   maintenance, one entry per hostname or path.
+// - [`rules`] is the alert rule, a list of small records rather than settings.
 // - [`auth`] is the visitor gate grammar both ends have to agree on.
 //
 // What stays here is what the whole schema is built out of: the name, topic
@@ -37,12 +38,14 @@ pub mod client;
 pub mod file;
 pub mod hop_by_hop;
 pub mod rules;
+pub mod sites;
 pub mod surfaces;
 
 pub use auth::*;
 pub use client::*;
 pub use file::*;
 pub use rules::*;
+pub use sites::*;
 
 /// Serde default protocol of a declared tunnel.
 fn default_tcp() -> String {

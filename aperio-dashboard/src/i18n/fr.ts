@@ -853,8 +853,10 @@ export const fr: Record<string, string> = {
   'Where the server may call out to, and honouring client scaling blocks.': 'Où le serveur peut appeler, et la prise en compte des blocs de mise à l’échelle des clients.',
   'Edge integration': 'Intégration edge',
   'Publishing the live hostnames to a reverse proxy in front of this server.': 'Publie les hostnames actifs vers un reverse proxy placé devant ce serveur.',
-  'Pages & headers': 'Pages et headers',
-  'What visitors see on an error, and server-wide header rewriting.': 'Ce que voient les visiteurs en cas d’erreur, et la réécriture de headers à l’échelle du serveur.',
+  'Sites':
+    'Sites',
+  'What the server does for a hostname by itself: answers, policy, fallbacks, pages and maintenance windows.':
+    'Ce que le serveur fait lui-même pour un hostname : réponses, politiques, fallbacks, pages et fenêtres de maintenance.',
   'Process & maintenance': 'Processus et maintenance',
   'Startup behaviour, backups, and the public expose ports.': 'Comportement au démarrage, sauvegardes et ports d’exposition publics.',
   'Settings': 'Paramètres',
@@ -1058,28 +1060,28 @@ export const fr: Record<string, string> = {
     '503 : un indicateur de maintenance posé par {actor} couvre ce hostname ({reason}), levé à unix {until}',
   'no maintenance flag covers this hostname':
     'aucun indicateur de maintenance ne couvre ce hostname',
-  'no routes: rules configured':
-    'aucune règle routes: configurée',
-  '{status}: a routes: rule answers this path':
-    '{status} : une règle routes: répond à ce path',
-  '{status}: a routes: rule answers this path, to {location}':
-    '{status} : une règle routes: répond à ce path, vers {location}',
-  'no routes: rule matches this hostname and path':
-    'aucune règle routes: ne correspond à ce hostname et à ce path',
+  'no sites configured':
+    'aucun site configuré',
+  '{status}: a site answers this path by itself':
+    '{status} : un site répond lui-même à ce path',
+  '{status}: a site answers this path by itself, to {location}':
+    '{status} : un site répond lui-même à ce path, vers {location}',
+  'no site answers this hostname and path by itself':
+    'aucun site ne répond lui-même à ce hostname et à ce path',
   '200: preview_noindex answers /robots.txt itself, so this path never reaches a client':
     "200 : preview_noindex répond lui-même à /robots.txt, ce path n'atteint donc jamais un client",
-  'no waf: rules configured':
-    'aucune règle waf: configurée',
-  '403: blocked by a waf: rule ({reason})':
-    '403 : bloqué par une règle waf: ({reason})',
-  'no waf: rule matches this method and path (header and body rules need a real request)':
-    'aucune règle waf: ne correspond à cette méthode et à ce path (les règles de header et de corps demandent une vraie requête)',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}); this dry run does not spend from it':
-    "une règle rate_limits: couvre ce path ({rps} rps, rafale {burst}) ; cette simulation n'y puise rien",
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it':
-    "une règle rate_limits: couvre ce path ({rps} rps, rafale {burst}, {methods} uniquement) ; cette simulation n'y puise rien",
-  'no rate_limits: rule covers this path':
-    'aucune règle rate_limits: ne couvre ce path',
+  'no site has waf rules':
+    "aucun site n'a de règles waf",
+  '403: blocked by a waf rule ({reason})':
+    '403 : bloqué par une règle waf ({reason})',
+  'no waf rule matches this method and path (header and body rules need a real request)':
+    'aucune règle waf ne correspond à cette méthode et à ce path (les règles de header et de corps demandent une vraie requête)',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}); this dry run does not spend from it":
+    "le rate_limit d'un site couvre ce path ({rps} rps, rafale {burst}) ; cette simulation n'y puise rien",
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it":
+    "le rate_limit d'un site couvre ce path ({rps} rps, rafale {burst}, {methods} uniquement) ; cette simulation n'y puise rien",
+  "no site's rate_limit covers this path":
+    'aucun rate_limit de site ne couvre ce path',
   "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
     "les visiteurs doivent se connecter (ou porter un lien de partage) avant que cela n'atteigne un client : le client qui sert a déclaré son propre mot de passe visiteur pour cette route, qui l'emporte sur la porte du serveur",
   "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
@@ -1102,10 +1104,10 @@ export const fr: Record<string, string> = {
     'aucun client connecté ne sert ce hostname et ce path, bien que {count} le pourraient : {ineligible}',
   'an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once':
     "un enregistrement d'autoscaling est armé pour ce lien, la requête serait donc retenue le temps de demander de la capacité, au lieu d'être répondue tout de suite",
-  '{status}: the fallbacks: rule for this hostname redirects to {url} instead of a 504':
-    "{status} : la règle fallbacks: de ce hostname redirige vers {url} au lieu d'un 504",
-  '504: nothing serves this route, and no fallbacks: rule covers it':
-    '504 : rien ne sert cette route, et aucune règle fallbacks: ne la couvre',
+  "{status}: this hostname's fallback redirects to {url} instead of a 504":
+    "{status} : le fallback de ce hostname redirige vers {url} au lieu d'un 504",
+  '504: nothing serves this route, and no site gives it a fallback':
+    '504 : rien ne sert cette route, et aucun site ne lui donne de fallback',
   'the request reaches a tunnel client ({clients})':
     'la requête atteint un client de tunnel ({clients})',
   'disabled from the dashboard':

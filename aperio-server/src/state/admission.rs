@@ -277,8 +277,8 @@ impl AppState {
     // with windows and no ad-hoc flag costs one list scan. A runtime flag can
     // still be raised during a window; it simply says the same thing.
     let cfg = self.config();
-    if !cfg.maintenance_windows.is_empty()
-      && let Some((window, until)) = cfg.maintenance_windows.active_for(host, now)
+    if cfg.sites.has_maintenance()
+      && let Some((window, until)) = cfg.sites.maintenance_for(host, now)
     {
       return Some(MaintenanceFlag {
         org: None,
@@ -368,15 +368,10 @@ impl AppState {
     used >= max
   }
 
-  /// Enforces the per-route rate limit for a request. Returns true when the
-  /// request may proceed, false when the matched route's shared token bucket
-  /// is empty (the caller answers 429). No configured rule for the
+  /// Enforces a site's rate limit for a request. Returns true when the
+  /// request may proceed, false when the matched site's shared token bucket
+  /// is empty (the caller answers 429). No site limiting the
   /// host+path+method = always allowed.
-  ///
-  /// Two sources feed this, and a route's own `rate_limit:` wins over a
-  /// `rate_limits:` entry matching the same request: the inline one is written
-  /// next to the route it governs, so an operator reading that entry has seen
-  /// the whole story.
   pub(crate) async fn check_route_rate_limit(
     &self,
     host: Option<&str>,
@@ -384,31 +379,14 @@ impl AppState {
     method: &str,
   ) -> bool {
     let cfg = self.config();
-    let inline = cfg.static_routes.policy_for(host, path).and_then(|rule| {
-      let rl = rule.rate_limit.as_ref()?;
-      crate::route_limits::method_matches(rl.methods.as_ref(), Some(method)).then(|| {
-        (
-          rl.rps,
-          // `compile` refused a non-positive burst before this could see one,
-          // so the filter that used to stand here was a line the mutation
-          // sweep could flip without a test noticing, because it did nothing.
-          rl.burst.unwrap_or(rl.rps).max(1.0),
-          rule.rate_key.clone(),
-        )
-      })
-    });
-    // No fast path for an empty `rate_limits:` list: `matched` over no rules
-    // is `None` already, and the guard that used to say so was a line the
-    // mutation sweep could delete without a test noticing, because it did
-    // nothing.
-    let matched = match inline {
-      Some(found) => Some(found),
-      None => cfg
-        .route_limits
-        .matched(host, path, Some(method))
-        .map(|r| (r.rps, r.burst, r.key.clone())),
-    };
-    let Some((rps, burst, key)) = matched else {
+    // No fast path for no sites: the lookup over none is `None` already, and
+    // a guard saying so would be a line the mutation sweep could delete
+    // without a test noticing, because it did nothing.
+    let Some((rps, burst, key)) = cfg
+      .sites
+      .rate_limit_for(host, path, Some(method))
+      .map(|r| (r.rps, r.burst, r.key.clone()))
+    else {
       return true;
     };
     let mut buckets = self.route_rate.lock().await;

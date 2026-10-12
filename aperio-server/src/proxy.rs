@@ -142,19 +142,15 @@ fn worth_waiting_for_route(
   last_disconnect.is_some_and(|t| now.saturating_duration_since(t) <= recent)
 }
 
-/// Builds a 504 response: the hostname's own `error_pages:` page when one is
-/// configured, then the global pages.unavailable HTML, then the given
-/// plain-text message.
+/// Builds a 504 response: the `pages.unavailable` of the most specific site
+/// covering the hostname that sets one, then the given plain-text message.
 pub(crate) fn gateway_timeout_response(
   state: &AppState,
   request_host: Option<&str>,
   fallback: &str,
 ) -> Response {
   let config = state.config();
-  let html = config
-    .error_pages
-    .page_504(request_host)
-    .or(config.custom_504_page.as_deref());
+  let html = config.sites.page_504(request_host);
   match html {
     Some(html) => (
       StatusCode::GATEWAY_TIMEOUT,
@@ -193,8 +189,8 @@ fn is_safe_request_id(v: &str) -> bool {
       .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b':' | b'/' | b'+'))
 }
 
-/// Builds the 503 maintenance response: the hostname's own `error_pages:`
-/// page, then the global pages.maintenance, then plain text.
+/// Builds the 503 maintenance response: the `pages.maintenance` of the most
+/// specific site covering the hostname that sets one, then plain text.
 ///
 /// The flag's reason reaches the visitor: a maintenance page that says why,
 /// and until when, is the difference between "this is broken" and "this is
@@ -216,10 +212,7 @@ fn maintenance_response(
         .unwrap_or_default()
     })
     .unwrap_or_default();
-  let html = config
-    .error_pages
-    .page_503(request_host)
-    .or(config.custom_503_page.as_deref());
+  let html = config.sites.page_503(request_host);
   let mut resp = match html {
     Some(html) => (
       StatusCode::SERVICE_UNAVAILABLE,
@@ -285,10 +278,10 @@ pub(crate) async fn proxy_handler(
     return maintenance_response(&state, host_for_maintenance.as_deref(), &flag);
   }
 
-  // Client-less routes (aperio-server.yaml `routes:`): redirects and fixed
-  // responses answered straight from the server, before client routing.
-  if !state.config().static_routes.is_empty()
-    && let Some(answer) = state.config().static_routes.answer(
+  // A site that answers by itself (`redirect`, `respond`): answered straight
+  // from the server, before client routing.
+  if !state.config().sites.is_empty()
+    && let Some(answer) = state.config().sites.answer(
       extract_request_host(&headers).as_deref(),
       uri.path(),
       uri.query(),
@@ -298,8 +291,8 @@ pub(crate) async fn proxy_handler(
   }
 
   // Preview noindex: on random-subdomain hosts, answer robots.txt with a
-  // disallow-all straight from the server (after static routes, so an
-  // explicit `routes:` robots.txt still wins).
+  // disallow-all straight from the server (after the sites' answers, so a
+  // site that answers robots.txt itself still wins).
   if state.config().preview_noindex
     && uri.path() == "/robots.txt"
     && let Some(ref pattern) = state.config().random_subdomain_suffix

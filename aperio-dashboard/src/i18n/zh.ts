@@ -834,8 +834,10 @@ export const zh: Record<string, string> = {
   'Where the server may call out to, and honouring client scaling blocks.': '服务器可以向何处发起调用，以及是否遵循客户端的伸缩配置块。',
   'Edge integration': '边缘集成',
   'Publishing the live hostnames to a reverse proxy in front of this server.': '将当前生效的 Hostname 发布给此服务器前面的反向 Proxy。',
-  'Pages & headers': '页面与 Header',
-  'What visitors see on an error, and server-wide header rewriting.': '出错时访客看到什么，以及服务器范围的 Header 重写。',
+  'Sites':
+    '站点',
+  'What the server does for a hostname by itself: answers, policy, fallbacks, pages and maintenance windows.':
+    '服务器自行为一个 hostname 所做的事：应答、策略、fallback、页面和维护时段。',
   'Process & maintenance': '进程与维护',
   'Startup behaviour, backups, and the public expose ports.': '启动行为、备份，以及公开的 expose 端口。',
   'Settings': '设置',
@@ -1039,28 +1041,28 @@ export const zh: Record<string, string> = {
     '503：{actor} 设置的维护标记覆盖了这个 hostname （{reason}），将在 unix {until} 解除',
   'no maintenance flag covers this hostname':
     '没有维护标记覆盖这个 hostname',
-  'no routes: rules configured':
-    '没有配置 routes: 规则',
-  '{status}: a routes: rule answers this path':
-    '{status}：一条 routes: 规则回应这个 path',
-  '{status}: a routes: rule answers this path, to {location}':
-    '{status}：一条 routes: 规则回应这个 path ，转到 {location}',
-  'no routes: rule matches this hostname and path':
-    '没有 routes: 规则匹配这个 hostname 和 path',
+  'no sites configured':
+    '没有配置 site',
+  '{status}: a site answers this path by itself':
+    '{status}：一个 site 自行回应这个 path',
+  '{status}: a site answers this path by itself, to {location}':
+    '{status}：一个 site 自行回应这个 path ，转到 {location}',
+  'no site answers this hostname and path by itself':
+    '没有 site 自行回应这个 hostname 和 path',
   '200: preview_noindex answers /robots.txt itself, so this path never reaches a client':
     '200：preview_noindex 自己回应 /robots.txt ，所以这个 path 永远不会到达客户端',
-  'no waf: rules configured':
-    '没有配置 waf: 规则',
-  '403: blocked by a waf: rule ({reason})':
-    '403：被一条 waf: 规则拦截（{reason}）',
-  'no waf: rule matches this method and path (header and body rules need a real request)':
-    '没有 waf: 规则匹配这个方法和 path （header 和请求体规则需要一个真实请求）',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}); this dry run does not spend from it':
-    '一条 rate_limits: 规则覆盖这个 path （{rps} rps，突发 {burst}）；这次试运行不会消耗其中的额度',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it':
-    '一条 rate_limits: 规则覆盖这个 path （{rps} rps，突发 {burst}，仅限 {methods}）；这次试运行不会消耗其中的额度',
-  'no rate_limits: rule covers this path':
-    '没有 rate_limits: 规则覆盖这个 path',
+  'no site has waf rules':
+    '没有 site 配置 waf 规则',
+  '403: blocked by a waf rule ({reason})':
+    '403：被一条 waf 规则拦截（{reason}）',
+  'no waf rule matches this method and path (header and body rules need a real request)':
+    '没有 waf 规则匹配这个方法和 path （header 和请求体规则需要一个真实请求）',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}); this dry run does not spend from it":
+    '一个 site 的 rate_limit 覆盖这个 path （{rps} rps，突发 {burst}）；这次试运行不会消耗其中的额度',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it":
+    '一个 site 的 rate_limit 覆盖这个 path （{rps} rps，突发 {burst}，仅限 {methods}）；这次试运行不会消耗其中的额度',
+  "no site's rate_limit covers this path":
+    '没有 site 的 rate_limit 覆盖这个 path',
   "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
     '访客必须先登录（或带着分享链接）才能到达客户端：提供服务的客户端为这条路由声明了自己的访客密码，它优先于服务器自身的门禁',
   "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
@@ -1083,10 +1085,10 @@ export const zh: Record<string, string> = {
     '没有已连接的客户端提供这个 hostname 和 path ，尽管有 {count} 个本可以：{ineligible}',
   'an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once':
     '这个绑定上有一条自动伸缩记录处于待命状态，所以请求会在申请容量期间被挂起，而不是立刻得到回应',
-  '{status}: the fallbacks: rule for this hostname redirects to {url} instead of a 504':
-    '{status}：这个 hostname 的 fallbacks: 规则重定向到 {url} ，而不是返回 504',
-  '504: nothing serves this route, and no fallbacks: rule covers it':
-    '504：没有任何东西提供这条路由，也没有 fallbacks: 规则覆盖它',
+  "{status}: this hostname's fallback redirects to {url} instead of a 504":
+    '{status}：这个 hostname 的 fallback 重定向到 {url} ，而不是返回 504',
+  '504: nothing serves this route, and no site gives it a fallback':
+    '504：没有任何东西提供这条路由，也没有 site 给它 fallback',
   'the request reaches a tunnel client ({clients})':
     '请求到达了一个隧道客户端（{clients}）',
   'disabled from the dashboard':

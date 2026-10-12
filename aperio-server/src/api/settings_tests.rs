@@ -320,12 +320,16 @@ async fn put_rejects_values_the_server_cannot_honour() {
       "access.gate",
     ),
     (
-      serde_json::json!({"pages": {"unavailable": "x".repeat(512 * 1024 + 1)}}),
-      "pages.unavailable",
+      serde_json::json!({"sites": [{"hostname": "*", "pages": {"unavailable": "x".repeat(512 * 1024 + 1)}}]}),
+      "sites[0] (*): pages.unavailable",
     ),
     (
-      serde_json::json!({"pages": {"maintenance": "x".repeat(512 * 1024 + 1)}}),
-      "pages.maintenance",
+      serde_json::json!({"sites": [{"hostname": "*", "pages": {"maintenance": "x".repeat(512 * 1024 + 1)}}]}),
+      "sites[0] (*): pages.maintenance",
+    ),
+    (
+      serde_json::json!({"sites": [{"hostname": "app.example.com"}]}),
+      "sites[0] (app.example.com): sets nothing",
     ),
     (
       serde_json::json!({"dashboard": {"ui_language": "xx"}}),

@@ -41,8 +41,8 @@ A folder with a `server-init.yaml` adds `APERIO_INIT_FILE=server-init.yaml` to t
 | [encrypted_tunnels](encrypted_tunnels/) | End-to-end encrypted tunnels with a pre-shared key. |
 | [mqtt](mqtt/) | An MQTT broker reachable by every client of an organization, and by nothing else. |
 | [public_expose](public_expose/) | Expose a declared tunnel on a public server port, claimed by its organization. |
-| [routes](routes/) | Client-less routes: redirects and fixed responses served by the server alone. |
-| [traffic_rules](traffic_rules/) | Server-side request rules: per-route rate limits, WAF-lite, fallbacks, per-hostname error pages. |
+| [routes](routes/) | Sites that answer by themselves: redirects and fixed responses served by the server alone. |
+| [traffic_rules](traffic_rules/) | Server-side request rules on a site: rate limits, WAF-lite, fallbacks, a hostname's own error pages. |
 | [visitor_auth](visitor_auth/) | Visitor login gates: server-wide password, client-set override, and `public:`. |
 | [allowed_ips](allowed_ips/) | Restrict a service to specific visitor IPs/CIDRs, per service. |
 | [random_subdomain](random_subdomain/) | Preview environments on random subdomains, kept out of search engines. |

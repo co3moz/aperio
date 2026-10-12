@@ -110,7 +110,7 @@ The request that finds an empty pool is **held**, not failed, and re-dispatched 
 
 The hold releases its global concurrency slot first. Otherwise a hundred visitors waiting 45 seconds for one sleeping service would occupy every request slot on the server and take healthy services down with it.
 
-If the budget expires, the request answers the way an unreachable service does: a stale cached answer if the service opted into `resilience`, otherwise the `504`. A `fallbacks:` redirect is decided earlier in the request path and applies to a route with no candidate at all, not after a cold-start budget has already been spent.
+If the budget expires, the request answers the way an unreachable service does: a stale cached answer if the service opted into `resilience`, otherwise the `504`. A site's `fallback` redirect is decided earlier in the request path and applies to a route with no candidate at all, not after a cold-start budget has already been spent.
 
 Three things deliberately do **not** trigger a cold start:
 

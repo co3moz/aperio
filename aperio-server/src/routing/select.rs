@@ -301,7 +301,7 @@ pub(crate) async fn pick_proxy_client(
   visitor_ip: Option<IpAddr>,
   // Which side of a route's canary split this request belongs on, already
   // decided from the route policy, the request's headers and the visitor.
-  canary: Option<(&str, crate::static_routes::Side)>,
+  canary: Option<(&str, crate::sites::Side)>,
 ) -> PickOutcome {
   let clients = state.clients.read().await;
   let Some((pool, group_key)) = select_client_pool(
@@ -465,7 +465,7 @@ pub(crate) async fn route_declaration_pending(state: &AppState) -> bool {
 fn narrow_to_side(
   pool: &[ServiceRef],
   clients: &HashMap<String, ClientHandle>,
-  (service, side): (&str, crate::static_routes::Side),
+  (service, side): (&str, crate::sites::Side),
 ) -> Vec<ServiceRef> {
   pool
     .iter()
@@ -475,8 +475,8 @@ fn narrow_to_side(
         .and_then(|s| s.service_name.as_deref())
         .is_some_and(|name| name == service);
       match side {
-        crate::static_routes::Side::Canary => is_canary,
-        crate::static_routes::Side::Stable => !is_canary,
+        crate::sites::Side::Canary => is_canary,
+        crate::sites::Side::Stable => !is_canary,
       }
     })
     .cloned()

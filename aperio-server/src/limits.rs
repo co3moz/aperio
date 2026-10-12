@@ -20,7 +20,7 @@ pub(crate) enum Limit {
   Ip,
   /// The server's own in-flight ceiling, across every service.
   ServerConcurrency,
-  /// A `rate_limits:` rule matching this hostname and path prefix.
+  /// A site's `rate_limit` matching this hostname and path prefix.
   Route,
   /// The chosen client announced a `max_concurrent` and nothing freed up
   /// before the gateway timeout.
@@ -57,7 +57,7 @@ impl Limit {
     match self {
       Limit::Ip => "limits.ip_rate",
       Limit::ServerConcurrency => "limits.concurrent_requests",
-      Limit::Route => "rate_limits",
+      Limit::Route => "sites",
       Limit::ClientConcurrency => "max_concurrent",
       Limit::TokenRate => "token.max_rps",
       Limit::TokenQuota => "token.daily_max_bytes",
@@ -74,7 +74,7 @@ impl Limit {
       Limit::ServerConcurrency => {
         "server-wide in-flight request limit (limits.concurrent_requests in the server settings)"
       }
-      Limit::Route => "per-route rate limit (a rate_limits: rule matched this hostname and path)",
+      Limit::Route => "per-site rate limit (a site's rate_limit matched this hostname and path)",
       Limit::StreamsPerIp => {
         "the per-visitor limit on concurrently open streamed responses (limits.streams_per_ip in the server settings)"
       }

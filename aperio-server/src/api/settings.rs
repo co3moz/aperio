@@ -90,7 +90,10 @@ pub(crate) async fn settings_put_handler(
   }
   let new: ServerSettings = match serde_json::from_value(payload) {
     Ok(s) => s,
-    Err(e) => return (StatusCode::BAD_REQUEST, format!("settings: {e}")).into_response(),
+    Err(e) => {
+      let msg = aperio_config::removed::with_settings_hint(format!("settings: {e}"));
+      return (StatusCode::BAD_REQUEST, msg).into_response();
+    }
   };
   let changed = crate::live::current().changed_paths(&new);
   if let Err(resp) = authorize_change(&state, &headers, &changed).await {

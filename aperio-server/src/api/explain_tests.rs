@@ -171,10 +171,9 @@ fn step<'a>(body: &'a serde_json::Value, stage: &str) -> &'a serde_json::Value {
 #[tokio::test]
 async fn a_waf_rule_that_would_block_the_path_is_the_answer() {
   let (state, body) = {
-    let doc = "waf:\n  - path: \"^/\\\\.git\"\n";
-
     let mut cfg = test_config();
-    cfg.waf = crate::test_support::rules(doc, "waf", crate::waf::from_section);
+    cfg.sites =
+      crate::test_support::sites("- hostname: \"*\"\n  waf:\n    - path: \"^/\\\\.git\"\n");
     let state = Arc::new(test_state_with(cfg));
     let headers = admin_headers(&state).await;
     let body =
@@ -192,12 +191,10 @@ async fn a_route_rate_limit_is_reported_without_being_spent() {
   // Asking why a request is refused must not spend the budget it is asking
   // about, so this stage reports the rule rather than consuming a token.
   let body = {
-    let doc =
-      "rate_limits:\n  - hostname: app.example.com\n    path: /api\n    rps: 5\n    burst: 10\n";
-
     let mut cfg = test_config();
-    cfg.route_limits =
-      crate::test_support::rules(doc, "rate_limits", crate::route_limits::from_section);
+    cfg.sites = crate::test_support::sites(
+      "- hostname: app.example.com\n  path: /api\n  rate_limit: {rps: 5, burst: 10}\n",
+    );
     let state = Arc::new(test_state_with(cfg));
     let headers = admin_headers(&state).await;
     json_body(explain(&state, headers, q("app.example.com/api/x", None)).await).await
@@ -212,10 +209,10 @@ async fn a_route_rate_limit_is_reported_without_being_spent() {
 #[tokio::test]
 async fn a_fallback_answers_where_the_504_would_have_been() {
   let body = {
-    let doc = "fallbacks:\n  - hostname: app.example.com\n    url: https://status.example.com\n";
-
     let mut cfg = test_config();
-    cfg.fallbacks = crate::test_support::rules(doc, "fallbacks", crate::fallbacks::from_section);
+    cfg.sites = crate::test_support::sites(
+      "- hostname: app.example.com\n  fallback: {url: \"https://status.example.com\"}\n",
+    );
     let state = Arc::new(test_state_with(cfg));
     let headers = admin_headers(&state).await;
     json_body(explain(&state, headers, q("app.example.com", None)).await).await
@@ -228,18 +225,10 @@ async fn a_fallback_answers_where_the_504_would_have_been() {
 
 #[tokio::test]
 async fn a_static_route_answers_before_any_client_does() {
-  use crate::static_routes::{RouteRule, StaticRoutes};
   let mut cfg = test_config();
-  cfg.static_routes = StaticRoutes::compile(vec![RouteRule {
-    hostname: Some("app.example.com".to_string()),
-    path: Some("/old".to_string()),
-    redirect: Some("https://new.example.com".to_string()),
-    permanent: true,
-    preserve_path: false,
-    respond: None,
-    ..Default::default()
-  }])
-  .unwrap();
+  cfg.sites = crate::test_support::sites(
+    "- hostname: app.example.com\n  path: /old\n  redirect: {url: \"https://new.example.com\", permanent: true}\n",
+  );
   let state = Arc::new(test_state_with(cfg));
   state.clients.write().await.insert(
     "c1".to_string(),
@@ -251,7 +240,7 @@ async fn a_static_route_answers_before_any_client_does() {
   assert_eq!(body["outcome"], "static_route");
   assert!(body["summary"].as_str().unwrap().contains("301"));
   // The client is still reported, which is the point of reporting every stage:
-  // "the route is fine, a routes: rule is what answers" is a different fix
+  // "the route is fine, a site is what answers" is a different fix
   // from "no client is connected".
   assert_eq!(step(&body, "routing")["verdict"], "passes");
   assert!(
@@ -334,17 +323,9 @@ async fn a_maintenance_window_and_reason_are_in_the_detail() {
 #[tokio::test]
 async fn a_static_route_that_answers_is_the_decision() {
   let mut cfg = test_config();
-  cfg.static_routes =
-    crate::static_routes::StaticRoutes::compile(vec![crate::static_routes::RouteRule {
-      hostname: Some("old.example.com".to_string()),
-      path: None,
-      redirect: Some("https://new.example.com".to_string()),
-      permanent: true,
-      preserve_path: false,
-      respond: None,
-      ..Default::default()
-    }])
-    .unwrap();
+  cfg.sites = crate::test_support::sites(
+    "- hostname: old.example.com\n  redirect: {url: \"https://new.example.com\", permanent: true}\n",
+  );
   let state = Arc::new(test_state_with(cfg));
   let headers = admin_headers(&state).await;
   let body = json_body(explain(&state, headers.clone(), q("old.example.com", None)).await).await;
@@ -353,7 +334,7 @@ async fn a_static_route_that_answers_is_the_decision() {
   assert!(detail.contains("301"), "{detail}");
   assert!(detail.contains("https://new.example.com"), "{detail}");
 
-  // A hostname the rules do not answer passes the stage instead.
+  // A hostname no site answers passes the stage instead.
   let body = json_body(explain(&state, headers, q("other.example.com", None)).await).await;
   assert_eq!(step(&body, "static_route")["verdict"], "passes");
 }
@@ -361,10 +342,9 @@ async fn a_static_route_that_answers_is_the_decision() {
 #[tokio::test]
 async fn a_waf_that_matches_nothing_passes_with_the_caveat() {
   let body = {
-    let doc = "waf:\n  - path: \"^/\\\\.git\"\n";
-
     let mut cfg = test_config();
-    cfg.waf = crate::test_support::rules(doc, "waf", crate::waf::from_section);
+    cfg.sites =
+      crate::test_support::sites("- hostname: \"*\"\n  waf:\n    - path: \"^/\\\\.git\"\n");
     let state = Arc::new(test_state_with(cfg));
     let headers = admin_headers(&state).await;
     json_body(explain(&state, headers, q("app.example.com/ok", None)).await).await
@@ -433,11 +413,11 @@ async fn every_ineligible_reason_is_named() {
 #[tokio::test]
 async fn an_armed_cold_start_and_a_fallback_are_reported_in_that_order() {
   let body = {
-    let doc = "fallbacks:\n  - hostname: app.example.com\n    url: https://status.example.com\n";
-
     let mut cfg = test_config();
     cfg.scaling_enabled = true;
-    cfg.fallbacks = crate::test_support::rules(doc, "fallbacks", crate::fallbacks::from_section);
+    cfg.sites = crate::test_support::sites(
+      "- hostname: app.example.com\n  fallback: {url: \"https://status.example.com\"}\n",
+    );
     let state = Arc::new(test_state_with(cfg));
     {
       let mut store = state.scaling_store.lock().await;

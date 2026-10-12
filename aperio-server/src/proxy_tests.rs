@@ -9,7 +9,7 @@ use crate::protocol::TunnelMessage;
 use crate::settings::{FailoverMode, ServerConfig};
 use crate::state::TunnelResponse;
 use crate::store::tokens::TokenSpec;
-use crate::test_support::{mock_client, test_config, test_peer, test_state_with};
+use crate::test_support::{mock_client, sites, test_config, test_peer, test_state_with};
 use axum::body::Body;
 use axum::extract::ws::Message;
 use axum::extract::{ConnectInfo, State};
@@ -62,9 +62,9 @@ pub(crate) async fn gateway_timeout_response_plain_and_custom() {
   let resp = gateway_timeout_response(&state, None, "504 fallback");
   assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
 
-  // Custom global 504 page → HTML.
+  // The `*` site's 504 page → HTML.
   let mut cfg = test_config();
-  cfg.custom_504_page = Some("<h1>down</h1>".to_string());
+  cfg.sites = sites("- hostname: \"*\"\n  pages: {unavailable: \"<h1>down</h1>\"}\n");
   let state = test_state_with(cfg);
   let resp = gateway_timeout_response(&state, None, "504 fallback");
   assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
@@ -83,7 +83,7 @@ pub(crate) async fn maintenance_response_sets_retry_after() {
   assert_eq!(resp.headers().get("retry-after").unwrap(), "300");
 
   let mut cfg = test_config();
-  cfg.custom_503_page = Some("<h1>maint</h1>".to_string());
+  cfg.sites = sites("- hostname: \"*\"\n  pages: {maintenance: \"<h1>maint</h1>\"}\n");
   let state = test_state_with(cfg);
   let resp = maintenance_response(&state, None, &open);
   assert_eq!(

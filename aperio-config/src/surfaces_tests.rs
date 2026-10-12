@@ -62,7 +62,7 @@ fn doc(relative: &str) -> String {
 /// Documentation spells a setting in one of four places, and all four have to
 /// count or the check demands rows that are already there: inline code and
 /// fenced blocks in Markdown, and `\code{}` and the verbatim environments in
-/// LaTeX. The book documents `maintenance_windows` and `fallbacks` only inside
+/// LaTeX. The book documented `maintenance_windows` and `fallbacks` only inside
 /// a `codecard`, which a stricter first attempt reported as undocumented.
 fn documented_spans(text: &str) -> String {
   let mut out = String::new();

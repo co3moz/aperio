@@ -53,7 +53,7 @@ The *Webhook Inbox* pane (under *Settings*, beside *Webhooks*) shows the inbound
 
 ![Topology map: routes, tunnel clients, and backends](images/dashboard-topology.png)
 
-The *Topology* page (Traffic group) draws the reverse-tunnel mesh as a live three-column map, routes → tunnel clients → backends, with a per-client live request rate on the edge, health-colored (green healthy, amber draining or failing backend probes, red unhealthy / disabled / ejected). Unlike the clients table it also shows the routing the server owns with **no live client**: static `routes:` (redirects / fixed responses) and public `expose:` ports as self-contained nodes, and token-granted binds that no client currently serves as dashed **offline** nodes, so "the service that should be up but isn't" is visible at a glance. It also draws **client-to-client dependencies**: another machine dialing a client's tunnel with `--bind-tunnels` appears as an amber node pointing at the client that declares it, so a database three machines bind locally is visibly three services that stop working when the declaring client goes away. A consumer has no client id (it opens a fresh WebSocket per connection), so it is identified by the address it dialed from, which means several processes behind one NAT or one Kubernetes node are a single node, the right grain for "who depends on this tunnel". An edge outlives its connections by fifteen minutes, because a consumer that has just finished a query is idle rather than gone, and an idle one is drawn dashed. Backed by its own `/api/topology` endpoint. See [Response Caching](caching.md) and [Routing & Load Balancing](routing-and-load-balancing.md) for the underlying concepts.
+The *Topology* page (Traffic group) draws the reverse-tunnel mesh as a live three-column map, routes → tunnel clients → backends, with a per-client live request rate on the edge, health-colored (green healthy, amber draining or failing backend probes, red unhealthy / disabled / ejected). Unlike the clients table it also shows the routing the server owns with **no live client**: the sites that answer by themselves (redirects / fixed responses) and public `expose:` ports as self-contained nodes, and token-granted binds that no client currently serves as dashed **offline** nodes, so "the service that should be up but isn't" is visible at a glance. It also draws **client-to-client dependencies**: another machine dialing a client's tunnel with `--bind-tunnels` appears as an amber node pointing at the client that declares it, so a database three machines bind locally is visibly three services that stop working when the declaring client goes away. A consumer has no client id (it opens a fresh WebSocket per connection), so it is identified by the address it dialed from, which means several processes behind one NAT or one Kubernetes node are a single node, the right grain for "who depends on this tunnel". An edge outlives its connections by fifteen minutes, because a consumer that has just finished a query is idle rather than gone, and an idle one is drawn dashed. Backed by its own `/api/topology` endpoint. See [Response Caching](caching.md) and [Routing & Load Balancing](routing-and-load-balancing.md) for the underlying concepts.
 
 ## Route trends
 
@@ -99,7 +99,7 @@ Admins see every live dashboard session on the Users page, who is signed in, fro
 
 ![Maintenance: the per-hostname 503 switch, with each flag's reason and when it lifts](images/dashboard-maintenance.png)
 
-Put a hostname into maintenance: visitors get a 503 page (customizable via `pages.maintenance` (yaml `503_page`), served with `Retry-After`) while tunnel clients stay connected. Like bind overrides it is in-memory and cleared on restart. Toggles are audited and emitted as `maintenance_on` / `maintenance_off` webhook events.
+Put a hostname into maintenance: visitors get a 503 page (customizable with a site's `pages.maintenance`, served with `Retry-After`) while tunnel clients stay connected. Like bind overrides it is in-memory and cleared on restart. Toggles are audited and emitted as `maintenance_on` / `maintenance_off` webhook events.
 
 Four shapes are accepted, the same three an organization's hostname allowlist is written in plus the server-wide one:
 
@@ -114,19 +114,20 @@ A flag carries a **reason** and, optionally, a **window**. The reason is shown o
 
 Clearing a flag is the organization's own, with one exception: master may clear any flag, including one whose organization has since been deleted. Deleting an organization also clears the flags it owned, so a tenant cannot leave a hostname answering 503 behind it.
 
-### Recurring windows (`maintenance_windows`)
+### Recurring windows (a site's `maintenance`)
 
-A flag is a switch somebody flips, which covers the unplanned outage. A window that comes round every week is standing configuration instead, so it is a server setting (**Settings → Pages & headers**): it survives a restart (runtime flags do not), applies without one, and travels in an export.
+A flag is a switch somebody flips, which covers the unplanned outage. A window that comes round every week is standing configuration instead, so it is a server setting, on a site (**Settings → Sites**): it survives a restart (runtime flags do not), applies without one, and travels in an export.
 
 ```yaml
 # settings
-maintenance_windows:
-  - hostname: "*.example.com"   # same shapes as a flag; omit or "*" = every host
-    from: "02:00"               # local start, HH:MM
-    to: "04:00"                 # local end, exclusive
-    days: [sat, sun]            # omit = every day
-    tz: Europe/Istanbul         # IANA zone; default UTC
-    reason: weekly patching
+sites:
+  - hostname: "*.example.com"   # same shapes as a flag; "*" = every host
+    maintenance:
+      - from: "02:00"           # local start, HH:MM
+        to: "04:00"             # local end, exclusive
+        days: [sat, sun]        # omit = every day
+        tz: Europe/Istanbul     # IANA zone; default UTC
+        reason: weekly patching
 ```
 
 While a window is running, matching hostnames answer exactly as a flag would, reason and all, with `Retry-After` pointing at the end of the window. `to` earlier than `from` wraps past midnight, and `days` then names the day the window **starts**: `22:00` to `02:00` on `[sat]` runs Saturday night into Sunday morning. Use a named zone rather than a fixed offset, so 02:00 stays 02:00 across a daylight-saving change. A malformed entry is refused when the settings are saved rather than being skipped, because a window that silently never fires is a deploy nobody stopped.
@@ -161,7 +162,7 @@ The settings sit in one accordion, grouped by what they govern; **Export & Impor
 | **Caching** | The response cache: on/off, its memory budget, and how long an expired entry may still answer while a resilient service has no healthy client (`cache.enabled`, `cache.size`, `cache.max_stale`). Disabling it clears the stored entries. |
 | **Stream Flow Control** | The backpressure watermarks: the backlog at which a producing client is told to pause, the one at which it resumes, and the hard cap past which a stream whose producer cannot be paused is dropped (`stream.pause_at`, `stream.resume_at`, `stream.backlog_limit`). |
 | **Security & Audit** | Login brute-force lockout (threshold and base duration, which doubles per repeat) and `audit.jsonl` rotation size and generations kept (`security.login_lockout`, `audit.max_size`, `audit.max_files`). |
-| **Visitor Experience** | Default dashboard/login language, the visitor password gate in front of all proxied traffic, and custom 504/503 HTML (`dashboard.ui_language`, `access.gate`, `pages.unavailable`, `pages.maintenance`). |
+| **Visitor Experience** | Default dashboard/login language, the visitor password gate in front of all proxied traffic, and custom 504/503 HTML (`dashboard.ui_language`, `access.gate`, and the `*` site's `pages`). |
 | **Export & Import** | The server as one JSON document, to move a deployment or keep a copy. A checkbox per section decides what travels: the six that rebuild a deployment (tokens, webhooks, users, organizations, autoscaling, server settings) are on by default, and the history the store also holds (statistics, uptime, the webhook inbox, admin API keys) is there for the asking. Leave **Organizations** out and only the master organization's rows travel, its statistics included, because a row whose organization does not exist on the target is an orphan; the pane says so before you download. Sessions and the audit log are never exported. |
 
 
@@ -190,7 +191,7 @@ Both are organization-scoped, like every other traffic view. Refusals count too:
 
 The **Topology** page carries a box that answers the question a dashboard could never answer before: *why would a request to this hostname get that answer*. Type a hostname (or paste a URL) and the server walks the same decisions the proxy makes, in the same order, and marks the one that decides:
 
-maintenance flag → `routes:` rule → preview `robots.txt` → `waf:` deny → `rate_limits:` rule → visitor gate → client selection → `fallbacks:` rule or the 504.
+maintenance flag → a site that answers by itself → preview `robots.txt` → a site's `waf` deny → a site's `rate_limit` → visitor gate → client selection → the hostname's `fallback` or the 504.
 
 Every stage reports, not only the deciding one, which is the point: "the route is fine, a maintenance flag someone else set is what is answering" is a different fix from "no client is connected". When nothing serves the route, the report also names the clients that *could* have and why they did not, draining, disabled, failing their backend probe, missed heartbeats, or a path bind that does not match.
 

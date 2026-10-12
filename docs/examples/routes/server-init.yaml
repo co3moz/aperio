@@ -8,15 +8,16 @@
 # with `GET /aperio/api/export?include=settings`.
 
 settings:
-  # Server-answered routes, no tunnel client involved. First match wins, in
-  # list order; each rule carries exactly one action.
-  routes:
+  # Sites that answer by themselves, no tunnel client involved. Each gives
+  # exactly one answer, `redirect` or `respond`.
+  sites:
     # Vanity redirect: the old domain permanently forwards to the new one,
     # keeping the request path and query.
     - hostname: old.example.com
-      redirect: https://new.example.com
-      permanent: true
-      preserve_path: true
+      redirect:
+        url: https://new.example.com
+        permanent: true
+        preserve_path: true
 
     # A hostname whose client is not deployed yet.
     - hostname: soon.example.com
@@ -25,7 +26,8 @@ settings:
         body: "<h1>Coming soon</h1>"
 
     # A fixed robots.txt on every hostname.
-    - path: /robots.txt
+    - hostname: "*"
+      path: /robots.txt
       respond:
         content_type: text/plain
         body: "User-agent: *\nDisallow: /\n"

@@ -2,8 +2,8 @@
 //!
 //! Unlike the Clients table, which lists *connected* tunnel clients, this
 //! endpoint answers "how is a request routed", including routing the server
-//! itself owns with no tunnel client behind it: the client-less static
-//! `routes:` (redirect / fixed response) and the experimental public `expose:`
+//! itself owns with no tunnel client behind it: the sites that answer by
+//! themselves (redirect / fixed response) and the experimental public `expose:`
 //! TCP ports. Live clients are scoped to the caller's organization exactly like
 //! `/api/stats`; the client-less, server-level routing is master-only.
 
@@ -13,11 +13,11 @@ use std::sync::Arc;
 
 use crate::state::{AppState, ClientDetail};
 
-/// A client-less static route (the `routes:` section): a hostname/path that
-/// resolves to a server-produced redirect or fixed response, no client involved.
+/// A site that answers by itself: a hostname/path that resolves to a
+/// server-produced redirect or fixed response, no client involved.
 #[derive(Serialize, utoipa::ToSchema)]
 pub(crate) struct TopoStaticRoute {
-  /// Hostname matched exactly (None = any host).
+  /// Hostname or pattern matched (None = every hostname).
   pub(crate) hostname: Option<String>,
   /// Path prefix matched (None = any path).
   pub(crate) path: Option<String>,
@@ -129,27 +129,22 @@ pub(crate) async fn topology_handler(
     let cfg = state.config();
 
     cfg
-      .static_routes
-      .rules()
+      .sites
+      .all()
       .iter()
-      .map(|r| {
-        let (action, target, status) = if let Some(t) = &r.redirect {
-          (
-            "redirect",
-            Some(t.clone()),
-            if r.permanent { 301 } else { 302 },
-          )
-        } else {
-          let status = r.respond.as_ref().map(|x| x.status).unwrap_or(200);
-          ("respond", None, status)
+      .filter_map(|site| {
+        let answer = site.answer.as_ref()?;
+        let (action, target) = match answer {
+          crate::sites::Answer::Redirect(r) => ("redirect", Some(r.url.clone())),
+          crate::sites::Answer::Respond(_) => ("respond", None),
         };
-        TopoStaticRoute {
-          hostname: r.hostname.clone(),
-          path: r.path.clone(),
+        Some(TopoStaticRoute {
+          hostname: (site.hostname != "*").then(|| site.hostname.clone()),
+          path: site.path.clone(),
           action: action.to_string(),
           target,
-          status,
-        }
+          status: answer.status(),
+        })
       })
       .collect()
   } else {

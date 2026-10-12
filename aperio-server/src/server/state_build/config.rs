@@ -197,15 +197,6 @@ pub(crate) fn build_config(
     ));
   }
 
-  for (field, page) in [
-    ("pages.unavailable", &s.pages.unavailable),
-    ("pages.maintenance", &s.pages.maintenance),
-  ] {
-    if page.as_ref().is_some_and(|html| html.len() > 512 * 1024) {
-      return Err(format!("{field}: exceeds 512KB"));
-    }
-  }
-
   for (field, rate) in [
     ("logging.sample_rate", s.logging.sample_rate),
     ("otel.sample_rate", s.otel.sample_rate),
@@ -293,8 +284,6 @@ pub(crate) fn build_config(
     random_subdomain_suffix,
     client_down_threshold: secs(s.gateway.client_down_threshold).max(Duration::from_secs(1)),
     tunnel_compression: s.tunnel.compression,
-    custom_504_page: s.pages.unavailable.clone().filter(|v| !v.is_empty()),
-    custom_503_page: s.pages.maintenance.clone().filter(|v| !v.is_empty()),
     lb_strategy: s.routing.lb_strategy,
     failover_mode: s.failover.mode,
     failover_max_jumps: s.failover.max_jumps,
@@ -325,16 +314,8 @@ pub(crate) fn build_config(
     audit_max_size: s.audit.max_size.0,
     audit_max_files: s.audit.max_files as usize,
     ui_language,
-    header_rules: crate::headers::from_section(
-      serde_yaml::to_value(&s.headers).ok().map(without_nulls),
-    )?,
-    static_routes: crate::static_routes::from_section(section(&s.routes))?,
-    error_pages: crate::error_pages::from_section(section(&s.error_pages))?,
-    route_limits: crate::route_limits::from_section(section(&s.rate_limits))?,
-    fallbacks: crate::fallbacks::from_section(section(&s.fallbacks))?,
-    waf: crate::waf::from_section(section(&s.waf))?,
+    sites: crate::sites::Sites::compile(&s.sites)?,
     alert_rules: crate::alert_rules::from_section(section(&s.alerts.rules))?,
-    maintenance_windows: crate::maintenance_windows::from_section(section(&s.maintenance_windows))?,
     denied_ips,
     identity_headers: s.identity_headers.serving,
     visitor_identity_headers: s.identity_headers.visitor,

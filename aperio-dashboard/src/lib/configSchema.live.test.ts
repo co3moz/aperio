@@ -73,7 +73,7 @@ describe('the server settings through the builder', () => {
     for (const section of ['limits', 'gateway', 'routing', 'proxy', 'cache', 'oidc']) {
       expect(find(serverFields, section)?.kind, section).toBe('object')
     }
-    expect(find(serverFields, 'rate_limits')?.kind).toBe('objectList')
+    expect(find(serverFields, 'sites')?.kind).toBe('objectList')
   })
 })
 
@@ -113,16 +113,17 @@ describe('every setting reaches an editor', () => {
   })
 
   it('has only the same holes in the server schema', () => {
-    // `routes.headers.*` is the same shape reached through a policy rule,
-    // `access.gate.claims` is the claim map a `jwt` method requires, and
-    // `otel.headers` is a map of header names to values.
+    // `sites.headers.*` is the header shape reached through a site,
+    // `sites.waf.header` is a block two lists deep, which the builder leaves
+    // to the yaml view on purpose, `access.gate.claims` is the claim map a
+    // `jwt` method requires, and `otel.headers` is a map of header names to
+    // values.
     expect(unsupported(serverFields).sort()).toEqual([
       'access.gate.claims',
-      'headers.request.add',
-      'headers.response.add',
       'otel.headers',
-      'routes.headers.request',
-      'routes.headers.response',
+      'sites.headers.request',
+      'sites.headers.response',
+      'sites.waf.header',
     ])
   })
 })

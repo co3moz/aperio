@@ -183,8 +183,6 @@ pub(crate) fn test_config() -> ServerConfig {
     random_subdomain_suffix: None,
     client_down_threshold: TEST_THRESHOLD,
     tunnel_compression: false,
-    custom_504_page: None,
-    custom_503_page: None,
     lb_strategy: LbStrategy::RoundRobin,
     failover_mode: FailoverMode::Fail,
     failover_max_jumps: 2,
@@ -204,13 +202,7 @@ pub(crate) fn test_config() -> ServerConfig {
     audit_max_size: 10 * 1024 * 1024,
     audit_max_files: 3,
     ui_language: "en".to_string(),
-    header_rules: Default::default(),
-    static_routes: Default::default(),
-    error_pages: Default::default(),
-    route_limits: Default::default(),
-    fallbacks: Default::default(),
-    waf: Default::default(),
-    maintenance_windows: Default::default(),
+    sites: Default::default(),
     alert_rules: Default::default(),
     denied_ips: Default::default(),
     identity_headers: false,
@@ -574,13 +566,6 @@ pub(crate) fn sent_message(msg: &Message) -> Option<crate::protocol::TunnelMessa
   }
 }
 
-/// The `key` section of a yaml settings document, the way the rule modules
-/// receive it: `None` when the document does not write it.
-pub(crate) fn section(doc: &str, key: &str) -> Option<serde_yaml::Value> {
-  let map: serde_yaml::Mapping = serde_yaml::from_str(doc).unwrap_or_default();
-  map.get(key).cloned()
-}
-
 /// The gate a single `user:password` compiles to, the shape most proxy tests
 /// put in front of a route.
 pub(crate) fn basic_gate(credential: &str) -> crate::visitor_auth::Policy {
@@ -589,12 +574,10 @@ pub(crate) fn basic_gate(credential: &str) -> crate::visitor_auth::Policy {
   ))
 }
 
-/// The `key` section of a yaml settings document, compiled by a rule module's
-/// `from_section`. A refusal panics: a test's document is meant to be valid.
-pub(crate) fn rules<T>(
-  doc: &str,
-  key: &str,
-  compile: fn(Option<serde_yaml::Value>) -> Result<T, String>,
-) -> T {
-  compile(section(doc, key)).unwrap_or_else(|e| panic!("{key}: {e}"))
+/// A `sites` list written as yaml, compiled. A refusal panics: a test's
+/// sites are meant to be valid.
+pub(crate) fn sites(yaml: &str) -> crate::sites::Sites {
+  let raw: Vec<aperio_config::Site> =
+    serde_yaml::from_str(yaml).unwrap_or_else(|e| panic!("sites: {e}"));
+  crate::sites::Sites::compile(&raw).unwrap_or_else(|e| panic!("sites: {e}"))
 }

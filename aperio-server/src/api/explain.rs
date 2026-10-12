@@ -86,7 +86,7 @@ pub(crate) struct Step {
   pub(crate) params: Option<serde_json::Value>,
   /// Where the rule behind it lives, when it has a home an operator edits.
   ///
-  /// A literal config key (`routes:`, `waf:`) where there is one, and a
+  /// A literal setting (`sites`, `limits.ip_rate`) where there is one, and a
   /// `setting_code` beside it where the answer is prose rather than a key.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub(crate) setting: Option<&'static str>,
@@ -435,15 +435,15 @@ pub(crate) async fn explain_handler(
     )),
   }
 
-  // 2. Client-less routes.
-  if cfg.static_routes.is_empty() {
+  // 2. A site that answers by itself.
+  if cfg.sites.is_empty() {
     steps.push(Step::new(
       "static_route",
       Verdict::Skipped,
       "static_route.none_configured",
-      "no routes: rules configured",
+      "no sites configured",
     ));
-  } else if let Some(answer) = cfg.static_routes.answer(Some(&hostname), &path, None) {
+  } else if let Some(answer) = cfg.sites.answer(Some(&hostname), &path, None) {
     let status = answer.status();
     let location = answer
       .headers()
@@ -451,7 +451,7 @@ pub(crate) async fn explain_handler(
       .and_then(|v| v.to_str().ok())
       .map(|l| format!(" to {l}"))
       .unwrap_or_default();
-    let detail = format!("{status}: a routes: rule answers this path{location}");
+    let detail = format!("{status}: a site answers this path by itself{location}");
     let target = answer
       .headers()
       .get("location")
@@ -471,14 +471,14 @@ pub(crate) async fn explain_handler(
     steps.push(
       Step::new("static_route", Verdict::Decides, code, detail)
         .with(params)
-        .from("routes:"),
+        .from("sites"),
     );
   } else {
     steps.push(Step::new(
       "static_route",
       Verdict::Passes,
       "static_route.no_match",
-      "no routes: rule matches this hostname and path",
+      "no site answers this hostname and path by itself",
     ));
   }
 
@@ -511,15 +511,19 @@ pub(crate) async fn explain_handler(
 
   // 4. WAF deny rules. Header rules cannot be judged without a real request,
   // so the report says so rather than implying the path is clean.
-  if cfg.waf.is_empty() {
+  if !cfg.sites.has_waf() {
     steps.push(Step::new(
       "waf",
       Verdict::Skipped,
       "waf.none_configured",
-      "no waf: rules configured",
+      "no site has waf rules",
     ));
-  } else if let Some(reason) = cfg.waf.deny_reason(&method, &path, &HeaderMap::new()) {
-    let detail = format!("403: blocked by a waf: rule ({reason})");
+  } else if let Some(reason) =
+    cfg
+      .sites
+      .waf_deny(Some(&hostname), &method, &path, &HeaderMap::new())
+  {
+    let detail = format!("403: blocked by a waf rule ({reason})");
     let params = serde_json::json!({ "reason": reason });
     decided(
       &mut outcome,
@@ -531,7 +535,7 @@ pub(crate) async fn explain_handler(
     steps.push(
       Step::new("waf", Verdict::Decides, "waf.denied", detail)
         .with(params)
-        .from("waf:"),
+        .from("sites"),
     );
   } else {
     steps.push(
@@ -539,15 +543,15 @@ pub(crate) async fn explain_handler(
         "waf",
         Verdict::Passes,
         "waf.no_match",
-        "no waf: rule matches this method and path (header and body rules need a real request)",
+        "no waf rule matches this method and path (header and body rules need a real request)",
       )
-      .from("waf:"),
+      .from("sites"),
     );
   }
 
   // 5. Per-route rate limit. Reported as the rule, never consumed: asking
   // why a request is refused must not spend the budget it is asking about.
-  match cfg.route_limits.matched(Some(&hostname), &path, None) {
+  match cfg.sites.rate_limit_for(Some(&hostname), &path, None) {
     Some(rule) => steps.push(
       Step::new(
         "route_rate_limit",
@@ -557,7 +561,7 @@ pub(crate) async fn explain_handler(
           None => "route_rate_limit.covered",
         },
         format!(
-          "a rate_limits: rule covers this path ({} rps, burst {}{}); this dry run does not spend from it",
+          "a site's rate_limit covers this path ({} rps, burst {}{}); this dry run does not spend from it",
           rule.rps,
           rule.burst,
           match rule.methods.as_ref() {
@@ -571,7 +575,7 @@ pub(crate) async fn explain_handler(
         "burst": rule.burst,
         "methods": rule.methods.as_ref().map(|m| m.join("/")),
       }))
-      .from("rate_limits"),
+      .from("sites"),
     ),
     // Still names the key it looked in. A stage that says "nothing here"
     // without saying where it looked leaves the reader to guess which of the
@@ -581,7 +585,7 @@ pub(crate) async fn explain_handler(
         "route_rate_limit",
         Verdict::Skipped,
         "route_rate_limit.none",
-        "no rate_limits: rule covers this path",
+        "no site's rate_limit covers this path",
       )
       .from(crate::limits::Limit::Route.setting()),
     ),
@@ -964,14 +968,14 @@ pub(crate) async fn explain_handler(
         .from("scaling:"),
       );
     }
-    if let Some(rule) = cfg.fallbacks.matched(Some(&hostname)) {
+    if let Some(rule) = cfg.sites.fallback_for(Some(&hostname)) {
       let detail = format!(
-        "{}: the fallbacks: rule for this hostname redirects to {} instead of a 504",
-        if rule.permanent { 301 } else { 302 },
+        "{}: this hostname's fallback redirects to {} instead of a 504",
+        rule.status().as_u16(),
         rule.url
       );
       let params = serde_json::json!({
-        "status": if rule.permanent { 301 } else { 302 },
+        "status": rule.status().as_u16(),
         "url": rule.url,
       });
       decided(
@@ -984,10 +988,10 @@ pub(crate) async fn explain_handler(
       steps.push(
         Step::new("fallback", Verdict::Decides, "fallback.redirect", detail)
           .with(params)
-          .from("fallbacks:"),
+          .from("sites"),
       );
     } else {
-      let detail = "504: nothing serves this route, and no fallbacks: rule covers it".to_string();
+      let detail = "504: nothing serves this route, and no site gives it a fallback".to_string();
       decided(
         &mut outcome,
         "no_client",

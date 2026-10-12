@@ -1007,6 +1007,57 @@ pub fn server_env_hint(name: &str) -> Option<&'static str> {
     .map(|r| r.hint)
 }
 
+/// Sections of the server's settings that moved, and where to. A document
+/// written for the old shape is refused naming the key; this is what says
+/// where it went, so the refusal is the fix rather than a search.
+pub const REMOVED_SETTINGS: &[Removed] = &[
+  Removed {
+    key: "routes",
+    hint: "moved into `sites` in 0.13.0: an entry with a `hostname` (`*` for every one) and an optional `path`, with `redirect: {url: ...}` or `respond:` as its answer, or `timeout`, `headers`, `rate_limit`, `canary` as its policy.",
+  },
+  Removed {
+    key: "rate_limits",
+    hint: "moved into `sites` in 0.13.0: a site's `rate_limit: {rps, burst, methods}`.",
+  },
+  Removed {
+    key: "waf",
+    hint: "moved into `sites` in 0.13.0: a site's `waf:` list, on `hostname: \"*\"` for every hostname.",
+  },
+  Removed {
+    key: "fallbacks",
+    hint: "moved into `sites` in 0.13.0: a site's `fallback: {url, permanent, preserve_path}`.",
+  },
+  Removed {
+    key: "error_pages",
+    hint: "moved into `sites` in 0.13.0: a site's `pages: {unavailable, maintenance}`, the HTML itself rather than a file path.",
+  },
+  Removed {
+    key: "maintenance_windows",
+    hint: "moved into `sites` in 0.13.0: a site's `maintenance:` list, without the `hostname`, which the site gives.",
+  },
+  Removed {
+    key: "headers",
+    hint: "moved into `sites` in 0.13.0: the `headers` of the `hostname: \"*\"` site.",
+  },
+  Removed {
+    key: "pages",
+    hint: "moved into `sites` in 0.13.0: the `pages` of the `hostname: \"*\"` site.",
+  },
+];
+
+/// `error`, a refusal of a settings document, with where the key it names
+/// went when it is one of [`REMOVED_SETTINGS`].
+pub fn with_settings_hint(error: String) -> String {
+  let Some(rest) = error.split("unknown field `").nth(1) else {
+    return error;
+  };
+  let key = rest.split('`').next().unwrap_or_default();
+  match REMOVED_SETTINGS.iter().find(|r| r.key == key) {
+    Some(r) => format!("{error}. `{key}` {}", r.hint),
+    None => error,
+  }
+}
+
 #[cfg(test)]
 #[path = "removed_tests.rs"]
 mod tests;

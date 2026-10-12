@@ -27,24 +27,24 @@ export const EXPLAIN_MESSAGES: Record<string, string> = {
     '503: a maintenance flag set by {actor} covers this hostname ({reason}), lifting at unix {until}',
   'maintenance.none': 'no maintenance flag covers this hostname',
 
-  'static_route.none_configured': 'no routes: rules configured',
-  'static_route.answers': '{status}: a routes: rule answers this path',
-  'static_route.answers_location': '{status}: a routes: rule answers this path, to {location}',
-  'static_route.no_match': 'no routes: rule matches this hostname and path',
+  'static_route.none_configured': 'no sites configured',
+  'static_route.answers': '{status}: a site answers this path by itself',
+  'static_route.answers_location': '{status}: a site answers this path by itself, to {location}',
+  'static_route.no_match': 'no site answers this hostname and path by itself',
 
   'preview_noindex.robots':
     '200: preview_noindex answers /robots.txt itself, so this path never reaches a client',
 
-  'waf.none_configured': 'no waf: rules configured',
-  'waf.denied': '403: blocked by a waf: rule ({reason})',
+  'waf.none_configured': 'no site has waf rules',
+  'waf.denied': '403: blocked by a waf rule ({reason})',
   'waf.no_match':
-    'no waf: rule matches this method and path (header and body rules need a real request)',
+    'no waf rule matches this method and path (header and body rules need a real request)',
 
   'route_rate_limit.covered':
-    'a rate_limits: rule covers this path ({rps} rps, burst {burst}); this dry run does not spend from it',
+    "a site's rate_limit covers this path ({rps} rps, burst {burst}); this dry run does not spend from it",
   'route_rate_limit.covered_methods':
-    'a rate_limits: rule covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it',
-  'route_rate_limit.none': 'no rate_limits: rule covers this path',
+    "a site's rate_limit covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it",
+  'route_rate_limit.none': "no site's rate_limit covers this path",
 
   'visitor_gate.client_password':
     "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate",
@@ -69,8 +69,8 @@ export const EXPLAIN_MESSAGES: Record<string, string> = {
     'an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once',
 
   'fallback.redirect':
-    '{status}: the fallbacks: rule for this hostname redirects to {url} instead of a 504',
-  'no_client.504': '504: nothing serves this route, and no fallbacks: rule covers it',
+    "{status}: this hostname's fallback redirects to {url} instead of a 504",
+  'no_client.504': '504: nothing serves this route, and no site gives it a fallback',
 
   'client.reached': 'the request reaches a tunnel client ({clients})',
 

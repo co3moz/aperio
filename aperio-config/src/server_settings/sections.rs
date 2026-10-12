@@ -896,6 +896,8 @@ impl Default for Uptime {
   }
 }
 
+/// A site's own answer pages, the HTML itself. The `*` site's are the
+/// server's, used wherever no narrower site sets one.
 #[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct Pages {

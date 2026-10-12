@@ -8,8 +8,11 @@
 # with `GET /aperio/api/export?include=settings`.
 
 settings:
-  # Server-wide rules run in addition to the client's per-service rules.
-  headers:
-    response:
-      add:
-        Strict-Transport-Security: max-age=63072000
+  sites:
+    # `*` is every hostname. Its header edits run in addition to the client's
+    # per-service rules, and a narrower site's edits apply after these.
+    - hostname: "*"
+      headers:
+        response:
+          add:
+            Strict-Transport-Security: max-age=63072000

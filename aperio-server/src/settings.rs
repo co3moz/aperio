@@ -140,12 +140,6 @@ pub(crate) struct ServerConfig {
   /// When true, the server offers zlib compression to connecting clients;
   /// tunnel frames are compressed once the client acknowledges.
   pub(crate) tunnel_compression: bool,
-  /// Custom HTML page served on 504 gateway-timeout responses
-  /// (`pages.unavailable`).
-  pub(crate) custom_504_page: Option<String>,
-  /// Custom HTML page served while a hostname is in maintenance mode
-  /// (`pages.maintenance`).
-  pub(crate) custom_503_page: Option<String>,
   /// How a client is picked from the routed pool (routing.lb_strategy).
   pub(crate) lb_strategy: LbStrategy,
   /// What to do when a client is lost while a request is in flight.
@@ -242,26 +236,11 @@ pub(crate) struct ServerConfig {
   /// Default dashboard/login UI language (dashboard.ui_language), used when the
   /// visitor's browser language is not among the supported ones.
   pub(crate) ui_language: String,
-  /// Compiled server-side header rewrite rules (the `headers:` section of
-  /// aperio-server.yaml); file-only, not a dashboard override.
-  pub(crate) header_rules: crate::headers::HeaderTransforms,
-  /// Compiled client-less routes (the `routes:` section of
-  /// aperio-server.yaml); file-only, not a dashboard override.
-  pub(crate) static_routes: crate::static_routes::StaticRoutes,
-  /// Per-hostname custom 504/503 pages (the `error_pages:` section of
-  /// aperio-server.yaml); file-only, overrides the global pages per host.
-  pub(crate) error_pages: crate::error_pages::ErrorPages,
-  /// Per-route request rate limits (the `rate_limits:` section of
-  /// aperio-server.yaml); file-only, caps aggregate rps to a host+path.
-  pub(crate) route_limits: crate::route_limits::RouteLimits,
-  /// Per-hostname fallback URLs (the `fallbacks:` section of aperio-server.yaml).
-  pub(crate) fallbacks: crate::fallbacks::Fallbacks,
-  /// WAF-lite deny/size rules (the `waf:` section of aperio-server.yaml).
-  pub(crate) waf: crate::waf::WafRules,
+  /// What the server does for a hostname by itself: answers, policy on
+  /// proxied traffic, fallbacks, pages and maintenance windows (`sites`).
+  pub(crate) sites: crate::sites::Sites,
   /// Operator-defined alert rules (`alert_rules:`).
   pub(crate) alert_rules: crate::alert_rules::AlertRules,
-  /// Recurring maintenance windows (`maintenance_windows:`).
-  pub(crate) maintenance_windows: crate::maintenance_windows::MaintenanceWindows,
   /// Source IPs refused at the outermost layer (`denied_ips:`).
   pub(crate) denied_ips: crate::deny_list::DenyList,
   /// Announce the serving client, organization and token to the backend.

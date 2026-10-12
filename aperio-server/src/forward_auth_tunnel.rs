@@ -95,19 +95,14 @@ pub(crate) async fn ask_over_tunnel(
   };
   let canary_side = (method != axum::http::Method::CONNECT)
     .then(|| {
-      state
-        .config()
-        .static_routes
-        .policy_for(host, path)
-        .and_then(|rule| rule.canary.as_ref())
-        .map(|rule| {
-          let sent = rule
-            .header
-            .as_deref()
-            .and_then(|name| headers.get(name))
-            .and_then(|v| v.to_str().ok());
-          (rule.service.clone(), rule.side_for(sent, Some(visitor_ip)))
-        })
+      state.config().sites.canary_for(host, path).map(|rule| {
+        let sent = rule
+          .header
+          .as_deref()
+          .and_then(|name| headers.get(name))
+          .and_then(|v| v.to_str().ok());
+        (rule.service.clone(), rule.side_for(sent, Some(visitor_ip)))
+      })
     })
     .flatten();
   let canary = canary_side

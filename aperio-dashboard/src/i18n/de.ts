@@ -855,8 +855,10 @@ export const de: Record<string, string> = {
   'Where the server may call out to, and honouring client scaling blocks.': 'Wohin der Server hinausrufen darf, und das Beachten der Skalierungsblöcke der Clients.',
   'Edge integration': 'Edge-Integration',
   'Publishing the live hostnames to a reverse proxy in front of this server.': 'Veröffentlicht die aktiven Hostnames an einen Reverse-Proxy vor diesem Server.',
-  'Pages & headers': 'Seiten & Header',
-  'What visitors see on an error, and server-wide header rewriting.': 'Was Besucher bei einem Fehler sehen, und serverweites Umschreiben von Headern.',
+  'Sites':
+    'Sites',
+  'What the server does for a hostname by itself: answers, policy, fallbacks, pages and maintenance windows.':
+    'Was der Server für einen hostname selbst tut: Antworten, Richtlinien, Fallbacks, Seiten und Wartungsfenster.',
   'Process & maintenance': 'Prozess & Wartung',
   'Startup behaviour, backups, and the public expose ports.': 'Startverhalten, Sicherungen und die öffentlichen Expose-Ports.',
   'Settings': 'Einstellungen',
@@ -1060,28 +1062,28 @@ export const de: Record<string, string> = {
     '503: Ein von {actor} gesetztes Wartungskennzeichen deckt diesen hostname ab ({reason}), endet um unix {until}',
   'no maintenance flag covers this hostname':
     'kein Wartungskennzeichen deckt diesen hostname ab',
-  'no routes: rules configured':
-    'keine routes:-Regeln konfiguriert',
-  '{status}: a routes: rule answers this path':
-    '{status}: eine routes:-Regel beantwortet diesen path',
-  '{status}: a routes: rule answers this path, to {location}':
-    '{status}: eine routes:-Regel beantwortet diesen path, nach {location}',
-  'no routes: rule matches this hostname and path':
-    'keine routes:-Regel passt zu diesem hostname und path',
+  'no sites configured':
+    'keine Sites konfiguriert',
+  '{status}: a site answers this path by itself':
+    '{status}: eine Site beantwortet diesen path selbst',
+  '{status}: a site answers this path by itself, to {location}':
+    '{status}: eine Site beantwortet diesen path selbst, nach {location}',
+  'no site answers this hostname and path by itself':
+    'keine Site beantwortet diesen hostname und path selbst',
   '200: preview_noindex answers /robots.txt itself, so this path never reaches a client':
     '200: preview_noindex beantwortet /robots.txt selbst, dieser path erreicht also nie einen Client',
-  'no waf: rules configured':
-    'keine waf:-Regeln konfiguriert',
-  '403: blocked by a waf: rule ({reason})':
-    '403: von einer waf:-Regel blockiert ({reason})',
-  'no waf: rule matches this method and path (header and body rules need a real request)':
-    'keine waf:-Regel passt zu dieser Methode und diesem path (header- und Body-Regeln brauchen eine echte Anfrage)',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}); this dry run does not spend from it':
-    'eine rate_limits:-Regel deckt diesen path ab ({rps} rps, Burst {burst}); dieser Probelauf verbraucht nichts davon',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it':
-    'eine rate_limits:-Regel deckt diesen path ab ({rps} rps, Burst {burst}, nur {methods}); dieser Probelauf verbraucht nichts davon',
-  'no rate_limits: rule covers this path':
-    'keine rate_limits:-Regel deckt diesen path ab',
+  'no site has waf rules':
+    'keine Site hat waf-Regeln',
+  '403: blocked by a waf rule ({reason})':
+    '403: von einer waf-Regel blockiert ({reason})',
+  'no waf rule matches this method and path (header and body rules need a real request)':
+    'keine waf-Regel passt zu dieser Methode und diesem path (header- und Body-Regeln brauchen eine echte Anfrage)',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}); this dry run does not spend from it":
+    'das rate_limit einer Site deckt diesen path ab ({rps} rps, Burst {burst}); dieser Probelauf verbraucht nichts davon',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it":
+    'das rate_limit einer Site deckt diesen path ab ({rps} rps, Burst {burst}, nur {methods}); dieser Probelauf verbraucht nichts davon',
+  "no site's rate_limit covers this path":
+    'kein rate_limit einer Site deckt diesen path ab',
   "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
     'Besucher müssen sich anmelden (oder einen Freigabelink mitbringen), bevor dies einen Client erreicht: der ausliefernde Client hat für diese Route ein eigenes Besucherpasswort erklärt, das dem Tor des Servers vorgeht',
   "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
@@ -1104,10 +1106,10 @@ export const de: Record<string, string> = {
     'kein verbundener Client bedient diesen hostname und path, obwohl {count} es könnten: {ineligible}',
   'an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once':
     'für diese Bindung ist ein Autoscaling-Eintrag scharf, die Anfrage würde also gehalten, während Kapazität angefordert wird, statt sofort beantwortet zu werden',
-  '{status}: the fallbacks: rule for this hostname redirects to {url} instead of a 504':
-    '{status}: die fallbacks:-Regel für diesen hostname leitet auf {url} um statt auf einen 504',
-  '504: nothing serves this route, and no fallbacks: rule covers it':
-    '504: nichts bedient diese Route, und keine fallbacks:-Regel deckt sie ab',
+  "{status}: this hostname's fallback redirects to {url} instead of a 504":
+    '{status}: der fallback dieses hostname leitet auf {url} um statt auf einen 504',
+  '504: nothing serves this route, and no site gives it a fallback':
+    '504: nichts bedient diese Route, und keine Site gibt ihr einen fallback',
   'the request reaches a tunnel client ({clients})':
     'die Anfrage erreicht einen Tunnel-Client ({clients})',
   'disabled from the dashboard':

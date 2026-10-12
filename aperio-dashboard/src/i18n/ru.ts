@@ -853,8 +853,10 @@ export const ru: Record<string, string> = {
   'Where the server may call out to, and honouring client scaling blocks.': 'Куда сервер может обращаться и соблюдение клиентских блоков масштабирования.',
   'Edge integration': 'Интеграция с edge',
   'Publishing the live hostnames to a reverse proxy in front of this server.': 'Публикует активные hostname на обратный proxy перед этим сервером.',
-  'Pages & headers': 'Страницы и headers',
-  'What visitors see on an error, and server-wide header rewriting.': 'Что видят посетители при ошибке и переписывание headers на уровне сервера.',
+  'Sites':
+    'Сайты',
+  'What the server does for a hostname by itself: answers, policy, fallbacks, pages and maintenance windows.':
+    'Что сервер сам делает для hostname: ответы, политики, fallback, страницы и окна обслуживания.',
   'Process & maintenance': 'Процесс и обслуживание',
   'Startup behaviour, backups, and the public expose ports.': 'Поведение при запуске, резервные копии и публичные expose-порты.',
   'Settings': 'Настройки',
@@ -1058,28 +1060,28 @@ export const ru: Record<string, string> = {
     '503: отметка обслуживания, поставленная {actor}, покрывает этот hostname ({reason}), снимается в unix {until}',
   'no maintenance flag covers this hostname':
     'ни одна отметка обслуживания не покрывает этот hostname',
-  'no routes: rules configured':
-    'правила routes: не настроены',
-  '{status}: a routes: rule answers this path':
-    '{status}: правило routes: отвечает на этот path',
-  '{status}: a routes: rule answers this path, to {location}':
-    '{status}: правило routes: отвечает на этот path, перенаправляя на {location}',
-  'no routes: rule matches this hostname and path':
-    'ни одно правило routes: не подходит к этому hostname и path',
+  'no sites configured':
+    'сайты не настроены',
+  '{status}: a site answers this path by itself':
+    '{status}: сайт сам отвечает на этот path',
+  '{status}: a site answers this path by itself, to {location}':
+    '{status}: сайт сам отвечает на этот path, перенаправляя на {location}',
+  'no site answers this hostname and path by itself':
+    'ни один сайт не отвечает сам на этот hostname и path',
   '200: preview_noindex answers /robots.txt itself, so this path never reaches a client':
     '200: preview_noindex сам отвечает на /robots.txt, поэтому этот path никогда не доходит до клиента',
-  'no waf: rules configured':
-    'правила waf: не настроены',
-  '403: blocked by a waf: rule ({reason})':
-    '403: заблокировано правилом waf: ({reason})',
-  'no waf: rule matches this method and path (header and body rules need a real request)':
-    'ни одно правило waf: не подходит к этому методу и path (правила для header и тела требуют настоящего запроса)',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}); this dry run does not spend from it':
-    'правило rate_limits: покрывает этот path ({rps} rps, всплеск {burst}); этот пробный прогон из него не расходует',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it':
-    'правило rate_limits: покрывает этот path ({rps} rps, всплеск {burst}, только {methods}); этот пробный прогон из него не расходует',
-  'no rate_limits: rule covers this path':
-    'ни одно правило rate_limits: не покрывает этот path',
+  'no site has waf rules':
+    'ни у одного сайта нет правил waf',
+  '403: blocked by a waf rule ({reason})':
+    '403: заблокировано правилом waf ({reason})',
+  'no waf rule matches this method and path (header and body rules need a real request)':
+    'ни одно правило waf не подходит к этому методу и path (правила для header и тела требуют настоящего запроса)',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}); this dry run does not spend from it":
+    'rate_limit сайта покрывает этот path ({rps} rps, всплеск {burst}); этот пробный прогон из него не расходует',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it":
+    'rate_limit сайта покрывает этот path ({rps} rps, всплеск {burst}, только {methods}); этот пробный прогон из него не расходует',
+  "no site's rate_limit covers this path":
+    'ни один rate_limit сайта не покрывает этот path',
   "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
     'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: обслуживающий клиент объявил собственный пароль посетителя для этого маршрута, и он важнее собственной двери сервера',
   "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
@@ -1102,10 +1104,10 @@ export const ru: Record<string, string> = {
     'ни один подключённый клиент не обслуживает этот hostname и path, хотя {count} могли бы: {ineligible}',
   'an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once':
     'для этой привязки взведена запись автомасштабирования, поэтому запрос удерживали бы, пока запрашивается мощность, вместо немедленного ответа',
-  '{status}: the fallbacks: rule for this hostname redirects to {url} instead of a 504':
-    '{status}: правило fallbacks: для этого hostname перенаправляет на {url} вместо 504',
-  '504: nothing serves this route, and no fallbacks: rule covers it':
-    '504: этот маршрут никто не обслуживает, и ни одно правило fallbacks: его не покрывает',
+  "{status}: this hostname's fallback redirects to {url} instead of a 504":
+    '{status}: fallback этого hostname перенаправляет на {url} вместо 504',
+  '504: nothing serves this route, and no site gives it a fallback':
+    '504: этот маршрут никто не обслуживает, и ни один сайт не задаёт ему fallback',
   'the request reaches a tunnel client ({clients})':
     'запрос доходит до туннельного клиента ({clients})',
   'disabled from the dashboard':
