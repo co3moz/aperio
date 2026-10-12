@@ -16,7 +16,7 @@ port: 8080
 # otherwise disagree about which one is the truth. To roll a settings document
 # out to a running server, `POST /aperio/api/import` it.
 #
-# The reference is docs/configuration.md and the JSON Schema published with
+# The reference is docs/reference.md and the JSON Schema published with
 # each release, not a second vocabulary invented here.
 initSettings: {}
 #  proxy:

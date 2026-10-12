@@ -19,8 +19,8 @@ server:
 # backends under `services:`, even when there is exactly one. `target` is a
 # backend this machine can reach; `serve` is a directory of static files
 # instead. What every service shares goes under `defaults:`. See
-# docs/configuration.md for the full set, including several services from one
-# process.
+# docs/reference.md for every setting, and docs/configuration.md for how a
+# file is laid out.
 services:
   myapp:
     target: http://127.0.0.1:3000

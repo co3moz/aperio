@@ -28,6 +28,6 @@ Aperio does not terminate TLS. Put an ingress controller in front of it
 {{- end }}
 
 Point a client at it with the master token, or with a scoped token minted
-from the dashboard. The values under `config:` are the server's own
-configuration, documented at
-https://github.com/co3moz/aperio/blob/master/docs/configuration.md
+from the dashboard. The values under `initSettings:` are the settings a new
+server starts with, documented at
+https://github.com/co3moz/aperio/blob/master/docs/reference.md#server-settings
