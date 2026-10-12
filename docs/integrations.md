@@ -99,7 +99,7 @@ The declaration is stored on the server against the hostname, so a cold start wo
 
 ## Behind a dynamic edge proxy
 
-When Traefik or Caddy terminates TLS in front of the server, it has to learn hostnames that appear when a client connects.
+When Traefik or Caddy terminates TLS in front of the server, it has to learn hostnames that appear when a client connects. Without a proxy, the server does the same by itself: `tls.acme.on_demand` obtains a certificate for a hostname a client serves the first time it is reached ([In front of the server](deployment.md#in-front-of-the-server)).
 
 **One wildcard domain** needs nothing: give the edge one wildcard route and one wildcard certificate, which is the natural fit for random subdomains.
 

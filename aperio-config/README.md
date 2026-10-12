@@ -44,12 +44,15 @@ the binaries accept.
 
 ## When you change a field
 
-1. For a client field, follow the [one-name-three-surfaces standard](../docs/configuration.md#the-clients-standard-one-name-three-surfaces):
+1. For a client field, follow the [one-name rule](../docs/configuration.md#one-name-three-spellings):
    its environment variable is derived from the schema, so there is no env
    plumbing to write. A flag, when the setting earns one, writes the same key
    (`CliArgs::overlay` in `aperio-client/src/config/cli.rs`).
 2. A renamed or removed key gets a hint in `src/removed.rs`, and a renamed
-   variable an entry in `REMOVED_CLIENT_ENV`.
-3. Document the option in [docs/configuration.md](../docs/configuration.md)
-   and the book, regenerate the dashboard's schema snapshot, and add a
-   `CHANGELOG.md` entry.
+   variable an entry in `REMOVED_CLIENT_ENV`. A test fails on a hint that
+   points at a setting the schemas do not have.
+3. The doc comment is the documentation: it becomes the schema's
+   description and the setting's row in [docs/reference.md](../docs/reference.md).
+   Regenerate that page (`APERIO_BLESS=1 cargo test -p aperio-config reference`)
+   and the dashboard's schema snapshot (`node scripts/dump-schemas.mjs` in
+   `aperio-dashboard/`), and add a `CHANGELOG.md` entry.

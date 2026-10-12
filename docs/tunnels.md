@@ -106,7 +106,7 @@ curl -X POST https://tunnel.example.com/aperio/api/tunnels \
 # → {"id": "...", "hostname": "pr-123.example.com", "token": "apr_...", "expires_at": ...}
 ```
 
-Omit `hostname` for a random subdomain. `ttl_seconds` defaults to an hour, at most seven days, and bounds when the token can connect; `DELETE /aperio/api/tunnels/{id}` is what ends a preview. The client needs only the server URL, the token and its target, since the hostname is bound on connect. `aperio-client api tunnel create --name pr-42 --expire 2h` does the same.
+Omit `hostname` for a random subdomain. `ttl_seconds` defaults to an hour, at most seven days, and bounds when the token can connect; `DELETE /aperio/api/tunnels/{id}` is what ends a preview. The client needs the server URL, the token, its target and who may visit (`APERIO_ACCESS=public`, or a gate), since routes are closed by default; the hostname is bound on connect. `aperio-client api tunnel create --name pr-42 --expire 2h` does the same.
 
 The [GitHub Action](../aperio-tunnel-action/README.md) wraps it: it provisions the tunnel, runs the client for the rest of the job, and revokes it at the end.
 

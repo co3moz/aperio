@@ -3,7 +3,7 @@
 How Aperio is built, what crosses the tunnel, and what each side trusts the other with.
 
 ```
-visitor ──HTTP──▶ aperio-server ◀──WebSocket, dialled out by the client── aperio-client ──▶ backend
+visitor ──HTTP(S)──▶ aperio-server ◀──WebSocket, dialled out by the client── aperio-client ──▶ backend
 ```
 
 The server is the only component anyone reaches from outside. The client dials out to it and keeps the connection open; requests travel back down that connection, so nothing on the client's network accepts inbound connections.
@@ -53,7 +53,9 @@ A [tokio](https://tokio.rs) runtime under [axum](https://github.com/tokio-rs/axu
 - Everything else lives only in memory and starts clean after a restart: connected clients, pending requests, the cache, rate-limit buckets, inspector captures, latency windows, maintenance flags, ejection state.
 - The settings document is compiled into an immutable snapshot. A change builds a new snapshot first, so a value that cannot work is refused before anything moves, and is then swapped in atomically.
 
-**Outbound TLS.** The client's tunnel dial trusts only the Mozilla roots compiled into the binary, so a CA added on the host cannot intercept the tunnel. Every other outbound HTTPS call (webhooks, OIDC, JWKS, autoscaling, OTLP, the client's calls to its backends) uses the host's certificate store, so an internal CA works once it is installed where the host keeps them; a container needs a CA bundle for that. Two exceptions use the compiled-in roots: `h2://` backends and the server's WebSocket dial for `server_side:`.
+**Inbound TLS.** With `tls.enabled` the server terminates HTTPS itself (rustls), choosing a certificate by the name a visitor asks for: one it obtained from the ACME authority, then one of `tls.certificates`, then a wildcard among them. A name nothing covers gets no handshake, rather than another name's certificate. The ACME proof is answered on the same port, only to a handshake asking for `acme-tls/1`, and only while an order is pending. Requests that arrived over it build `https://` callback URLs and default to `Secure` cookies.
+
+**Outbound TLS.** The client's tunnel dial trusts only the Mozilla roots compiled into the binary, so a CA added on the host cannot intercept the tunnel. Every other outbound HTTPS call (webhooks, OIDC, JWKS, autoscaling, OTLP, ACME, the client's calls to its backends) uses the host's certificate store, so an internal CA works once it is installed where the host keeps them; a container needs a CA bundle for that. Two exceptions use the compiled-in roots: `h2://` backends and the server's WebSocket dial for `server_side:`.
 
 ## Trust boundaries
 
@@ -67,7 +69,7 @@ A [tokio](https://tokio.rs) runtime under [axum](https://github.com/tokio-rs/axu
 
 **Client to backend.** The client forwards to exactly the address it was given.
 
-**Server to callback destinations.** Webhook and autoscaling URLs are chosen by lower-trust callers, and the delivery log reports how a destination answered, which would make a blind network probe. `outbound.allowlist` (or `outbound.block_private`) fences webhooks, autoscaling, JWKS, `forward` endpoints and OIDC alike; no redirect is followed on any of them; autoscaling URLs are also limited to `https` and public addresses unless allowed. Both fences are off by default, so a multi-tenant server should set one.
+**Server to callback destinations.** Webhook and autoscaling URLs are chosen by lower-trust callers, and the delivery log reports how a destination answered, which would make a blind network probe. `outbound.allowlist` (or `outbound.block_private`) fences webhooks, autoscaling, JWKS, `forward` endpoints, OIDC and the ACME directory alike; no redirect is followed on any of them; autoscaling URLs are also limited to `https` and public addresses unless allowed. Both fences are off by default, so a multi-tenant server should set one.
 
 ### Server to a client's target
 

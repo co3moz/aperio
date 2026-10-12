@@ -76,9 +76,9 @@ aperio-client profile use staging
 aperio-client logout          # forgets the profile and revokes its key
 ```
 
-`login` mints a server-admin key by default; `--role` and `--org` narrow it and `--expire` limits it. A named user signs in with `--user alice --password -`, adding `--totp` for a second factor. Someone handed a key keeps it with `aperio-client login --server-url URL --key -`. A key given as `--server-api-key`, `APERIO_SERVER_API_KEY` or `server.api_key` wins over the profile, and a profile is sent only to its own server. The first key on a new server comes from its host: `aperio-server admin create-key --name ci`.
+`login` mints a server-admin key by default; `--role` and `--org` narrow it and `--expire` limits it. A named user signs in with `--user alice --password -`, adding `--totp` for a second factor. Only the server admin mints keys, so anyone else is refused and keeps a key the server admin gave them with `--key -`. Someone handed a key keeps it with `aperio-client login --server-url URL --key -`. A key given as `--server-api-key`, `APERIO_SERVER_API_KEY` or `server.api_key` wins over the profile, and a profile is sent only to its own server. The first key on a new server comes from its host: `aperio-server admin create-key --name ci`.
 
-A key acts in one organization with one role, like a user: reads need `viewer`, changes `operator`, users, settings and keys `admin`, and server-wide commands the server admin. Without a key, only `api tunnel create` and `delete` work, with the master token.
+A key acts in one organization with one role, like a user: reads need `viewer`, changes `operator`, users and public listeners `admin`, and the server-wide commands (settings, organizations, keys, export and import) a `*` admin key. Without a key, only `api tunnel create` and `delete` work, with the master token.
 
 | Group | Commands |
 | --- | --- |

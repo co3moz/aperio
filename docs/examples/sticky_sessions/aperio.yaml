@@ -8,6 +8,7 @@ services:
     access: public
     hostname: app.example.com
 
-# Fixed instance id: visitor affinity keys on it, so a client restart keeps
-# its pinned visitors. Give every backend machine its own UUID.
-client_id: 3f2504e0-4f89-41d3-9a0c-0305e82c3301
+# Visitor affinity keys on the client's id. A client reading this file keeps
+# the id it generated on its first run (under ~/.aperio/clients/), so a
+# restart keeps its pinned visitors, and each machine has an id of its own
+# without anyone writing one.

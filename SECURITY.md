@@ -50,7 +50,8 @@ Anything that breaks a boundary the product claims to hold:
   exceeding its fence (IP allowlist, device pin, expiry), or escalating to a
   capability it does not carry.
 - **The dashboard and admin API.** Authentication bypass, session fixation or
-  theft, privilege escalation between the viewer/operator/admin roles, CSRF on
+  theft, privilege escalation between the viewer/operator/admin roles or from
+  an organization's admin to the server admin (`*: admin`), CSRF on
   a state-changing endpoint, stored or reflected XSS.
 - **The tunnel protocol.** A malicious client reaching another client's
   traffic, a malformed frame crashing or hanging the server, resource
@@ -70,7 +71,7 @@ wrong.
 
 - Anything requiring the master token, the data directory, or shell access on
   the server: those are the keys to the whole system by design.
-- A deployment choosing to expose something (`public: true`, a route pointing
+- A deployment choosing to expose something (`access: public`, a route pointing
   at an internal address on purpose, the dashboard published without TLS).
   Configuration that does what it says is not a vulnerability.
 - Missing hardening headers on a page that has no session, output from

@@ -99,6 +99,7 @@ settings:
 ## Before going live
 
 - **Credentials.** A master token of 32 random bytes (`openssl rand -hex 32`); scoped tokens for every client; a named user per operator with the least role, and a second factor for admins. Set `oidc.redirect_url` if you use OIDC. Seed a few canary tokens where a leak would expose them; using one raises `canary_tripped`.
+- **HTTPS.** The plain port is not on the internet: the server serves HTTPS itself, or a proxy in front of it does (above).
 - **The admin surface.** `security.admin_allowed_ips` fences the dashboard and the API to your operator network; `security.secure_cookies` is on behind a trusted proxy or with `tls.enabled`.
 - **Limits.** Size `limits.ip_rate`, `limits.concurrent_requests` and `limits.request_body` to your traffic; keep `security.login_lockout` on.
 - **Outbound calls.** Where webhook or autoscaling owners are not fully trusted, set `outbound.allowlist`, or at least `outbound.block_private`, so the server cannot be pointed at your internal network.
@@ -188,4 +189,5 @@ Behaviour that changed without a key to point at:
 - **Public listeners follow the role**, within the organization's port allocation. Review the allocations.
 - **A service naming no hostname no longer serves every unclaimed one.** Write `hostname: "*"` where that was meant.
 - **OIDC gates no visitor by being configured.** Write `access: {method: aperio}` or `{method: sso, ...}` where it did.
+- **A client answers only the `forward` checks it declared.** A `forward` with `via: client` written in the server's own `access` needs `allow_server_forward: true` on every client that should answer it; set it before upgrading those clients.
 - **Several services share one connection and a lone one grows a pool.** `multiplex: false` and `connections: 1` restore the old shape.
