@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Re-captures the dashboard screenshots embedded in `README.md` and
- * `docs/dashboard.md`.
+ * Re-captures the dashboard screenshots embedded in `README.md` and the
+ * pages under `docs/`.
  *
  * The images were taken by hand once and then went stale: the version in the
  * corner, the sidebar, the whole visual language moved on while the files sat
