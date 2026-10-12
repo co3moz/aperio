@@ -43,7 +43,6 @@ pub(crate) async fn route_visitor_auth(
     &clients,
     uri_path,
     request_host,
-    state.config().require_hostname_bind,
     state.config().client_down_threshold,
   )?;
   if pool.is_empty() {
@@ -86,7 +85,6 @@ pub(crate) async fn route_visitor_policy(
     &clients,
     uri_path,
     request_host,
-    state.config().require_hostname_bind,
     state.config().client_down_threshold,
   )?;
   if pool.is_empty() {
@@ -129,7 +127,6 @@ pub(crate) async fn route_path_bind(
     &clients,
     uri_path,
     request_host,
-    state.config().require_hostname_bind,
     state.config().client_down_threshold,
   )?;
   // Every client in a pool shares the bind, that is what pools them.
@@ -170,8 +167,8 @@ pub(crate) async fn host_has_visitor_auth(state: &AppState, request_host: Option
           .is_some_and(|policy| policy.gates());
       declares_gate
         && match request_host {
-          Some(h) => s.matches_host(h) || !s.has_hostname_bind(),
-          None => !s.has_hostname_bind(),
+          Some(h) => s.matches_host(h) || s.catch_all,
+          None => s.catch_all,
         }
     })
   })

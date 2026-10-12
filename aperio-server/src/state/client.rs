@@ -34,6 +34,7 @@ pub(crate) const SERVICE_DECL_IN_SERVICE_STATE: &[(&str, Option<&str>)] = &[
   ("path_bind", Some("declared_path")),
   ("hostname_bind", Some("declared_hostname")),
   ("hostname_binds", Some("declared_hostnames")),
+  ("http", Some("serves_http")),
   ("max_concurrent", Some("max_concurrent")),
   ("bandwidth_bps", Some("bandwidth_bps")),
   ("priority", Some("priority")),
@@ -102,6 +103,12 @@ pub(crate) const SERVICE_SCOPED_DERIVED: &[&str] = &[
   "server_side_refused",
   // The service's agreement with its route, likewise its own.
   "policy_conflict",
+  // Read off the hostname binds: `*` among them asks for every hostname no
+  // other service claims.
+  "catch_all",
+  // Said once per connection: a catch-all the token may not claim, or a
+  // service nothing routes to.
+  "route_noticed",
 ];
 
 /// What genuinely belongs to the connection, and stays one per socket.
@@ -252,6 +259,9 @@ impl ServiceState {
       server_side_target: None,
       server_side_refused: None,
       policy_conflict: None,
+      catch_all: false,
+      serves_http: false,
+      route_noticed: false,
       declared_path: None,
       assigned_path: None,
       declared_hostname: None,
@@ -386,10 +396,6 @@ impl ServiceState {
       .iter()
       .any(|h| h.as_str() == host)
   }
-
-  pub(crate) fn has_hostname_bind(&self) -> bool {
-    !self.effective_hostnames().is_empty()
-  }
 }
 
 /// Handle tracking active WebSocket sender channel and metadata.
@@ -479,6 +485,14 @@ pub(crate) struct ServiceState {
   /// sentence the client was told. Kept out of routing, and settled again on
   /// every heartbeat (`tunnel/ws/agree.rs`).
   pub(crate) policy_conflict: Option<String>,
+  /// The service wrote `hostname: "*"`: it serves every hostname no other
+  /// service claims. Nothing joins that pool any more by naming no hostname.
+  pub(crate) catch_all: bool,
+  /// The service has an HTTP target (`ServiceDecl::http`).
+  pub(crate) serves_http: bool,
+  /// The client was told once that its catch-all was not applied, or that
+  /// nothing routes to this service.
+  pub(crate) route_noticed: bool,
   /// False when the service asked not to be recorded for the request
   /// inspector (`inspector: false` in its aperio.yaml), announced via Ping.
   pub(crate) capture: bool,

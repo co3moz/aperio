@@ -785,15 +785,9 @@ pub(crate) async fn explain_handler(
   let (pool, ineligible, serving) = {
     let clients = state.clients.read().await;
     let down_threshold = cfg.client_down_threshold;
-    let pool = crate::routing::select_client_pool(
-      &clients,
-      &path,
-      Some(&hostname),
-      cfg.require_hostname_bind,
-      down_threshold,
-    )
-    .map(|(ids, _)| ids)
-    .unwrap_or_default();
+    let pool = crate::routing::select_client_pool(&clients, &path, Some(&hostname), down_threshold)
+      .map(|(ids, _)| ids)
+      .unwrap_or_default();
     let pool: Vec<Conn> = pool
       .into_iter()
       .map(|r| {

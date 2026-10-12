@@ -1805,7 +1805,7 @@
             ]
           },
           "hostname": {
-            "description": "Public hostname(s) that route to the service: one, or a list. Each must\nbe permitted by the client's token.",
+            "description": "Public hostname(s) that route to the service: one, or a list. Each must\nbe permitted by the client's token. `*` serves every hostname no other\nservice claims, and needs a token that is not limited to particular\nhostnames. A service naming none is reached only by a hostname its token\ngrants, or a random subdomain the server hands out.",
             "anyOf": [
               {
                 "$ref": "#/$defs/Hostnames"
@@ -1819,7 +1819,8 @@
               [
                 "app.example.com",
                 "www.example.com"
-              ]
+              ],
+              "*"
             ]
           },
           "inspector": {
@@ -3026,8 +3027,7 @@
         "default": {
           "alternate_servers": [],
           "lb_strategy": "round-robin",
-          "preview_noindex": false,
-          "require_hostname_bind": false
+          "preview_noindex": false
         }
       },
       "scaling": {
@@ -4996,11 +4996,6 @@
             "examples": [
               "*-preview.example.com"
             ]
-          },
-          "require_hostname_bind": {
-            "description": "Clients without a hostname bind receive no traffic, instead of acting\nas the fallback pool. Default `false`.",
-            "type": "boolean",
-            "default": false
           }
         },
         "additionalProperties": false

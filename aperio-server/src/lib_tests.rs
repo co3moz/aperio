@@ -58,6 +58,9 @@ pub(crate) fn mock_client(
     services: vec![crate::state::ServiceState {
       server_side_refused: None,
       policy_conflict: None,
+      catch_all: hostname_bind.is_none() && override_hostname.is_none(),
+      serves_http: false,
+      route_noticed: false,
       server_side_target: None,
       metrics_labels: Vec::new(),
       service_custom_name: None,
@@ -123,12 +126,11 @@ pub(crate) fn test_select_client_pool_longest_path_bind_wins() {
     mock_client(None, Some("/api/v2"), None, None),
   );
 
-  let (pool, key) =
-    select_client_pool(&clients, "/api/v2/users", None, false, TEST_THRESHOLD).unwrap();
+  let (pool, key) = select_client_pool(&clients, "/api/v2/users", None, TEST_THRESHOLD).unwrap();
   assert_eq!(ids(&pool), vec!["long".to_string()]);
   assert_eq!(key, (None, Some("/api/v2".to_string())));
 
-  let (pool, _) = select_client_pool(&clients, "/api/other", None, false, TEST_THRESHOLD).unwrap();
+  let (pool, _) = select_client_pool(&clients, "/api/other", None, TEST_THRESHOLD).unwrap();
   assert_eq!(ids(&pool), vec!["short".to_string()]);
 }
 

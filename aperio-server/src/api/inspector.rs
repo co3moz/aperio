@@ -97,7 +97,6 @@ pub(crate) async fn request_replay_handler(
       &clients,
       uri_path,
       request_host.as_deref(),
-      state.config().require_hostname_bind,
       state.config().client_down_threshold,
     ) {
       None => None,

@@ -11,4 +11,5 @@ server:
 services:
   web:
     target: http://localhost:3000
+    hostname: "*"               # every hostname no other service claims
     access: public

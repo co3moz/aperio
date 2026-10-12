@@ -167,7 +167,6 @@ pub(crate) fn test_config() -> ServerConfig {
     trusted_proxies: Vec::new(),
     admin_allowed_ips: Vec::new(),
     secure_cookies: false,
-    require_hostname_bind: false,
     default_access: crate::settings::DefaultAccess::Allow,
     metrics_token: None,
     scaling_enabled: false,
@@ -369,6 +368,12 @@ pub(crate) fn mock_client(
       server_side_target: None,
       server_side_refused: None,
       policy_conflict: None,
+      // A mock that names no hostname stands for a client serving every
+      // hostname, which since 0.13.0 has to be said: `hostname: "*"`. An
+      // overruled hostname is the dashboard's, and makes it a bound one.
+      catch_all: hostname_bind.is_none() && override_hostname.is_none(),
+      serves_http: false,
+      route_noticed: false,
       metrics_labels: Vec::new(),
       service_custom_name: None,
       request_count: Arc::new(AtomicU64::new(0)),

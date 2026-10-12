@@ -111,9 +111,6 @@ pub enum LbStrategy {
 pub struct Routing {
   /// How a client is picked from the routed pool. Default `round-robin`.
   pub lb_strategy: LbStrategy,
-  /// Clients without a hostname bind receive no traffic, instead of acting
-  /// as the fallback pool. Default `false`.
-  pub require_hostname_bind: bool,
   /// Give every client a random hostname from this pattern, `*` being the
   /// random label: `*.example.com` or `*-test.example.com`.
   #[serde(skip_serializing_if = "Option::is_none")]

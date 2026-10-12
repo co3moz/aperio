@@ -126,6 +126,12 @@ proxy.trusted`). Moving a deployment over is four steps:
 check <file>`, `settings show`, `schema`, `audit verify` and
 `backup decrypt`. The flags are refused rather than ignored.
 
+**A service that names no hostname no longer serves every unclaimed one.**
+Write `hostname: "*"` on the service that should; until it does, a request
+for a hostname nothing claims answers `504`, and the client is told in its
+own log that nothing routes to it. `routing.require_hostname_bind` is gone
+with it, since what it switched on is now the only behaviour.
+
 **If OIDC gated your visitors, say so now.** Configuring `oidc` used to put
 every visitor of a route nothing else declared behind the dashboard's sign-in.
 From 0.13.0 it is the operators' sign-in only and gates nobody by being

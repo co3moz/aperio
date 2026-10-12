@@ -115,6 +115,18 @@ impl ConnCtx {
       d0.config_notes,
       d0.metrics_labels,
     );
+    // `*` is not a hostname but the ask for every hostname no other service
+    // claims, so it is taken off the binds before they are normalized. Only a
+    // token that may bind any hostname may ask for all of them.
+    let is_star = |h: &str| h.trim() == "*";
+    let wants_catch_all =
+      hostname_bind.as_deref().is_some_and(is_star) || hostname_binds.iter().any(|h| is_star(h));
+    let hostname_bind = hostname_bind.filter(|h| !is_star(h));
+    let hostname_binds: Vec<String> = hostname_binds.into_iter().filter(|h| !is_star(h)).collect();
+    let catch_all = wants_catch_all && handle.perms.hostname_allowed("*");
+    handle.service_at_mut(service_index).catch_all = catch_all;
+    handle.service_at_mut(service_index).serves_http = declaration.http;
+
     let normalized_path = path_bind.and_then(|b| normalize_path_bind(&b));
     let normalized_host = hostname_bind.and_then(|h| normalize_hostname_bind(&h));
 
@@ -587,6 +599,36 @@ impl ConnCtx {
           "Client {} gates its service behind a client-set visitor login",
           client_id
         );
+      }
+    }
+    // A service nothing routes to, said once per connection and to the
+    // client: a catch-all its token may not claim, or no hostname at all.
+    // Naming no hostname used to mean every unclaimed one; now it means none,
+    // and the client is the one that has to find out.
+    if !handle.service_at(service_index).route_noticed {
+      let service = handle.service_at(service_index);
+      let unrouted =
+        service.serves_http && !service.catch_all && service.effective_hostnames().is_empty();
+      let message = if wants_catch_all && !catch_all {
+        Some(
+          "`hostname: \"*\"` was not applied: this client's token is limited to particular \
+           hostnames, and every hostname is more than it may claim"
+            .to_string(),
+        )
+      } else if unrouted {
+        Some(
+          "nothing routes to this service: it names no hostname and none was granted. Write \
+           `hostname: \"*\"` to serve every hostname no other service claims, or a hostname \
+           of its own"
+            .to_string(),
+        )
+      } else {
+        None
+      };
+      if let Some(message) = message {
+        handle.service_at_mut(service_index).route_noticed = true;
+        warn!("Client {}: {}", client_id, message);
+        self.notify(declaration.service.as_deref(), message);
       }
     }
     // Who decides this service's route, said once per connection. A site's

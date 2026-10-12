@@ -24,4 +24,5 @@ services:
   docs:
     access: public
     target: http://localhost:5000
+    hostname: "*"               # every hostname no other service claims
     path: /docs                     # path bind; the prefix is stripped by default

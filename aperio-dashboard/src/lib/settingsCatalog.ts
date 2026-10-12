@@ -64,7 +64,6 @@ export const GROUPS: GroupSpec[] = [
             'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.',
         },
       },
-      { key: 'routing.require_hostname_bind', label: 'Require hostname bind', hint: 'Strict multi-tenant mode: unbound clients never receive traffic' },
       {
         key: 'failover.mode',
         label: 'In-flight failover',

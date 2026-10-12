@@ -757,9 +757,12 @@ pub struct ServiceEntry {
   #[schemars(extend("examples" = ["127.0.0.1:5432"]))]
   pub tcp_target: Option<String>,
   /// Public hostname(s) that route to the service: one, or a list. Each must
-  /// be permitted by the client's token.
+  /// be permitted by the client's token. `*` serves every hostname no other
+  /// service claims, and needs a token that is not limited to particular
+  /// hostnames. A service naming none is reached only by a hostname its token
+  /// grants, or a random subdomain the server hands out.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["app.example.com", ["app.example.com", "www.example.com"]]))]
+  #[schemars(extend("examples" = ["app.example.com", ["app.example.com", "www.example.com"], "*"]))]
   pub hostname: Option<Hostnames>,
   /// Public path prefix that routes to the service.
   #[serde(default, skip_serializing_if = "Option::is_none")]

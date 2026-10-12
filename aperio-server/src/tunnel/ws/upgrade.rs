@@ -304,7 +304,7 @@ impl ConnCtx {
             c.services.iter().any(|s| {
               let host_ok = match host_key {
                 Some(h) => s.matches_host(h),
-                None => !s.has_hostname_bind(),
+                None => s.catch_all,
               };
               host_ok && s.effective_path_bind() == path_key.as_ref()
             })

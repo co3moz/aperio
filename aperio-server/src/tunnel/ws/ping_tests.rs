@@ -1009,3 +1009,97 @@ async fn a_service_whose_hostname_a_site_gates_is_told_its_access_does_not_decid
   send(&mut ws, &ping).await;
   assert!(notices_until_pong(&mut ws).await.is_empty(), "said once");
 }
+
+/// A ping declaring one service with these hostname binds, serving HTTP.
+fn ping_with_hostnames(hostname: Option<&str>, http: bool) -> TunnelMessage {
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    services[0].service = Some("web".into());
+    services[0].hostname_bind = hostname.map(str::to_string);
+    services[0].http = http;
+    services[0].public = true;
+  }
+  ping
+}
+
+#[tokio::test]
+async fn a_star_hostname_asks_for_every_hostname_and_a_master_token_may() {
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  let cid = wait_client_id(&state).await;
+  send(&mut ws, &ping_with_hostnames(Some("*"), true)).await;
+  assert!(
+    notices_until_pong(&mut ws).await.is_empty(),
+    "nothing to say"
+  );
+  let clients = state.clients.read().await;
+  let s = clients.get(&cid).unwrap().sole();
+  assert!(s.catch_all);
+  assert!(s.effective_hostnames().is_empty(), "`*` is not a hostname");
+}
+
+#[tokio::test]
+async fn a_token_limited_to_hostnames_may_not_claim_all_of_them() {
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let (secret, _) = {
+    let mut store = state.token_store.lock().await;
+    let (rec, secret) = store
+      .create(crate::store::tokens::TokenSpec {
+        name: "fenced".into(),
+        hostnames: vec!["app.example.com".into()],
+        allow_public: true,
+        ..Default::default()
+      })
+      .unwrap();
+    (secret, rec.id)
+  };
+  let mut ws = connect(&url, &secret).await;
+  let cid = wait_client_id(&state).await;
+  send(&mut ws, &ping_with_hostnames(Some("*"), true)).await;
+  let notices = notices_until_pong(&mut ws).await;
+  assert_eq!(notices.len(), 1, "{notices:?}");
+  assert!(notices[0].1.contains("was not applied"), "{}", notices[0].1);
+  assert!(
+    !state
+      .clients
+      .read()
+      .await
+      .get(&cid)
+      .unwrap()
+      .sole()
+      .catch_all
+  );
+}
+
+#[tokio::test]
+async fn a_web_service_with_no_hostname_is_told_nothing_routes_to_it() {
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  wait_client_id(&state).await;
+  send(&mut ws, &ping_with_hostnames(None, true)).await;
+  let notices = notices_until_pong(&mut ws).await;
+  assert_eq!(notices.len(), 1, "{notices:?}");
+  assert!(
+    notices[0].1.contains("nothing routes to this service"),
+    "{}",
+    notices[0].1
+  );
+  send(&mut ws, &ping_with_hostnames(None, true)).await;
+  assert!(notices_until_pong(&mut ws).await.is_empty(), "said once");
+}
+
+#[tokio::test]
+async fn a_carrier_with_no_web_target_is_not_told() {
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  wait_client_id(&state).await;
+  send(&mut ws, &ping_with_hostnames(None, false)).await;
+  assert!(notices_until_pong(&mut ws).await.is_empty());
+}

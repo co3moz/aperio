@@ -827,7 +827,7 @@ pub(crate) async fn handler_holds_a_request_until_the_client_declares_its_route(
 
 #[tokio::test]
 pub(crate) async fn a_wrong_declaration_does_not_hold_a_request_open_ended() {
-  // Open posture with strict hostname binding: the gate allows the request,
+  // Open posture, and nothing serves every hostname: the gate allows the request,
   // but no bound route exists and a connection is still arriving, so it is
   // held. When that connection declares a *different* host there is nothing
   // left to wait for, and the request must not sleep to the gateway timeout.
@@ -835,13 +835,13 @@ pub(crate) async fn a_wrong_declaration_does_not_hold_a_request_open_ended() {
   // break keyed on `undeclared` alone gets wrong.
   let mut cfg = test_config();
   cfg.default_access = crate::settings::DefaultAccess::Allow;
-  cfg.require_hostname_bind = true;
   cfg.gateway_timeout = std::time::Duration::from_secs(30);
   let state = connected(cfg);
   mark_connected(&state).await;
 
   let mut c = mock_client(None, None, None, None);
   c.last_ping_at = None;
+  c.sole_mut().catch_all = false;
   state.clients.write().await.insert("c1".to_string(), c);
 
   let s2 = state.clone();

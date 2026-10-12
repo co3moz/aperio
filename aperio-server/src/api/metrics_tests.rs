@@ -37,7 +37,6 @@ fn test_config(metrics_token: Option<String>) -> ServerConfig {
     trusted_proxies: Vec::new(),
     admin_allowed_ips: Vec::new(),
     secure_cookies: false,
-    require_hostname_bind: false,
     default_access: crate::settings::DefaultAccess::Allow,
     metrics_token,
     scaling_enabled: false,
@@ -241,6 +240,9 @@ fn mock_client() -> ClientHandle {
     services: vec![crate::state::ServiceState {
       server_side_refused: None,
       policy_conflict: None,
+      catch_all: false,
+      serves_http: false,
+      route_noticed: false,
       server_side_target: None,
       metrics_labels: Vec::new(),
       service_custom_name: None,

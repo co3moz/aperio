@@ -9,14 +9,14 @@ Clients are skipped when they are unhealthy (no heartbeat within `gateway.client
 
 ## Hostname binds
 
-A client can claim one or more hostnames, via `--host`, hostnames granted by its token, or an automatic random subdomain. Clients whose binds contain the request's `Host` header (case-insensitive, port ignored) win. If none match, clients *without* any hostname bind act as a fallback pool.
+A client can claim one or more hostnames, via `hostname:` (`--hostname`), hostnames granted by its token, or an automatic random subdomain. Clients whose binds contain the request's `Host` header (case-insensitive, port ignored) win. If none match, the clients that wrote **`hostname: "*"`** take the request: they serve every hostname no other service claims, and a request with no `Host` at all. A token limited to particular hostnames cannot claim `*`.
 
-For strict multi-tenant setups, set `routing.require_hostname_bind: true`: clients without a hostname bind then never receive traffic, and unmatched requests fail with 504.
+A service naming no hostname is **not** a catch-all. It used to be, which made a forgotten `hostname:` a site answering for whatever reached the server; now such a service is reached only by a hostname its token grants or a random subdomain, and when it has neither the client is told, in its own log, that nothing routes to it and which line to write. A request nothing claims answers `504`.
 
 ```
-a.example.com  ──▶  client A (--host a.example.com)
-b.example.com  ──▶  client B (--host b.example.com)
-c.example.com  ──▶  client C (no hostname bind, fallback)
+a.example.com  ──▶  client A (hostname: a.example.com)
+b.example.com  ──▶  client B (hostname: b.example.com)
+c.example.com  ──▶  client C (hostname: "*", every hostname nobody claims)
 ```
 
 ## Path binds

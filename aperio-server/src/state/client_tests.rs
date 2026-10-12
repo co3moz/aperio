@@ -14,7 +14,7 @@ fn test_client_effective_binds_precedence() {
   let c = mock_client(Some("a.local"), Some("/api"), None, None);
   assert_eq!(c.sole().effective_path_bind(), Some(&"/api".to_string()));
   assert!(c.sole().matches_host("a.local"));
-  assert!(c.sole().has_hostname_bind());
+  assert!(!c.sole().effective_hostnames().is_empty());
 
   // override path wins over declared.
   let c = mock_client(Some("a.local"), Some("/api"), None, Some("/ovr"));
@@ -47,7 +47,7 @@ fn test_client_effective_binds_precedence() {
 
   // no binds at all.
   let c = mock_client(None, None, None, None);
-  assert!(!c.sole().has_hostname_bind());
+  assert!(c.sole().effective_hostnames().is_empty());
   assert!(c.sole().effective_path_bind().is_none());
 }
 

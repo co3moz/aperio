@@ -7,6 +7,7 @@ server:
 services:
   web:
     target: http://localhost:3000
+    hostname: "*"               # every hostname no other service claims
     access: public
 
 # Private local services another client may reach with `aperio-client

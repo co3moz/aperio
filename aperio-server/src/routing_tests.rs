@@ -41,6 +41,10 @@ pub(super) fn base_handle() -> ClientHandle {
     services: vec![crate::state::ServiceState {
       server_side_refused: None,
       policy_conflict: None,
+      // Serves every hostname until a test gives it one of its own.
+      catch_all: true,
+      serves_http: false,
+      route_noticed: false,
       server_side_target: None,
       service_custom_name: None,
       request_count: Arc::new(AtomicU64::new(0)),

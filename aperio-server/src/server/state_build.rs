@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, watch};
-use tracing::{error, info};
+use tracing::error;
 
 /// Everything the server resolves before it can exist: the boot environment,
 /// the settings document from the database (or the init file on a first
@@ -55,13 +55,6 @@ pub(crate) async fn build_state(
   };
   crate::outbound::set_egress(config.outbound_policy.egress.clone());
   let metrics_enabled = settings.metrics.enabled;
-  let require_hostname_bind = config.require_hostname_bind;
-
-  if require_hostname_bind {
-    info!(
-      "Hostname bind requirement is ENABLED: clients without a hostname bind will not receive traffic."
-    );
-  }
 
   // OIDC SSO configuration (optional). The issuer is a configured URL the
   // server fetches from, so it goes through the outbound fence like every

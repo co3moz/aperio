@@ -187,7 +187,6 @@ pub(crate) async fn inbox_refire_handler(
       &clients,
       uri_path,
       entry.host.as_deref(),
-      state.config().require_hostname_bind,
       state.config().client_down_threshold,
     ) {
       None => None,

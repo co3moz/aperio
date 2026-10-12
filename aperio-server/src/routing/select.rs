@@ -28,7 +28,6 @@ pub(crate) fn select_client_pool(
   clients: &HashMap<String, ClientHandle>,
   uri_path: &str,
   request_host: Option<&str>,
-  require_hostname_bind: bool,
   down_threshold: Duration,
 ) -> Option<(Vec<ServiceRef>, RouteGroupKey)> {
   // --- Eligibility stage ---
@@ -78,16 +77,17 @@ pub(crate) fn select_client_pool(
   let (host_pool, host_key): (Vec<(ServiceRef, &ServiceState)>, Option<String>) =
     if !host_matched.is_empty() {
       (host_matched, request_host.map(|h| h.to_string()))
-    } else if require_hostname_bind {
-      // Strict mode: unbound services are never eligible.
-      return None;
     } else {
-      let unbound: Vec<(ServiceRef, &ServiceState)> = eligible
+      // A hostname nobody claims goes to the services that asked for every
+      // such hostname with `hostname: "*"`. Naming no hostname is not that:
+      // it used to be, which made a forgotten hostname a site serving
+      // whatever reached the server.
+      let catch_all: Vec<(ServiceRef, &ServiceState)> = eligible
         .iter()
-        .filter(|(_, s)| !s.has_hostname_bind())
+        .filter(|(_, s)| s.catch_all)
         .map(|(r, s)| (r.clone(), *s))
         .collect();
-      (unbound, None)
+      (catch_all, None)
     };
 
   if host_pool.is_empty() {
@@ -314,7 +314,6 @@ pub(crate) async fn pick_proxy_client(
     &clients,
     uri_path,
     request_host,
-    state.config().require_hostname_bind,
     state.config().client_down_threshold,
   ) else {
     return PickOutcome::NoRoute;
@@ -417,7 +416,6 @@ pub(crate) async fn route_exists(
     &clients,
     uri_path,
     request_host,
-    state.config().require_hostname_bind,
     state.config().client_down_threshold,
   ) else {
     return false;
@@ -510,7 +508,6 @@ pub(crate) async fn route_is_public(
     &clients,
     uri_path,
     request_host,
-    state.config().require_hostname_bind,
     state.config().client_down_threshold,
   ) else {
     return false;

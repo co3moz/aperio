@@ -5,6 +5,7 @@ server:
 services:
   web:
     target: http://localhost:3000
+    hostname: "*"               # every hostname no other service claims
     access: public
     # A health probe makes client-down alerting meaningful: the server learns
     # about a dead backend, not just a dead tunnel. The probe path belongs to

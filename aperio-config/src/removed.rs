@@ -1040,6 +1040,10 @@ pub const REMOVED_SETTINGS: &[Removed] = &[
     hint: "moved into `sites` in 0.13.0: the `headers` of the `hostname: \"*\"` site.",
   },
   Removed {
+    key: "require_hostname_bind",
+    hint: "removed in 0.13.0: it is the only behaviour now. A service is routed by a hostname it names or is granted, and serves every hostname no other service claims only when it writes `hostname: \"*\"`.",
+  },
+  Removed {
     key: "pages",
     hint: "moved into `sites` in 0.13.0: the `pages` of the `hostname: \"*\"` site.",
   },

@@ -3777,8 +3777,6 @@ catalogue these tables are written from.
 \rowsep
 \code{routing.random\_subdomain} & Pattern with a \code{*} placeholder in the leftmost label, every connecting client gets the pattern with \code{*} replaced by a random label, in addition to its other binds. \code{example.com} $\equiv$ \code{*.example.com}; \code{*-test.example.com} yields \code{<random>-test.example.com} (stays on the same subdomain level, so one wildcard TLS cert covers it). &  \\
 \rowsep
-\code{routing.require\_hostname\_bind} & \code{true} = clients without a hostname bind never receive traffic (strict multi-tenant mode). & \code{false} \\
-\rowsep
 \bottomrule
 \end{longtable}
 
@@ -4035,7 +4033,7 @@ Written in a \code{services:} entry. On the command line and in the environment 
 \rowsep
 \code{APERIO\_TCP\_TARGET} &  & \code{tcp\_target} & Bridge a raw local TCP service (experimental) rather than an HTTP backend, reached through the server's \code{/aperio/tcp} endpoint. \\
 \rowsep
-\code{APERIO\_HOSTNAME} & \code{--hostname} & \code{hostname} & Hostname(s) this client serves. yaml \code{hostname:} accepts a single value or a list (\code{[a.example.com, b.example.com]}); the CLI/env value may be comma-separated. Each must be permitted by the client's token. \\
+\code{APERIO\_HOSTNAME} & \code{--hostname} & \code{hostname} & Hostname(s) this client serves. yaml \code{hostname:} accepts a single value or a list (\code{[a.example.com, b.example.com]}); the CLI/env value may be comma-separated. Each must be permitted by the client's token. \code{*} serves every hostname no other service claims, and needs a token not limited to particular hostnames; a service naming none is reached only by a hostname its token grants or a random subdomain. \\
 \rowsep
 \code{APERIO\_PATH} & \code{--path} & \code{path} & Path prefix this client serves. \\
 \rowsep

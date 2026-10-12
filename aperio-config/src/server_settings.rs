@@ -150,7 +150,6 @@ pub use sections::*;
 pub const SECURITY_PATHS: &[&str] = &[
   "access",
   "sites.access",
-  "routing.require_hostname_bind",
   "proxy",
   "security.admin_allowed_ips",
   "security.secure_cookies",

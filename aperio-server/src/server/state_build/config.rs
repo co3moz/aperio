@@ -275,7 +275,6 @@ pub(crate) fn build_config(
     dashboard_hostname,
     fenced_login: s.dashboard.fenced_login,
     secure_cookies: s.security.secure_cookies.unwrap_or(trust_proxy),
-    require_hostname_bind: s.routing.require_hostname_bind,
     default_access,
     metrics_token,
     scaling_enabled: s.scaling.enabled,

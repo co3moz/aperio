@@ -677,6 +677,7 @@ pub(super) async fn a_ping_declaring_two_services_is_served_as_two() {
     *services = vec![
       crate::protocol::ServiceDecl {
         service: Some("api".into()),
+        hostname_bind: Some("*".into()),
         path_bind: Some("/api".into()),
         // Declared healthy, as a real client does: the entry is authoritative,
         // so an omitted flag is a service announcing itself down.
@@ -686,6 +687,7 @@ pub(super) async fn a_ping_declaring_two_services_is_served_as_two() {
       },
       crate::protocol::ServiceDecl {
         service: Some("web".into()),
+        hostname_bind: Some("*".into()),
         path_bind: Some("/web".into()),
         // Declared healthy, as a real client does: the entry is authoritative,
         // so an omitted flag is a service announcing itself down.
@@ -728,7 +730,6 @@ pub(super) async fn a_ping_declaring_two_services_is_served_as_two() {
     &clients,
     "/web/x",
     None,
-    false,
     std::time::Duration::from_secs(3600),
   )
   .expect("routed");
@@ -766,6 +767,7 @@ pub(super) async fn a_service_the_client_stops_declaring_leaves_routing() {
     &two(vec![
       crate::protocol::ServiceDecl {
         service: Some("api".into()),
+        hostname_bind: Some("*".into()),
         path_bind: Some("/api".into()),
         // Declared healthy, as a real client does: the entry is authoritative,
         // so an omitted flag is a service announcing itself down.
@@ -774,6 +776,7 @@ pub(super) async fn a_service_the_client_stops_declaring_leaves_routing() {
       },
       crate::protocol::ServiceDecl {
         service: Some("web".into()),
+        hostname_bind: Some("*".into()),
         path_bind: Some("/web".into()),
         // Declared healthy, as a real client does: the entry is authoritative,
         // so an omitted flag is a service announcing itself down.
@@ -810,7 +813,6 @@ pub(super) async fn a_service_the_client_stops_declaring_leaves_routing() {
       &clients,
       "/web/x",
       None,
-      false,
       std::time::Duration::from_secs(3600),
     )
     .is_none(),

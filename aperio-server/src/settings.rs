@@ -87,10 +87,6 @@ pub(crate) struct ServerConfig {
   /// send them over HTTPS connections. Defaults to the value of `trust_proxy`
   /// (i.e. enabled when running behind a TLS-terminating reverse proxy).
   pub(crate) secure_cookies: bool,
-  /// When true, only clients that declared (or were overruled with) a
-  /// hostname bind participate in load balancing. Clients without a hostname
-  /// bind never receive proxied traffic.
-  pub(crate) require_hostname_bind: bool,
   /// What a route nobody gated means (`planned_features.md` #108): `Deny`
   /// when the server's `access` is `deny`, so a route is reachable because
   /// something said so rather than because nothing said otherwise, and

@@ -445,6 +445,9 @@ pub(crate) async fn run_service(
                   path_bind: s.path.clone(),
                   hostname_bind: s.hostnames.first().cloned(),
                   hostname_binds: s.hostnames.clone(),
+                  // A web target, so the server can say so when nothing
+                  // routes to it; a carrier or a raw TCP service has none.
+                  http: !s.target.is_empty() && s.tcp_target.is_none(),
                   // Patched per heartbeat from this service's adaptive
                   // controller; the configured number is what it starts at.
                   max_concurrent: s.max_concurrent,

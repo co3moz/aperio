@@ -58,7 +58,6 @@ fn a_refused_service_is_out_of_routing() {
     &clients,
     "/",
     Some("app.example.com"),
-    false,
     std::time::Duration::from_secs(3600),
   )
   .unwrap();

@@ -318,6 +318,10 @@ pub struct ServiceDecl {
   pub hostname_bind: Option<String>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub hostname_binds: Vec<String>,
+  /// True when the service has an HTTP target, so the server can tell it
+  /// when nothing routes to it (a carrier of tunnels or messages has none).
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub http: bool,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub max_concurrent: Option<u32>,
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]

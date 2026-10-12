@@ -24,22 +24,23 @@ fn pool_prefers_host_matched_clients() {
 
   let clients = pool_of(vec![("bound", bound), ("unbound", unbound)]);
   let (pool, (host_key, path_key)) =
-    select_client_pool(&clients, "/", Some("a.example.com"), false, HEALTHY).unwrap();
+    select_client_pool(&clients, "/", Some("a.example.com"), HEALTHY).unwrap();
   assert_eq!(ids(&pool), vec!["bound".to_string()]);
   assert_eq!(host_key, Some("a.example.com".to_string()));
   assert_eq!(path_key, None);
 }
 
 #[test]
-fn pool_falls_back_to_unbound_when_not_strict() {
+fn a_hostname_nobody_claims_goes_to_the_catch_all() {
   let mut bound = base_handle();
   bound.sole_mut().assigned_hostnames = vec!["a.example.com".to_string()];
+  bound.sole_mut().catch_all = false;
   let unbound = base_handle();
 
   let clients = pool_of(vec![("bound", bound), ("unbound", unbound)]);
-  // Request host matches nobody → unbound pool answers when not strict.
+  // Request host matches nobody → the service that wrote `hostname: "*"`.
   let (pool, (host_key, _)) =
-    select_client_pool(&clients, "/", Some("other.example.com"), false, HEALTHY).unwrap();
+    select_client_pool(&clients, "/", Some("other.example.com"), HEALTHY).unwrap();
   assert_eq!(ids(&pool), vec!["unbound".to_string()]);
   assert_eq!(host_key, None);
 }
@@ -53,7 +54,7 @@ fn ejected_client_removed_but_pool_fails_open_when_all_ejected() {
   ejected.sole_mut().ejected_until = Some(future);
   let healthy = base_handle();
   let clients = pool_of(vec![("ejected", ejected), ("healthy", healthy)]);
-  let (pool, _) = select_client_pool(&clients, "/", None, false, HEALTHY).unwrap();
+  let (pool, _) = select_client_pool(&clients, "/", None, HEALTHY).unwrap();
   assert_eq!(ids(&pool), vec!["healthy".to_string()]);
 
   // Every candidate ejected → fail open (better a struggling client than none).
@@ -62,7 +63,7 @@ fn ejected_client_removed_but_pool_fails_open_when_all_ejected() {
   let mut b = base_handle();
   b.sole_mut().ejected_until = Some(future);
   let all = pool_of(vec![("a", a), ("b", b)]);
-  let (pool, _) = select_client_pool(&all, "/", None, false, HEALTHY).unwrap();
+  let (pool, _) = select_client_pool(&all, "/", None, HEALTHY).unwrap();
   assert_eq!(pool.len(), 2);
 }
 
@@ -85,11 +86,12 @@ fn record_failure_ejects_after_threshold() {
 }
 
 #[test]
-fn pool_strict_mode_rejects_unbound() {
-  let unbound = base_handle();
+fn a_service_naming_no_hostname_serves_no_hostname() {
+  let mut unbound = base_handle();
+  unbound.sole_mut().catch_all = false;
   let clients = pool_of(vec![("unbound", unbound)]);
-  // require_hostname_bind = true and no host match → no route.
-  assert!(select_client_pool(&clients, "/", Some("x.example.com"), true, HEALTHY).is_none());
+  // Naming no hostname is not `hostname: "*"`: no host match, no route.
+  assert!(select_client_pool(&clients, "/", Some("x.example.com"), HEALTHY).is_none());
 }
 
 #[test]
@@ -101,8 +103,7 @@ fn pool_longest_path_bind_wins() {
   let unbound = base_handle();
 
   let clients = pool_of(vec![("api", api), ("apiv1", apiv1), ("unbound", unbound)]);
-  let (pool, (_, path_key)) =
-    select_client_pool(&clients, "/api/v1/users", None, false, HEALTHY).unwrap();
+  let (pool, (_, path_key)) = select_client_pool(&clients, "/api/v1/users", None, HEALTHY).unwrap();
   assert_eq!(ids(&pool), vec!["apiv1".to_string()]);
   assert_eq!(path_key, Some("/api/v1".to_string()));
 }
@@ -121,7 +122,7 @@ fn pool_ineligible_clients_excluded() {
     ("disabled", disabled),
     ("unhealthy", unhealthy_backend),
   ]);
-  assert!(select_client_pool(&clients, "/", None, false, HEALTHY).is_none());
+  assert!(select_client_pool(&clients, "/", None, HEALTHY).is_none());
 }
 
 #[test]
@@ -129,7 +130,7 @@ fn pool_excludes_stale_clients() {
   let healthy = base_handle();
   let clients = pool_of(vec![("healthy", healthy)]);
   // A zero threshold makes even a just-connected client stale.
-  assert!(select_client_pool(&clients, "/", None, false, Duration::ZERO).is_none());
+  assert!(select_client_pool(&clients, "/", None, Duration::ZERO).is_none());
 }
 
 // --- apply_lb_strategy ------------------------------------------------------
@@ -225,7 +226,7 @@ fn matches_host_uses_override_then_union() {
   let mut h = base_handle();
   h.sole_mut().assigned_hostnames = vec!["a.example.com".to_string()];
   h.sole_mut().declared_hostname = Some("b.example.com".to_string());
-  assert!(h.sole().has_hostname_bind());
+  assert!(!h.sole().effective_hostnames().is_empty());
   assert!(h.sole().matches_host("a.example.com"));
   assert!(h.sole().matches_host("b.example.com"));
   assert!(!h.sole().matches_host("c.example.com"));
@@ -545,7 +546,7 @@ fn the_pool_names_which_service_of_the_connection_matched() {
   let clients = pool_of(vec![("conn", handle)]);
 
   let (pool, _) =
-    select_client_pool(&clients, "/", Some("second.example"), false, HEALTHY).expect("routed");
+    select_client_pool(&clients, "/", Some("second.example"), HEALTHY).expect("routed");
   assert_eq!(pool.len(), 1, "only one service binds that hostname");
   assert_eq!(pool[0].client, "conn");
   assert_eq!(
@@ -554,7 +555,7 @@ fn the_pool_names_which_service_of_the_connection_matched() {
   );
 
   let (pool, _) =
-    select_client_pool(&clients, "/", Some("first.example"), false, HEALTHY).expect("routed");
+    select_client_pool(&clients, "/", Some("first.example"), HEALTHY).expect("routed");
   assert_eq!(pool[0].index, 0, "and the first for its own hostname");
 }
 
@@ -569,7 +570,7 @@ fn two_services_of_one_connection_can_bind_different_paths() {
   handle.services.extend(extra.services);
   let clients = pool_of(vec![("conn", handle)]);
 
-  let (pool, key) = select_client_pool(&clients, "/beta/x", None, false, HEALTHY).expect("routed");
+  let (pool, key) = select_client_pool(&clients, "/beta/x", None, HEALTHY).expect("routed");
   assert_eq!(pool.len(), 1);
   assert_eq!(pool[0].index, 1);
   assert_eq!(key.1.as_deref(), Some("/beta"), "the winning bind is /beta");
@@ -590,13 +591,12 @@ fn ejecting_one_service_does_not_take_its_neighbour_out_of_routing() {
 
   // The healthy neighbour still routes.
   let (pool, _) =
-    select_client_pool(&clients, "/", Some("alpha.example"), false, HEALTHY).expect("routed");
+    select_client_pool(&clients, "/", Some("alpha.example"), HEALTHY).expect("routed");
   assert_eq!(pool[0].index, 0);
 
   // And the ejected one still routes to itself rather than to its neighbour,
   // because ejection fails open when it is the route's only candidate.
-  let (pool, _) =
-    select_client_pool(&clients, "/", Some("beta.example"), false, HEALTHY).expect("routed");
+  let (pool, _) = select_client_pool(&clients, "/", Some("beta.example"), HEALTHY).expect("routed");
   assert_eq!(
     pool[0].index, 1,
     "an ejected sole candidate is served, never silently swapped for another service"
@@ -621,7 +621,7 @@ fn the_selected_service_is_the_one_named_for_the_client() {
   handle.services.extend(extra.services);
   let clients = pool_of(vec![("conn", handle)]);
 
-  let (pool, _) = select_client_pool(&clients, "/web/x", None, false, HEALTHY).expect("routed");
+  let (pool, _) = select_client_pool(&clients, "/web/x", None, HEALTHY).expect("routed");
   let chosen = &pool[0];
   assert_eq!(
     chosen.get(&clients).and_then(|s| s.service_name.clone()),
@@ -643,9 +643,11 @@ async fn the_traversal_gate_pairs_each_gate_with_its_own_hostname() {
   let state = std::sync::Arc::new(crate::test_support::test_state());
   let mut handle = base_handle();
   handle.sole_mut().declared_hostname = Some("first.example".to_string());
+  handle.sole_mut().catch_all = false;
   handle.sole_mut().visitor_auth = Some("u:p".to_string());
   let mut second = base_handle();
   second.sole_mut().declared_hostname = Some("second.example".to_string());
+  second.sole_mut().catch_all = false;
   second.sole_mut().visitor_auth = Some("u:p".to_string());
   handle.services.extend(second.services);
   state
@@ -740,18 +742,18 @@ pub(crate) fn test_select_client_pool_excludes_unhealthy() {
   clients.insert("stale".to_string(), stale);
 
   // Only client is unhealthy -> nothing selectable
-  assert!(select_client_pool(&clients, "/", None, false, Duration::from_secs(15)).is_none());
+  assert!(select_client_pool(&clients, "/", None, Duration::from_secs(15)).is_none());
 
   // A fresh client joins -> traffic goes only to it
   let mut fresh = mock_client(None, None, None, None);
   fresh.last_ping_at = Some(Instant::now());
   clients.insert("fresh".to_string(), fresh);
-  let (pool, _) = select_client_pool(&clients, "/", None, false, Duration::from_secs(15)).unwrap();
+  let (pool, _) = select_client_pool(&clients, "/", None, Duration::from_secs(15)).unwrap();
   assert_eq!(ids(&pool), vec!["fresh".to_string()]);
 
   // The stale client recovers with a new ping -> back in the pool
   clients.get_mut("stale").unwrap().last_ping_at = Some(Instant::now());
-  let (pool, _) = select_client_pool(&clients, "/", None, false, Duration::from_secs(15)).unwrap();
+  let (pool, _) = select_client_pool(&clients, "/", None, Duration::from_secs(15)).unwrap();
   assert_eq!(pool.len(), 2);
 }
 
@@ -770,24 +772,25 @@ pub(crate) fn test_select_client_pool_hostname_routing() {
 
   // Host matches a.example.com → only client "a"
   let (pool, key) =
-    select_client_pool(&clients, "/", Some("a.example.com"), false, TEST_THRESHOLD).unwrap();
+    select_client_pool(&clients, "/", Some("a.example.com"), TEST_THRESHOLD).unwrap();
   assert_eq!(ids(&pool), vec!["a".to_string()]);
   assert_eq!(key, (Some("a.example.com".to_string()), None));
 
-  // Unknown host → falls back to unbound client
+  // Unknown host → the client serving every hostname
   let (pool, key) =
-    select_client_pool(&clients, "/", Some("c.example.com"), false, TEST_THRESHOLD).unwrap();
+    select_client_pool(&clients, "/", Some("c.example.com"), TEST_THRESHOLD).unwrap();
   assert_eq!(ids(&pool), vec!["unbound".to_string()]);
   assert_eq!(key, (None, None));
 
-  // Strict mode: unknown host → no client at all
-  assert!(select_client_pool(&clients, "/", Some("c.example.com"), true, TEST_THRESHOLD).is_none());
-  // Strict mode: matching host still works
-  let (pool, _) =
-    select_client_pool(&clients, "/", Some("b.example.com"), true, TEST_THRESHOLD).unwrap();
+  // A client naming no hostname without `*` serves none of them.
+  clients.get_mut("unbound").unwrap().sole_mut().catch_all = false;
+  // Unknown host → no client at all
+  assert!(select_client_pool(&clients, "/", Some("c.example.com"), TEST_THRESHOLD).is_none());
+  // A matching host still works
+  let (pool, _) = select_client_pool(&clients, "/", Some("b.example.com"), TEST_THRESHOLD).unwrap();
   assert_eq!(ids(&pool), vec!["b".to_string()]);
-  // Strict mode: no Host header → no client
-  assert!(select_client_pool(&clients, "/", None, true, TEST_THRESHOLD).is_none());
+  // No Host header → no client
+  assert!(select_client_pool(&clients, "/", None, TEST_THRESHOLD).is_none());
 }
 
 #[test]
@@ -807,7 +810,6 @@ pub(crate) fn test_select_client_pool_hostname_and_path_combined() {
     &clients,
     "/api/users",
     Some("a.example.com"),
-    false,
     TEST_THRESHOLD,
   )
   .unwrap();
@@ -818,14 +820,8 @@ pub(crate) fn test_select_client_pool_hostname_and_path_combined() {
   );
 
   // Other paths on the bound host → unbound-path client
-  let (pool, _) = select_client_pool(
-    &clients,
-    "/other",
-    Some("a.example.com"),
-    false,
-    TEST_THRESHOLD,
-  )
-  .unwrap();
+  let (pool, _) =
+    select_client_pool(&clients, "/other", Some("a.example.com"), TEST_THRESHOLD).unwrap();
   assert_eq!(ids(&pool), vec!["host-root".to_string()]);
 }
 
@@ -838,12 +834,9 @@ pub(crate) fn test_select_client_pool_override_wins() {
     mock_client(None, None, Some("a.example.com"), None),
   );
 
-  let (pool, _) =
-    select_client_pool(&clients, "/", Some("a.example.com"), true, TEST_THRESHOLD).unwrap();
+  let (pool, _) = select_client_pool(&clients, "/", Some("a.example.com"), TEST_THRESHOLD).unwrap();
   assert_eq!(ids(&pool), vec!["overruled".to_string()]);
 
   // With the override active, the client is no longer an unbound fallback
-  assert!(
-    select_client_pool(&clients, "/", Some("x.example.com"), false, TEST_THRESHOLD).is_none()
-  );
+  assert!(select_client_pool(&clients, "/", Some("x.example.com"), TEST_THRESHOLD).is_none());
 }
