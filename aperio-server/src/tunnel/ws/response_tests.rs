@@ -31,6 +31,7 @@ fn test_ctx(state: &Arc<AppState>, client_id: &str) -> ConnCtx {
     server_max_connections: 0,
     max_inflated: 8 * 1024 * 1024,
     stream_cache: std::sync::Mutex::new(HashMap::new()),
+    otel_refusal_noticed: std::sync::atomic::AtomicBool::new(false),
   }
 }
 

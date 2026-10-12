@@ -436,6 +436,27 @@ impl ConnCtx {
     // it back off the first entry, as this did, silently armed nothing when a
     // *later* service was the one that asked for scaling: the context was
     // set, the declaration was not, and the tuple pattern simply failed.
+    // A scaling block this server does not honour arms nothing, and the
+    // client's author is the one who has to hear it: they wrote a block
+    // that is waiting on a cold start which will never be asked for.
+    if !state.config().scaling_enabled
+      && let Some((.., scaling_service)) = &deferred.scaling
+    {
+      let mut clients = state.clients.write().await;
+      if let Some(handle) = clients.get_mut(client_id)
+        && *scaling_service < handle.services.len()
+      {
+        let name = handle.services[*scaling_service].service_name.clone();
+        self.notify_once(
+          handle,
+          *scaling_service,
+          name.as_deref(),
+          "`scaling:` is not applied: this server does not honour client scaling blocks \
+           (`scaling.enabled`), so nothing is started or retired for this service"
+            .to_string(),
+        );
+      }
+    }
     if let (true, Some((decl, hostnames, path, org, token_id, scaling_service))) =
       (state.config().scaling_enabled, deferred.scaling)
     {
@@ -463,15 +484,19 @@ impl ConnCtx {
                 Some(service) => {
                   let already = service.scaling_invalid_warned;
                   service.scaling_invalid_warned = true;
-                  already
+                  (already, service.service_name.clone())
                 }
-                None => true,
+                None => (true, None),
               }
             };
-            if !warned {
+            if !warned.0 {
               warn!(
                 "Client {} declared an invalid scaling block: {}",
                 client_id, e
+              );
+              self.notify(
+                warned.1.as_deref(),
+                format!("`scaling:` is not applied: {e}"),
               );
             }
             break;

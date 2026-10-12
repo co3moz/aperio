@@ -499,6 +499,9 @@ struct ConnCtx {
   /// A `std` mutex: only this connection's read loop touches it, and it is
   /// never held across an await.
   stream_cache: std::sync::Mutex<HashMap<String, StreamCacheEntry>>,
+  /// Set once this connection was told why its OTel exports are dropped:
+  /// an exporter sends every few seconds, and the reason is news once.
+  otel_refusal_noticed: AtomicBool,
 }
 
 impl ConnCtx {
@@ -513,6 +516,29 @@ impl ConnCtx {
     if let Ok(json) = serde_json::to_string(&notice) {
       let _ = self.tx_write.try_send(Message::Text(json.into()));
     }
+  }
+
+  /// Tells the client `message` about the service at `service_index`, once
+  /// per connection, and says whether this was the first time, so the
+  /// server's own log line can follow the same rule. A setting the server
+  /// does not apply is never only the server's to know: the person editing
+  /// the client's file is reading the client's log.
+  fn notify_once(
+    &self,
+    handle: &mut crate::state::ClientHandle,
+    service_index: usize,
+    service: Option<&str>,
+    message: String,
+  ) -> bool {
+    if !handle
+      .service_at_mut(service_index)
+      .notices_sent
+      .insert(message.clone())
+    {
+      return false;
+    }
+    self.notify(service, message);
+    true
   }
 }
 
@@ -742,6 +768,7 @@ pub(crate) async fn handle_socket(
           tunnels: Vec::new(),
           cache: false,
           cache_ignored_warned: false,
+          notices_sent: Default::default(),
           resilience: false,
           max_request_body: None,
           response_timeout: None,
@@ -795,6 +822,7 @@ pub(crate) async fn handle_socket(
     server_max_connections,
     max_inflated,
     stream_cache: std::sync::Mutex::new(HashMap::new()),
+    otel_refusal_noticed: AtomicBool::new(false),
   };
 
   // Read loop. Ends on the client closing the socket, or when `disconnect` is

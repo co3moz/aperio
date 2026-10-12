@@ -1103,3 +1103,121 @@ async fn a_carrier_with_no_web_target_is_not_told() {
   send(&mut ws, &ping_with_hostnames(None, false)).await;
   assert!(notices_until_pong(&mut ws).await.is_empty());
 }
+
+// --- what the server does not apply is said to the client ------------------
+
+/// The text of every notice, for a `contains` over all of them.
+fn said(notices: &[(Option<String>, String)]) -> String {
+  notices
+    .iter()
+    .map(|(_, m)| m.as_str())
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+/// A client asks for features the server has off: the response cache,
+/// serve-stale, autoscaling; and writes an allowlist entry that is not an
+/// address. Each is said to the client, by name, the first time only.
+#[tokio::test]
+async fn every_feature_the_server_does_not_apply_is_told_to_the_client_once() {
+  // The test configuration has the cache and autoscaling off.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  wait_client_id(&state).await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    let d = &mut services[0];
+    d.service = Some("web".into());
+    d.cache = true;
+    d.resilience = true;
+    d.allowed_ips = vec!["10.0.0.0/8".into(), "not-an-ip".into()];
+    d.scaling = Some(
+      serde_json::from_value(serde_json::json!({"url": "https://scale.example.com/up"}))
+        .expect("a scaling block"),
+    );
+  }
+  send(&mut ws, &ping).await;
+  let notices = notices_until_pong(&mut ws).await;
+  let text = said(&notices);
+  assert!(text.contains("`cache:` is not applied"), "{text}");
+  assert!(text.contains("`cache.offline` is not applied"), "{text}");
+  assert!(text.contains("`allowed_ips` entries not-an-ip"), "{text}");
+  assert!(text.contains("`scaling:` is not applied"), "{text}");
+  assert!(
+    notices.iter().all(|(s, _)| s.as_deref() == Some("web")),
+    "each names its service: {notices:?}"
+  );
+
+  // The next heartbeat repeats the declaration, and says nothing new.
+  send(&mut ws, &ping).await;
+  assert!(notices_until_pong(&mut ws).await.is_empty());
+}
+
+/// A hostname the token does not grant is dropped, and the client hears
+/// which one, rather than finding its route answering 504.
+#[tokio::test]
+async fn a_hostname_the_token_does_not_grant_is_told_to_the_client() {
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let secret = {
+    let mut store = state.token_store.lock().await;
+    store
+      .create(crate::store::tokens::TokenSpec {
+        name: "narrow".into(),
+        hostnames: vec!["a.example.com".into()],
+        ..Default::default()
+      })
+      .expect("the test store can be written to")
+      .1
+  };
+  let mut ws = connect(&url, &secret).await;
+  wait_client_id(&state).await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    services[0].hostname_binds = vec!["a.example.com".into(), "b.example.com".into()];
+  }
+  send(&mut ws, &ping).await;
+  let text = said(&notices_until_pong(&mut ws).await);
+  assert!(
+    text.contains("`hostname: b.example.com` was not applied"),
+    "{text}"
+  );
+  assert!(!text.contains("a.example.com"), "{text}");
+  send(&mut ws, &ping).await;
+  assert!(notices_until_pong(&mut ws).await.is_empty());
+}
+
+/// A refused `server_side` is the client's to hear too: its service is not
+/// routed, which looks like an outage from the client's side otherwise.
+#[tokio::test]
+async fn a_refused_server_side_is_told_to_the_client() {
+  let state = state_allowing("10.0.0.0/8");
+  let url = start_server(state.clone()).await;
+  let (secret, _id) = make_dynamic_token(&state, false).await;
+  let mut ws = connect(&url, &secret).await;
+  wait_client_id(&state).await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    *services = vec![crate::protocol::ServiceDecl {
+      server_side_target: Some("http://10.1.2.3:8080".into()),
+      ..Default::default()
+    }];
+  }
+  send(&mut ws, &ping).await;
+  let text = said(&notices_until_pong(&mut ws).await);
+  assert!(text.contains("`server_side` is refused"), "{text}");
+  assert!(text.contains("allow_server_side"), "{text}");
+}

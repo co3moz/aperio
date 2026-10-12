@@ -97,6 +97,7 @@ pub(crate) const SERVICE_SCOPED_DERIVED: &[&str] = &[
   "allowed_ips_invalid_warned",
   "cache_ignored_warned",
   "scaling_invalid_warned",
+  "notices_sent",
   // The service's answer, not the connection's: one service of a process may
   // have been refused server-side serving while its neighbour serves. Held on
   // the connection it would let one service's refusal stop another.
@@ -299,6 +300,7 @@ impl ServiceState {
       tunnels: Vec::new(),
       cache: false,
       cache_ignored_warned: false,
+      notices_sent: Default::default(),
       resilience: false,
       max_request_body: None,
       response_timeout: None,
@@ -575,6 +577,10 @@ pub(crate) struct ServiceState {
   /// Ensures the "cache requested but the server cache is disabled" warning
   /// logs once per connection, not on every heartbeat.
   pub(crate) cache_ignored_warned: bool,
+  /// What this connection has already been told about this service, by the
+  /// sentence itself: a declaration repeats on every Ping, and a refusal is
+  /// news to the client the first time only. See `ConnCtx::notify_once`.
+  pub(crate) notices_sent: std::collections::HashSet<String>,
   /// The client asked for serve-stale resilience: cached responses for its
   /// routes stay servable (marked) while no healthy client is connected.
   pub(crate) resilience: bool,

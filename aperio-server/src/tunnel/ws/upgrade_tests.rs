@@ -209,3 +209,45 @@ async fn draining_marks_client() {
   ws.close(None).await.unwrap();
   wait_no_clients(&state).await;
 }
+
+// --- OTel exports into a bridge that is off ---------------------------------
+
+/// An exporter sends every few seconds into a bridge that is off: the client
+/// is told why its exports go nowhere, and told once.
+#[tokio::test]
+async fn exports_into_a_disabled_bridge_are_told_to_the_client_once() {
+  use futures_util::StreamExt;
+  use tokio_tungstenite::tungstenite::Message as TMessage;
+  // The test configuration has the bridge off.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  wait_client_id(&state).await;
+  let export = TunnelMessage::OtlpExport {
+    signal: "traces".into(),
+    data: BASE64_STANDARD.encode(b"export"),
+  };
+  send(&mut ws, &export).await;
+  send(&mut ws, &export).await;
+  // A Ping after them, so its Pong marks where the server is done with both.
+  send(&mut ws, &base_ping()).await;
+  let mut notices = Vec::new();
+  loop {
+    let frame = tokio::time::timeout(Duration::from_secs(3), ws.next())
+      .await
+      .expect("the server answers")
+      .expect("the stream stays open")
+      .expect("a frame");
+    if let TMessage::Text(t) = frame {
+      match serde_json::from_str::<TunnelMessage>(&t) {
+        Ok(TunnelMessage::Pong { .. }) => break,
+        Ok(TunnelMessage::Notice { message, .. }) if message.contains("OTel") => {
+          notices.push(message)
+        }
+        _ => {}
+      }
+    }
+  }
+  assert_eq!(notices.len(), 1, "{notices:?}");
+  assert!(notices[0].contains("`otel_bridge`"), "{}", notices[0]);
+}

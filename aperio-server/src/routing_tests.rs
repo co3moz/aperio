@@ -84,6 +84,7 @@ pub(super) fn base_handle() -> ClientHandle {
       tunnels: Vec::new(),
       cache: false,
       cache_ignored_warned: false,
+      notices_sent: Default::default(),
       resilience: false,
       max_request_body: None,
       response_timeout: None,

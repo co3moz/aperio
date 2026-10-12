@@ -134,7 +134,12 @@ impl ConnCtx {
     if let Some(p) = normalized_path {
       if handle.perms.path_allowed(&p) {
         handle.service_at_mut(service_index).declared_path = Some(p);
-      } else {
+      } else if self.notify_once(
+        handle,
+        service_index,
+        declaration.service.as_deref(),
+        format!("`path: {p}` was not applied: this client's token does not permit that path"),
+      ) {
         warn!(
           "Client {} declared path bind {} not permitted by its token; ignored",
           client_id, p
@@ -143,13 +148,25 @@ impl ConnCtx {
     }
     if let Some(h) = normalized_host {
       if state.is_panel_hostname(&h) {
-        warn!(
-          "Client {} declared hostname bind {} which is a dashboard panel and serves nothing else; ignored",
-          client_id, h
-        );
+        if self.notify_once(
+          handle,
+          service_index,
+          declaration.service.as_deref(),
+          panel_refusal(&h),
+        ) {
+          warn!(
+            "Client {} declared hostname bind {} which is a dashboard panel and serves nothing else; ignored",
+            client_id, h
+          );
+        }
       } else if handle.perms.hostname_allowed(&h) {
         handle.service_at_mut(service_index).declared_hostname = Some(h);
-      } else {
+      } else if self.notify_once(
+        handle,
+        service_index,
+        declaration.service.as_deref(),
+        hostname_refusal(&h),
+      ) {
         warn!(
           "Client {} declared hostname bind {} not permitted by its token; ignored",
           client_id, h
@@ -165,15 +182,27 @@ impl ConnCtx {
           continue;
         };
         if state.is_panel_hostname(&h) {
-          warn!(
-            "Client {} declared hostname bind {} which is a dashboard panel and serves nothing else; ignored",
-            client_id, h
-          );
+          if self.notify_once(
+            handle,
+            service_index,
+            declaration.service.as_deref(),
+            panel_refusal(&h),
+          ) {
+            warn!(
+              "Client {} declared hostname bind {} which is a dashboard panel and serves nothing else; ignored",
+              client_id, h
+            );
+          }
         } else if handle.perms.hostname_allowed(&h) {
           if !admitted.contains(&h) {
             admitted.push(h);
           }
-        } else {
+        } else if self.notify_once(
+          handle,
+          service_index,
+          declaration.service.as_deref(),
+          hostname_refusal(&h),
+        ) {
           warn!(
             "Client {} declared hostname bind {} not permitted by its token; ignored",
             client_id, h
@@ -274,6 +303,14 @@ impl ConnCtx {
         "Client {} requested response caching (cache: true) but the server cache is disabled (cache.enabled off); the opt-in is ignored",
         client_id
       );
+      self.notify_once(
+        handle,
+        service_index,
+        declaration.service.as_deref(),
+        "`cache:` is not applied: this server's response cache is off (`cache.enabled`), so \
+         nothing of this service is cached"
+          .to_string(),
+      );
     }
     if handle.service_at(service_index).max_request_body != max_request_body {
       handle.service_at_mut(service_index).max_request_body = max_request_body;
@@ -340,6 +377,26 @@ impl ConnCtx {
           client_id
         );
       }
+    }
+    // Serve-stale is served out of the response cache, for as long as the
+    // server keeps a stale copy: with either missing, the client's
+    // `cache.offline` keeps nothing, and its author would only find out on
+    // the day the backend is down.
+    if resilience && (!state.config().cache_enabled || state.config().cache_max_stale == 0) {
+      self.notify_once(
+        handle,
+        service_index,
+        declaration.service.as_deref(),
+        if state.config().cache_enabled {
+          "`cache.offline` is not applied: this server keeps no stale copy to serve \
+           (`cache.max_stale` is 0)"
+            .to_string()
+        } else {
+          "`cache.offline` is not applied: this server's response cache is off \
+           (`cache.enabled`), so there is no copy to serve while the backend is down"
+            .to_string()
+        },
+      );
     }
     if handle.service_at(service_index).tunnels != tunnels {
       info!(
@@ -465,6 +522,16 @@ impl ConnCtx {
               client_id, target, why
             );
           }
+          let (target, why) = (target.clone(), why.clone());
+          self.notify_once(
+            handle,
+            service_index,
+            declaration.service.as_deref(),
+            format!(
+              "`server_side` is refused for {target}: {why}. The service is not routed until \
+               that changes or `server_side` is taken off it"
+            ),
+          );
         }
         (None, _) => {
           service.server_side_target = None;
@@ -711,16 +778,29 @@ impl ConnCtx {
       .map(|s| s.trim().to_string())
       .filter(|s| !s.is_empty())
       .collect();
-    let before = effective_ips.len();
+    let dropped: Vec<String> = effective_ips
+      .iter()
+      .filter(|e| !crate::auth::valid_ip_entry(e))
+      .cloned()
+      .collect();
     effective_ips.retain(|e| crate::auth::valid_ip_entry(e));
-    if effective_ips.len() != before && !handle.service_at(service_index).allowed_ips_invalid_warned
-    {
+    if !dropped.is_empty() && !handle.service_at(service_index).allowed_ips_invalid_warned {
       handle
         .service_at_mut(service_index)
         .allowed_ips_invalid_warned = true;
       warn!(
         "Client {} declared allowed_ips with invalid entries; dropping them",
         client_id
+      );
+      self.notify_once(
+        handle,
+        service_index,
+        declaration.service.as_deref(),
+        format!(
+          "`allowed_ips` entries {} are not addresses or CIDRs and were dropped; the others stay \
+           in force",
+          dropped.join(", ")
+        ),
       );
     }
     if handle.service_at(service_index).allowed_ips != effective_ips {
@@ -765,4 +845,16 @@ impl ConnCtx {
       ));
     }
   }
+}
+
+/// What a client is told about a hostname a dashboard panel owns.
+fn panel_refusal(host: &str) -> String {
+  format!(
+    "`hostname: {host}` is not served: it is a dashboard panel, which serves the dashboard and nothing else"
+  )
+}
+
+/// What a client is told about a hostname its token does not grant.
+fn hostname_refusal(host: &str) -> String {
+  format!("`hostname: {host}` was not applied: this client's token does not permit that hostname")
 }

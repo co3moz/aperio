@@ -86,6 +86,20 @@ aperio-client init 3000 --hostname app.example.com --access public \
 | `--pass-hostname` | `defaults.pass_hostname` |
 | `--config FILE` | the config file to read (default: `./aperio.yaml`) |
 
+### When the server does not apply a setting
+
+Several features take a word from both sides: the client asks, and the server (and the client's token) decide. When the server does not apply something a service asked for, the client's own log says so, once per connection, naming the setting and why, as `The server says, about web: ...`:
+
+- an `access:` the token does not permit, a method a client may not declare, or a site's `access` that decides instead;
+- a `hostname` or `path` the token does not grant, or a hostname that is a dashboard panel;
+- `cache:` while the server's response cache is off, and `cache.offline` with nothing to serve it from (`cache.enabled` off, or `cache.max_stale: 0`);
+- a refused `server_side`, with the reason: the token lacks `allow_server_side`, or the target is not on `security.server_side_targets`;
+- `allowed_ips` entries that are not addresses or CIDRs;
+- a `scaling:` block the server does not honour (`scaling.enabled`) or cannot read;
+- OTel exports the server drops: its bridge is off, or the token lacks `allow_otel`.
+
+Nothing here changes what is refused; it changes who hears it. The person editing `aperio.yaml` is reading the client's log, not the server's.
+
 ### Settings
 
 A single HTTP backend needs a server URL, a tunnel token, and a target (or `serve:` for static files). A client that only binds tunnels or handles messages needs no target. `aperio-client check` shows where each resolved setting came from.

@@ -823,6 +823,19 @@ aperio-server check server-init.yaml
 setting with its default, which is what the reference appendices of this book
 are written from.
 
+\section{What the server did not apply}
+
+Several features take a word from both sides: a client asks, and the server
+and the client's token decide. When the server does not apply something a
+service asked for, it says so in the \emph{client's} log, once per
+connection, naming the setting and the reason: an \code{access:} the token
+does not permit, a hostname or path it does not grant, \code{cache:} or
+\code{cache.offline} with the server's cache off, a refused
+\code{server\_side}, an \code{allowed\_ips} entry that is not an address, a
+\code{scaling:} block the server does not honour, and OTel exports it
+drops. Nothing changes about what is refused; what changes is who hears it,
+since the person editing \code{aperio.yaml} reads the client's log.
+
 \section{Configuration across an upgrade}
 
 A client file does not declare the release it was written for, and no layer
