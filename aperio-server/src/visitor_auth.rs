@@ -6,11 +6,13 @@
 //! the gate never re-parses configuration per request and never has to know
 //! which of the three spellings produced it.
 //!
-//! Five methods exist: `none`, `basic`, `bearer` (#107), `jwt` (#110) and
-//! `forward` (#104). The set is closed on purpose, the open version was
-//! considered and withdrawn (#103), and `forward` is what lets it stay closed:
-//! anything deliberately left out is an endpoint away, in a process that is
-//! not ours. `oidc` on this plane is still #106.
+//! Seven methods exist: `none`, `basic`, `bearer` (#107), `jwt` (#110),
+//! `forward` (#104), `aperio` (#155) and `sso`. The set is closed on purpose,
+//! the open version was considered and withdrawn (#103), and `forward` is what
+//! lets it stay closed: anything deliberately left out is an endpoint away, in
+//! a process that is not ours. `sso` is the visitor's own sign-in at an
+//! identity provider, kept apart from the dashboard's OIDC login so letting a
+//! visitor in never means giving them a role on Aperio.
 //!
 //! **A policy of several methods admits on the first that admits.** That is
 //! what lets one route say "a browser signs in, a script presents a key", and
@@ -52,6 +54,35 @@ pub(crate) enum Method {
   /// way to say it, so a route can be shown the door rather than the stealth
   /// answer without inventing a password nobody will type.
   Aperio,
+  /// A sign-in at an identity provider of the operator's choosing, for
+  /// visitors. It mints a session for the hostname alone, on the visitor
+  /// plane, so it opens the site and nothing of Aperio.
+  Sso(Box<SsoConfig>),
+}
+
+/// One `sso` method, as written.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SsoConfig {
+  pub(crate) issuer: String,
+  pub(crate) client_id: String,
+  pub(crate) client_secret: String,
+  /// Exact addresses, `*@domain`, or `*`.
+  pub(crate) allowed_emails: Vec<String>,
+  pub(crate) scopes: String,
+}
+
+impl SsoConfig {
+  /// The key a discovered runtime is cached under.
+  pub(crate) fn key(&self) -> String {
+    format!("{}|{}", self.issuer.trim_end_matches('/'), self.client_id)
+  }
+
+  /// Does this method let in the visitor behind `email`? Asked again on every
+  /// request, so narrowing the list takes effect without waiting for a
+  /// session to expire.
+  pub(crate) fn admits_email(&self, email: &str) -> bool {
+    crate::oidc::email_allowed(email, &self.allowed_emails)
+  }
 }
 
 /// A route's visitor gate: the methods that may admit a visitor, in the order
@@ -94,6 +125,23 @@ impl Policy {
         |spec| match spec.method.trim().to_ascii_lowercase().as_str() {
           "none" => Some(Method::Open),
           "aperio" => Some(Method::Aperio),
+          // Never from a client: the identity provider and its secret are
+          // the operator's, and a client is refused for writing one.
+          "sso" if !declared_by_client => Some(Method::Sso(Box::new(SsoConfig {
+            issuer: spec.issuer.clone().unwrap_or_default().trim().to_string(),
+            client_id: spec.client_id.clone().unwrap_or_default(),
+            client_secret: spec.client_secret.clone().unwrap_or_default(),
+            allowed_emails: spec
+              .allowed_emails
+              .as_ref()
+              .map(|e| e.as_slice().to_vec())
+              .unwrap_or_default(),
+            scopes: spec
+              .scopes
+              .clone()
+              .filter(|s| !s.trim().is_empty())
+              .unwrap_or_else(|| "openid email".to_string()),
+          }))),
           "basic" => Some(Method::Basic {
             users: spec
               .users
@@ -191,8 +239,28 @@ impl Policy {
         Method::Jwt(_) => "jwt",
         Method::Forward(_) => "forward",
         Method::Aperio => "aperio",
+        Method::Sso(_) => "sso",
       })
       .collect()
+  }
+
+  /// The `sso` methods in force, in the order they were written.
+  pub(crate) fn sso_methods(&self) -> impl Iterator<Item = &SsoConfig> {
+    self.methods.iter().filter_map(|m| match m {
+      Method::Sso(cfg) => Some(cfg.as_ref()),
+      _ => None,
+    })
+  }
+
+  /// True when a single sign-on can open this gate.
+  pub(crate) fn has_sso(&self) -> bool {
+    self.sso_methods().next().is_some()
+  }
+
+  /// True when single sign-on is the only way through: then a visitor
+  /// password session, which this policy never asked for, does not count.
+  pub(crate) fn sso_only(&self) -> bool {
+    !self.methods.is_empty() && self.methods.iter().all(|m| matches!(m, Method::Sso(_)))
   }
 
   /// True when the `aperio` method is here: an Aperio sign-in opens this

@@ -311,6 +311,8 @@ pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
     oidc: None,
     org_oidc: Mutex::new(HashMap::new()),
     oidc_states: Mutex::new(HashMap::new()),
+    sso_runtimes: Mutex::new(HashMap::new()),
+    sso_states: Mutex::new(HashMap::new()),
     tcp_streams: Mutex::new(HashMap::new()),
     udp_streams: Mutex::new(HashMap::new()),
     response_cache: Mutex::new(crate::cache::ResponseCache::default()),
@@ -443,6 +445,7 @@ pub(crate) async fn seed_session(
       selected_org: org,
       bound_org: None,
       login_host: None,
+      sso_issuer: None,
     },
   );
   token

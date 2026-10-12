@@ -33,6 +33,8 @@ export const AUDIT_EVENT_GROUPS: AuditEventGroup[] = [
       'login_lockout',
       'oidc_login_success',
       'oidc_login_denied',
+      'sso_login_success',
+      'sso_login_denied',
       'passkey_registered',
       'passkey_deleted',
       'totp_enabled',

@@ -776,6 +776,7 @@ async fn session_org_maps_unnamed_session_to_master() {
     selected_org: None,
     bound_org: None,
     login_host: None,
+    sso_issuer: None,
   };
   assert_eq!(session_org(&info, &map), None);
 }

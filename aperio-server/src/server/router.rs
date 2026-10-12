@@ -545,6 +545,15 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
   app = app.route("/aperio/tunnels/{client_id}", get(tunnels_list_handler));
   app = app.route("/aperio/oidc/login", get(oidc_login_handler));
   app = app.route("/aperio/oidc/callback", get(oidc_callback_handler));
+  // A visitor's own sign-in, on whichever hostname the gate is in front of.
+  app = app.route(
+    "/aperio/sso/login",
+    get(crate::auth::sso_flow::sso_login_handler),
+  );
+  app = app.route(
+    "/aperio/sso/callback",
+    get(crate::auth::sso_flow::sso_callback_handler),
+  );
 
   // Prometheus metrics endpoint, registered outside the dashboard session
   // middleware. Access control is handled by metrics.token if set.

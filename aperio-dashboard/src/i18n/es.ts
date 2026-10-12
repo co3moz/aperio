@@ -1088,12 +1088,10 @@ export const es: Record<string, string> = {
     'ningún rate_limit de un site cubre este path',
   "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
     'los visitantes deben iniciar sesión (o llevar un enlace compartido) antes de que esto llegue a un cliente: el cliente que sirve declaró una contraseña de visitante para esta ruta, que prevalece sobre la puerta del propio servidor',
-  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
-    'los visitantes deben iniciar sesión (o llevar un enlace compartido) antes de que esto llegue a un cliente: la puerta de visitantes del servidor está activa y OIDC está configurado',
   "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set":
     'los visitantes deben iniciar sesión (o llevar un enlace compartido) antes de que esto llegue a un cliente: la contraseña de visitante del servidor está puesta',
-  'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors':
-    'los visitantes deben iniciar sesión (o llevar un enlace compartido) antes de que esto llegue a un cliente: OIDC está configurado para visitantes',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's gate asks for a single sign-on at an identity provider":
+    'los visitantes deben iniciar sesión (o llevar un enlace compartido) antes de que esto llegue a un cliente: la puerta del servidor pide un inicio de sesión único en un proveedor de identidad',
   'this hostname is served without a visitor gate':
     'este hostname se sirve sin puerta de visitantes',
   "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare":
@@ -1152,8 +1150,6 @@ export const es: Record<string, string> = {
     'modo de mantenimiento',
   'access: on the service':
     'access: en el servicio',
-  'access / OIDC':
-    'access / OIDC',
   'access':
     'access',
   'OIDC':

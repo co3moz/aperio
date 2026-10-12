@@ -1090,12 +1090,10 @@ export const de: Record<string, string> = {
     'kein rate_limit einer Site deckt diesen path ab',
   "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
     'Besucher müssen sich anmelden (oder einen Freigabelink mitbringen), bevor dies einen Client erreicht: der ausliefernde Client hat für diese Route ein eigenes Besucherpasswort erklärt, das dem Tor des Servers vorgeht',
-  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
-    'Besucher müssen sich anmelden (oder einen Freigabelink mitbringen), bevor dies einen Client erreicht: das Besuchertor des Servers ist an und OIDC ist konfiguriert',
   "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set":
     'Besucher müssen sich anmelden (oder einen Freigabelink mitbringen), bevor dies einen Client erreicht: das Besucherpasswort des Servers ist gesetzt',
-  'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors':
-    'Besucher müssen sich anmelden (oder einen Freigabelink mitbringen), bevor dies einen Client erreicht: OIDC ist für Besucher konfiguriert',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's gate asks for a single sign-on at an identity provider":
+    'Besucher müssen sich anmelden (oder einen Freigabelink mitbringen), bevor dies einen Client erreicht: das Tor des Servers verlangt eine einmalige Anmeldung bei einem Identitätsanbieter',
   'this hostname is served without a visitor gate':
     'dieser hostname wird ohne Besuchertor ausgeliefert',
   "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare":
@@ -1154,8 +1152,6 @@ export const de: Record<string, string> = {
     'Wartungsmodus',
   'access: on the service':
     'access: am Dienst',
-  'access / OIDC':
-    'access / OIDC',
   'access':
     'access',
   'OIDC':

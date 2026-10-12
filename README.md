@@ -137,7 +137,7 @@ Click a feature for the details.
 
 **4. Security & access control**
 
-- [Visitor Auth & SSO](docs/tokens-and-auth.md#protecting-proxied-traffic), OIDC or a password in front of a proxied site.
+- [Visitor Auth & SSO](docs/tokens-and-auth.md#protecting-proxied-traffic), a single sign-on or a password in front of a proxied site.
 - [Access Tokens](docs/tokens-and-auth.md#dynamic-tokens), scoped, revocable, rate-limited, IP-pinned.
 - [Share Links](docs/share-links.md), temporary visitor access with no account.
 - [Production Hardening](docs/production-hardening.md), the pre-flight checklist, and the [Threat Model](docs/threat-model.md) behind it.

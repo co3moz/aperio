@@ -316,6 +316,7 @@ fn a_session_is_usable_on_its_own_hostname_only_under_the_fence() {
     selected_org: None,
     bound_org: None,
     login_host: Some("www.acme.test".to_string()),
+    sso_issuer: None,
   };
   assert!(info.usable_on(true, Some("www.acme.test")));
   assert!(!info.usable_on(true, Some("www.beta.test")));

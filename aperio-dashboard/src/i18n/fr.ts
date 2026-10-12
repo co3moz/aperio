@@ -1088,12 +1088,10 @@ export const fr: Record<string, string> = {
     'aucun rate_limit de site ne couvre ce path',
   "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
     "les visiteurs doivent se connecter (ou porter un lien de partage) avant que cela n'atteigne un client : le client qui sert a déclaré son propre mot de passe visiteur pour cette route, qui l'emporte sur la porte du serveur",
-  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
-    "les visiteurs doivent se connecter (ou porter un lien de partage) avant que cela n'atteigne un client : la porte visiteurs du serveur est active et OIDC est configuré",
   "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set":
     "les visiteurs doivent se connecter (ou porter un lien de partage) avant que cela n'atteigne un client : le mot de passe visiteur du serveur est défini",
-  'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors':
-    "les visiteurs doivent se connecter (ou porter un lien de partage) avant que cela n'atteigne un client : OIDC est configuré pour les visiteurs",
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's gate asks for a single sign-on at an identity provider":
+    "les visiteurs doivent se connecter (ou porter un lien de partage) avant que cela n'atteigne un client : la porte du serveur demande une authentification unique auprès d'un fournisseur d'identité",
   'this hostname is served without a visitor gate':
     'ce hostname est servi sans porte visiteurs',
   "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare":
@@ -1152,8 +1150,6 @@ export const fr: Record<string, string> = {
     'mode maintenance',
   'access: on the service':
     'access: sur le service',
-  'access / OIDC':
-    'access / OIDC',
   'access':
     'access',
   'OIDC':

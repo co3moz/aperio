@@ -126,6 +126,17 @@ proxy.trusted`). Moving a deployment over is four steps:
 check <file>`, `settings show`, `schema`, `audit verify` and
 `backup decrypt`. The flags are refused rather than ignored.
 
+**If OIDC gated your visitors, say so now.** Configuring `oidc` used to put
+every visitor of a route nothing else declared behind the dashboard's sign-in.
+From 0.13.0 it is the operators' sign-in only and gates nobody by being
+configured. Under the default `access: deny` such a route is still refused to
+anyone without a session, but it answers as an unclaimed hostname does rather
+than with the sign-in page; under `access: public` it is **open to anyone**,
+and the server warns about exactly that at startup. Write what you meant:
+`access: {method: aperio}` for this server's own sign-in (OIDC included), or
+`access: {method: sso, ...}` for a sign-in that lets visitors see the sites
+without giving them a dashboard account at all.
+
 ### The client file
 
 A 0.13 client reads the 0.12 file shape nowhere: it refuses the start and names

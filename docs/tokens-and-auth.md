@@ -61,16 +61,21 @@ A gate is written as `access`, in one grammar wherever it appears: the server's 
 - **Visitor password**, `access: {method: basic, users: "user:password"}` in the server's settings shows a login form to every visitor of a route nothing else declares.
 
   **It is a key to the site and not to Aperio.** The session it creates reaches every proxied hostname, so somebody who signs in on one is not asked again on the next, and it opens nothing on the dashboard or its API. To administer Aperio, use the master token or a named user.
-- **OIDC / SSO**, redirect unauthenticated visitors to an identity provider (Google, Keycloak, Authentik, ...), Cloudflare-Access style:
+- **Single sign-on**, `method: sso` sends a visitor to an identity provider (Google, Keycloak, Authentik, ...), Cloudflare-Access style:
 
-  ```bash
-  oidc.issuer: https://accounts.google.com
-  oidc.client_id: xxxx.apps.googleusercontent.com
-  oidc.client_secret: xxxx
-  oidc.allowed_emails: me@corp.com,*@team.example.com
+  ```yaml
+  # settings
+  access:
+    method: sso
+    issuer: https://accounts.google.com
+    client_id: xxxx.apps.googleusercontent.com
+    client_secret: ${SSO_CLIENT_SECRET}
+    allowed_emails: [me@corp.com, "*@team.example.com"]
   ```
 
-  After login, the verified email (fetched from the issuer's `userinfo` endpoint over TLS) is checked against the allowlist, exact addresses, `*@domain`, or `*`. Sessions last 24 h. A misconfigured SSO setup is a **fatal error**: the server refuses to start rather than silently serving an unprotected proxy. Grants and denials are audit-logged.
+  After the sign-in, the verified email (fetched from the issuer's `userinfo` endpoint over TLS) is checked against `allowed_emails`: exact addresses, `*@domain`, or `*`. It is the **visitor's** sign-in: what it mints is a session for the hostname they signed in on, which opens the site and nothing of Aperio, and the email is checked again on every request, so narrowing the list takes effect at once. Register `https://<hostname>/aperio/sso/callback` at the provider for each hostname the gate covers. Written on a [site](configuration.md#sites), it covers that hostname alone; a client cannot declare it, since the provider and its secret are the operator's. Sign-ins and refusals are audit-logged as `sso_login_success` and `sso_login_denied`.
+
+  The dashboard's own OIDC sign-in (`oidc.*`) is a different thing: it lets **operators** in, with the roles their records give them, and it gates no visitor by being configured. A route that should ask for the dashboard sign-in says `access: {method: aperio}`.
 
 A client can opt its own service out of the gate by declaring itself **public** (`--access public`, yaml `access: public`, or `APERIO_ACCESS=public`), useful when one Aperio server fronts both protected internal tools and a public site. Two safety rules apply: the client's token must carry the *may publish public services* permission (off by default; master always may), and a route has one policy, so a client that declares something else for a route another client already serves is not routed there at all (see [One route, one policy](#one-route-one-policy)).
 

@@ -67,6 +67,22 @@ pub(crate) async fn build_state(
   // server fetches from, so it goes through the outbound fence like every
   // other one, which is also why this runs after the config is resolved.
   let oidc_runtime = oidc::load(&settings.oidc, &config.outbound_policy).await;
+  // Said where it can still be read before anyone is let in: OIDC used to
+  // gate every visitor by being configured, and a server upgraded with
+  // `access: public` would otherwise open what that gate covered without a
+  // word.
+  if oidc_runtime.is_some()
+    && config.default_access == crate::settings::DefaultAccess::Allow
+    && !config.visitor_auth.gates()
+  {
+    tracing::warn!(
+      "OIDC is configured and the server's `access` is `public`: since 0.13.0 OIDC is the \
+       dashboard's sign-in and gates no visitor by being configured, so every route nothing \
+       else declares is open to anyone. Set `access` to `{{method: aperio}}` to ask visitors \
+       for this server's sign-in, or to `{{method: sso, ...}}` for an identity provider of \
+       their own."
+    );
+  }
 
   // Copied out before config moves into the state (values needed by the
   // live structures below).
@@ -170,6 +186,8 @@ pub(crate) async fn build_state(
     oidc: oidc_runtime,
     org_oidc: Mutex::new(HashMap::new()),
     oidc_states: Mutex::new(HashMap::new()),
+    sso_runtimes: Mutex::new(HashMap::new()),
+    sso_states: Mutex::new(HashMap::new()),
     tcp_streams: Mutex::new(HashMap::new()),
     udp_streams: Mutex::new(HashMap::new()),
     response_cache: Mutex::new(crate::cache::ResponseCache::default()),

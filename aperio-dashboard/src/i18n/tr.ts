@@ -1092,12 +1092,10 @@ export const tr: Record<string, string> = {
     "bu path'i kapsayan bir site rate_limit'i yok",
   "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
     'ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): hizmeti veren istemci bu rota için kendi ziyaretçi parolasını bildirdi, bu sunucunun kendi kapısının önüne geçer',
-  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
-    'ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): sunucunun ziyaretçi kapısı açık ve OIDC yapılandırılmış',
   "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set":
     'ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): sunucunun ziyaretçi parolası ayarlı',
-  'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors':
-    'ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): ziyaretçiler için OIDC yapılandırılmış',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's gate asks for a single sign-on at an identity provider":
+    'ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): sunucunun kapısı bir kimlik sağlayıcısında tek oturum açma istiyor',
   'this hostname is served without a visitor gate':
     'bu hostname ziyaretçi kapısı olmadan sunuluyor',
   "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare":
@@ -1156,8 +1154,6 @@ export const tr: Record<string, string> = {
     'bakım modu',
   'access: on the service':
     'hizmetteki access:',
-  'access / OIDC':
-    'access / OIDC',
   'access':
     'access',
   'OIDC':

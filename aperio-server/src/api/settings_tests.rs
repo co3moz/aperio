@@ -52,6 +52,7 @@ async fn session_aged(state: &AppState, age_secs: u64) -> HeaderMap {
       selected_org: None,
       bound_org: None,
       login_host: None,
+      sso_issuer: None,
     },
   );
   let name = crate::auth::session_cookie_name(state.config().secure_cookies);

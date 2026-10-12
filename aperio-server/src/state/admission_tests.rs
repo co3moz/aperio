@@ -741,6 +741,7 @@ async fn the_beat_drops_a_session_at_the_instant_it_expires() {
     selected_org: None,
     bound_org: None,
     login_host: None,
+    sso_issuer: None,
   };
 
   {

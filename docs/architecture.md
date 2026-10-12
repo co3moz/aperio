@@ -74,7 +74,7 @@ version of this list:
    with neither carries policy, not an answer, and does not end the request
    here.
 4. **Per-IP rate limit**, the visitor's token bucket.
-5. **Visitor gate**, the password, OIDC or client-declared login, before
+5. **Visitor gate**, a site's, the server's or a client's, before
    routing so an unauthenticated visitor never influences client selection.
 6. **Wait for a client**, bounded by the gateway timeout, and where a cold
    start is triggered. Before the global slot is taken, so visitors waiting on

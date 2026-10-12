@@ -1,6 +1,6 @@
 # Share Links
 
-Share links give temporary access to a site protected by a visitor password or OIDC. Recipients do not need accounts.
+Share links give temporary access to a site behind a visitor gate, a password or a single sign-on. Recipients do not need accounts.
 
 ## How it works
 

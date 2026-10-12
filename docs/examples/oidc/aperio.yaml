@@ -3,7 +3,7 @@ server:
   token: apr_oidc_change_me
 
 services:
-  # No `access: public` on purpose: the server's OIDC gate is the point of this
+  # No `access:` on purpose: the server's single sign-on is the point of this
   # example, and declaring the route public would walk around it.
   app:
     target: http://localhost:3000

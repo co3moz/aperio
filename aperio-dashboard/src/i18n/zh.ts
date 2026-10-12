@@ -1069,12 +1069,10 @@ export const zh: Record<string, string> = {
     '没有 site 的 rate_limit 覆盖这个 path',
   "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
     '访客必须先登录（或带着分享链接）才能到达客户端：提供服务的客户端为这条路由声明了自己的访客密码，它优先于服务器自身的门禁',
-  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
-    '访客必须先登录（或带着分享链接）才能到达客户端：服务器的访客门禁已开启，并且配置了 OIDC',
   "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set":
     '访客必须先登录（或带着分享链接）才能到达客户端：服务器的访客密码已设置',
-  'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors':
-    '访客必须先登录（或带着分享链接）才能到达客户端：已为访客配置 OIDC',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's gate asks for a single sign-on at an identity provider":
+    '访客必须先登录（或带着分享链接）才能到达客户端：服务器的门禁要求在身份提供方处进行单点登录',
   'this hostname is served without a visitor gate':
     '这个 hostname 在没有访客门禁的情况下提供服务',
   "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare":
@@ -1133,8 +1131,6 @@ export const zh: Record<string, string> = {
     '维护模式',
   'access: on the service':
     '服务上的 access:',
-  'access / OIDC':
-    'access / OIDC',
   'access':
     'access',
   'OIDC':

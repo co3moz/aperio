@@ -537,6 +537,7 @@ The list is **any-of**: a visitor is admitted by the first method that admits th
 | `bearer` | An opaque secret presented as `Authorization: Bearer <secret>`. `secret:` takes one or a list, so a key rotates by adding the new one before withdrawing the old. | both |
 | `jwt` | A token the visitor already holds, verified against the keys its issuer publishes (`jwks_url:`) or a shared secret (`hmac_secret:`). No round trip per request. | both |
 | `forward` | Ask an endpoint you run about each request: `2xx` admits it, anything else refuses it and the endpoint's own answer is what the visitor gets. `via: client` asks over the tunnel, so the endpoint can live on the client's network; a client-written `forward` must say so. | both |
+| `sso` | A visitor's sign-in at an identity provider: `issuer`, `client_id`, `client_secret`, and `allowed_emails` (exact addresses, `*@domain`, or `*`), optional `scopes`. It mints a session for the hostname alone, on the visitor plane, so letting somebody see a site never gives them a role on Aperio; the email is checked again on every request. The provider lists `https://<hostname>/aperio/sso/callback` for each hostname the gate covers. | server only |
 | `aperio` | This server's own sign-in: a dashboard session (the master token, a named user, a passkey or OIDC) reaching the hostname's organization. No credential to invent, which is what `auth: DUMMY:DUMMY` was standing in for. Alone, it admits the admin plane only, so the site's visitor password does not open it; beside `bearer`, a person signs in and a script presents a key. | both |
 
 The set is closed on purpose rather than being a plugin interface, and `forward` is what lets it stay closed: anything deliberately left out (LDAP, SAML, a rule nobody anticipated) is thirty lines behind that URL, in a process that is not Aperio's, with a contract that is two HTTP messages rather than an ABI. A `method:` this build does not know **refuses the start** and names the ones it does, so a gate is never silently absent. `oidc` as a visitor method is still its own piece of work.
@@ -662,6 +663,7 @@ A session is for one of two things: administering Aperio, or viewing a site behi
 | Master token, a named dashboard user, a passkey, OIDC | **admin**: the dashboard, its API, and (fenced by organization) the visitor gate |
 | A `basic` login in the server's `access`, or a site's | **visitor**: the hostnames that gate covers, nothing administrative |
 | A client's own `access:` | **visitor**, and only on that hostname |
+| A single sign-on (`method: sso`) | **visitor**, and only on the hostname it was made on, and only for the gate whose provider vouched for it |
 
 The visitor password is server-wide, so a visitor who signs in on one hostname is not asked again on the next; what it never opens is Aperio itself.
 
@@ -1158,6 +1160,7 @@ Three things hold for the whole `/aperio/api/` surface. The credential is a dash
 | `GET /aperio` | The dashboard, and its assets under `/aperio/assets/`. | a dashboard session; a browser without one is sent to the login |
 | `GET /aperio/auth` | The login page. | none |
 | `GET /aperio/oidc/login`, `GET /aperio/oidc/callback` | The OIDC flow; `?org=<id>` starts a child organization's own. | none |
+| `GET /aperio/sso/login`, `GET /aperio/sso/callback` | A visitor's single sign-on, for a gate with `method: sso`, on the hostname the gate covers. | none |
 | `GET /aperio/ws` | The tunnel endpoint clients connect to. | a tunnel token, as `Authorization: Bearer` or `x-auth-token` |
 | `GET /aperio/tcp`, `GET /aperio/udp` | The relay endpoints a binder dials for a declared tunnel. | a tunnel token that may bind it |
 | `GET /aperio/tunnels/:client_id` | Per-client tunnel discovery, the older spelling of `GET /aperio/tunnels` below. | master, the client's own token, or one in its organization with `allow_bind` |

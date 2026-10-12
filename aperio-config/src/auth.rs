@@ -245,10 +245,11 @@ pub enum AuthSetting {
 #[serde(deny_unknown_fields)]
 pub struct AuthMethodSpec {
   /// The gate: `none` (deliberately open), `basic` (a `user:password`
-  /// login), `bearer`, `jwt`, `forward`, or `aperio` (this server's own
+  /// login), `bearer`, `jwt`, `forward`, `aperio` (this server's own
   /// sign-in: a dashboard session reaching the hostname's organization, with
-  /// no credential to invent).
-  #[schemars(extend("examples" = ["basic", "none", "aperio"]))]
+  /// no credential to invent), or `sso` (a sign-in at an identity provider
+  /// of the visitor's, which grants nothing on Aperio itself).
+  #[schemars(extend("examples" = ["basic", "none", "aperio", "sso"]))]
   pub method: String,
   /// `basic`: the credentials that open this gate, each `user:password`.
   /// A single value or a list.
@@ -281,10 +282,31 @@ pub struct AuthMethodSpec {
   #[schemars(extend("examples" = ["${JWT_SECRET}"]))]
   pub hmac_secret: Option<String>,
   /// `jwt`: required `iss` claim. Strongly recommended: without it any issuer
-  /// whose key the JWKS happens to carry is accepted.
+  /// whose key the JWKS happens to carry is accepted. `sso`: the identity
+  /// provider, whose discovery document names its endpoints.
   #[serde(default)]
   #[schemars(extend("examples" = ["https://accounts.example.com"]))]
   pub issuer: Option<String>,
+  /// `sso`: the client id registered at the identity provider. Its redirect
+  /// URI is `https://<hostname>/aperio/sso/callback`, for each hostname the
+  /// gate covers.
+  #[serde(default)]
+  #[schemars(extend("examples" = ["aperio-visitors"]))]
+  pub client_id: Option<String>,
+  /// `sso`: the client secret registered with that id.
+  #[serde(default)]
+  #[schemars(extend("examples" = ["${SSO_CLIENT_SECRET}"]))]
+  pub client_secret: Option<String>,
+  /// `sso`: the visitors let in, by the verified email the provider reports:
+  /// exact addresses, `*@domain`, or `*` for anyone the provider signs in.
+  /// One or a list.
+  #[serde(default)]
+  #[schemars(extend("examples" = ["*@example.com", ["ada@example.com", "*@partner.example"]]))]
+  pub allowed_emails: Option<Credentials>,
+  /// `sso`: the scopes asked for. Default `openid email`.
+  #[serde(default)]
+  #[schemars(extend("examples" = ["openid email profile"]))]
+  pub scopes: Option<String>,
   /// `jwt`: required `aud` claim, one or a list of accepted values.
   #[serde(default)]
   #[schemars(extend("examples" = ["aperio", ["aperio", "internal-tools"]]))]
@@ -362,6 +384,14 @@ pub fn forward_via_client(spec: &AuthMethodSpec) -> bool {
 pub fn validate_client_declared_auth(setting: &AuthSetting) -> Result<(), String> {
   validate_auth_setting(setting)?;
   for (i, spec) in setting.methods().iter().enumerate() {
+    if spec.method.trim().eq_ignore_ascii_case("sso") {
+      return Err(format!(
+        "`auth:` entry #{}: `method: sso` is written in the server's settings, its own `access` \
+         or a site's: the identity provider and its client secret are the operator's, not \
+         something to send through a tunnel",
+        i + 1
+      ));
+    }
     if spec.method.trim().eq_ignore_ascii_case("forward") && !forward_via_client(spec) {
       return Err(format!(
         "`auth:` entry #{}: a `forward` declared on a client has to say `via: client`, since its \
@@ -448,7 +478,7 @@ impl AuthMethodSpec {
 /// Deliberately a closed set: the open version was considered and withdrawn
 /// (`planned_features.md` #103). Further methods each arrive as their own
 /// entry rather than as a plugin interface.
-pub const AUTH_METHODS: &[&str] = &["none", "basic", "bearer", "jwt", "forward", "aperio"];
+pub const AUTH_METHODS: &[&str] = &["none", "basic", "bearer", "jwt", "forward", "aperio", "sso"];
 
 /// Shortest `bearer` secret accepted.
 ///
@@ -642,6 +672,47 @@ pub fn validate_auth_setting(setting: &AuthSetting) -> Result<(), String> {
               return Err(at("a claim requirement has a blank name".to_string()));
             }
           }
+        }
+      }
+      "sso" => {
+        if spec.users.is_some()
+          || spec.secret.is_some()
+          || spec.jwks_url.is_some()
+          || spec.hmac_secret.is_some()
+          || spec.url.is_some()
+        {
+          return Err(at(
+            "`method: sso` signs a visitor in at an identity provider; it takes `issuer:`, \
+             `client_id:`, `client_secret:` and `allowed_emails:`"
+              .to_string(),
+          ));
+        }
+        let issuer = spec.issuer.as_deref().map(str::trim).unwrap_or_default();
+        if !issuer.starts_with("https://") && !issuer.starts_with("http://") {
+          return Err(at(
+            "`method: sso` needs `issuer:`, the identity provider's URL".to_string(),
+          ));
+        }
+        for (field, value) in [
+          ("client_id", spec.client_id.as_deref()),
+          ("client_secret", spec.client_secret.as_deref()),
+        ] {
+          if value.is_none_or(|v| v.trim().is_empty()) {
+            return Err(at(format!(
+              "`method: sso` needs `{field}:`, as registered at the identity provider"
+            )));
+          }
+        }
+        if spec
+          .allowed_emails
+          .as_ref()
+          .is_none_or(|e| e.as_slice().iter().all(|v| v.trim().is_empty()))
+        {
+          return Err(at(
+            "`method: sso` needs `allowed_emails:`; write `*` to let in anyone the provider \
+             signs in, which is a choice worth making on purpose"
+              .to_string(),
+          ));
         }
       }
       "basic" => {

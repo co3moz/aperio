@@ -93,6 +93,7 @@ pub(super) async fn seed_custom(
       selected_org,
       bound_org,
       login_host: None,
+      sso_issuer: None,
     },
   );
   token
@@ -991,4 +992,44 @@ async fn under_the_fence_a_tenants_hostname_admits_the_tenant_and_binds_the_sess
   assert!(!validate_session(&state, &on_beta).await);
   assert!(resolve_caller(&state, &on_beta).await.is_none());
   assert_eq!(dashboard_role(&state, &on_beta).await, None);
+}
+
+#[tokio::test]
+async fn a_sites_gate_signs_its_visitors_in_for_its_hostname_over_a_clients() {
+  let mut cfg = test_config();
+  cfg.sites = crate::test_support::sites(
+    "- hostname: site.test\n  access: {method: basic, users: 'ops:sitepw'}\n",
+  );
+  let state = test_state_with(cfg);
+  // A client on the same hostname with a password of its own: the site's
+  // word is the last one, so it is the site's credential the form takes.
+  let mut client = mock_client(Some("site.test"), None, None, None);
+  client.sole_mut().visitor_auth = Some("guest:letmein".to_string());
+  state.clients.write().await.insert("c1".to_string(), client);
+  let state = Arc::new(state);
+
+  let err = call_login(
+    state.clone(),
+    basic_headers("guest:letmein", Some("site.test")),
+    login_query(Some("/app")),
+  )
+  .await
+  .unwrap_err();
+  assert_eq!(
+    err,
+    StatusCode::UNAUTHORIZED,
+    "the client's password is not the gate here"
+  );
+
+  let res = call_login(
+    state.clone(),
+    basic_headers("ops:sitepw", Some("site.test")),
+    login_query(Some("/app?x=1")),
+  )
+  .await
+  .unwrap();
+  assert_eq!(res.status(), StatusCode::OK);
+  let (_, info) = state.sessions.lock().await.entries().pop().unwrap();
+  assert_eq!(info.scope_host.as_deref(), Some("site.test"));
+  assert_eq!(info.plane, crate::store::sessions::Plane::Visitor);
 }

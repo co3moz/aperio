@@ -635,7 +635,6 @@ impl ConnCtx {
     if !handle.service_at(service_index).ungated_warned
       && !declares_access
       && !state.config().visitor_auth.gates()
-      && state.oidc.is_none()
     {
       handle.service_at_mut(service_index).ungated_warned = true;
       if state.config().default_access == crate::settings::DefaultAccess::Deny {

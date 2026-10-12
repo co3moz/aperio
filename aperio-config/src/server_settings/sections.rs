@@ -364,7 +364,7 @@ pub struct Webauthn {
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct Oidc {
-  /// Issuer URL; setting it turns sign-on on.
+  /// Issuer URL; setting it turns the dashboard's sign-on on.
   #[serde(skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["https://accounts.google.com"]))]
   pub issuer: Option<String>,

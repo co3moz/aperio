@@ -614,6 +614,7 @@ pub(crate) async fn passkey_login_finish_handler(
       selected_org: None,
       bound_org: None,
       login_host: panel_host.clone(),
+      sso_issuer: None,
     },
   );
   let cookie = crate::auth::session_set_cookie(cfg.secure_cookies, &session_token);
@@ -875,6 +876,7 @@ pub(crate) async fn passkey_discoverable_finish_handler(
       selected_org: None,
       bound_org: None,
       login_host: panel_host.clone(),
+      sso_issuer: None,
     },
   );
   let cookie = crate::auth::session_set_cookie(cfg.secure_cookies, &session_token);

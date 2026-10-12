@@ -1086,12 +1086,10 @@ export const ja: Record<string, string> = {
     'この path を覆う site の rate_limit はありません',
   "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
     '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: 配信しているクライアントがこのルートに独自の訪問者パスワードを宣言しており、サーバー自身の関門に優先します',
-  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
-    '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: サーバーの訪問者関門が有効で、OIDC も設定されています',
   "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set":
     '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: サーバーの訪問者パスワードが設定されています',
-  'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors':
-    '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: 訪問者向けに OIDC が設定されています',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's gate asks for a single sign-on at an identity provider":
+    '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: サーバーの関門が ID プロバイダーでのシングルサインオンを求めています',
   'this hostname is served without a visitor gate':
     'この hostname は訪問者関門なしで配信されています',
   "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare":
@@ -1150,8 +1148,6 @@ export const ja: Record<string, string> = {
     'メンテナンスモード',
   'access: on the service':
     'サービス側の access:',
-  'access / OIDC':
-    'access / OIDC',
   'access':
     'access',
   'OIDC':

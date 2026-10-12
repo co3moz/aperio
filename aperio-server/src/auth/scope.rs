@@ -183,6 +183,32 @@ pub(crate) fn session_token(state: &AppState, headers: &HeaderMap) -> Option<Str
   session_cookie(headers, state.config().secure_cookies).map(str::to_string)
 }
 
+/// The visitor behind an `sso` session on `host`: the provider that vouched for
+/// them and the email it reported. `None` for any other session, so a gate
+/// asking for single sign-on is never opened by a password it did not ask for.
+pub(crate) async fn sso_identity(
+  state: &AppState,
+  headers: &HeaderMap,
+  host: Option<&str>,
+) -> Option<(String, String)> {
+  let host = host?;
+  let token = session_cookie(headers, state.config().secure_cookies)?;
+  if uuid::Uuid::parse_str(token).is_err() {
+    return None;
+  }
+  let fenced = state.config().fenced_login;
+  let sessions = state.sessions.lock().await;
+  let info = sessions.get(token)?;
+  let live = info.expires_at > crate::store::sessions::now_secs()
+    && info.usable_on(fenced, Some(host))
+    && info.plane == crate::store::sessions::Plane::Visitor
+    && info.scope_host.as_deref() == Some(host);
+  if !live {
+    return None;
+  }
+  Some((info.sso_issuer.clone()?, info.username.clone()?))
+}
+
 /// Gate for organization-management endpoints: 401 without a session, 403 for
 /// non-master-admins.
 #[allow(clippy::result_large_err)] // see api/tokens.rs

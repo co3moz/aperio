@@ -111,6 +111,7 @@ async fn list_requires_auth() {
       selected_org: None,
       bound_org: None,
       login_host: None,
+      sso_issuer: None,
     },
   );
   let (status, _) = listed_names(&state, cookie_headers(&visitor)).await;

@@ -1088,12 +1088,10 @@ export const ru: Record<string, string> = {
     'ни один rate_limit сайта не покрывает этот path',
   "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
     'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: обслуживающий клиент объявил собственный пароль посетителя для этого маршрута, и он важнее собственной двери сервера',
-  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
-    'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: дверь для посетителей на сервере включена и настроен OIDC',
   "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set":
     'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: на сервере задан пароль посетителя',
-  'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors':
-    'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: для посетителей настроен OIDC',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's gate asks for a single sign-on at an identity provider":
+    'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: дверь сервера требует единого входа у поставщика удостоверений',
   'this hostname is served without a visitor gate':
     'этот hostname обслуживается без двери для посетителей',
   "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare":
@@ -1152,8 +1150,6 @@ export const ru: Record<string, string> = {
     'режим обслуживания',
   'access: on the service':
     'access: у сервиса',
-  'access / OIDC':
-    'access / OIDC',
   'access':
     'access',
   'OIDC':

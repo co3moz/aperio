@@ -410,6 +410,7 @@ async fn a_session_from_one_organization_does_not_open_another_ones_gated_site()
         selected_org: None,
         bound_org: Some(org.id.clone()),
         login_host: None,
+        sso_issuer: None,
       },
     );
   }
@@ -492,6 +493,7 @@ async fn a_fenced_session_without_a_host_header_is_refused() {
         selected_org: None,
         bound_org: Some(org.id.clone()),
         login_host: None,
+        sso_issuer: None,
       },
     );
   }
@@ -1332,6 +1334,7 @@ async fn the_aperio_gate_admits_a_dashboard_session_and_not_the_site_password() 
       selected_org: None,
       bound_org: None,
       login_host: None,
+      sso_issuer: None,
     },
   );
   let gate = check_visitor_gate(
@@ -1620,4 +1623,46 @@ async fn a_sites_gate_admits_what_it_names() {
   )
   .await;
   assert!(matches!(gate, VisitorGate::Allow(Some(_))));
+}
+
+#[tokio::test]
+async fn a_session_signed_in_at_a_sites_gate_opens_that_site_and_no_other() {
+  let mut cfg = test_config();
+  cfg.sites = crate::test_support::sites(
+    "- hostname: a.example.com\n  access: {method: basic, users: 'ops:pw'}\n\
+     - hostname: b.example.com\n  access: {method: basic, users: 'ops:pw'}\n",
+  );
+  let state = Arc::new(test_state_with(cfg));
+  let token = uuid::Uuid::new_v4().to_string();
+  state.sessions.lock().await.insert(
+    &token,
+    crate::store::sessions::SessionInfo {
+      expires_at: crate::store::sessions::now_secs() + 600,
+      created_at: crate::store::sessions::now_secs(),
+      ip: None,
+      user_agent: None,
+      plane: crate::store::sessions::Plane::Visitor,
+      scope_host: Some("a.example.com".to_string()),
+      username: None,
+      role: crate::store::users::Role::Viewer,
+      selected_org: None,
+      bound_org: None,
+      login_host: None,
+      sso_issuer: None,
+    },
+  );
+  let mut headers = HeaderMap::new();
+  headers.insert(
+    "cookie",
+    HeaderValue::from_str(&format!("aperio_session={token}")).unwrap(),
+  );
+  let uri: axum::http::Uri = "/".parse().unwrap();
+  let on = |host: &'static str| {
+    let state = state.clone();
+    let headers = headers.clone();
+    let uri = uri.clone();
+    async move { check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, Some(host)).await }
+  };
+  assert!(matches!(on("a.example.com").await, VisitorGate::Allow(_)));
+  assert!(matches!(on("b.example.com").await, VisitorGate::Deny(_)));
 }

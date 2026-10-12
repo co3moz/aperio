@@ -111,6 +111,14 @@ const NOT_AN_API: &[(&str, &str)] = &[
     "the provider's redirect back, consumed by the browser that started it",
   ),
   (
+    "/aperio/sso/login",
+    "a visitor's browser redirect into their identity provider, not a call anything makes",
+  ),
+  (
+    "/aperio/sso/callback",
+    "the provider's redirect back to the visitor's hostname, consumed by the browser that started it",
+  ),
+  (
     "/aperio/ws",
     "the tunnel's WebSocket upgrade; the protocol past the handshake is the tunnel protocol, not HTTP",
   ),

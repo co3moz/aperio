@@ -71,7 +71,7 @@ Run `aperio-client api --help`, or `aperio-client api <group> --help`, for the f
 aperio-client api share --hostname app.example.com [--path /docs] [--expire 1d|never]
 ```
 
-Mints a signed link that lets a visitor past the site's password or OIDC gate. See [Share Links](share-links.md).
+Mints a signed link that lets a visitor past the site's gate, whatever it asks for. See [Share Links](share-links.md).
 
 ### Tokens
 

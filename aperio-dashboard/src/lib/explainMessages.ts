@@ -48,12 +48,10 @@ export const EXPLAIN_MESSAGES: Record<string, string> = {
 
   'visitor_gate.client_password':
     "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate",
-  'visitor_gate.server_password_and_oidc':
-    "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured",
   'visitor_gate.server_password':
     "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set",
-  'visitor_gate.oidc':
-    'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors',
+  'visitor_gate.sso':
+    "visitors must sign in (or carry a share link) before this reaches a client: the server's gate asks for a single sign-on at an identity provider",
   'visitor_gate.aperio_login':
     "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization",
   'visitor_gate.open': 'this hostname is served without a visitor gate',
@@ -172,8 +170,6 @@ export const EXPLAIN_SETTINGS: Record<string, string> = {
   'setting.default_access': 'access',
   'setting.maintenance_mode': 'maintenance mode',
   'setting.service_auth': 'access: on the service',
-  'setting.server_auth_oidc': 'access / OIDC',
   'setting.server_auth': 'access',
-  'setting.oidc': 'OIDC',
   'setting.host_path_binds': 'hostname/path binds',
 }

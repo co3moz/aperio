@@ -254,6 +254,21 @@ fn refuse_visitor(
   login_path: &str,
   uri_str: &str,
 ) -> Response {
+  // A gate that asks for a single sign-on sends a browser to it: the password
+  // form would be a door with no key behind it.
+  if policy.has_sso() {
+    if navigation {
+      return login_redirect("/aperio/sso/login", uri_str);
+    }
+    if policy.sso_only() {
+      return Response::builder()
+        .status(StatusCode::UNAUTHORIZED)
+        .body(Body::from(
+          "401 Unauthorized - this route asks for a single sign-on in a browser",
+        ))
+        .unwrap();
+    }
+  }
   match policy.challenge() {
     Some(scheme) if !navigation && policy.has_direct_method() => Response::builder()
       .status(StatusCode::UNAUTHORIZED)
@@ -426,7 +441,6 @@ pub(crate) async fn check_visitor_gate(
   // host it requires a full (global) session.
   if crate::routing::request_path_has_traversal(path) {
     let gated = state.config().visitor_auth.gates()
-      || state.oidc.is_some()
       || state.config().sites.gates_on_host(host)
       || crate::routing::host_has_visitor_auth(state, host).await;
     if !gated {
@@ -464,12 +478,7 @@ pub(crate) async fn check_visitor_gate(
     if validate_session_for_visitor(state, headers, host).await {
       return VisitorGate::Allow(session_identity(state, headers).await);
     }
-    let login_path = if state.oidc.is_some() {
-      "/aperio/oidc/login"
-    } else {
-      "/aperio/auth"
-    };
-    return VisitorGate::Deny(login_redirect(login_path, &uri.to_string()));
+    return VisitorGate::Deny(login_redirect("/aperio/auth", &uri.to_string()));
   }
 
   // 1. A site's `access`: the operator's word on this hostname, ahead of
@@ -481,7 +490,7 @@ pub(crate) async fn check_visitor_gate(
         crate::sites::SiteAccess::Public => VisitorGate::Allow(None),
         crate::sites::SiteAccess::Gate(policy) => {
           admit_by_policy(
-            state, policy, method, headers, uri, host, caller_ip, navigation,
+            state, policy, method, headers, uri, host, caller_ip, navigation, true,
           )
           .await
         }
@@ -588,7 +597,7 @@ pub(crate) async fn check_visitor_gate(
   // 3. The server's own visitor gate.
   let config = state.config();
   let policy = &config.visitor_auth;
-  let auth_configured = policy.gates() || state.oidc.is_some();
+  let auth_configured = policy.gates();
   // Declared open, by every client that could serve this route. This is the
   // one sentence that opens a route under either posture, which is what makes
   // `deny` expressible at all rather than being a second, parallel switch.
@@ -630,13 +639,18 @@ pub(crate) async fn check_visitor_gate(
     return VisitorGate::Allow(None);
   }
   admit_by_policy(
-    state, policy, method, headers, uri, host, caller_ip, navigation,
+    state, policy, method, headers, uri, host, caller_ip, navigation, false,
   )
   .await
 }
 
 /// Lets a visitor through a gate the operator wrote, the server's own
 /// `access` or a site's, or says how they are refused.
+///
+/// `site` is true for a site's gate, which is about one hostname: a session
+/// signed in for that hostname alone opens it, as one does a client's gate.
+/// The server's own gate is about every hostname and asks for a session that
+/// is too.
 ///
 /// A session that reaches the hostname, then the methods that live on the
 /// request itself, then a `forward` endpoint, then a share link, in that
@@ -652,6 +666,7 @@ async fn admit_by_policy(
   host: Option<&str>,
   caller_ip: std::net::IpAddr,
   navigation: bool,
+  site: bool,
 ) -> VisitorGate {
   let path = uri.path();
   // Used only where a `forward` method will send it on: the header is what
@@ -659,8 +674,29 @@ async fn admit_by_policy(
   // peer is the fallback, so an endpoint that decides on the address is never
   // asked about a visitor who appears to have none.
   let visitor_ip = caller_ip.to_string();
-  let session_ok = if policy.aperio_only() {
+  // A single sign-on is its own answer: the provider it was made at has to be
+  // one this gate names, and the email one it still lets in.
+  if policy.has_sso()
+    && let Some((issuer, email)) = crate::auth::sso_identity(state, headers, host).await
+    && policy
+      .sso_methods()
+      .any(|m| m.issuer == issuer && m.admits_email(&email))
+  {
+    return VisitorGate::Allow(Some(VisitorIdentity {
+      how: "sso",
+      who: Some(email),
+      extra_headers: Vec::new(),
+      consumed_authorization: false,
+      forward_client_id: None,
+    }));
+  }
+  // A gate that is `aperio` alone, or single sign-on alone, does not take a
+  // visitor password's session: it never asked for one. This server's own
+  // signed-in users still reach it, as they reach everything they may look at.
+  let session_ok = if policy.aperio_only() || policy.sso_only() {
     crate::auth::admin_session_reaches(state, headers, host).await
+  } else if site {
+    validate_session_for_host(state, headers, host).await
   } else {
     validate_session_for_visitor(state, headers, host).await
   };
@@ -726,11 +762,7 @@ async fn admit_by_policy(
       forward_client_id: None,
     })),
     None => {
-      let login_path = if state.oidc.is_some() {
-        "/aperio/oidc/login"
-      } else {
-        "/aperio/auth"
-      };
+      let login_path = "/aperio/auth";
       // The endpoint's own answer wins over the generic refusal: a redirect
       // to its login, a page explaining itself, whatever its author chose.
       // Flattening that into a 401 would discard the only part of this

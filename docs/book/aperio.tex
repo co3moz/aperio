@@ -2088,13 +2088,25 @@ told why in its own log. A route that \emph{is} gated is untouched: the
 default decides what an unstated route means and nothing else.
 \code{public} here is a supported setting, not a migration escape hatch.
 
-\section{OIDC}
+\section{Single sign-on}
 
-Point Aperio at an identity provider and unauthenticated visitors are
-redirected to it; the verified email from the provider's userinfo endpoint
-is checked against an allowlist of exact addresses, \code{*@domain}
-patterns, or \code{*}. Organisations can bring their own issuer, which is
-covered in Chapter~\ref{ch:organizations}.
+\code{method: sso} sends a visitor to an identity provider; the verified
+email from the provider's userinfo endpoint is checked against
+\code{allowed\_emails}, exact addresses, \code{*@domain} patterns, or
+\code{*}. It is the visitor's sign-in and not the operators': it mints a
+session for the hostname alone, on the visitor plane, so letting somebody
+see a site never gives them a role on Aperio, and the email is checked
+again on every request. The provider lists
+\code{https://<hostname>/aperio/sso/callback} for each hostname the gate
+covers, and only the operator writes one, in the server's \code{access} or
+a site's: the provider and its secret are not something to send through a
+tunnel.
+
+The dashboard's OIDC sign-in, \code{oidc.*}, lets operators in with the
+roles their records give them, and gates no visitor by being configured. A
+route that should ask for it says \code{access: \{method: aperio\}}.
+Organisations can bring their own issuer for it, which is covered in
+Chapter~\ref{ch:organizations}.
 
 \section{Share links}
 
@@ -4166,7 +4178,7 @@ complete list, it is authoritative, and it always matches the running build.
 \textbf{Endpoint} & \textbf{Purpose} & \textbf{Auth} \\
 \midrule
 \endhead
-\code{/*} (fallback) & Proxied to tunnel clients. & visitor password / OIDC if configured \\
+\code{/*} (fallback) & Proxied to tunnel clients. & the route's gate, if it has one \\
 \rowsep
 \code{GET /aperio/ws} & Tunnel endpoint for clients. & master or dynamic token (Bearer / \code{x-auth-token}) \\
 \rowsep

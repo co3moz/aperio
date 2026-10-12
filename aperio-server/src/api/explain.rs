@@ -619,13 +619,15 @@ pub(crate) async fn explain_handler(
   );
 
   // 6. The visitor gate. A site's `access` is the operator's word on the
-  // hostname and is asked first, as the gate itself asks it. After it, three
+  // hostname and is asked first, as the gate itself asks it. After it, two
   // things can raise the gate, and naming which one is the whole value: a
-  // client's own gate is the service's, the server's `access` and OIDC are
-  // the operator's, and they are configured in different places.
+  // client's own gate is the service's, the server's `access` is the
+  // operator's, and they are configured in different places. OIDC is not one
+  // of them: it is the dashboard's sign-in, and gates no visitor by being
+  // configured.
   let client_gate = crate::routing::host_has_visitor_auth(&state, Some(&hostname)).await;
   let server_gate = cfg.visitor_auth.gates();
-  let oidc_gate = state.oidc.is_some();
+  let server_sso = cfg.visitor_auth.has_sso();
   // The `aperio` method on either side: the route asks for this server's
   // own sign-in, which is the one gate an operator wrote without inventing a
   // credential, and worth naming as such.
@@ -639,7 +641,7 @@ pub(crate) async fn explain_handler(
       crate::sites::SiteAccess::Gate(_) => ("visitor_gate.site", SITE_GATE),
     };
     steps.push(Step::new("visitor_gate", Verdict::Passes, code, detail).from("sites"));
-  } else if client_gate || server_gate || oidc_gate {
+  } else if client_gate || server_gate {
     let (why, code, setting, setting_code) = if client_aperio {
       (
         "the serving client declared this route behind an Aperio sign-in: a dashboard session reaching this hostname's organization",
@@ -661,26 +663,19 @@ pub(crate) async fn explain_handler(
         "access: on the service",
         "setting.service_auth",
       )
-    } else if server_gate && oidc_gate {
+    } else if server_sso {
       (
-        "the server's visitor gate is on, and OIDC is configured",
-        "visitor_gate.server_password_and_oidc",
-        "access / OIDC",
-        "setting.server_auth_oidc",
-      )
-    } else if server_gate {
-      (
-        "the server's visitor password is set",
-        "visitor_gate.server_password",
+        "the server's gate asks for a single sign-on at an identity provider",
+        "visitor_gate.sso",
         "access",
         "setting.server_auth",
       )
     } else {
       (
-        "OIDC is configured for visitors",
-        "visitor_gate.oidc",
-        "OIDC",
-        "setting.oidc",
+        "the server's visitor password is set",
+        "visitor_gate.server_password",
+        "access",
+        "setting.server_auth",
       )
     };
     steps.push(

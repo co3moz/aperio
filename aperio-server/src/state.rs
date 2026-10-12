@@ -328,6 +328,21 @@ pub(crate) struct TelemetryEvent {
 /// within a minute at the default threshold.
 pub(crate) const SILENT_CLIENT_REAP_MULTIPLIER: u32 = 4;
 
+/// One `sso` sign-in on its way to the identity provider and back.
+#[derive(Clone)]
+pub(crate) struct SsoPending {
+  /// Where the visitor was going.
+  pub(crate) redirect_after: String,
+  /// The hostname the session will be for.
+  pub(crate) host: String,
+  /// The callback the provider was told, which the code is redeemed against.
+  pub(crate) redirect_uri: String,
+  /// The method this is a sign-in for: its runtime key and its issuer.
+  pub(crate) key: String,
+  pub(crate) issuer: String,
+  pub(crate) expires: std::time::Instant,
+}
+
 pub(crate) struct AppState {
   /// Every live tunnel connection. An RwLock rather than a Mutex: routing,
   /// stats, pubsub fan-out and the maps read it on every request, and only
@@ -497,6 +512,11 @@ pub(crate) struct AppState {
   /// Pending OIDC login flows: state token → (original redirect, bound org id
   /// for a per-org login, the callback URL sent to the provider, expiry).
   pub(crate) oidc_states: Mutex<HashMap<String, OidcStateEntry>>,
+  /// Identity providers an `sso` gate signs visitors in at, discovered on
+  /// first use and kept, keyed by issuer and client id.
+  pub(crate) sso_runtimes: Mutex<HashMap<String, oidc::OidcRuntime>>,
+  /// Pending `sso` sign-ins, by the state token sent to the provider.
+  pub(crate) sso_states: Mutex<HashMap<String, SsoPending>>,
   /// Active experimental TCP tunnel streams: stream_id → consumer sender.
   pub(crate) tcp_streams: Mutex<HashMap<String, TcpStreamHandle>>,
   /// Active UDP relay streams (declared `protocol: udp` tunnels):

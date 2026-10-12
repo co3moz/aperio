@@ -47,7 +47,7 @@ Controls:
 - Client-IP resolution that does **not** trust `X-Forwarded-For` unless a proxy
   is configured (`proxy.trusted`), so a visitor cannot spoof its IP to
   dodge rate limits.
-- Visitor authentication (server password / share links / OIDC) in front of
+- Visitor authentication (a site's or the server's gate, a client's, share links, single sign-on) in front of
   protected services; unauthenticated hostnames answer only what routing
   allows.
 - Escalating login lockout against brute force.

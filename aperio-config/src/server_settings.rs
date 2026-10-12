@@ -84,7 +84,10 @@ pub struct ServerSettings {
   pub outbound: Outbound,
   /// The built-in dashboard and its sign-in.
   pub dashboard: Dashboard,
-  /// Single sign-on for the dashboard through an OpenID Connect provider.
+  /// Signing in to the dashboard with an identity provider. It is the
+  /// operators' sign-in and gates no visitor by being configured; a route
+  /// that should ask for it says `access: {method: aperio}`, and visitors
+  /// sign in at a provider of their own with `{method: sso}`.
   pub oidc: Oidc,
   /// The server-side GET response cache for services that opt in.
   pub cache: Cache,
@@ -218,7 +221,7 @@ pub const SECRET_PATHS: &[&str] = &[
 
 /// Inside a visitor gate, the fields that carry a credential. The rest of a
 /// gate, its method, issuer or URL, stays readable.
-const GATE_SECRET_FIELDS: &[&str] = &["users", "secret", "hmac_secret"];
+const GATE_SECRET_FIELDS: &[&str] = &["users", "secret", "hmac_secret", "client_secret"];
 
 /// What a stored credential reads as.
 pub const MASKED: &str = "********";

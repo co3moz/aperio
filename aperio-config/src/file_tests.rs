@@ -419,3 +419,37 @@ fn access_writes_back_as_it_was_read() {
     assert_eq!(read, again, "{text}");
   }
 }
+
+#[test]
+fn a_single_sign_on_needs_its_provider_its_client_and_who_it_lets_in() {
+  let good = "{method: sso, issuer: 'https://id.example.com', client_id: v, client_secret: s, allowed_emails: '*@example.com'}";
+  assert!(validate_auth_setting(&auth_of(good)).is_ok());
+  for (yaml, why) in [
+    (
+      "{method: sso, client_id: v, client_secret: s, allowed_emails: '*'}",
+      "issuer:",
+    ),
+    (
+      "{method: sso, issuer: 'https://id.example.com', client_secret: s, allowed_emails: '*'}",
+      "client_id:",
+    ),
+    (
+      "{method: sso, issuer: 'https://id.example.com', client_id: v, allowed_emails: '*'}",
+      "client_secret:",
+    ),
+    (
+      "{method: sso, issuer: 'https://id.example.com', client_id: v, client_secret: s}",
+      "allowed_emails:",
+    ),
+    (
+      "{method: sso, issuer: 'https://id.example.com', client_id: v, client_secret: s, allowed_emails: '*', users: 'a:b'}",
+      "takes `issuer:`",
+    ),
+  ] {
+    let err = validate_auth_setting(&auth_of(yaml)).expect_err(yaml);
+    assert!(err.contains(why), "{yaml}: {err}");
+  }
+  // The provider and its secret are the operator's: a client may not write one.
+  let err = validate_client_declared_auth(&auth_of(good)).unwrap_err();
+  assert!(err.contains("server's settings"), "{err}");
+}

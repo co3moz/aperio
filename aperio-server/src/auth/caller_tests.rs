@@ -399,6 +399,7 @@ async fn seed_custom(
       selected_org,
       bound_org,
       login_host: None,
+      sso_issuer: None,
     },
   );
   token
