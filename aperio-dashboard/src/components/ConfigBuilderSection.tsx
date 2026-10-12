@@ -6,9 +6,9 @@ import {
   PlusIcon,
   Trash2Icon,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { parse, stringify } from 'yaml'
-import { SectionHeader } from './shared'
+import { AdvancedFeaturesHeading, SectionHeader } from './shared'
 import { CopyButton } from './shared'
 import {
   Accordion,
@@ -120,7 +120,8 @@ function sectionsFor(
     all: picked,
   })
 
-  const out: Section[] = []
+  const core: Section[] = []
+  const advanced: Section[] = []
   for (const spec of groups) {
     const picked: Field[] = []
     for (const key of spec.keys) {
@@ -129,11 +130,13 @@ function sectionsFor(
       claimed.add(key)
       if (usable(field)) picked.push(field)
     }
-    if (picked.length) out.push(split(spec, picked))
+    if (picked.length) (spec.advanced ? advanced : core).push(split(spec, picked))
   }
+  // The catch-all is no feature anybody chose to file as advanced, so it
+  // stays with the core sections, ahead of the "Advanced features" line.
   const leftovers = fields.filter((f) => !claimed.has(f.key) && usable(f))
   if (leftovers.length) {
-    out.push(
+    core.push(
       split(
         {
           title: 'Other settings',
@@ -144,7 +147,7 @@ function sectionsFor(
       ),
     )
   }
-  return out
+  return [...core, ...advanced]
 }
 
 /**
@@ -291,7 +294,11 @@ export function ConfigBuilderSection() {
           <div className="min-w-0">
             <Accordion className="w-full">
               {sections.map((section, i) => (
-                <AccordionItem key={section.spec.title} value={String(i)}>
+                <Fragment key={section.spec.title}>
+                {section.spec.advanced && !sections[i - 1]?.spec.advanced && (
+                  <AdvancedFeaturesHeading />
+                )}
+                <AccordionItem value={String(i)}>
                   <AccordionTrigger>
                     <span className="flex flex-1 items-center justify-between gap-3 pr-2">
                       <span className="text-left">{t(section.spec.title)}</span>
@@ -358,6 +365,7 @@ export function ConfigBuilderSection() {
                     </div>
                   </AccordionContent>
                 </AccordionItem>
+                </Fragment>
               ))}
             </Accordion>
           </div>

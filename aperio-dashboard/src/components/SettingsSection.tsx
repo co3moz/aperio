@@ -1,9 +1,9 @@
 import { RotateCcwIcon } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import YAML from 'yaml'
 import { useUnsavedChanges } from '@/lib/unsaved'
 import { usePaneFocus } from '@/lib/paneFocus'
-import { SectionHeader } from './shared'
+import { AdvancedFeaturesHeading, SectionHeader } from './shared'
 import {
   Accordion,
   AccordionContent,
@@ -713,7 +713,9 @@ export function SettingsSection() {
           // number is to find the group you did not think to open.
           const edited = settings.flatMap(leaves).filter(changedFromStored).length
           return (
-            <AccordionItem key={group.title} value={String(i)}>
+            <Fragment key={group.title}>
+            {group.advanced && !SERVER_GROUPS[i - 1]?.advanced && <AdvancedFeaturesHeading />}
+            <AccordionItem value={String(i)}>
               <AccordionTrigger>
                 <span className="flex-1 text-left">{t(group.title)}</span>
                 {edited > 0 && <TintBadge tint="amber">{edited}</TintBadge>}
@@ -743,6 +745,7 @@ export function SettingsSection() {
                 </div>
               </AccordionContent>
             </AccordionItem>
+            </Fragment>
           )
         })}
       </Accordion>

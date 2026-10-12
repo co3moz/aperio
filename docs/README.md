@@ -17,23 +17,29 @@ Prefer one long read? [**The Complete Guide**](book/aperio.tex) covers the topic
 
 - [Routing & Load Balancing](routing-and-load-balancing.md), hostname/path binds, round-robin, primary-standby tiers, sticky sessions, random subdomains.
 - [In-Flight Failover](failover.md), what happens when a tunnel dies mid-request, and how to make it invisible to visitors.
-- [Serving From the Server](server-side-services.md), let the server reach a service's target itself instead of relaying through the client, for the case where it already can: what the two permissions are, what it refuses rather than relaying, and what the last hop gives up.
 - [Tokens & Authentication](tokens-and-auth.md), the master token, scoped dynamic tokens with rate limits and quotas, visitor passwords, and OIDC/SSO.
 - [Organizations (Multi-Tenancy)](organizations.md), isolate one server into separate tenants: per-org clients, tokens, users, traffic, and stats, with a server admin who can switch between them.
 - [Share Links](share-links.md), hand out temporary access to a protected site without creating accounts.
 - [Static File Serving](static-serving.md), publish a directory with no backend at all: SPA fallback, custom 404, streamed files, `Range` requests, and the path-safety rules.
 - [Ephemeral Tunnels](ephemeral-tunnels.md), per-PR preview environments via the API and the GitHub Action.
+
+## Advanced Features
+
+Features most deployments never turn on. Every one ships in every binary and stays off until configured; the dashboard lists their settings last, under *Advanced features*.
+
+- [Serving From the Server](server-side-services.md), let the server reach a service's target itself instead of relaying through the client, for the case where it already can: what the two permissions are, what it refuses rather than relaying, and what the last hop gives up.
 - [Tunnels](emergency-tunnels.md), declare unexposed TCP/UDP services, bind them by name from another client with `aperio-client bind`, or open one on a public port with `expose:`.
+- [Public TCP/UDP Listeners](public-exposes.md), a socket on the server itself forwarding to a declared tunnel, managed at runtime: what each role may do with one, and the port allocation that bounds an organization.
 - [Messages](messaging.md), publish a topic and every client of the organization that subscribed to it hears about it, over the tunnel they already hold. The server's own events are on `$aperio/`.
+- [Autoscaling](autoscaling.md), let the server ask your provider for capacity: cold start from zero on the first request, scale out when the pool saturates, and clients that retire themselves when idle.
+- [Behind a Dynamic Edge Proxy](edge-proxy.md), run Traefik or Caddy in front and let them learn Aperio's runtime hostnames: wildcard routing, Caddy on-demand TLS, and the Traefik HTTP provider.
 
 ## Operating Aperio
 
 - [The Dashboard](dashboard.md), live traffic, request inspector & replay, kill switch, maintenance mode, live server settings.
 - [Admin API from the CLI](cli-api.md), run the dashboard's operations from scripts with `aperio-client api ...`: share links, tokens, tunnels, maintenance, users, reports.
 - [Observability](observability.md), Prometheus metrics, OpenTelemetry tracing, structured access log, audit trail, webhooks, persistent statistics.
-- [Autoscaling](autoscaling.md), let the server ask your provider for capacity: cold start from zero on the first request, scale out when the pool saturates, and clients that retire themselves when idle.
 - [Client Resilience](client-resilience.md), reconnect backoff, backend health probing, config hot-reload, graceful drain, bandwidth pacing.
-- [Behind a Dynamic Edge Proxy](edge-proxy.md), run Traefik or Caddy in front and let them learn Aperio's runtime hostnames: wildcard routing, Caddy on-demand TLS, and the Traefik HTTP provider.
 - [Response Caching](caching.md), the server-side GET cache: the two-key opt-in, what gets cached, edge 304 / single-flight / stale-while-revalidate / range hits, and serve-stale resilience.
 
 ## Security
