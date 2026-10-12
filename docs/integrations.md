@@ -95,6 +95,8 @@ The declaration is stored on the server against the hostname, so a cold start wo
 
 `aperio-client api scaling list` shows each record with its live pool; every call is audited as `scaling_requested` or `scaling_failed`.
 
+![The Autoscaling page: armed records with the live utilisation of each pool](images/dashboard-scaling.png)
+
 ## Behind a dynamic edge proxy
 
 When Traefik or Caddy terminates TLS in front of the server, it has to learn hostnames that appear when a client connects.

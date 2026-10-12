@@ -8,6 +8,8 @@ Who may open a tunnel, who may administer the server, and how one server is shar
 
 ## Tunnel tokens
 
+![The API Tokens page: scoped credentials with their permissions, limits and expiry](images/dashboard-tokens.png)
+
 Minted on the dashboard's *API Tokens* page or with `aperio-client api token create`, a token is scoped and revocable. The secret is shown once and stored as a SHA-256 hash.
 
 | Field | Effect |

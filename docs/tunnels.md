@@ -49,6 +49,8 @@ binds:
 
 `GET /aperio/tunnels` with a tunnel token, or the dashboard's **Tunnels** page, lists what the token may bind, with a ready `binds:` block to copy.
 
+![The Tunnels page: declared tunnels with the client that declared each one](images/dashboard-tunnels.png)
+
 **Who may bind.** The master token, the token the declaring client connected with, or a token in the same organization with `allow_bind`. Only the master token crosses organizations. The declaring client dials only the targets it declared, so a server cannot point it anywhere else. Streams are audited as `tcp_stream_opened` and `udp_stream_opened`.
 
 ## Encryption
