@@ -1,5 +1,0 @@
-server:
-  token: apr_mqtt_change_me
-port: 8080
-
-version: 0.12.0

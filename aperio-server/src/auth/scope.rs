@@ -1,6 +1,6 @@
 //! What an authenticated caller *is*, and what that lets them act on: the
 //! scope their session carries, the organization it resolves to, the dashboard
-//! role behind it, and the master-admin gate.
+//! role behind it, and the server-admin gate.
 
 use axum::http::HeaderMap;
 
@@ -51,8 +51,8 @@ async fn session_scope(state: &AppState, headers: &HeaderMap) -> Option<Option<S
 /// Disabling an account has to strip its live sessions of all authority.
 /// `caller_org` resolves a named session through `find_by_username`, which
 /// skips disabled rows and so reports "no organization", which
-/// `is_master_admin` reads as the master org. Without this check a disabled
-/// sub-org admin would be *promoted* to master super-admin on their existing
+/// the server once read as the master org. Without this check a disabled
+/// sub-org admin was *promoted* to the master super-admin on their existing
 /// session.
 ///
 /// A username with no user row is an OIDC identity, not a disabled account, so
@@ -130,8 +130,9 @@ pub(crate) async fn admin_session_reaches(
   }
 }
 
-/// Whether a resolved caller reaches `host`: master and `*` everywhere, a
-/// child organization on the hostnames it may act on.
+/// Whether a resolved caller reaches `host`: `*` everywhere, any other
+/// organization on the hostnames it may act on, which for master is every
+/// hostname no other organization claims.
 async fn caller_reaches(state: &AppState, caller: &Caller, host: Option<&str>) -> bool {
   // Any granted organization will do, not only the selected one, and Viewer
   // is enough: the question is whether the site is one of theirs.
@@ -143,8 +144,8 @@ async fn caller_reaches(state: &AppState, caller: &Caller, host: Option<&str>) -
   };
   for grant in caller.grants() {
     let admitted = match &grant.org {
-      // Master, and `*`: unfenced here as everywhere else.
-      crate::store::grants::GrantOrg::Master | crate::store::grants::GrantOrg::All => true,
+      crate::store::grants::GrantOrg::All => true,
+      crate::store::grants::GrantOrg::Master => state.org_may_act_on_hostname(None, host).await,
       crate::store::grants::GrantOrg::Child(id) => {
         state.org_may_act_on_hostname(Some(id), host).await
       }
@@ -156,13 +157,13 @@ async fn caller_reaches(state: &AppState, caller: &Caller, host: Option<&str>) -
   false
 }
 
-/// True when the caller holds Admin in the master organization, directly or
-/// through `*`: the built-in admin, or a named user granted it. Only they may
-/// manage organizations and reach the server-global surfaces.
-pub(crate) async fn is_master_admin(state: &AppState, headers: &HeaderMap) -> bool {
+/// True when the caller is the server admin (`*` Admin): the built-in admin,
+/// or a named user or key granted it. Only they may manage organizations and
+/// reach the server-global surfaces.
+pub(crate) async fn is_server_admin(state: &AppState, headers: &HeaderMap) -> bool {
   resolve_caller(state, headers)
     .await
-    .is_some_and(|c| c.is_master_admin())
+    .is_some_and(|c| c.is_server_admin())
 }
 
 /// The organization whose resources the caller may see and act on: the one
@@ -183,10 +184,36 @@ pub(crate) fn session_token(state: &AppState, headers: &HeaderMap) -> Option<Str
   session_cookie(headers, state.config().secure_cookies).map(str::to_string)
 }
 
-/// Gate for organization-management endpoints: 401 without a session, 403 for
-/// non-master-admins.
+/// The visitor behind an `sso` session on `host`: the provider that vouched for
+/// them and the email it reported. `None` for any other session, so a gate
+/// asking for single sign-on is never opened by a password it did not ask for.
+pub(crate) async fn sso_identity(
+  state: &AppState,
+  headers: &HeaderMap,
+  host: Option<&str>,
+) -> Option<(String, String)> {
+  let host = host?;
+  let token = session_cookie(headers, state.config().secure_cookies)?;
+  if uuid::Uuid::parse_str(token).is_err() {
+    return None;
+  }
+  let fenced = state.config().fenced_login;
+  let sessions = state.sessions.lock().await;
+  let info = sessions.get(token)?;
+  let live = info.expires_at > crate::store::sessions::now_secs()
+    && info.usable_on(fenced, Some(host))
+    && info.plane == crate::store::sessions::Plane::Visitor
+    && info.scope_host.as_deref() == Some(host);
+  if !live {
+    return None;
+  }
+  Some((info.sso_issuer.clone()?, info.username.clone()?))
+}
+
+/// Gate for the server-global endpoints: 401 without a session, 403 for
+/// anyone but the server admin.
 #[allow(clippy::result_large_err)] // see api/tokens.rs
-pub(crate) async fn require_master_admin(
+pub(crate) async fn require_server_admin(
   state: &AppState,
   headers: &HeaderMap,
 ) -> Result<(), axum::response::Response> {
@@ -200,11 +227,11 @@ pub(crate) async fn require_master_admin(
         .into_response(),
     );
   }
-  if !is_master_admin(state, headers).await {
+  if !is_server_admin(state, headers).await {
     return Err(
       (
         axum::http::StatusCode::FORBIDDEN,
-        "Only a master-organization admin may manage organizations",
+        "Only the server admin (`*` Admin) may do this",
       )
         .into_response(),
     );

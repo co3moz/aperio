@@ -52,7 +52,7 @@ function ExposeSessions({ item, onClose, onOperate }: { item: ExposeItem; onClos
 
 export function ExposesSection({ initial, clearInitial, focus }: { initial?: Partial<ExposeSpec>; clearInitial: () => void; focus: { expose?: string; client?: string } | null }) {
   const { t } = useI18n()
-  const { orgs, masterAdmin } = useSession()
+  const { orgs, serverAdmin } = useSession()
   const orgLabel = useOrgLabel()
   const [search, setSearch] = useState(focus?.expose ?? '')
   const [protocol, setProtocol] = useState('')
@@ -70,7 +70,7 @@ export function ExposesSection({ initial, clearInitial, focus }: { initial?: Par
   const unfiltered = !focus?.client && !search && !protocol && !org && offset === 0 && sort === 'tunnel' && !descending
   const { data, error: failed, refresh, updatedAt } = useStream(unfiltered ? 'exposes' : null, () => exposeApi.list(query), 3000, JSON.stringify(query))
   const policies = useStream(null, exposeApi.policies, 10000)
-  const canCreate = masterAdmin || orgs.some((o) => o.expose_actions?.includes('create'))
+  const canCreate = serverAdmin || orgs.some((o) => o.expose_actions?.includes('create'))
   const stateLabels = { disabled: t('Disabled'), binding: t('Binding'), listening: t('Listening'), draining: t('Draining'), suspended: t('Suspended'), failed: t('Failed') }
   const targetLabels = { waiting: t('Waiting for target'), ready: t('Ready'), unavailable: t('Unavailable'), incompatible: t('Incompatible target') }
   const actionLabels: Record<string, string> = { enable: t('Enable'), disable: t('Disable'), retry: t('Retry'), drain: t('Drain'), delete: t('Delete'), disconnect: t('Disconnect') }
@@ -92,7 +92,7 @@ export function ExposesSection({ initial, clearInitial, focus }: { initial?: Par
       {canCreate && <Button size="sm" onClick={() => setEditor('new')}>{t('Create public expose')}</Button>}
     </SectionHeader>
     {data?.volatile && <p role="status" className="text-sm text-amber-600">{t('Changes are volatile and will be lost when the server restarts.')}</p>}
-    {[data?.store_error, data?.file_error, data?.history_error, failed ? t('Could not load public exposes.') : null].filter(Boolean).map((message, i) => <p key={i} role="alert" className="text-sm text-destructive">{message}</p>)}
+    {[data?.store_error, data?.history_error, failed ? t('Could not load public exposes.') : null].filter(Boolean).map((message, i) => <p key={i} role="alert" className="text-sm text-destructive">{message}</p>)}
     <div className="grid gap-2 sm:grid-cols-3">
       <ExposeField label={t('Search')}><Input value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0) }} /></ExposeField>
       <ExposeField label={t('Protocol')}><select className={exposeSelectClass} value={protocol} onChange={(e) => { setProtocol(e.target.value); setOffset(0) }}><option value="">{t('All')}</option><option value="tcp">TCP</option><option value="udp">UDP</option></select></ExposeField>
@@ -110,7 +110,7 @@ export function ExposesSection({ initial, clearInitial, focus }: { initial?: Par
       {!data && <SkeletonRows rows={3} cols={5} />}
       {data?.items.map((item) => { const r = item.resource; const can = (a: typeof item.actions[number]) => item.actions.includes(a)
         return <TableRow key={r.id}>
-          <TableCell className="text-xs"><div className="flex items-center gap-1"><code>{exposeEndpoint(r.spec)}</code>{visitorEndpoint(r.spec) && <CopyButton value={visitorEndpoint(r.spec)!} />}</div><span className="text-muted-foreground">{r.source === 'file' ? t('Server configuration file (read-only)') : t('Managed through API')}</span></TableCell>
+          <TableCell className="text-xs"><div className="flex items-center gap-1"><code>{exposeEndpoint(r.spec)}</code>{visitorEndpoint(r.spec) && <CopyButton value={visitorEndpoint(r.spec)!} />}</div><span className="text-muted-foreground">{t('Managed through API')}</span></TableCell>
           <TableCell><div>{r.spec.tunnel}</div><div className="text-xs text-muted-foreground">{orgLabel(r.spec.org_id)}</div></TableCell>
           <TableCell><div>{stateLabels[r.state]}</div><div className="text-xs text-muted-foreground">{targetLabels[r.target_state]}</div>{r.error && <p className="max-w-64 text-xs text-destructive">{r.error}</p>}</TableCell>
           <TableCell className="text-xs"><div>↑ {formatBytes(r.up_bytes)} · ↓ {formatBytes(r.down_bytes)}</div><Button size="xs" variant="ghost" onClick={() => setSessions(item)}>{t('{count} sessions', { count: r.sessions })}</Button>{Object.entries(r.drops).filter(([, n]) => n > 0).map(([reason, n]) => <div key={reason} title={reason}>{t('Dropped')}: {n} ({reason})</div>)}</TableCell>

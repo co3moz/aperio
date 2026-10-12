@@ -3,44 +3,28 @@
 //! The map answers "how is a request routed", which includes routing with no
 //! client behind it, so most of what it reports cannot be seen from the
 //! Clients table. These tests cover the three parts that distinguish it: the
-//! client-less `routes:`, the declared-but-offline binds, and the fact that
-//! server-level routing belongs to master alone.
+//! sites that answer by themselves, the declared-but-offline binds, and the
+//! fact that server-level routing belongs to master alone.
 
 use super::*;
-use crate::static_routes::{RespondRule, RouteRule, StaticRoutes};
 use crate::store::tokens::TokenSpec;
 use crate::store::users::Role;
 use crate::test_support::*;
 use axum::extract::State;
 
-/// A config carrying two client-less routes, one of each action.
+/// A config carrying two sites that answer by themselves, one of each
+/// action, and one that does not answer and so is not on the map.
 fn config_with_routes() -> crate::settings::ServerConfig {
   let mut cfg = test_config();
-  cfg.static_routes = StaticRoutes::compile(vec![
-    RouteRule {
-      hostname: Some("old.example.com".to_string()),
-      path: None,
-      redirect: Some("https://new.example.com".to_string()),
-      permanent: true,
-      preserve_path: false,
-      respond: None,
-      ..Default::default()
-    },
-    RouteRule {
-      hostname: None,
-      path: Some("/robots.txt".to_string()),
-      redirect: None,
-      permanent: false,
-      preserve_path: false,
-      respond: Some(RespondRule {
-        status: 503,
-        content_type: "text/plain".to_string(),
-        body: "away".to_string(),
-      }),
-      ..Default::default()
-    },
-  ])
-  .expect("the rules compile");
+  cfg.sites = sites(concat!(
+    "- hostname: old.example.com\n",
+    "  redirect: {url: \"https://new.example.com\", permanent: true}\n",
+    "- hostname: \"*\"\n",
+    "  path: /robots.txt\n",
+    "  respond: {status: 503, content_type: text/plain, body: away}\n",
+    "- hostname: \"*\"\n",
+    "  timeout: 30s\n",
+  ));
   cfg
 }
 
@@ -78,7 +62,7 @@ async fn a_tenant_sees_its_clients_and_none_of_the_servers_own_routing() {
     .create("acme", Vec::new(), None)
     .unwrap()
     .id;
-  let mut handle = mock_client(Some("acme.example.com"), None, None, None);
+  let mut handle = mock_client(Some("acme.example.com"), None);
   handle.perms.org_id = Some(org.clone());
   state.clients.write().await.insert("c1".to_string(), handle);
 
@@ -87,7 +71,7 @@ async fn a_tenant_sees_its_clients_and_none_of_the_servers_own_routing() {
     .await
     .0;
   assert_eq!(graph.clients.len(), 1, "its own client");
-  assert!(graph.routes.is_empty(), "the routes: section is master's");
+  assert!(graph.routes.is_empty(), "the sites are master's");
   assert!(graph.exposes.is_empty(), "so are the expose ports");
 
   // Master sees the routing it owns, and not the tenant's client.
@@ -123,7 +107,7 @@ async fn a_granted_bind_no_client_serves_is_reported_as_offline() {
   }
   state.clients.write().await.insert(
     "c1".to_string(),
-    mock_client(Some("live.example.com"), None, None, None),
+    mock_client(Some("live.example.com"), None),
   );
 
   let graph = topology_handler(State(state.clone()), admin_headers(&state).await)
@@ -172,69 +156,80 @@ async fn an_expired_tokens_binds_are_not_expected_services() {
   );
 }
 
-// Not `#[tokio::test]`: the config file is written and reloaded under the
-// shared config lock, which must not be held across a runtime's await points.
-#[test]
-fn expose_ports_report_who_serves_them_without_leaking_the_key() {
-  // The uncovered half of the map: the `expose:` section, matched to a live
-  // client the same way the relay matches one, by tunnel name + token, or by
-  // the deprecated shared key. The key itself must never appear.
-  let _guard = config_lock();
-  let rt = tokio::runtime::Builder::new_current_thread()
-    .enable_all()
-    .build()
-    .unwrap();
-  rt.block_on(async {
-  let file = test_temp_root().join(format!("topo-expose-{}.yaml", uuid::Uuid::new_v4()));
-  std::fs::write(
-    &file,
-    "expose:\n  - port: 15432\n    tunnel: pg_main\n  - port: 15433\n    key: shared-secret\n  - port: 15434\n    tunnel: nothing_declares_this\n",
-  )
-  .unwrap();
-  unsafe { std::env::set_var("APERIO_SERVER_CONFIG", file.to_str().unwrap()) };
-  crate::config_file::load();
+/// An expose listener on a free local port, owned by the API.
+async fn expose_on_a_free_port(tunnel: &str) -> aperio_config::expose::ExposeResource {
+  use aperio_config::expose::*;
+  let port = tokio::net::TcpListener::bind("127.0.0.1:0")
+    .await
+    .unwrap()
+    .local_addr()
+    .unwrap()
+    .port();
+  ExposeResource {
+    id: uuid::Uuid::new_v4().to_string(),
+    revision: 1,
+    source: ExposeSource::Api,
+    spec: ExposeSpec {
+      org_id: "master".into(),
+      tunnel: tunnel.into(),
+      listener: ExposeListener {
+        address: "127.0.0.1".parse().unwrap(),
+        port,
+        protocol: ExposeProtocol::Tcp,
+      },
+      enabled: true,
+      limits: ExposeLimits::defaults(ExposeProtocol::Tcp),
+      allowed_ips: Vec::new(),
+      advertised_host: None,
+    },
+  }
+}
 
+#[tokio::test]
+async fn expose_ports_report_who_serves_them() {
+  // The uncovered half of the map: the expose listeners, matched to a live
+  // client the same way the relay matches one, by tunnel name.
   let state = Arc::new(test_state());
-  let decl = |name: &str, expose: Option<&str>| crate::protocol::TunnelDecl {
+  let served = expose_on_a_free_port("pg_main").await;
+  let unserved = expose_on_a_free_port("nothing_declares_this").await;
+  {
+    let mut manager = state.exposes.lock().await;
+    let mut document = manager.store.document.clone();
+    document.resources = vec![served.clone(), unserved.clone()];
+    manager.replace(&state, document, false).await.unwrap();
+  }
+  let decl = |name: &str| crate::protocol::TunnelDecl {
     name: Some(name.to_string()),
     custom_name: None,
     target: "127.0.0.1:5432".to_string(),
     protocol: "tcp".to_string(),
     encrypt: false,
     idle_timeout: None,
-    expose: expose.map(str::to_string),
   };
-  let mut by_name = mock_client(Some("a.example.com"), None, None, None);
-  by_name.sole_mut().tunnels = vec![decl("pg_main", None)];
-  let mut by_key = mock_client(Some("b.example.com"), None, None, None);
-  by_key.sole_mut().tunnels = vec![decl("other", Some("shared-secret"))];
+  let mut by_name = mock_client(Some("a.example.com"), None);
+  by_name.sole_mut().tunnels = vec![decl("pg_main")];
   // A draining client serves nothing, whatever it declares.
-  let mut draining = mock_client(Some("c.example.com"), None, None, None);
-  draining.sole_mut().tunnels = vec![decl("nothing_declares_this", None)];
+  let mut draining = mock_client(Some("c.example.com"), None);
+  draining.sole_mut().tunnels = vec![decl("nothing_declares_this")];
   draining.draining = true;
   {
     let mut clients = state.clients.write().await;
     clients.insert("c-name".to_string(), by_name);
-    clients.insert("c-key".to_string(), by_key);
     clients.insert("c-drain".to_string(), draining);
   }
 
-  state.exposes.lock().await.initialize(&state, "127.0.0.1").await;
   let graph = topology_handler(State(state.clone()), admin_headers(&state).await)
     .await
     .0;
-  unsafe { std::env::remove_var("APERIO_SERVER_CONFIG") };
-  let _ = crate::config_file::reload();
-
-  assert_eq!(graph.exposes.len(), 3);
+  assert_eq!(graph.exposes.len(), 2);
   let by_port = |p: u16| graph.exposes.iter().find(|e| e.port == p).unwrap();
-  assert_eq!(by_port(15432).served_by.as_deref(), Some("c-name"));
-  assert_eq!(by_port(15433).served_by.as_deref(), Some("c-key"));
-  assert!(!by_port(15434).served, "a draining client serves nothing");
-  let raw = serde_json::to_string(&graph.exposes).unwrap();
+  assert_eq!(
+    by_port(served.spec.listener.port).served_by.as_deref(),
+    Some("c-name")
+  );
   assert!(
-    !raw.contains("shared-secret"),
-    "the key never leaves: {raw}"
+    !by_port(unserved.spec.listener.port).served,
+    "a draining client serves nothing"
   );
 
   // A tenant without expose capabilities cannot see the operator's ports.
@@ -245,12 +240,21 @@ fn expose_ports_report_who_serves_them_without_leaking_the_key() {
     .create("acme", Vec::new(), None)
     .unwrap()
     .id;
-  state.users.lock().await.create("tenant-admin", "long-password", Role::Admin, Some(org.clone())).unwrap();
+  state
+    .users
+    .lock()
+    .await
+    .create(
+      "tenant-admin",
+      "long-password",
+      Role::Admin,
+      Some(org.clone()),
+    )
+    .unwrap();
   let token = seed_session(&state, Role::Admin, Some("tenant-admin"), Some(org)).await;
   let graph = topology_handler(State(state.clone()), cookie_headers(&token))
     .await
     .0;
   assert!(graph.exposes.is_empty());
   state.exposes.lock().await.shutdown().await;
-  });
 }

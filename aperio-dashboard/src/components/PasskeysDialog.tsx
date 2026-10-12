@@ -109,7 +109,7 @@ export function PasskeysDialog({
           </p>
         ) : available === false ? (
           <p className="text-sm text-muted-foreground">
-            {t('Passkey sign-in is not configured on this server. Set APERIO_WEBAUTHN_ORIGIN to the dashboard’s public URL to enable it.')}
+            {t('Passkey sign-in is not configured on this server. Set dashboard.webauthn.origin to the dashboard’s public URL to enable it.')}
           </p>
         ) : !browserSupportsPasskeys() ? (
           <p className="text-sm text-muted-foreground">

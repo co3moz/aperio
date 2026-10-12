@@ -6,13 +6,15 @@
 //! single consolidated `aperio-<epoch>.db` file (no WAL/SHM sidecars) in the
 //! backup directory, then prunes the oldest snapshots beyond the keep count.
 //!
-//! Configuration (backups are inert unless both the interval and directory are
-//! set):
+//! Configuration, the `backup` settings, read once at startup (backups are
+//! inert unless both the interval and directory are set):
 //!
-//! - `APERIO_BACKUP_INTERVAL`, seconds between snapshots (0/unset = disabled)
-//! - `APERIO_BACKUP_DIR`, directory the snapshots are written to
-//! - `APERIO_BACKUP_KEEP`, snapshots to retain (default 7; 0 = keep all)
-//! - `APERIO_BACKUP_KEY` / `APERIO_BACKUP_KEY_FILE`, a 32-byte key that turns
+//! - `backup.interval`, the time between snapshots (unset or `0s` =
+//!   disabled)
+//! - `backup.dir`, directory the snapshots are written to
+//! - `backup.keep`, snapshots to retain (default 7; 0 = keep all)
+//! - `APERIO_BACKUP_KEY` / `APERIO_BACKUP_KEY_FILE`, environment only since a
+//!   key must not live in the database it encrypts: a 32-byte key that turns
 //!   the snapshots into `aperio-<epoch>.db.enc` (see `backup_crypto`). Unset
 //!   keeps writing them in the clear, exactly as before.
 //!
@@ -44,21 +46,23 @@ struct BackupConfig {
 }
 
 impl BackupConfig {
-  /// Reads the schedule. `None` (disabled) unless both a positive interval and
-  /// a non-empty directory are configured.
-  fn from_env() -> Option<Self> {
-    let interval_secs = std::env::var("APERIO_BACKUP_INTERVAL")
-      .ok()
-      .and_then(|v| v.trim().parse::<u64>().ok())
+  /// Reads the schedule from the `backup` settings and the key from the
+  /// environment. `None` (disabled) unless both a positive interval and a
+  /// non-empty directory are configured.
+  fn from_settings() -> Option<Self> {
+    let settings = crate::live::current();
+    let interval_secs = settings
+      .backup
+      .interval
+      .map(|i| i.as_secs())
       .filter(|v| *v > 0)?;
-    let dir = std::env::var("APERIO_BACKUP_DIR")
-      .ok()
+    let dir = settings
+      .backup
+      .dir
+      .as_deref()
       .map(|d| PathBuf::from(d.trim()))
       .filter(|p| !p.as_os_str().is_empty())?;
-    let keep = std::env::var("APERIO_BACKUP_KEEP")
-      .ok()
-      .and_then(|v| v.trim().parse::<usize>().ok())
-      .unwrap_or(7);
+    let keep = settings.backup.keep as usize;
     // A key that cannot be used is a refusal, not a fallback to plaintext:
     // an operator who configured encryption and got clear snapshots has the
     // opposite of what they asked for, and no way to notice from the files.
@@ -182,15 +186,10 @@ fn prune_snapshots(dir: &Path, keep: usize) -> usize {
 /// Spawns the scheduled-backup task: one snapshot at startup, then on the
 /// configured interval. Inert when the schedule is not configured.
 pub(crate) fn spawn(state: Arc<AppState>) {
-  let Some(cfg) = BackupConfig::from_env() else {
+  let Some(cfg) = BackupConfig::from_settings() else {
     return;
   };
-  let db_path = state
-    .settings_path
-    .parent()
-    .map(|p| p.to_path_buf())
-    .unwrap_or_else(|| PathBuf::from("."))
-    .join("aperio.db");
+  let db_path = std::path::PathBuf::from(&state.data_dir).join("aperio.db");
   info!(
     "Scheduled DB backups enabled: every {}s into {:?} (keep {}, {})",
     cfg.interval.as_secs(),

@@ -1,5 +1,5 @@
 # The Aperio server to dial out to, and the token that authorizes this client.
-# The token must match `server.token` in aperio-server.yaml.
+# The token must match the server's APERIO_SERVER_TOKEN.
 server:
   url: https://tunnel.example.com
   token: apr_simple_change_me
@@ -9,7 +9,7 @@ server:
 # been accepted since 0.9.0.
 # A bare port (`3000`) or hostname (`example.com`) is normalized to a URL.
 services:
-  - target: http://localhost:3000
-    public: true
-
-version: 0.12.0
+  web:
+    target: http://localhost:3000
+    hostname: "*"               # every hostname no other service claims
+    access: public

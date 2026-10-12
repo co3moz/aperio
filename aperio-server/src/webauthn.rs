@@ -1,6 +1,6 @@
 //! WebAuthn (passkey) sign-in for dashboard users, built on `webauthn-rs`.
 //!
-//! Enabled by setting `APERIO_WEBAUTHN_ORIGIN` to the public URL the
+//! Enabled by setting `dashboard.webauthn.origin` to the public URL the
 //! dashboard is reached at (e.g. `https://tunnel.example.com`), the RP ID is
 //! its domain, and browsers refuse credentials for a mismatched origin, so it
 //! cannot be guessed. Registration is self-service for signed-in named users
@@ -25,10 +25,11 @@ use webauthn_rs::prelude::*;
 
 use crate::state::{AppState, SessionInfo};
 
-/// Builds the Webauthn verifier from `APERIO_WEBAUTHN_ORIGIN`; None (with a
-/// log line) when the variable is unset or unusable.
+/// Builds the Webauthn verifier from `dashboard.webauthn.origin`; None (with a
+/// log line) when it is unset or unusable.
 pub(crate) fn build_webauthn() -> Option<Webauthn> {
-  let origin_raw = std::env::var("APERIO_WEBAUTHN_ORIGIN").ok()?;
+  let settings = crate::live::current();
+  let origin_raw = settings.dashboard.webauthn.origin.clone()?;
   let origin_raw = origin_raw.trim();
   if origin_raw.is_empty() {
     return None;
@@ -37,7 +38,7 @@ pub(crate) fn build_webauthn() -> Option<Webauthn> {
     Ok(u) => u,
     Err(e) => {
       warn!(
-        "Invalid APERIO_WEBAUTHN_ORIGIN '{}': {}; passkey sign-in disabled",
+        "Invalid dashboard.webauthn.origin '{}': {}; passkey sign-in disabled",
         origin_raw, e
       );
       return None;
@@ -45,7 +46,7 @@ pub(crate) fn build_webauthn() -> Option<Webauthn> {
   };
   let Some(origin_domain) = origin.domain().map(str::to_string) else {
     warn!(
-      "APERIO_WEBAUTHN_ORIGIN '{}' has no domain (IP origins are not valid RP IDs); passkey sign-in disabled",
+      "dashboard.webauthn.origin '{}' has no domain (IP origins are not valid RP IDs); passkey sign-in disabled",
       origin_raw
     );
     return None;
@@ -58,8 +59,11 @@ pub(crate) fn build_webauthn() -> Option<Webauthn> {
   // its subdomains. Must be the origin's host or a parent domain of it (never a
   // public suffix like `com`, which the browser rejects). Changing the RP ID
   // invalidates passkeys registered under the previous one; users re-enroll.
-  let rp_id_override = std::env::var("APERIO_WEBAUTHN_RP_ID")
-    .ok()
+  let rp_id_override = settings
+    .dashboard
+    .webauthn
+    .rp_id
+    .clone()
     .map(|s| s.trim().to_string())
     .filter(|s| !s.is_empty());
   let (rp_id, rp_origin, allow_subdomains) = match rp_id_override {
@@ -71,7 +75,7 @@ pub(crate) fn build_webauthn() -> Option<Webauthn> {
           .unwrap_or(false);
       if !is_parent {
         warn!(
-          "APERIO_WEBAUTHN_RP_ID '{}' must be the host of APERIO_WEBAUTHN_ORIGIN ('{}') or a parent domain of it; passkey sign-in disabled",
+          "dashboard.webauthn.rp_id '{}' must be the host of dashboard.webauthn.origin ('{}') or a parent domain of it; passkey sign-in disabled",
           parent, origin_domain
         );
         return None;
@@ -81,7 +85,7 @@ pub(crate) fn build_webauthn() -> Option<Webauthn> {
       let mut parent_origin = origin.clone();
       if parent_origin.set_host(Some(&parent)).is_err() {
         warn!(
-          "APERIO_WEBAUTHN_RP_ID '{}' is not a valid host; passkey sign-in disabled",
+          "dashboard.webauthn.rp_id '{}' is not a valid host; passkey sign-in disabled",
           parent
         );
         return None;
@@ -157,7 +161,7 @@ fn webauthn_or_disabled(state: &AppState) -> Result<&Webauthn, Box<Response>> {
     Box::new(
       (
         StatusCode::NOT_IMPLEMENTED,
-        "Passkey sign-in is not configured; set APERIO_WEBAUTHN_ORIGIN to the dashboard's public URL",
+        "Passkey sign-in is not configured; set dashboard.webauthn.origin to the dashboard's public URL",
       )
         .into_response(),
     )
@@ -187,7 +191,7 @@ async fn session_user(
 
 /// Starts passkey registration for the signed-in user.
 #[utoipa::path(post, path = "/aperio/api/me/passkeys/register/start", tag = "users",
-  description = "Starts passkey registration for the signed-in dashboard user: returns the WebAuthn creation challenge and a ceremony id. Requires APERIO_WEBAUTHN_ORIGIN.",
+  description = "Starts passkey registration for the signed-in dashboard user: returns the WebAuthn creation challenge and a ceremony id. Requires dashboard.webauthn.origin.",
   responses((status = 200, description = "Creation challenge", body = serde_json::Value), (status = 501, description = "Passkeys not configured")))]
 pub(crate) async fn passkey_register_start_handler(
   State(state): State<Arc<AppState>>,
@@ -610,6 +614,7 @@ pub(crate) async fn passkey_login_finish_handler(
       selected_org: None,
       bound_org: None,
       login_host: panel_host.clone(),
+      sso_issuer: None,
     },
   );
   let cookie = crate::auth::session_set_cookie(cfg.secure_cookies, &session_token);
@@ -871,6 +876,7 @@ pub(crate) async fn passkey_discoverable_finish_handler(
       selected_org: None,
       bound_org: None,
       login_host: panel_host.clone(),
+      sso_issuer: None,
     },
   );
   let cookie = crate::auth::session_set_cookie(cfg.secure_cookies, &session_token);
@@ -883,7 +889,7 @@ pub(crate) async fn passkey_discoverable_finish_handler(
 
 /// Public probe for the login page: whether passkey sign-in is configured.
 #[utoipa::path(get, path = "/aperio/auth/passkey", tag = "auth",
-  description = "True when passkey sign-in is configured (APERIO_WEBAUTHN_ORIGIN set).",
+  description = "True when passkey sign-in is configured (dashboard.webauthn.origin set).",
   responses((status = 200, description = "Availability", body = serde_json::Value)))]
 pub(crate) async fn passkey_available_handler(State(state): State<Arc<AppState>>) -> Response {
   Json(serde_json::json!({ "available": state.webauthn.is_some() })).into_response()

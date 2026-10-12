@@ -1,105 +1,183 @@
-//! Which client and server releases may talk to each other
-//! (`planned_features.md` #113).
+//! Which client and server releases may talk to each other.
 //!
-//! `#89` wrote the compatibility window down and proved it in CI. This is the
-//! other half: the window enforced at connect time, so a pairing outside it is
-//! refused where the cause is visible instead of establishing and then
-//! misbehaving three layers deeper.
+//! **One rule: a client and a server must share a minor release.** In a 0.x
+//! version a minor bump is where the tunnel protocol, the handshake and the
+//! configuration are allowed to change, so `0.13.0` and `0.13.4` talk to each
+//! other and `0.13.x` and `0.12.x` do not, in either direction. There is no
+//! compatibility window and no negotiation of what an older peer can carry:
+//! the code on both sides assumes the peer is its own minor, and the gate is
+//! what makes that assumption true.
 //!
-//! **Today it refuses nothing, and that is deliberate.** Both floors are set
-//! where the documented promise already is, every released client from
-//! `v0.1.0` onward, so this ships as a mechanism rather than as a new
-//! restriction. A version gate with no incompatibility to enforce only invents
-//! outages. What it buys is that when a break does land, narrowing the window
-//! is a one-line change in the same commit that breaks something, and the
-//! operator gets a sentence naming which side is too old rather than a
-//! connection that comes up and fails somewhere else.
+//! The check runs on the WebSocket upgrade, before a socket exists, on both
+//! ends. The server refuses a client it does not pair with by answering `426`,
+//! and a client refuses a server that announced a different minor, so the
+//! operator always reads a sentence naming both versions and the side to
+//! upgrade rather than a connection that comes up and misbehaves later.
 //!
-//! **Both floors, because either side can be the old one.** A server is one
-//! box and its clients are a fleet, so the ordinary shape is a new server
-//! ahead of old clients; that is what `MIN_SUPPORTED_CLIENT` covers. The
-//! reverse happens too, someone upgrades one client first, and only the client
-//! can notice it, since a server cannot know it is too old for something a
-//! future client wants. Hence `MIN_SUPPORTED_SERVER`, checked on the client
-//! against what the server announces.
+//! **Silence is refused.** A peer that announces no release predates this
+//! rule, which makes it an older minor by construction.
 
-use crate::compat::Version;
+use std::cmp::Ordering;
+use std::fmt;
 
-/// The oldest client release this server will accept.
-///
-/// Equal to the documented promise, so nothing that works today stops
-/// working. Raise it in the same commit as the break that requires it, with
-/// the `CHANGELOG.md` entry rule 23 asks for.
-pub const MIN_SUPPORTED_CLIENT: &str = "0.1.0";
+/// Header both sides announce their release on: the client with the upgrade
+/// request, the server with the upgrade response.
+pub const RELEASE_HEADER: &str = "x-aperio-release";
 
-/// The oldest server release this client will serve against.
-///
-/// The same rule from the other end, and the same value for the same reason.
-pub const MIN_SUPPORTED_SERVER: &str = "0.1.0";
-
-/// Header the client announces its release on, sent with the upgrade request.
-pub const CLIENT_RELEASE_HEADER: &str = "x-aperio-release";
-
-/// Header the server answers with its own release on.
-pub const SERVER_RELEASE_HEADER: &str = "x-aperio-release";
-
-/// Header the server announces its oldest acceptable client on, so a client
-/// refused for age can say why without guessing.
-pub const MIN_CLIENT_HEADER: &str = "x-aperio-min-client";
-
-/// Why a pairing was refused, with both versions in it.
-///
-/// A refusal that does not name the versions is a refusal an operator has to
-/// reproduce to understand, which is the failure this whole entry exists to
-/// avoid.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Unsupported {
-  /// The peer's release, as it announced it.
-  pub peer: String,
-  /// The floor it failed to meet.
-  pub floor: String,
-  /// Which side has to be upgraded.
-  pub too_old: Side,
+/// A `MAJOR.MINOR.PATCH` version, tolerant of a missing patch (`0.5`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Version {
+  pub major: u64,
+  pub minor: u64,
+  pub patch: u64,
 }
 
-/// Which side of a refused pairing is the old one.
+impl Version {
+  /// Parses `1.2.3`, `1.2` or `1`, ignoring a leading `v` and any
+  /// pre-release/build suffix. Anything else is an error.
+  pub fn parse(raw: &str) -> Result<Version, String> {
+    let cleaned = raw.trim().trim_start_matches(['v', 'V']);
+    let core = cleaned
+      .split(['-', '+'])
+      .next()
+      .unwrap_or_default()
+      .trim_end_matches('.');
+    if core.is_empty() {
+      return Err(format!("'{raw}' is not a version"));
+    }
+    let mut parts = [0u64; 3];
+    for (i, part) in core.split('.').enumerate() {
+      if i >= 3 {
+        return Err(format!("'{raw}' has more than three components"));
+      }
+      parts[i] = part
+        .parse::<u64>()
+        .map_err(|_| format!("'{raw}' is not a version: '{part}' is not a number"))?;
+    }
+    Ok(Version {
+      major: parts[0],
+      minor: parts[1],
+      patch: parts[2],
+    })
+  }
+
+  /// The `MAJOR.MINOR` line this version belongs to, as written in messages.
+  pub fn line(&self) -> String {
+    format!("{}.{}.x", self.major, self.minor)
+  }
+
+  /// Whether two versions are on the same minor line.
+  pub fn pairs_with(&self, other: &Version) -> bool {
+    self.major == other.major && self.minor == other.minor
+  }
+}
+
+impl fmt::Display for Version {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
+  }
+}
+
+impl Ord for Version {
+  fn cmp(&self, other: &Self) -> Ordering {
+    (self.major, self.minor, self.patch).cmp(&(other.major, other.minor, other.patch))
+  }
+}
+
+impl PartialOrd for Version {
+  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    Some(self.cmp(other))
+  }
+}
+
+/// One side of a pairing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Side {
   Client,
   Server,
 }
 
-impl Unsupported {
-  /// The sentence an operator reads, naming both versions and the fix.
-  pub fn message(&self) -> String {
-    match self.too_old {
-      Side::Client => format!(
-        "this client is {}, and this server accepts {} or newer. Upgrade the client.",
-        self.peer, self.floor
-      ),
-      Side::Server => format!(
-        "this server is {}, and this client requires {} or newer. Upgrade the server.",
-        self.peer, self.floor
-      ),
+impl Side {
+  fn other(self) -> Side {
+    match self {
+      Side::Client => Side::Server,
+      Side::Server => Side::Client,
+    }
+  }
+
+  fn word(self) -> &'static str {
+    match self {
+      Side::Client => "client",
+      Side::Server => "server",
     }
   }
 }
 
-/// Judges a peer's announced release against a floor.
+/// Why a pairing was refused, with both releases and the side to upgrade.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unsupported {
+  /// The release of the side doing the check.
+  pub local: String,
+  /// Which side did the check.
+  pub local_side: Side,
+  /// What the peer announced, `None` when it announced nothing usable.
+  pub peer: Option<String>,
+  /// The side that has to be upgraded.
+  pub upgrade: Side,
+}
+
+impl Unsupported {
+  /// The sentence an operator reads, naming both releases and the fix.
+  pub fn message(&self) -> String {
+    let peer_side = self.local_side.other();
+    let line = Version::parse(&self.local)
+      .map(|v| v.line())
+      .unwrap_or_else(|_| self.local.clone());
+    let peer = match &self.peer {
+      Some(v) => format!("this {} is {v}", peer_side.word()),
+      None => format!(
+        "this {} announced no release, so it predates 0.13.0",
+        peer_side.word()
+      ),
+    };
+    format!(
+      "{peer}, and this {} is {}: a client and a server must share a minor release ({line}). Upgrade the {}.",
+      self.local_side.word(),
+      self.local,
+      self.upgrade.word()
+    )
+  }
+}
+
+/// Judges the peer's announced release against this side's own.
 ///
-/// `None` for a peer that announced nothing: a release old enough to predate
-/// the header is inside the documented window anyway, and refusing on silence
-/// would turn "I did not say" into "I am too old", which is the outage this
-/// entry warns about. `None` too for a value that does not parse, for the same
-/// reason: a garbled header is not evidence of age.
-pub fn check(announced: Option<&str>, floor: &str, too_old: Side) -> Option<Unsupported> {
-  let announced = announced.map(str::trim).filter(|v| !v.is_empty())?;
-  let peer = Version::parse(announced).ok()?;
-  let floor_version = Version::parse(floor).ok()?;
-  (peer < floor_version).then(|| Unsupported {
-    peer: announced.to_string(),
-    floor: floor.to_string(),
-    too_old,
+/// `local` is this binary's release and `local_side` says which end this is.
+/// `None` means the two pair. A peer that announced nothing, or something that
+/// does not parse, is refused and asked to upgrade: silence predates the rule.
+pub fn check(local: &str, local_side: Side, announced: Option<&str>) -> Option<Unsupported> {
+  let own = Version::parse(local).ok()?;
+  let announced = announced.map(str::trim).filter(|v| !v.is_empty());
+  let Some(peer) = announced.and_then(|v| Version::parse(v).ok()) else {
+    return Some(Unsupported {
+      local: local.to_string(),
+      local_side,
+      peer: announced.map(str::to_string),
+      upgrade: local_side.other(),
+    });
+  };
+  if own.pairs_with(&peer) {
+    return None;
+  }
+  let upgrade = if peer < own {
+    local_side.other()
+  } else {
+    local_side
+  };
+  Some(Unsupported {
+    local: local.to_string(),
+    local_side,
+    peer: announced.map(str::to_string),
+    upgrade,
   })
 }
 

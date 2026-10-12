@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Re-captures the dashboard screenshots embedded in `README.md` and
- * `docs/dashboard.md`.
+ * Re-captures the dashboard screenshots embedded in `README.md` and the
+ * pages under `docs/`.
  *
  * The images were taken by hand once and then went stale: the version in the
  * corner, the sidebar, the whole visual language moved on while the files sat
@@ -140,25 +140,36 @@ createServer((req, res) => {
   start('backend', process.execPath, [backend])
 
   // --- the server, on its own data directory ---
+  // Its settings are a first-start document: the server reads its token and
+  // listener from the environment and everything else from its database,
+  // which this seeds once.
+  const init = join(dir, 'server-init.json')
+  writeFileSync(
+    init,
+    JSON.stringify({
+      settings: {
+        metrics: { enabled: true },
+        // Every request in a capture comes from 127.0.0.1, so the per-visitor
+        // rate limit sees one very busy visitor and fills the traffic table
+        // with its own refusals. Lifted here because it is an artifact of
+        // capturing, not something a deployment with real visitors would hit.
+        limits: { ip_rate: { burst: 100000, per_second: 10000 } },
+        // The autoscaling screen is a list of armed records, so the feature
+        // has to be on for the client's declaration to be honored at all.
+        scaling: { enabled: true },
+      },
+    }),
+  )
   start('server', binary('aperio-server'), [], {
     cwd: dir,
     env: {
       ...process.env,
       APERIO_DATA_DIR: dataDir,
       APERIO_SERVER_TOKEN: TOKEN,
+      APERIO_INIT_FILE: init,
       // The server reads the bare `HOST`/`PORT`, not `APERIO_`-prefixed ones.
       PORT: String(PORT),
       HOST: '127.0.0.1',
-      APERIO_METRICS: '1',
-      // Every request in a capture comes from 127.0.0.1, so the per-visitor
-      // rate limit sees one very busy visitor and fills the traffic table with
-      // its own refusals. Lifted here because it is an artifact of capturing,
-      // not something a deployment with real visitors would hit.
-      APERIO_IP_LIMIT_MAX: '100000',
-      APERIO_IP_LIMIT_REFILL: '10000',
-      // The autoscaling screen is a list of armed records, so the feature has
-      // to be on for the client's declaration to be honored at all.
-      APERIO_SCALING: '1',
     },
   })
   await waitFor('the server', async () => (await api('/aperio/auth')).ok)
@@ -171,7 +182,7 @@ createServer((req, res) => {
   token: ${TOKEN}
 client_id: 7c1f6b6e-2a5d-4f2a-9c3e-0b6a1d5e4f21
 services:
-  - name: checkout_api
+  checkout_api:
     custom_name: "Checkout API"
     target: http://127.0.0.1:${BACKEND_PORT}
     hostname: api.example.com
@@ -179,14 +190,14 @@ services:
     # the route (closed by default since 0.10.0), the demo traffic never
     # arrives, and every screen is captured as an empty state, which looks
     # exactly like a successful capture until somebody opens the PDF.
-    public: true
+    access: public
 scaling:
   url: https://api.provider.example/apps/checkout/scale
   min: 0
   max: 8
   cold_start: 45s
 tunnels:
-  - name: pg_main
+  pg_main:
     custom_name: "Primary Postgres"
     target: 127.0.0.1:5432
 `,

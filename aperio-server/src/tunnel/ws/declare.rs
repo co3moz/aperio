@@ -16,7 +16,7 @@ use std::sync::atomic::Ordering;
 use tracing::{info, warn};
 
 use super::*;
-use crate::protocol::{PROTOCOL_VERSION, ServiceDecl};
+use crate::protocol::ServiceDecl;
 use crate::routing::{normalize_hostname_bind, normalize_path_bind};
 use crate::state::ClientHandle;
 use tokio::sync::Semaphore;
@@ -115,6 +115,18 @@ impl ConnCtx {
       d0.config_notes,
       d0.metrics_labels,
     );
+    // `*` is not a hostname but the ask for every hostname no other service
+    // claims, so it is taken off the binds before they are normalized. Only a
+    // token that may bind any hostname may ask for all of them.
+    let is_star = |h: &str| h.trim() == "*";
+    let wants_catch_all =
+      hostname_bind.as_deref().is_some_and(is_star) || hostname_binds.iter().any(|h| is_star(h));
+    let hostname_bind = hostname_bind.filter(|h| !is_star(h));
+    let hostname_binds: Vec<String> = hostname_binds.into_iter().filter(|h| !is_star(h)).collect();
+    let catch_all = wants_catch_all && handle.perms.hostname_allowed("*");
+    handle.service_at_mut(service_index).catch_all = catch_all;
+    handle.service_at_mut(service_index).serves_http = declaration.http;
+
     let normalized_path = path_bind.and_then(|b| normalize_path_bind(&b));
     let normalized_host = hostname_bind.and_then(|h| normalize_hostname_bind(&h));
 
@@ -122,7 +134,12 @@ impl ConnCtx {
     if let Some(p) = normalized_path {
       if handle.perms.path_allowed(&p) {
         handle.service_at_mut(service_index).declared_path = Some(p);
-      } else {
+      } else if self.notify_once(
+        handle,
+        service_index,
+        declaration.service.as_deref(),
+        format!("`path: {p}` was not applied: this client's token does not permit that path"),
+      ) {
         warn!(
           "Client {} declared path bind {} not permitted by its token; ignored",
           client_id, p
@@ -131,13 +148,25 @@ impl ConnCtx {
     }
     if let Some(h) = normalized_host {
       if state.is_panel_hostname(&h) {
-        warn!(
-          "Client {} declared hostname bind {} which is a dashboard panel and serves nothing else; ignored",
-          client_id, h
-        );
+        if self.notify_once(
+          handle,
+          service_index,
+          declaration.service.as_deref(),
+          panel_refusal(&h),
+        ) {
+          warn!(
+            "Client {} declared hostname bind {} which is a dashboard panel and serves nothing else; ignored",
+            client_id, h
+          );
+        }
       } else if handle.perms.hostname_allowed(&h) {
         handle.service_at_mut(service_index).declared_hostname = Some(h);
-      } else {
+      } else if self.notify_once(
+        handle,
+        service_index,
+        declaration.service.as_deref(),
+        hostname_refusal(&h),
+      ) {
         warn!(
           "Client {} declared hostname bind {} not permitted by its token; ignored",
           client_id, h
@@ -153,15 +182,27 @@ impl ConnCtx {
           continue;
         };
         if state.is_panel_hostname(&h) {
-          warn!(
-            "Client {} declared hostname bind {} which is a dashboard panel and serves nothing else; ignored",
-            client_id, h
-          );
+          if self.notify_once(
+            handle,
+            service_index,
+            declaration.service.as_deref(),
+            panel_refusal(&h),
+          ) {
+            warn!(
+              "Client {} declared hostname bind {} which is a dashboard panel and serves nothing else; ignored",
+              client_id, h
+            );
+          }
         } else if handle.perms.hostname_allowed(&h) {
           if !admitted.contains(&h) {
             admitted.push(h);
           }
-        } else {
+        } else if self.notify_once(
+          handle,
+          service_index,
+          declaration.service.as_deref(),
+          hostname_refusal(&h),
+        ) {
           warn!(
             "Client {} declared hostname bind {} not permitted by its token; ignored",
             client_id, h
@@ -251,7 +292,7 @@ impl ConnCtx {
     }
     // The service asked to be cached but the server's cache is
     // off, so the opt-in silently does nothing, warn once so the
-    // operator can enable APERIO_CACHE (or the owner can drop the
+    // operator can enable cache.enabled (or the owner can drop the
     // flag). Surfaced in the dashboard as a badge too.
     if cache
       && !state.config().cache_enabled
@@ -259,8 +300,16 @@ impl ConnCtx {
     {
       handle.service_at_mut(service_index).cache_ignored_warned = true;
       warn!(
-        "Client {} requested response caching (cache: true) but the server cache is disabled (APERIO_CACHE off); the opt-in is ignored",
+        "Client {} requested response caching (cache: true) but the server cache is disabled (cache.enabled off); the opt-in is ignored",
         client_id
+      );
+      self.notify_once(
+        handle,
+        service_index,
+        declaration.service.as_deref(),
+        "`cache:` is not applied: this server's response cache is off (`cache.enabled`), so \
+         nothing of this service is cached"
+          .to_string(),
       );
     }
     if handle.service_at(service_index).max_request_body != max_request_body {
@@ -329,6 +378,26 @@ impl ConnCtx {
         );
       }
     }
+    // Serve-stale is served out of the response cache, for as long as the
+    // server keeps a stale copy: with either missing, the client's
+    // `cache.offline` keeps nothing, and its author would only find out on
+    // the day the backend is down.
+    if resilience && (!state.config().cache_enabled || state.config().cache_max_stale == 0) {
+      self.notify_once(
+        handle,
+        service_index,
+        declaration.service.as_deref(),
+        if state.config().cache_enabled {
+          "`cache.offline` is not applied: this server keeps no stale copy to serve \
+           (`cache.max_stale` is 0)"
+            .to_string()
+        } else {
+          "`cache.offline` is not applied: this server's response cache is off \
+           (`cache.enabled`), so there is no copy to serve while the backend is down"
+            .to_string()
+        },
+      );
+    }
     if handle.service_at(service_index).tunnels != tunnels {
       info!(
         "Client {} declares {} bindable tunnel(s)",
@@ -391,6 +460,12 @@ impl ConnCtx {
         "Client {} declared itself public but its token does not permit publishing public services; keeping the visitor auth gate",
         client_id
       );
+      self.notify(
+        declaration.service.as_deref(),
+        "`access: public` was not applied: this client's token does not permit publishing \
+         public services, so the server's visitor gate stays on"
+          .to_string(),
+      );
     }
     if handle.service_at(service_index).public != effective_public {
       handle.service_at_mut(service_index).public = effective_public;
@@ -447,6 +522,16 @@ impl ConnCtx {
               client_id, target, why
             );
           }
+          let (target, why) = (target.clone(), why.clone());
+          self.notify_once(
+            handle,
+            service_index,
+            declaration.service.as_deref(),
+            format!(
+              "`server_side` is refused for {target}: {why}. The service is not routed until \
+               that changes or `server_side` is taken off it"
+            ),
+          );
         }
         (None, _) => {
           service.server_side_target = None;
@@ -472,6 +557,12 @@ impl ConnCtx {
           warn!(
             "Client {} declared a visitor password but its token does not permit controlling the visitor gate; ignoring it",
             client_id
+          );
+          self.notify(
+            declaration.service.as_deref(),
+            "`access:` was not applied: this client's token does not permit controlling the \
+             visitor gate, so the server's own gate applies"
+              .to_string(),
           );
         }
         None
@@ -509,6 +600,12 @@ impl ConnCtx {
             "Client {} declared a visitor-auth policy but its token does not permit controlling the visitor gate; ignoring it",
             client_id
           );
+          self.notify(
+            declaration.service.as_deref(),
+            "`access:` was not applied: this client's token does not permit controlling the \
+             visitor gate, so the server's own gate applies"
+              .to_string(),
+          );
         }
         return None;
       }
@@ -524,6 +621,19 @@ impl ConnCtx {
         warn!(
           "Client {} declared a visitor-auth method this server does not accept from a client; ignoring it",
           client_id
+        );
+        let dropped: Vec<&str> = specs
+          .iter()
+          .map(|spec| spec.method.trim())
+          .filter(|m| !CLIENT_DECLARABLE_METHODS.contains(&m.to_ascii_lowercase().as_str()))
+          .collect();
+        self.notify(
+          declaration.service.as_deref(),
+          format!(
+            "`access:` method(s) not applied: {} cannot be declared by a client on this \
+             server; the other methods stay in force",
+            dropped.join(", ")
+          ),
         );
       }
       (!usable.is_empty())
@@ -558,21 +668,82 @@ impl ConnCtx {
         );
       }
     }
+    // A service nothing routes to, said once per connection and to the
+    // client: a catch-all its token may not claim, or no hostname at all.
+    // Naming no hostname used to mean every unclaimed one; now it means none,
+    // and the client is the one that has to find out.
+    if !handle.service_at(service_index).route_noticed {
+      let service = handle.service_at(service_index);
+      let unrouted =
+        service.serves_http && !service.catch_all && service.effective_hostnames().is_empty();
+      let message = if wants_catch_all && !catch_all {
+        Some(
+          "`hostname: \"*\"` was not applied: this client's token is limited to particular \
+           hostnames, and every hostname is more than it may claim"
+            .to_string(),
+        )
+      } else if unrouted {
+        Some(
+          "nothing routes to this service: it names no hostname and none was granted. Write \
+           `hostname: \"*\"` to serve every hostname no other service claims, or a hostname \
+           of its own"
+            .to_string(),
+        )
+      } else {
+        None
+      };
+      if let Some(message) = message {
+        handle.service_at_mut(service_index).route_noticed = true;
+        warn!("Client {}: {}", client_id, message);
+        self.notify(declaration.service.as_deref(), message);
+      }
+    }
+    // Who decides this service's route, said once per connection. A site's
+    // `access` covering it is the operator's word and wins over the
+    // service's own, which a client author would otherwise go on editing
+    // without effect; say so to them, not only in this log.
+    let site_host = {
+      let service = handle.service_at(service_index);
+      let path = service.declared_path.as_deref().unwrap_or("/");
+      let cfg = state.config();
+      service
+        .declared_hostname
+        .iter()
+        .chain(service.declared_hostnames.iter())
+        .find(|h| cfg.sites.access_for(Some(h), path).is_some())
+        .cloned()
+    };
+    let declares_access = {
+      let service = handle.service_at(service_index);
+      service.visitor_auth.is_some() || service.visitor_auth_policy.is_some() || service.public
+    };
+    if !handle.service_at(service_index).ungated_warned
+      && let Some(host) = site_host
+    {
+      handle.service_at_mut(service_index).ungated_warned = true;
+      if declares_access {
+        info!(
+          "Client {} declares `access:` for {}, where a site's `access` decides who may reach it",
+          client_id, host
+        );
+        self.notify(
+          declaration.service.as_deref(),
+          format!(
+            "`access:` is not what decides who reaches {host}: the server's site for it sets \
+             `access`, which wins over what a client declares"
+          ),
+        );
+      }
+    }
     // The service nothing gates. Said once per connection, and only
     // while the server is still open by default, because that is the
     // configuration where an ungated service is reachable by anyone and
     // nothing in the file says so: it is open because nothing closed it.
-    // Under `default_access: deny` this is not a warning but the stated
-    // policy, and the route is simply refused (planned_features #108).
+    // Under `access: deny` this is not a warning but the stated policy, and
+    // the route is simply refused (planned_features #108).
     if !handle.service_at(service_index).ungated_warned
-      && handle.service_at(service_index).visitor_auth.is_none()
-      && handle
-        .service_at(service_index)
-        .visitor_auth_policy
-        .is_none()
-      && !handle.service_at(service_index).public
+      && !declares_access
       && !state.config().visitor_auth.gates()
-      && state.oidc.is_none()
     {
       handle.service_at_mut(service_index).ungated_warned = true;
       if state.config().default_access == crate::settings::DefaultAccess::Deny {
@@ -581,12 +752,19 @@ impl ConnCtx {
         // cause is, on the connection whose service is being refused,
         // and it names the line to write rather than the state it found.
         warn!(
-          "Client {} declares no gate and is not declared open, so its traffic is refused (`default_access` is `deny`). Write `public: true` on the service if it is meant to be reachable by anyone, or give it an `auth:`.",
+          "Client {} declares no gate and is not declared open, so its traffic is refused (the server's `access` is `deny`). Write `access: public` on the service if it is meant to be reachable by anyone, or give it an `access:` method.",
           client_id
+        );
+        self.notify(
+          declaration.service.as_deref(),
+          "visitors are refused: this service declares no `access:` and the server is closed \
+           by default (its `access` is `deny`), so it answers as an unclaimed hostname does. \
+           Write `access: public` if it is meant to be reachable by anyone, or an `access:` method."
+            .to_string(),
         );
       } else {
         warn!(
-          "Client {} serves traffic that nothing gates: this server has no `auth:` and the service declares neither a gate nor `public: true`, so it is reachable by anyone. Declare it (`auth:` / `public: true`), or set `default_access: deny` to refuse what nothing declares.",
+          "Client {} serves traffic that nothing gates: the server's `access` is `public` and the service declares no `access:`, so it is reachable by anyone. Declare it (an `access:` method, or `access: public`), or set the server's `access` to `deny` to refuse what nothing declares.",
           client_id
         );
       }
@@ -600,16 +778,29 @@ impl ConnCtx {
       .map(|s| s.trim().to_string())
       .filter(|s| !s.is_empty())
       .collect();
-    let before = effective_ips.len();
+    let dropped: Vec<String> = effective_ips
+      .iter()
+      .filter(|e| !crate::auth::valid_ip_entry(e))
+      .cloned()
+      .collect();
     effective_ips.retain(|e| crate::auth::valid_ip_entry(e));
-    if effective_ips.len() != before && !handle.service_at(service_index).allowed_ips_invalid_warned
-    {
+    if !dropped.is_empty() && !handle.service_at(service_index).allowed_ips_invalid_warned {
       handle
         .service_at_mut(service_index)
         .allowed_ips_invalid_warned = true;
       warn!(
         "Client {} declared allowed_ips with invalid entries; dropping them",
         client_id
+      );
+      self.notify_once(
+        handle,
+        service_index,
+        declaration.service.as_deref(),
+        format!(
+          "`allowed_ips` entries {} are not addresses or CIDRs and were dropped; the others stay \
+           in force",
+          dropped.join(", ")
+        ),
       );
     }
     if handle.service_at(service_index).allowed_ips != effective_ips {
@@ -621,18 +812,8 @@ impl ConnCtx {
       }
       handle.service_at_mut(service_index).allowed_ips = effective_ips;
     }
-    // Warn once per change, not on every heartbeat.
-    if protocol.is_some() && handle.client_protocol != protocol {
+    if protocol.is_some() {
       handle.client_protocol = protocol;
-      if let Some(p) = protocol
-        && p != PROTOCOL_VERSION
-      {
-        warn!(
-          "Client {} speaks tunnel protocol v{} but this server speaks v{}; \
-                     update the older side to avoid subtle incompatibilities",
-          client_id, p, PROTOCOL_VERSION
-        );
-      }
     }
     // Dynamic-token clients are subject to token pinning.
     if let Some(id) = handle.perms.token_id.clone() {
@@ -664,4 +845,16 @@ impl ConnCtx {
       ));
     }
   }
+}
+
+/// What a client is told about a hostname a dashboard panel owns.
+fn panel_refusal(host: &str) -> String {
+  format!(
+    "`hostname: {host}` is not served: it is a dashboard panel, which serves the dashboard and nothing else"
+  )
+}
+
+/// What a client is told about a hostname its token does not grant.
+fn hostname_refusal(host: &str) -> String {
+  format!("`hostname: {host}` was not applied: this client's token does not permit that hostname")
 }

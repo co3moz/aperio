@@ -17,6 +17,12 @@ export interface JsonSchema {
   properties?: Record<string, JsonSchema>
   items?: JsonSchema
   enum?: unknown[]
+  /** A single permitted value, the way schemars writes one word of an
+   *  untagged union (`auto`). */
+  const?: unknown
+  /** The regex a string must match: how a duration or a size is told apart
+   *  from free text. */
+  pattern?: string
   examples?: unknown[]
   format?: string
   default?: unknown
@@ -40,7 +46,7 @@ export type FieldKind =
   | 'select'
   | 'stringList'
   | 'objectList'
-  /** A map of name → object, e.g. `bind-tunnels:`. Edited in a dialog. */
+  /** A map of name → object, e.g. `services:`. Edited in a dialog. */
   | 'objectMap'
   | 'object'
   | 'unsupported'
@@ -203,7 +209,7 @@ export function fieldsOf(
     }
 
     if (type === 'object') {
-      // A map whose values are objects (`bind-tunnels:`): schemars describes
+      // A map whose values are objects (`services:`): schemars describes
       // the value shape under additionalProperties, which is enough to edit
       // each entry in a dialog rather than declaring it off-limits.
       const values = collapse(

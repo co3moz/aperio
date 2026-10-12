@@ -12,16 +12,15 @@ import { SERVER_BIN, waitFor } from '../../lib/env.js'
 
 const run = promisify(execFile)
 
-/** Runs the server binary in one of its report-and-exit modes. */
-/// Config files kept as they were written for an older Aperio, so the
-/// upgrade path is exercised against a real file rather than a synthetic one.
-const FIXTURES = join(import.meta.dirname, '..', '..', 'fixtures')
-
+/** Runs the server binary with a command, or with none and a budget: a
+ *  start that should have been refused is killed and reported, rather than
+ *  left to hang the phase. */
 async function serverCli(args: string[], env: Record<string, string> = {}) {
   try {
     const { stdout, stderr } = await run(SERVER_BIN, args, {
       env: { ...process.env, ...env },
       maxBuffer: 16 * 1024 * 1024,
+      timeout: 15_000,
     })
     return { ok: true, out: stdout + stderr }
   } catch (e) {
@@ -30,109 +29,77 @@ async function serverCli(args: string[], env: Record<string, string> = {}) {
   }
 }
 
-export class ReloadServer extends AperioServerBase() {
-  _configFile() {
-    // The grouped form of both settings; the reload below uses the flat
-    // spelling, so each of them is covered reaching a running server.
-    return [
-      'cache:',
-      '  enabled: false',
-      'login_lockout:',
-      '  threshold: 5',
-      'routes:',
-      '  - path: /reload-probe',
-      '    respond:',
-      '      status: 200',
-      '      body: "v1"',
-      '',
-    ].join('\n')
+const PROBE = (body: string) => [
+  { hostname: '*', path: '/reload-probe', respond: { status: 200, body } },
+]
+
+export class SettingsServer extends AperioServerBase({
+  settings: {
+    cache: { enabled: false },
+    security: { login_lockout: { threshold: 5 } },
+    sites: PROBE('v1'),
+  },
+}) {}
+
+interface SettingsDoc {
+  settings: {
+    cache: { enabled: boolean }
+    security: { login_lockout: { threshold: number } }
+    metrics: { enabled: boolean }
   }
+  restart_pending: string[]
 }
 
-interface Settings {
-  effective: Record<string, unknown>
-  file_keys: string[]
-}
-
-export class ServerConfigReloadSpec extends Test({
+export class ServerSettingsSpec extends Test({
   timeout: 120_000,
-  dependencies: { server: () => ReloadServer },
+  dependencies: { server: () => SettingsServer },
 }) {
-  async _setting(key: string): Promise<unknown> {
-    const settings = await this.server._api<Settings>('/aperio/api/settings')
-    return settings.effective[key]
+  async _doc(): Promise<SettingsDoc> {
+    return this.server._api<SettingsDoc>('/aperio/api/settings')
   }
 
-  async theInitialFileValuesAreInEffect() {
-    assert.equal(await this._setting('cache_enabled'), false, 'a grouped cache.enabled applies')
-    assert.equal(await this._setting('login_lockout_threshold'), 5)
+  async theFirstStartDocumentIsInEffect() {
+    const doc = await this._doc()
+    assert.equal(doc.settings.cache.enabled, false)
+    assert.equal(doc.settings.security.login_lockout.threshold, 5)
     const res = await this.server._fetch('/reload-probe', { host: 'probe.e2e.local' })
     assert.equal(res.body, 'v1', 'the client-less route serves its initial body')
   }
 
-  async anEditIsAppliedLiveExceptForStructuralKeys() {
-    await this.server._writeConfig(
-      [
-        'cache: true',
-        'login_lockout_threshold: 9',
-        'port: 9999',
-        'routes:',
-        '  - path: /reload-probe',
-        '    respond:',
-        '      status: 200',
-        '      body: "v2-reloaded"',
-        '',
-      ].join('\n'),
-    )
-    await waitFor(async () => (await this._setting('cache_enabled')) === true, {
-      label: 'the edited config to be hot-reloaded',
+  async aChangeAppliesLiveWithoutARestart() {
+    const res = await this.server._putSettings({
+      cache: { enabled: true },
+      security: { login_lockout: { threshold: 9 } },
+      sites: PROBE('v2-changed'),
     })
-    assert.equal(await this._setting('login_lockout_threshold'), 9, 'the flat spelling reloads too')
-
-    const res = await this.server._fetch('/reload-probe', { host: 'probe.e2e.local' })
-    assert.equal(res.body, 'v2-reloaded')
-
-    // The port change is structural: the server stays where it was.
-    const health = await this.server._fetch('/aperio/health')
-    assert.equal(health.status, 200)
+    assert.equal(res.status, 200, res.body)
+    const doc = await this._doc()
+    assert.equal(doc.settings.cache.enabled, true)
+    assert.equal(doc.settings.security.login_lockout.threshold, 9)
+    const probe = await this.server._fetch('/reload-probe', { host: 'probe.e2e.local' })
+    assert.equal(probe.body, 'v2-changed')
   }
 
-  async _writeDenied(fragment: string) {
-    await this.server._writeConfig(
-      [
-        'cache: true',
-        'login_lockout_threshold: 9',
-        'port: 9999',
-        fragment,
-        'routes:',
-        '  - path: /reload-probe',
-        '    respond:',
-        '      status: 200',
-        '      body: "v2-reloaded"',
-        '',
-      ]
-        .filter(Boolean)
-        .join('\n'),
-    )
+  async theFirstStartDocumentIsNotReadAgain() {
+    // The settings live in the database from here on: a restart reads them
+    // there, and the document that seeded them changes nothing.
+    await this.server._restart()
+    const doc = await this._doc()
+    assert.equal(doc.settings.security.login_lockout.threshold, 9)
   }
 
-  async aDeniedAddressIsRefusedServerWideAndBothWaysWithoutARestart() {
-    await this._writeDenied('denied_ips: [203.0.113.7]')
-    await new Promise((r) => setTimeout(r, 2_000))
+  async aDeniedAddressIsRefusedServerWideAndTheResetLetsYouBackIn() {
+    let res = await this.server._putSettings({ security: { denied_ips: ['203.0.113.7'] } })
+    assert.equal(res.status, 200, res.body)
     assert.equal(
       (await this.server._fetch('/aperio/health')).status,
       200,
       'denying an unrelated address leaves everybody else alone',
     )
 
-    // The IPv6 entry is quoted because a bare `::1` in a flow sequence is a
-    // yaml parse error, which would leave the previous config in place and
-    // make this look like the deny list failing rather than the file failing.
-    await this._writeDenied('denied_ips: [127.0.0.1, "::1"]')
-    await waitFor(async () => (await this.server._fetch('/aperio/health')).status === 403, {
-      label: 'the deny list to take effect',
-    })
-
+    res = await this.server._putSettings({ security: { denied_ips: ['127.0.0.1', '::1'] } })
+    assert.equal(res.status, 200, res.body)
+    assert.equal((await this.server._fetch('/aperio/health')).status, 403)
     // Server-wide, not just the proxy path.
     const cookie = await this.server._login()
     assert.equal((await this.server._fetch('/aperio/api/stats', { headers: { cookie } })).status, 403)
@@ -142,34 +109,27 @@ export class ServerConfigReloadSpec extends Test({
       'the deny list is checked before a client-less route answers',
     )
 
-    await this._writeDenied('')
-    await waitFor(async () => (await this.server._fetch('/aperio/health')).status === 200, {
-      label: 'access to be restored',
+    // Locked out of the API by its own setting: the way back in is the
+    // command on the stopped server's data directory.
+    await this.server._stop()
+    const reset = await serverCli(['settings', 'reset', 'security.denied_ips'], {
+      APERIO_DATA_DIR: this.server._dataDir,
     })
+    assert.ok(reset.ok, reset.out)
+    await this.server._spawn()
+    assert.equal((await this.server._fetch('/aperio/health')).status, 200)
+    const probe = await this.server._fetch('/reload-probe', { host: 'probe.e2e.local' })
+    assert.equal(probe.body, 'v2-changed', 'the reset put back that one setting and no other')
   }
 
-  async theFileWinsOverADashboardOverrideForTheSameKey() {
-    const cookie = await this.server._login()
-    const refused = await this.server._fetch('/aperio/api/settings', {
-      method: 'PUT',
-      headers: { cookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ login_lockout_threshold: 42 }),
-    })
-    assert.equal(refused.status, 400, 'an override for a key the file writes is refused')
-    assert.equal(await this._setting('login_lockout_threshold'), 9, 'and it changed nothing')
-
-    const allowed = await this.server._fetch('/aperio/api/settings', {
-      method: 'PUT',
-      headers: { cookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ cache_max_stale: 1800 }),
-    })
-    assert.equal(allowed.status, 200, 'a key the file leaves alone is still the dashboard’s')
-
-    const settings = await this.server._api<Settings>('/aperio/api/settings')
-    assert.ok(
-      settings.file_keys.includes('login_lockout_threshold'),
-      'the payload names the keys the file owns',
-    )
+  async aStartupSettingIsStoredAndPendingUntilTheNextStart() {
+    const res = await this.server._putSettings({ metrics: { enabled: true } })
+    assert.equal(res.status, 200, res.body)
+    assert.ok((await this._doc()).restart_pending.includes('metrics.enabled'))
+    await this.server._restart()
+    const doc = await this._doc()
+    assert.equal(doc.settings.metrics.enabled, true)
+    assert.deepEqual(doc.restart_pending, [], 'the restart put it in force')
   }
 
   async theEdgeEndpointsOwnTheirPathsEvenWithTheFeatureOff() {
@@ -183,14 +143,15 @@ export class ServerConfigReloadSpec extends Test({
     }
   }
 
-  async aPerHostnameErrorPageIsServedAfterReload() {
-    const page = join(this.server._dataDir, 'custom-504.html')
-    await writeFile(page, '<h1>custom err.e2e.local 504</h1>\n')
-    await this.server._writeConfig(
-      ['cache: true', 'error_pages:', '  - hostname: err.e2e.local', `    504_page: ${page}`, ''].join(
-        '\n',
-      ),
-    )
+  async aHostnamesOwnErrorPageIsServedOnceSaved() {
+    // A list is replaced whole, so the probe site rides along.
+    const res = await this.server._putSettings({
+      sites: [
+        ...PROBE('v2-changed'),
+        { hostname: 'err.e2e.local', pages: { unavailable: '<h1>custom err.e2e.local 504</h1>' } },
+      ],
+    })
+    assert.equal(res.status, 200, res.body)
     await waitFor(
       async () =>
         (await this.server._fetch('/nothing', { host: 'err.e2e.local' })).body.includes(
@@ -203,187 +164,77 @@ export class ServerConfigReloadSpec extends Test({
   }
 }
 
-/** The report-and-exit modes, which never start a server. */
+/** The commands that never start a server. */
 export class ServerCliSpec extends Test({ timeout: 90_000 }) {
-  async _tmpConfig(yaml: string): Promise<string> {
+  async _tmpDocument(yaml: string): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), 'aperio-cfg-'))
-    const path = join(dir, 'aperio-server.yaml')
+    const path = join(dir, 'settings.yaml')
     await writeFile(path, yaml)
     return path
   }
 
-  async printSchemaEmitsValidJson() {
-    const res = await serverCli(['--print-schema'])
-    assert.ok(res.ok)
-    assert.match(res.out, /"ServerFileConfig"/)
-    JSON.parse(res.out)
-  }
-
-  async printConfigAttributesEachValueAndMasksTheToken() {
-    const path = await this._tmpConfig(
-      ['max_body_size: 4242', 'trusted_proxies: [10.0.0.0/8]', 'headers:', '  request:', '    add:', '      X-A: b', ''].join('\n'),
-    )
-    const res = await serverCli(['--print-config'], {
-      APERIO_SERVER_CONFIG: path,
-      APERIO_SERVER_TOKEN: 'print-secret-token',
-      APERIO_DATA_DIR: join(path, '..', 'print-data'),
-    })
-    assert.match(res.out, /APERIO_MAX_BODY_SIZE/)
-    assert.match(res.out, /\[aperio-server\.yaml\]/, 'it says where the value came from')
-    assert.match(res.out, /Structured aperio-server\.yaml sections: headers/)
-    assert.doesNotMatch(res.out, /print-secret-token/, 'the master token is masked')
-  }
-
-  async checkConfigPassesAValidFileAndFailsAnInvalidOne() {
-    const good = await this._tmpConfig(
-      'server_token: e2e-lint-token-long-enough\nlb_strategy: sticky\n',
-    )
-    const ok = await serverCli(['--check-config'], { APERIO_SERVER_CONFIG: good })
-    assert.ok(ok.ok, ok.out)
-    assert.match(ok.out, /Configuration OK/)
-
-    const bad = await this._tmpConfig(
-      'server_token: e2e-lint-token-long-enough\nlb_strategy: bogus\nmax_body_size: not-a-number\n',
-    )
-    const fails = await serverCli(['--check-config'], { APERIO_SERVER_CONFIG: bad })
-    assert.equal(fails.ok, false, 'an invalid config must exit non-zero')
-    assert.match(fails.out, /FAIL/)
-    assert.match(fails.out, /Configuration check FAILED/)
-  }
-
-  async theVersionDeclarationIsCheckedWithoutBeingNoisy() {
-    const version = (await serverCli(['--version'])).out.trim().split(/\s+/).pop() ?? ''
-    assert.ok(version, 'the server reports a version')
-
-    const current = await this._tmpConfig(
-      `version: ${version}\nserver_token: e2e-version-token-long-enough\n`,
-    )
-    const up = await serverCli(['--check-config'], { APERIO_SERVER_CONFIG: current })
-    assert.ok(up.ok, up.out)
-    assert.match(up.out, /matches this build/)
-
-    // An older declaration is accepted: no recorded change applies, so a
-    // clean upgrade stays quiet.
-    const old = await this._tmpConfig('version: 0.1.0\nserver_token: e2e-version-token-long-enough\n')
-    assert.ok((await serverCli(['--check-config'], { APERIO_SERVER_CONFIG: old })).ok)
-
-    // A typo must never look like a clean upgrade.
-    const typo = await this._tmpConfig(
-      'version: not-a-version\nserver_token: e2e-version-token-long-enough\n',
-    )
-    const bad = await serverCli(['--check-config'], { APERIO_SERVER_CONFIG: typo })
-    assert.equal(bad.ok, false)
-    assert.match(bad.out, /not a version/)
-
-    const none = await this._tmpConfig('server_token: e2e-version-token-long-enough\n')
-    const quiet = await serverCli(['--check-config'], { APERIO_SERVER_CONFIG: none })
-    assert.ok(quiet.ok)
-    assert.match(quiet.out, /no `version:` declared/)
-  }
-
-  async anOldFileGetsExactlyTheNoticesItShould() {
-    // The compat mechanism is what lets somebody upgrade blind, and until this
-    // it was only ever tested against its own entries. This runs today's
-    // binary against a config file kept in the repository as an operator
-    // would have written it for 0.5.0 (planned_features #91).
-    const fixture = join(FIXTURES, 'aperio-server-0.5.0.yaml')
-    const res = await serverCli(['--check-config'], { APERIO_SERVER_CONFIG: fixture })
+  async theSchemaIsValidJson() {
+    const res = await serverCli(['schema'])
     assert.ok(res.ok, res.out)
-
-    // The exact set, not "at least these". A new CONFIG_CHANGES entry that
-    // touches any key in that file changes what an upgrader is told, and this
-    // failing is the moment somebody looks at whether that is what they meant.
-    // A set, not a list: the report reaches both streams and the helper
-    // concatenates them, so counting occurrences would measure plumbing.
-    const notices = [
-      ...new Set(
-        [...res.out.matchAll(/\[(security|breaking|migration)\][^\n]*?\(since ([0-9.]+)\)/g)].map(
-          (m) => `${m[1]}@${m[2]}`,
-        ),
-      ),
-    ].sort()
-    assert.deepEqual(
-      notices,
-      // 0.10.0 added two breaking entries that reach this file: the
-      // `default_access` flip, which `Applies::Always` so every file in range
-      // gets it, and the dashboard password, which this fixture sets as
-      // `server_auth`. Deduped by severity and version, the two arrive as one
-      // line. This assertion changing is the mechanism working: it is the
-      // moment somebody confirms an upgrader is told what was intended.
-      // 0.11.0 adds a `migration` that also `Applies::Always`: the closed
-      // posture stopped refusing this server's own signed-in users, which
-      // reaches every file in range whether or not it writes `default_access`.
-      // 0.12.0 adds two more `Always` notices: the new global OIDC grants
-      // default is breaking, and the higher max_tunnels default is a migration.
-      [
-        'breaking@0.10.0',
-        'breaking@0.12.0',
-        'breaking@0.8.0',
-        'migration@0.11.0',
-        'migration@0.12.0',
-        'migration@0.6.0',
-        'migration@0.9.0',
-      ],
-      `the notices a 0.5.0 file gets from this build changed:\n${res.out}`,
-    )
-
-    // An entry recorded for a version this build has not reached is dormant
-    // by design: it fires for the upgrade that ships it. Written as "nothing
-    // newer than this build" rather than against one hardcoded version,
-    // because the hardcoded form stops meaning anything the moment that
-    // version is released, which is exactly what happened to 0.10.0. This
-    // shape keeps the property at every future release too, and it is the
-    // property that makes a guessed version worth correcting at release time:
-    // left in the future it would never fire.
-    const build = res.out.match(/this build \(([0-9.]+)\)/)?.[1]
-    assert.ok(build, `the report names the build version:\n${res.out}`)
-    const asNumbers = (v: string) => v.split('.').map(Number)
-    const newer = [...res.out.matchAll(/\(since ([0-9.]+)\)/g)]
-      .map((m) => m[1])
-      .filter((v) => {
-        const [a, b, c] = asNumbers(v)
-        const [x, y, z] = asNumbers(build)
-        return a > x || (a === x && (b > y || (b === y && c > z)))
-      })
-    assert.deepEqual(newer, [], `a notice names a version newer than the build:\n${res.out}`)
+    const schema = JSON.parse(res.out) as { properties: Record<string, unknown> }
+    assert.ok(schema.properties.limits, 'the settings sections are described')
   }
 
-  async aSecurityRelevantChangeRefusesTheStartRatherThanWarning() {
-    // The half of the mechanism nothing exercised. `Security` means the file
-    // claims a protection it no longer gets, so a notice is not enough.
-    const fixture = join(FIXTURES, 'aperio-server-0.5.0-dashboard-auth.yaml')
-    const res = await serverCli(['--check-config'], { APERIO_SERVER_CONFIG: fixture })
-    assert.equal(res.ok, false, res.out)
-    // Named as the compat entry it is, and not merely "some refusal": the same
-    // key also has a hardcoded guard, and a test that accepted either would
-    // pass with the mechanism switched off entirely.
-    assert.match(res.out, /\[security\][^\n]*\(since 0\.6\.0\)/, res.out)
-    assert.match(res.out, /refusing to start/, res.out)
-    assert.match(res.out, /set `version: /, res.out)
-  }
+  async checkPassesAValidDocumentAndFailsAnInvalidOne() {
+    const good = await this._tmpDocument('settings:\n  routing:\n    lb_strategy: sticky\n')
+    const ok = await serverCli(['check', good])
+    assert.ok(ok.ok, ok.out)
+    assert.match(ok.out, /is valid \(settings\)/)
 
-  async aRemovedSettingRefusesTheStartInEitherSpelling() {
-    for (const spelling of ['dashboard_auth: leftover', 'dashboard:\n  auth: leftover']) {
-      const path = await this._tmpConfig(
-        `server_token: e2e-removed-token-long-enough\n${spelling}\n`,
-      )
-      const res = await serverCli(['--check-config'], { APERIO_SERVER_CONFIG: path })
-      assert.equal(res.ok, false, `${spelling} should refuse the start`)
-      assert.match(res.out, /was removed/, spelling)
+    for (const bad of [
+      'settings:\n  routing:\n    lb_strategy: bogus\n',
+      'settings:\n  limits:\n    request_body: lots\n',
+      'settings:\n  proxy:\n    trusted: [not-an-address]\n',
+      'settngs:\n  cache:\n    enabled: true\n',
+    ]) {
+      const path = await this._tmpDocument(bad)
+      const fails = await serverCli(['check', path])
+      assert.equal(fails.ok, false, `${bad} must be refused`)
     }
-    // The guard is specific: the same file without it is fine.
-    const clean = await this._tmpConfig('server_token: e2e-removed-token-long-enough\n')
-    assert.ok((await serverCli(['--check-config'], { APERIO_SERVER_CONFIG: clean })).ok)
+  }
+
+  async applyStoresSettingsAndResetPutsThemBack() {
+    const data = await mkdtemp(join(tmpdir(), 'aperio-apply-'))
+    const env = { APERIO_DATA_DIR: data }
+    const doc = await this._tmpDocument('settings:\n  routing:\n    lb_strategy: sticky\n')
+    const applied = await serverCli(['apply', doc], env)
+    assert.ok(applied.ok, applied.out)
+    assert.match((await serverCli(['settings', 'show'], env)).out, /lb_strategy: sticky/)
+
+    const reset = await serverCli(['settings', 'reset', 'routing.lb_strategy'], env)
+    assert.ok(reset.ok, reset.out)
+    assert.doesNotMatch((await serverCli(['settings', 'show'], env)).out, /sticky/)
+  }
+
+  async aMovedVariableRefusesTheStartAndNamesWhereItWent() {
+    const data = await mkdtemp(join(tmpdir(), 'aperio-moved-'))
+    const res = await serverCli([], {
+      APERIO_SERVER_TOKEN: 'e2e-moved-token-long-enough',
+      APERIO_DATA_DIR: data,
+      APERIO_TRUSTED_PROXIES: '10.0.0.0/8',
+    })
+    assert.equal(res.ok, false, 'the server must refuse, not run')
+    assert.match(res.out, /APERIO_TRUSTED_PROXIES/)
+    assert.match(res.out, /proxy\.trusted/, 'and say which setting replaced it')
+  }
+
+  async theFlagsTheCommandsReplacedAreRefused() {
+    for (const flag of ['--check-config', '--print-config', '--print-schema']) {
+      assert.equal((await serverCli([flag])).ok, false, flag)
+    }
   }
 }
 
 /** Binary frames bypass the tunnel's text compression, so the frame deflates
  *  its own payload; what has to hold is that the bytes still come back. */
-export class CompressedTunnelServer extends AperioServerBase() {
-  _configFile() {
-    return 'tunnel_compression: true\n'
-  }
-}
+export class CompressedTunnelServer extends AperioServerBase({
+  settings: { advanced: { compression: true } },
+}) {}
 
 export class CompressedBackend extends StandardBackendBase() {}
 

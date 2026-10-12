@@ -8,35 +8,6 @@ import { send } from './http.js'
 import { READY_PATH } from './backend.js'
 
 /**
- * The spelling each of these variables replaced.
- *
- * Only for the compatibility runs (`npm run test:compat` against a released
- * binary), and harmless everywhere else: a client that does not know a name
- * ignores it, and every version since the alias landed reads both to the same
- * value, so nothing is ambiguous.
- *
- * Without this, the oldest clients report as incompatible when what they
- * actually are is *unconfigured*: `aperio-client` v0.1.0 knew only
- * `APERIO_CLIENT_TARGET` and `APERIO_HOSTNAME_BIND`, so a suite that sets the
- * short names alone leaves it with no backend and no hostname, and the
- * timeout that follows looks exactly like a protocol that no longer works. A
- * compatibility report is worth having only if a ✗ in it means what it says.
- */
-const OLDER_SPELLING: Record<string, string> = {
-  APERIO_TARGET: 'APERIO_CLIENT_TARGET',
-  APERIO_HOSTNAME: 'APERIO_HOSTNAME_BIND',
-}
-
-/** The same environment, plus the older name of anything in it that has one. */
-function alsoOlderSpellings(env: Record<string, string>): Record<string, string> {
-  const out = { ...env }
-  for (const [modern, older] of Object.entries(OLDER_SPELLING)) {
-    if (modern in out && !(older in out)) out[older] = out[modern]
-  }
-  return out
-}
-
-/**
  * Ends a spawned process and waits for it, the one way this suite does it.
  *
  * A free function rather than a method, because the rule has to reach the
@@ -72,8 +43,8 @@ export async function terminate(proc: ChildProcess | undefined): Promise<void> {
  * are the reason it was worth porting second:
  *
  *  - a **config file** instead of env, because a `tunnels:` list and a
- *    `bind-tunnels:` map are not flat scalars,
- *  - **argv**, because `--bind-tunnels <id>` and the legacy `tcp <port>` form
+ *    `binds:` map are not flat scalars,
+ *  - **argv**, because `bind <name>` and the legacy `tcp <port>` form
  *    are not settings at all,
  *  - the **log**, because what a binder did is stated in what it printed and
  *    nowhere else.
@@ -178,7 +149,7 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
     _config(): string | null {
       return null
     }
-    /** Everything before the config flag: a subcommand, `--bind-tunnels`, … */
+    /** Everything before the config flag: a subcommand, `bind`, … */
     _args(): string[] {
       return []
     }
@@ -234,7 +205,10 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
         this._configPath = path
         args.push('--config', path)
       }
-      const target = this._backendUrl()
+      // A file that names its own services is what runs: a target in the
+      // environment would be a service of its own, run in their place.
+      const fileNamesServices = /(^|\n)\s*(services|target):/.test(yaml ?? '')
+      const target = fileNamesServices ? null : this._backendUrl()
       const declared = {
         ...(target ? { APERIO_TARGET: target } : {}),
         ...this._env(),
@@ -249,15 +223,11 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
       // `method: none` and would open the very gate the test is about. The
       // other is testing the server's gate or the closed posture itself, and
       // says so by overriding `_public()`.
-      // `APERIO_VISITOR_AUTH` is the env name for yaml `auth:`, and the
-      // spelling matters: `APERIO_AUTH` was checked here and is not a
-      // setting, so a fixture configuring its gate through the environment
-      // read as having none and was handed `APERIO_PUBLIC` instead, which is
-      // precisely the gate-opening this check exists to prevent. No fixture
-      // sets it today, so nothing was wrong yet; the first one to try would
-      // have been tested against an open door.
+      // `APERIO_ACCESS` is the variable for `access:`, and a fixture that
+      // configures its gate through the environment must not also be handed
+      // `public`, which would open the very gate the test is about.
       const declaresOwnGate =
-        'APERIO_VISITOR_AUTH' in declared || /(^|\n)\s*auth:/.test(yaml ?? '')
+        'APERIO_ACCESS' in declared || /(^|\n)\s*access:/.test(yaml ?? '')
       const isPublic = this._public() && !declaresOwnGate
       this._proc = spawn(CLIENT_BIN, args, {
         cwd: this._cwd(),
@@ -266,10 +236,16 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
           // Keep log-based assertions independent of the invoking shell.
           RUST_LOG: 'info',
           APERIO_CONNECTIONS: '1',
-          ...(isPublic ? { APERIO_PUBLIC: '1' } : {}),
+          // A client with a config file keeps its id under the home by
+          // default; a fixture keeps it in its own directory instead, so a
+          // run leaves nothing in the home of whoever ran it.
+          APERIO_CLIENT_ID_FILE: join(this._dir, 'client-id'),
+          // The device key beside it, for the same reason.
+          APERIO_DEVICE_KEY_FILE: join(this._dir, 'device-key'),
+          ...(isPublic ? { APERIO_ACCESS: 'public' } : {}),
           APERIO_SERVER_URL: this._serverUrl(),
           APERIO_SERVER_TOKEN: this._serverToken(),
-          ...alsoOlderSpellings(declared),
+          ...declared,
         },
         stdio: ['ignore', 'pipe', 'pipe'],
       })

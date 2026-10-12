@@ -118,7 +118,7 @@ sys.exit(0 if sys.argv[1] in cap.get("uri", "") else 1)
 done
 if [ -z "$REQ_ID" ]; then
   echo "error: request not found in $ADMIN/aperio/api/logs." >&2
-  echo "  Is the inspector on (APERIO_INSPECTOR, default on), the service" >&2
+  echo "  Is the inspector on (inspector.enabled, default on), the service" >&2
   echo "  without capture: false, and the token allowed to see this org?" >&2
   exit 1
 fi

@@ -86,7 +86,7 @@ pub(crate) struct Step {
   pub(crate) params: Option<serde_json::Value>,
   /// Where the rule behind it lives, when it has a home an operator edits.
   ///
-  /// A literal config key (`routes:`, `waf:`) where there is one, and a
+  /// A literal setting (`sites`, `limits.ip_rate`) where there is one, and a
   /// `setting_code` beside it where the answer is prose rather than a key.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub(crate) setting: Option<&'static str>,
@@ -271,6 +271,13 @@ fn named_json(n: &Named) -> serde_json::Value {
   }
 }
 
+/// A site's `access` opens the route, over what the clients declare.
+const SITE_PUBLIC: &str =
+  "a site's access opens this route to anyone, over what the clients serving it declare";
+
+/// A site's `access` gates the route, over what the clients declare.
+const SITE_GATE: &str = "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare";
+
 /// Walks the proxy's decisions for a request nobody sends.
 #[utoipa::path(get, path = "/aperio/api/explain", tag = "dashboard",
   description = "Dry run: which rule would answer a request to this hostname and path, and what every other stage saw. Consumes no rate limit and wakes nothing.",
@@ -435,15 +442,15 @@ pub(crate) async fn explain_handler(
     )),
   }
 
-  // 2. Client-less routes.
-  if cfg.static_routes.is_empty() {
+  // 2. A site that answers by itself.
+  if cfg.sites.is_empty() {
     steps.push(Step::new(
       "static_route",
       Verdict::Skipped,
       "static_route.none_configured",
-      "no routes: rules configured",
+      "no sites configured",
     ));
-  } else if let Some(answer) = cfg.static_routes.answer(Some(&hostname), &path, None) {
+  } else if let Some(answer) = cfg.sites.answer(Some(&hostname), &path, None) {
     let status = answer.status();
     let location = answer
       .headers()
@@ -451,7 +458,7 @@ pub(crate) async fn explain_handler(
       .and_then(|v| v.to_str().ok())
       .map(|l| format!(" to {l}"))
       .unwrap_or_default();
-    let detail = format!("{status}: a routes: rule answers this path{location}");
+    let detail = format!("{status}: a site answers this path by itself{location}");
     let target = answer
       .headers()
       .get("location")
@@ -471,14 +478,14 @@ pub(crate) async fn explain_handler(
     steps.push(
       Step::new("static_route", Verdict::Decides, code, detail)
         .with(params)
-        .from("routes:"),
+        .from("sites"),
     );
   } else {
     steps.push(Step::new(
       "static_route",
       Verdict::Passes,
       "static_route.no_match",
-      "no routes: rule matches this hostname and path",
+      "no site answers this hostname and path by itself",
     ));
   }
 
@@ -511,15 +518,19 @@ pub(crate) async fn explain_handler(
 
   // 4. WAF deny rules. Header rules cannot be judged without a real request,
   // so the report says so rather than implying the path is clean.
-  if cfg.waf.is_empty() {
+  if !cfg.sites.has_waf() {
     steps.push(Step::new(
       "waf",
       Verdict::Skipped,
       "waf.none_configured",
-      "no waf: rules configured",
+      "no site has waf rules",
     ));
-  } else if let Some(reason) = cfg.waf.deny_reason(&method, &path, &HeaderMap::new()) {
-    let detail = format!("403: blocked by a waf: rule ({reason})");
+  } else if let Some(reason) =
+    cfg
+      .sites
+      .waf_deny(Some(&hostname), &method, &path, &HeaderMap::new())
+  {
+    let detail = format!("403: blocked by a waf rule ({reason})");
     let params = serde_json::json!({ "reason": reason });
     decided(
       &mut outcome,
@@ -531,7 +542,7 @@ pub(crate) async fn explain_handler(
     steps.push(
       Step::new("waf", Verdict::Decides, "waf.denied", detail)
         .with(params)
-        .from("waf:"),
+        .from("sites"),
     );
   } else {
     steps.push(
@@ -539,15 +550,15 @@ pub(crate) async fn explain_handler(
         "waf",
         Verdict::Passes,
         "waf.no_match",
-        "no waf: rule matches this method and path (header and body rules need a real request)",
+        "no waf rule matches this method and path (header and body rules need a real request)",
       )
-      .from("waf:"),
+      .from("sites"),
     );
   }
 
   // 5. Per-route rate limit. Reported as the rule, never consumed: asking
   // why a request is refused must not spend the budget it is asking about.
-  match cfg.route_limits.matched(Some(&hostname), &path, None) {
+  match cfg.sites.rate_limit_for(Some(&hostname), &path, None) {
     Some(rule) => steps.push(
       Step::new(
         "route_rate_limit",
@@ -557,7 +568,7 @@ pub(crate) async fn explain_handler(
           None => "route_rate_limit.covered",
         },
         format!(
-          "a rate_limits: rule covers this path ({} rps, burst {}{}); this dry run does not spend from it",
+          "a site's rate_limit covers this path ({} rps, burst {}{}); this dry run does not spend from it",
           rule.rps,
           rule.burst,
           match rule.methods.as_ref() {
@@ -571,7 +582,7 @@ pub(crate) async fn explain_handler(
         "burst": rule.burst,
         "methods": rule.methods.as_ref().map(|m| m.join("/")),
       }))
-      .from("rate_limits"),
+      .from("sites"),
     ),
     // Still names the key it looked in. A stage that says "nothing here"
     // without saying where it looked leaves the reader to guess which of the
@@ -581,7 +592,7 @@ pub(crate) async fn explain_handler(
         "route_rate_limit",
         Verdict::Skipped,
         "route_rate_limit.none",
-        "no rate_limits: rule covers this path",
+        "no site's rate_limit covers this path",
       )
       .from(crate::limits::Limit::Route.setting()),
     ),
@@ -607,13 +618,16 @@ pub(crate) async fn explain_handler(
     .from(crate::limits::Limit::Ip.setting()),
   );
 
-  // 6. The visitor gate. Three things can raise it, and naming which one is
-  // the whole value: a client's own password is the service's, the server's
-  // password and OIDC are the operator's, and they are configured in
-  // different places.
+  // 6. The visitor gate. A site's `access` is the operator's word on the
+  // hostname and is asked first, as the gate itself asks it. After it, two
+  // things can raise the gate, and naming which one is the whole value: a
+  // client's own gate is the service's, the server's `access` is the
+  // operator's, and they are configured in different places. OIDC is not one
+  // of them: it is the dashboard's sign-in, and gates no visitor by being
+  // configured.
   let client_gate = crate::routing::host_has_visitor_auth(&state, Some(&hostname)).await;
   let server_gate = cfg.visitor_auth.gates();
-  let oidc_gate = state.oidc.is_some();
+  let server_sso = cfg.visitor_auth.has_sso();
   // The `aperio` method on either side: the route asks for this server's
   // own sign-in, which is the one gate an operator wrote without inventing a
   // credential, and worth naming as such.
@@ -621,48 +635,47 @@ pub(crate) async fn explain_handler(
     .await
     .is_some_and(|p| p.has_aperio());
   let server_aperio = cfg.visitor_auth.has_aperio();
-  if client_gate || server_gate || oidc_gate {
+  if let Some(site) = cfg.sites.access_for(Some(&hostname), &path) {
+    let (code, detail) = match site {
+      crate::sites::SiteAccess::Public => ("visitor_gate.site_public", SITE_PUBLIC),
+      crate::sites::SiteAccess::Gate(_) => ("visitor_gate.site", SITE_GATE),
+    };
+    steps.push(Step::new("visitor_gate", Verdict::Passes, code, detail).from("sites"));
+  } else if client_gate || server_gate {
     let (why, code, setting, setting_code) = if client_aperio {
       (
         "the serving client declared this route behind an Aperio sign-in: a dashboard session reaching this hostname's organization",
         "visitor_gate.aperio_login",
-        "auth: {method: aperio} on the service",
+        "access: {method: aperio} on the service",
         "setting.service_auth",
       )
     } else if server_aperio && !client_gate {
       (
         "the server's gate asks for an Aperio sign-in: a dashboard session reaching this hostname's organization",
         "visitor_gate.aperio_login",
-        "server_auth",
+        "access",
         "setting.server_auth",
       )
     } else if client_gate {
       (
         "the serving client declared a visitor password for this route, which supersedes the server's own gate",
         "visitor_gate.client_password",
-        "auth: on the service",
+        "access: on the service",
         "setting.service_auth",
       )
-    } else if server_gate && oidc_gate {
+    } else if server_sso {
       (
-        "the server's visitor gate is on, and OIDC is configured",
-        "visitor_gate.server_password_and_oidc",
-        "server_auth / OIDC",
-        "setting.server_auth_oidc",
-      )
-    } else if server_gate {
-      (
-        "the server's visitor password is set",
-        "visitor_gate.server_password",
-        "server_auth",
+        "the server's gate asks for a single sign-on at an identity provider",
+        "visitor_gate.sso",
+        "access",
         "setting.server_auth",
       )
     } else {
       (
-        "OIDC is configured for visitors",
-        "visitor_gate.oidc",
-        "OIDC",
-        "setting.oidc",
+        "the server's visitor password is set",
+        "visitor_gate.server_password",
+        "access",
+        "setting.server_auth",
       )
     };
     steps.push(
@@ -680,7 +693,7 @@ pub(crate) async fn explain_handler(
     && !crate::routing::route_is_public(&state, &path, Some(&hostname)).await
     // Only when something would otherwise serve it. Both refusals answer 504,
     // but they are different sentences to act on: with a client behind the
-    // gate the line to write is `public: true` on that service, and with no
+    // gate the line to write is `access: public` on that service, and with no
     // client at all there is nothing to write it on, so `no_client` further
     // down is the more useful answer and is left to win.
     && crate::routing::route_exists(&state, &path, Some(&hostname), None).await
@@ -696,7 +709,7 @@ pub(crate) async fn explain_handler(
     // unclaimed hostname does so that nothing leaks to a caller who was never
     // going to be let in. The report is for the operator, so here it says
     // plainly what the wire does not.
-    let detail = "nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it".to_string();
+    let detail = "nothing declares this route reachable and the server's `access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it".to_string();
     decided(
       &mut outcome,
       "visitor_gate",
@@ -711,7 +724,7 @@ pub(crate) async fn explain_handler(
         "visitor_gate.undeclared",
         detail,
       )
-      .from_named("default_access", "setting.default_access"),
+      .from_named("access", "setting.default_access"),
     );
   } else {
     steps.push(Step::new(
@@ -732,7 +745,7 @@ pub(crate) async fn explain_handler(
   // goes only to a caller who is not scoped to an organization, and everybody
   // else is told the rule, which is the same line this report already walks
   // for the checks it will not run.
-  if crate::auth::is_master_admin(&state, &headers).await {
+  if crate::auth::is_server_admin(&state, &headers).await {
     let in_flight = state
       .active_proxied_requests
       .load(std::sync::atomic::Ordering::Relaxed);
@@ -772,15 +785,9 @@ pub(crate) async fn explain_handler(
   let (pool, ineligible, serving) = {
     let clients = state.clients.read().await;
     let down_threshold = cfg.client_down_threshold;
-    let pool = crate::routing::select_client_pool(
-      &clients,
-      &path,
-      Some(&hostname),
-      cfg.require_hostname_bind,
-      down_threshold,
-    )
-    .map(|(ids, _)| ids)
-    .unwrap_or_default();
+    let pool = crate::routing::select_client_pool(&clients, &path, Some(&hostname), down_threshold)
+      .map(|(ids, _)| ids)
+      .unwrap_or_default();
     let pool: Vec<Conn> = pool
       .into_iter()
       .map(|r| {
@@ -818,6 +825,16 @@ pub(crate) async fn explain_handler(
           )
         } else if !c.is_healthy(down_threshold) {
           ("missed heartbeats", "ineligible.missed_heartbeats")
+        } else if service.policy_conflict.is_some() {
+          (
+            "its access, allowed_ips or denied differs from what already serves this route",
+            "ineligible.policy_conflict",
+          )
+        } else if service.server_side_refused.is_some() {
+          (
+            "it asked to be served from the server, and was refused",
+            "ineligible.server_side_refused",
+          )
         } else {
           ("its path bind does not match", "ineligible.path_mismatch")
         };
@@ -964,14 +981,14 @@ pub(crate) async fn explain_handler(
         .from("scaling:"),
       );
     }
-    if let Some(rule) = cfg.fallbacks.matched(Some(&hostname)) {
+    if let Some(rule) = cfg.sites.fallback_for(Some(&hostname)) {
       let detail = format!(
-        "{}: the fallbacks: rule for this hostname redirects to {} instead of a 504",
-        if rule.permanent { 301 } else { 302 },
+        "{}: this hostname's fallback redirects to {} instead of a 504",
+        rule.status().as_u16(),
         rule.url
       );
       let params = serde_json::json!({
-        "status": if rule.permanent { 301 } else { 302 },
+        "status": rule.status().as_u16(),
         "url": rule.url,
       });
       decided(
@@ -984,10 +1001,10 @@ pub(crate) async fn explain_handler(
       steps.push(
         Step::new("fallback", Verdict::Decides, "fallback.redirect", detail)
           .with(params)
-          .from("fallbacks:"),
+          .from("sites"),
       );
     } else {
-      let detail = "504: nothing serves this route, and no fallbacks: rule covers it".to_string();
+      let detail = "504: nothing serves this route, and no site gives it a fallback".to_string();
       decided(
         &mut outcome,
         "no_client",

@@ -15,14 +15,13 @@ server:
   url: https://tunnel.example.com
   token: apr_change_me
 
-# What to expose, and under which name. A file always describes its backends
-# under `services:`, even when there is exactly one; a top-level `target:` or
-# `hostname:` has not been accepted since 0.9.0. `target` is a backend this
-# machine can reach; `serve` is a directory of static files instead. See
-# docs/configuration.md for the full set, including several services from one
-# process.
+# What to expose, keyed by the service's name. A file always describes its
+# backends under `services:`, even when there is exactly one. `target` is a
+# backend this machine can reach; `serve` is a directory of static files
+# instead. What every service shares goes under `defaults:`. See
+# docs/reference.md for every setting, and docs/configuration.md for how a
+# file is laid out.
 services:
-  - target: http://127.0.0.1:3000
+  myapp:
+    target: http://127.0.0.1:3000
     hostname: myapp.example.com
-
-version: __APERIO_VERSION__

@@ -1,0 +1,33 @@
+# First-start settings for this example, read once into an empty data
+# directory. Start the server with:
+#
+#   APERIO_SERVER_TOKEN=apr_routes_change_me APERIO_INIT_FILE=server-init.yaml aperio-server
+#
+# After the first start the settings live in the database: change them from
+# the dashboard (Settings), with `PUT /aperio/api/settings`, or export them
+# with `GET /aperio/api/export?include=settings`.
+
+settings:
+  # Sites that answer by themselves, no tunnel client involved. Each gives
+  # exactly one answer, `redirect` or `respond`.
+  sites:
+    # Vanity redirect: the old domain permanently forwards to the new one,
+    # keeping the request path and query.
+    - hostname: old.example.com
+      redirect:
+        url: https://new.example.com
+        permanent: true
+        preserve_path: true
+
+    # A hostname whose client is not deployed yet.
+    - hostname: soon.example.com
+      respond:
+        status: 503
+        body: "<h1>Coming soon</h1>"
+
+    # A fixed robots.txt on every hostname.
+    - hostname: "*"
+      path: /robots.txt
+      respond:
+        content_type: text/plain
+        body: "User-agent: *\nDisallow: /\n"

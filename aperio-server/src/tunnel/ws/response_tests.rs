@@ -31,6 +31,7 @@ fn test_ctx(state: &Arc<AppState>, client_id: &str) -> ConnCtx {
     server_max_connections: 0,
     max_inflated: 8 * 1024 * 1024,
     stream_cache: std::sync::Mutex::new(HashMap::new()),
+    otel_refusal_noticed: std::sync::atomic::AtomicBool::new(false),
   }
 }
 
@@ -166,7 +167,7 @@ async fn stalled_consumer_never_blocks_the_read_loop() {
     .clients
     .write()
     .await
-    .insert("owner".into(), mock_client(None, None, None, None));
+    .insert("owner".into(), mock_client(None, None));
 
   // A visitor that has stopped reading: the consumer channel is never
   // drained. A short stall timeout stands in for gateway_response_timeout.
@@ -224,7 +225,7 @@ async fn backlog_cap_drops_a_producer_that_cannot_be_paused() {
     .clients
     .write()
     .await
-    .insert("owner".into(), mock_client(None, None, None, None));
+    .insert("owner".into(), mock_client(None, None));
 
   // A stalled consumer and a pre-v3 producer (detached flow: pause cannot be
   // delivered): the only guard left is the hard byte cap.
@@ -270,7 +271,6 @@ async fn slow_consumer_pauses_and_resumes_a_v3_producer() {
     StreamFlow::new(
       "r1".into(),
       client_tx,
-      true,
       crate::state::StreamLimits::default(),
     ),
   );

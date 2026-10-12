@@ -325,7 +325,7 @@ async fn destination_allowed(
     url,
     allow_insecure,
     allow_private,
-    "APERIO_SCALING",
+    "scaling",
   )
   .await
 }
@@ -553,6 +553,10 @@ pub(crate) async fn request_capacity(
 pub(crate) async fn run_scale_out_loop(state: Arc<AppState>) {
   loop {
     tokio::time::sleep(Duration::from_secs(5)).await;
+    // Read each pass, so the switch works without a restart either way.
+    if !state.config().scaling_enabled {
+      continue;
+    }
     let records: Vec<ScalingRecord> = state.scaling_store.lock().await.list().to_vec();
     for record in records {
       // max = 0 means cold starts only; there is no scale-out target.
@@ -594,9 +598,14 @@ pub(crate) async fn run_scale_out_loop(state: Arc<AppState>) {
 
 /// Background loop: drops records nothing has re-announced for a long time, so
 /// a service that was decommissioned does not stay wakeable forever.
-pub(crate) async fn run_prune_loop(state: Arc<AppState>, ttl_secs: u64) {
+pub(crate) async fn run_prune_loop(state: Arc<AppState>) {
   loop {
     tokio::time::sleep(Duration::from_secs(3600)).await;
+    let config = state.config();
+    if !config.scaling_enabled {
+      continue;
+    }
+    let ttl_secs = config.scaling_record_ttl.as_secs();
     let now = crate::store::tokens::now_secs();
     let removed = state.scaling_store.lock().await.prune(ttl_secs, now);
     if removed > 0 {

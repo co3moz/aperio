@@ -1,29 +1,38 @@
 //! The one resolution every scope question is built on: which credential a
 //! request carries, what it holds per organization, and which organization
-//! it is acting in. The rule pinned hardest is that a named Admin in master
-//! is no longer the super-admin unless a grant says so, and that the role is
-//! read from the store on every request.
+//! it is acting in. The rule pinned hardest is that only `*` Admin is the
+//! server admin, master's Admin being an organization's admin like any
+//! other, and that the role is read from the store on every request.
 
 use super::*;
 use crate::store::grants::Grant;
 use crate::test_support::*;
 
 #[tokio::test]
-async fn expose_grants_are_live_and_admin_keys_keep_their_scope() {
+async fn listener_actions_follow_the_role_live_and_admin_keys_keep_their_scope() {
   use crate::store::grants::ExposeAction;
   let state = test_state();
-  let mut grant = child("acme", Role::Viewer);
-  grant.expose.insert(ExposeAction::Create);
-  make_user(&state, "publisher", Some("acme"), vec![grant.clone()]).await;
+  make_user(
+    &state,
+    "publisher",
+    Some("acme"),
+    vec![child("acme", Role::Operator)],
+  )
+  .await;
   let token = seed_session(&state, Role::Viewer, Some("publisher"), None).await;
   let headers = cookie_headers(&token);
   let caller = resolve_caller(&state, &headers).await.unwrap();
   assert_eq!(
     caller.expose_actions(Some("acme")),
-    vec![ExposeAction::Read, ExposeAction::Create]
+    vec![
+      ExposeAction::Read,
+      ExposeAction::Enable,
+      ExposeAction::Disable,
+      ExposeAction::Disconnect
+    ]
   );
   assert!(caller.expose_actions(Some("beta")).is_empty());
-  assert!(!caller.is_master_admin());
+  assert!(!caller.is_server_admin());
   let id = state
     .users
     .lock()
@@ -38,33 +47,31 @@ async fn expose_grants_are_live_and_admin_keys_keep_their_scope() {
     .await
     .set_grants(&id, vec![child("acme", Role::Viewer)])
     .unwrap();
-  assert!(
+  assert_eq!(
     resolve_caller(&state, &headers)
       .await
       .unwrap()
-      .expose_actions(Some("acme"))
-      .is_empty()
+      .expose_actions(Some("acme")),
+    vec![ExposeAction::Read]
   );
 
   let (key, secret) = state
     .admin_key_store
     .lock()
     .await
-    .create_with_expose(
+    .create(
       "publisher".into(),
-      Role::Viewer,
+      Role::Admin,
       GrantOrg::Child("acme".into()),
       None,
-      grant.expose,
     )
     .unwrap();
   let mut headers = HeaderMap::new();
   headers.insert("authorization", format!("Bearer {secret}").parse().unwrap());
   let caller = resolve_caller(&state, &headers).await.unwrap();
-  assert!(
-    caller
-      .expose_actions(Some("acme"))
-      .contains(&ExposeAction::Create)
+  assert_eq!(
+    caller.expose_actions(Some("acme")),
+    ExposeAction::ALL.to_vec()
   );
   assert!(caller.expose_actions(None).is_empty());
   assert!(caller.expose_actions(Some("beta")).is_empty());
@@ -73,16 +80,14 @@ async fn expose_grants_are_live_and_admin_keys_keep_their_scope() {
 }
 
 #[tokio::test]
-async fn bound_oidc_keeps_expose_capabilities_only_in_its_bound_org() {
+async fn a_bound_oidc_login_holds_its_role_only_in_its_bound_org() {
   use crate::store::grants::ExposeAction;
   let state = test_state();
-  let mut grant = child("acme", Role::Viewer);
-  grant.expose.insert(ExposeAction::Create);
   make_user(
     &state,
     "publisher",
     None,
-    vec![grant, child("beta", Role::Admin)],
+    vec![child("acme", Role::Viewer), child("beta", Role::Admin)],
   )
   .await;
   let token = seed_custom(
@@ -98,10 +103,9 @@ async fn bound_oidc_keeps_expose_capabilities_only_in_its_bound_org() {
   let caller = resolve_caller(&state, &cookie_headers(&token))
     .await
     .unwrap();
-  assert!(
-    caller
-      .expose_actions(Some("acme"))
-      .contains(&ExposeAction::Create)
+  assert_eq!(
+    caller.expose_actions(Some("acme")),
+    vec![ExposeAction::Read]
   );
   assert!(caller.expose_actions(Some("beta")).is_empty());
   assert_eq!(caller.effective_org().as_deref(), Some("acme"));
@@ -128,8 +132,7 @@ async fn the_built_in_account_holds_star_admin() {
   assert!(matches!(caller.identity, Identity::BuiltIn { .. }));
   assert_eq!(caller.role_in(None), Some(Role::Admin));
   assert_eq!(caller.role_in(Some("anything")), Some(Role::Admin));
-  assert!(caller.is_master_admin());
-  assert!(caller.holds_all_admin());
+  assert!(caller.is_server_admin());
   assert_eq!(caller.effective_org(), None);
   assert_eq!(caller.actor(), "aperio");
 }
@@ -148,8 +151,10 @@ async fn a_named_user_is_what_its_grants_say_not_its_session_role() {
   let token = seed_session(&state, Role::Admin, Some("carol"), None).await;
   let headers = cookie_headers(&token);
   let caller = resolve_caller(&state, &headers).await.unwrap();
-  assert!(!caller.is_master_admin(), "Admin in master takes a grant");
-  assert!(!caller.holds_all_admin());
+  assert!(
+    !caller.is_server_admin(),
+    "an organization's Admin is not the server admin"
+  );
   assert_eq!(caller.role_in(None), None);
   assert_eq!(caller.role_in(Some("acme")), Some(Role::Admin));
   assert_eq!(caller.role_in(Some("beta")), Some(Role::Viewer));
@@ -207,8 +212,11 @@ async fn a_master_grant_makes_master_the_default_and_star_reaches_everything() {
   let caller = resolve_caller(&state, &cookie_headers(&token))
     .await
     .unwrap();
-  assert!(caller.is_master_admin());
-  assert!(!caller.holds_all_admin());
+  assert_eq!(caller.role_in(None), Some(Role::Admin));
+  assert!(
+    !caller.is_server_admin(),
+    "master's Admin administers master, not the server"
+  );
   assert_eq!(caller.effective_org(), None);
   assert_eq!(
     caller.role_in(Some("acme")),
@@ -233,7 +241,7 @@ async fn a_master_grant_makes_master_the_default_and_star_reaches_everything() {
   assert_eq!(caller.role_in(None), Some(Role::Viewer));
   assert_eq!(caller.role_in(Some("acme")), Some(Role::Operator));
   assert_eq!(caller.role_in(Some("beta")), Some(Role::Viewer));
-  assert!(!caller.is_master_admin());
+  assert!(!caller.is_server_admin());
   assert!(caller.may_select(Some("whatever")));
 }
 
@@ -338,8 +346,7 @@ async fn a_star_key_acts_in_master_and_a_bound_oidc_login_in_its_org() {
     axum::http::HeaderValue::from_str(&format!("Bearer {secret}")).unwrap(),
   );
   let caller = resolve_caller(&state, &headers).await.unwrap();
-  assert!(caller.is_master_admin());
-  assert!(caller.holds_all_admin());
+  assert!(caller.is_server_admin());
   assert_eq!(caller.effective_org(), None);
 
   // A per-organization OIDC session: Admin in its organization and nothing
@@ -360,7 +367,7 @@ async fn a_star_key_acts_in_master_and_a_bound_oidc_login_in_its_org() {
   assert!(matches!(caller.identity, Identity::Oidc { .. }));
   assert_eq!(caller.effective_org(), Some("acme".to_string()));
   assert_eq!(caller.role_in(Some("acme")), Some(Role::Admin));
-  assert!(!caller.is_master_admin());
+  assert!(!caller.is_server_admin());
   assert!(!caller.may_select(Some("beta")));
 
   // A global OIDC session with no row is master's Admin, as it always was
@@ -369,7 +376,7 @@ async fn a_star_key_acts_in_master_and_a_bound_oidc_login_in_its_org() {
   let caller = resolve_caller(&state, &cookie_headers(&token))
     .await
     .unwrap();
-  assert!(caller.holds_all_admin());
+  assert!(caller.is_server_admin());
   assert_eq!(caller.actor(), "sso@example.com");
 }
 
@@ -399,6 +406,7 @@ async fn seed_custom(
       selected_org,
       bound_org,
       login_host: None,
+      sso_issuer: None,
     },
   );
   token

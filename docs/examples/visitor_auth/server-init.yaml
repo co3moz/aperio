@@ -1,0 +1,22 @@
+# First-start settings for this example, read once into an empty data
+# directory. Start the server with:
+#
+#   APERIO_SERVER_TOKEN=apr_visitor_auth_change_me APERIO_INIT_FILE=server-init.yaml aperio-server
+#
+# After the first start the settings live in the database: change them from
+# the dashboard (Settings), with `PUT /aperio/api/settings`, or export them
+# with `GET /aperio/api/export?include=settings`.
+
+settings:
+  # A visitor login in front of every route that does not say otherwise.
+  # Clients may write their own `access:` per service, as their token allows.
+  access:
+    method: basic
+    users: visitor:replace-with-a-strong-password
+
+  # A site's `access` is the operator's word on a hostname, and wins over
+  # whatever the clients serving it declare. Uncomment to keep sole control
+  # of who reaches the staff app here, whatever its client says.
+  # sites:
+  #   - hostname: staff.example.com
+  #     access: {method: aperio}

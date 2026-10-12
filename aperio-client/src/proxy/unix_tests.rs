@@ -200,7 +200,7 @@ mod over_a_socket {
       ("host".to_string(), "visitor.example".to_string()),
       ("x-fwd".to_string(), "1".to_string()),
     ];
-    let result = handle_incoming_request_unix(&ctx, r, None, false)
+    let result = handle_incoming_request_unix(&ctx, r, None)
       .await
       .expect("buffered response");
     let TunnelMessage::Response {
@@ -225,7 +225,7 @@ mod over_a_socket {
     ctx.pass_hostname = true;
     let mut r = req("u-host", "GET", "/reflect-host");
     r.headers = vec![("host".to_string(), "app.example.com".to_string())];
-    let result = handle_incoming_request_unix(&ctx, r, None, false)
+    let result = handle_incoming_request_unix(&ctx, r, None)
       .await
       .expect("buffered response");
     let TunnelMessage::Response { body, .. } = result else {
@@ -240,10 +240,9 @@ mod over_a_socket {
     let sock = start_unix_backend().await;
     let ctx = base_ctx(&sock, drained_tx());
     // No pass_hostname and no Host header → "localhost" stands in.
-    let result =
-      handle_incoming_request_unix(&ctx, req("u-host2", "GET", "/reflect-host"), None, false)
-        .await
-        .expect("buffered response");
+    let result = handle_incoming_request_unix(&ctx, req("u-host2", "GET", "/reflect-host"), None)
+      .await
+      .expect("buffered response");
     let TunnelMessage::Response { body, .. } = result else {
       panic!("expected Response");
     };
@@ -255,7 +254,7 @@ mod over_a_socket {
   async fn test_unix_non_2xx_passthrough() {
     let sock = start_unix_backend().await;
     let ctx = base_ctx(&sock, drained_tx());
-    let result = handle_incoming_request_unix(&ctx, req("u-418", "GET", "/teapot"), None, false)
+    let result = handle_incoming_request_unix(&ctx, req("u-418", "GET", "/teapot"), None)
       .await
       .expect("buffered response");
     let TunnelMessage::Response { status, .. } = result else {
@@ -270,7 +269,7 @@ mod over_a_socket {
     let ctx = base_ctx(&sock, drained_tx());
     let mut r = req("u-echo", "POST", "/echo");
     r.body = Some(BASE64_STANDARD.encode(b"unix-body"));
-    let result = handle_incoming_request_unix(&ctx, r, None, false)
+    let result = handle_incoming_request_unix(&ctx, r, None)
       .await
       .expect("buffered response");
     let TunnelMessage::Response { body, .. } = result else {
@@ -288,10 +287,9 @@ mod over_a_socket {
     btx.send(Ok(b"aaa".to_vec().into())).await.unwrap();
     btx.send(Ok(b"bbb".to_vec().into())).await.unwrap();
     drop(btx);
-    let result =
-      handle_incoming_request_unix(&ctx, req("u-sreq", "POST", "/echo"), Some(brx), false)
-        .await
-        .expect("buffered response");
+    let result = handle_incoming_request_unix(&ctx, req("u-sreq", "POST", "/echo"), Some(brx))
+      .await
+      .expect("buffered response");
     let TunnelMessage::Response { body, .. } = result else {
       panic!("expected Response");
     };
@@ -304,14 +302,14 @@ mod over_a_socket {
     let sock = start_unix_backend().await;
     let (tx, mut rx) = mpsc::channel::<Message>(512);
     let ctx = base_ctx(&sock, tx);
-    let result = handle_incoming_request_unix(&ctx, req("u-big", "GET", "/big"), None, false).await;
+    let result = handle_incoming_request_unix(&ctx, req("u-big", "GET", "/big"), None).await;
     assert!(result.is_none(), "large body streams");
 
     let mut got_start = false;
     let mut got_end = false;
     let mut total = 0usize;
-    while let Some(Message::Text(json)) = rx.recv().await {
-      match serde_json::from_str::<TunnelMessage>(&json).unwrap() {
+    while let Some(frame) = rx.recv().await {
+      match crate::protocol::decode_sent(&frame).unwrap() {
         TunnelMessage::ResponseStart { status, .. } => {
           assert_eq!(status, 200);
           got_start = true;
@@ -338,7 +336,7 @@ mod over_a_socket {
     // binary_chunks=true exercises the raw-frame chunk path plus a data frame
     // arriving after streaming has already begun.
     let result =
-      handle_incoming_request_unix(&ctx, req("u-mf", "GET", "/big-multiframe"), None, true).await;
+      handle_incoming_request_unix(&ctx, req("u-mf", "GET", "/big-multiframe"), None).await;
     assert!(result.is_none());
 
     let mut total = 0usize;
@@ -368,7 +366,7 @@ mod over_a_socket {
   async fn test_unix_backend_unreachable() {
     // Nonexistent socket path → connection error → 502.
     let ctx = base_ctx("/tmp/aperio-does-not-exist.sock", drained_tx());
-    let result = handle_incoming_request_unix(&ctx, req("u-refused", "GET", "/"), None, false)
+    let result = handle_incoming_request_unix(&ctx, req("u-refused", "GET", "/"), None)
       .await
       .expect("buffered error");
     let TunnelMessage::Response { status, .. } = result else {
@@ -381,7 +379,7 @@ mod over_a_socket {
   async fn test_unix_missing_socket_is_bug_500() {
     let mut ctx = base_ctx("/tmp/x.sock", drained_tx());
     ctx.unix_socket = None;
-    let result = handle_incoming_request_unix(&ctx, req("u-bug", "GET", "/"), None, false)
+    let result = handle_incoming_request_unix(&ctx, req("u-bug", "GET", "/"), None)
       .await
       .expect("buffered error");
     let TunnelMessage::Response { status, .. } = result else {
@@ -393,7 +391,7 @@ mod over_a_socket {
   #[tokio::test]
   async fn test_unix_invalid_method_400() {
     let ctx = base_ctx("/tmp/x.sock", drained_tx());
-    let result = handle_incoming_request_unix(&ctx, req("u-badm", "BAD METHOD", "/"), None, false)
+    let result = handle_incoming_request_unix(&ctx, req("u-badm", "BAD METHOD", "/"), None)
       .await
       .expect("buffered error");
     let TunnelMessage::Response { status, .. } = result else {
@@ -407,7 +405,7 @@ mod over_a_socket {
     let ctx = base_ctx("/tmp/x.sock", drained_tx());
     let mut r = req("u-b64", "POST", "/echo");
     r.body = Some("!!not-base64!!".to_string());
-    let result = handle_incoming_request_unix(&ctx, r, None, false)
+    let result = handle_incoming_request_unix(&ctx, r, None)
       .await
       .expect("buffered error");
     let TunnelMessage::Response { status, .. } = result else {
@@ -421,7 +419,7 @@ mod over_a_socket {
     let sock = start_unix_backend().await;
     let mut ctx = base_ctx(&sock, drained_tx());
     ctx.timeout_secs = 1;
-    let result = handle_incoming_request_unix(&ctx, req("u-hang", "GET", "/hang"), None, false)
+    let result = handle_incoming_request_unix(&ctx, req("u-hang", "GET", "/hang"), None)
       .await
       .expect("buffered error");
     let TunnelMessage::Response { status, .. } = result else {
@@ -458,7 +456,7 @@ mod over_a_socket {
     let mut ctx = base_ctx(&sock.to_string_lossy(), tx);
     ctx.timeout_secs = 1;
     ctx.resilience = crate::proxy::http::BackendResilience::new(2, 1, false, 0, 30);
-    let result = handle_incoming_request_unix(&ctx, req("slow", "GET", "/"), None, false).await;
+    let result = handle_incoming_request_unix(&ctx, req("slow", "GET", "/"), None).await;
     assert!(
       matches!(result, Some(TunnelMessage::Response { status: 504, .. })),
       "a stalled backend is still a 504 in the end, got {result:?}"

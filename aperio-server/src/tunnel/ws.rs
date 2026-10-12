@@ -27,18 +27,6 @@ pub(crate) const MAX_CONNECTIONS_HEADER: &str = "x-aperio-max-connections";
 /// which is the failure the empty-list refusal beside it exists to prevent.
 pub(crate) const MAX_DECLARED_SERVICES: usize = 256;
 
-/// The tunnel protocol version this server speaks, announced on the upgrade
-/// response (`planned_features.md` #120).
-///
-/// The Pong already carries it, and for everything the protocol has added so
-/// far that was early enough: a client learns the peer's version and picks its
-/// frame encoding from then on. Multiplexing is the first capability that
-/// changes what the *first Ping* is allowed to say, and by the time a Pong
-/// arrives that Ping has been sent. So the number is put where the client can
-/// read it before it declares anything, next to the visitor-gate announcement,
-/// which is on the upgrade response for the same reason.
-pub(crate) const PROTOCOL_HEADER: &str = "x-aperio-protocol";
-
 /// The visitor-auth methods a client may declare, announced on the handshake
 /// response (`planned_features.md` #111).
 ///
@@ -71,6 +59,38 @@ pub(crate) const ALTERNATE_SERVERS_HEADER: &str = "x-aperio-alternate-servers";
 /// A fence rather than a policy: clients try this list in rotation, so a long
 /// one turns every reconnect into a walk through addresses nobody chose.
 pub(crate) const MAX_ALTERNATES: usize = 8;
+
+/// Refuses an upgrade from a client on another minor release, or one that
+/// announced none, with `426` and a sentence naming both releases.
+///
+/// Shared by every tunnel endpoint (`/aperio/ws`, `/aperio/tcp`,
+/// `/aperio/udp`): a binder is a client too, and the code behind each of them
+/// assumes a peer of its own minor.
+pub(crate) fn refuse_unpaired_client(headers: &HeaderMap, addr: SocketAddr) -> Option<Response> {
+  let refused = aperio_config::pairing::check(
+    env!("CARGO_PKG_VERSION"),
+    aperio_config::pairing::Side::Server,
+    headers
+      .get(aperio_config::pairing::RELEASE_HEADER)
+      .and_then(|v| v.to_str().ok()),
+  )?;
+  let msg = refused.message();
+  warn!("Tunnel connection refused from {addr}: {msg}");
+  // 426 says what happened in the status as well as the body: this is not
+  // the token, not the quota, not the server being busy.
+  let mut response = (StatusCode::UPGRADE_REQUIRED, msg).into_response();
+  announce_release(&mut response);
+  Some(response)
+}
+
+/// Puts this server's release on a handshake response.
+pub(crate) fn announce_release(response: &mut Response) {
+  if let Ok(value) = axum::http::HeaderValue::from_str(env!("CARGO_PKG_VERSION")) {
+    response
+      .headers_mut()
+      .insert(aperio_config::pairing::RELEASE_HEADER, value);
+  }
+}
 
 /// Reads `alternate_servers` from its comma-separated spelling.
 ///
@@ -135,6 +155,7 @@ type ScalingBindCtx = (
 // connection serves, and every field is admitted or refused against the token
 // before any of it takes effect; cutting it up would mean carrying the
 // half-applied state between the pieces.
+mod agree;
 mod declare;
 mod messaging;
 mod ping;
@@ -218,25 +239,10 @@ pub(crate) async fn ws_handler(
     return (StatusCode::SERVICE_UNAVAILABLE, msg).into_response();
   }
 
-  // The pairing itself, before a socket exists (#113). A client too old for
-  // this server is refused here, where the cause is the answer, rather than
-  // being allowed to establish and then fail somewhere three layers deeper
-  // for a reason nothing connects back to its version. A client that
-  // announces nothing is admitted: silence predates the header and is inside
-  // the documented window, and reading it as age would take a fleet down on
-  // the upgrade that introduced this.
-  if let Some(refused) = aperio_config::pairing::check(
-    headers
-      .get(aperio_config::pairing::CLIENT_RELEASE_HEADER)
-      .and_then(|v| v.to_str().ok()),
-    aperio_config::pairing::MIN_SUPPORTED_CLIENT,
-    aperio_config::pairing::Side::Client,
-  ) {
-    let msg = refused.message();
-    warn!("Tunnel connection refused from {addr}: {msg}");
-    // 426 says what happened in the status as well as the body: this is not
-    // the token, not the quota, not the server being busy.
-    return (StatusCode::UPGRADE_REQUIRED, msg).into_response();
+  // The pairing itself, before a socket exists: a client on another minor
+  // release is refused here, where the cause is the answer.
+  if let Some(refused) = refuse_unpaired_client(&headers, addr) {
+    return refused;
   }
 
   // Validate maximum active tunnels limit (protects against file descriptor exhaustion).
@@ -307,25 +313,8 @@ pub(crate) async fn ws_handler(
   if let Ok(value) = axum::http::HeaderValue::from_str(&ceiling.to_string()) {
     response.headers_mut().insert(MAX_CONNECTIONS_HEADER, value);
   }
-  // What this server can be told, before the client has told it anything.
-  if let Ok(value) = axum::http::HeaderValue::from_str(&PROTOCOL_VERSION.to_string()) {
-    response.headers_mut().insert(PROTOCOL_HEADER, value);
-  }
-  // What this server is and what it accepts, so the other direction of the
-  // window can be judged by the only side able to judge it: a server cannot
-  // know it is too old for something a future client wants, but the client
-  // can, and it now has the number to compare against (#113).
-  if let Ok(value) = axum::http::HeaderValue::from_str(env!("CARGO_PKG_VERSION")) {
-    response
-      .headers_mut()
-      .insert(aperio_config::pairing::SERVER_RELEASE_HEADER, value);
-  }
-  if let Ok(value) = axum::http::HeaderValue::from_str(aperio_config::pairing::MIN_SUPPORTED_CLIENT)
-  {
-    response
-      .headers_mut()
-      .insert(aperio_config::pairing::MIN_CLIENT_HEADER, value);
-  }
+  // What this server is, so the client can apply the same rule from its end.
+  announce_release(&mut response);
   // What this connection may declare, which is not the same as what this
   // build supports: controlling the visitor gate is a token permission, and a
   // token without it has its declaration dropped on the Ping. Announcing the
@@ -510,9 +499,48 @@ struct ConnCtx {
   /// A `std` mutex: only this connection's read loop touches it, and it is
   /// never held across an await.
   stream_cache: std::sync::Mutex<HashMap<String, StreamCacheEntry>>,
+  /// Set once this connection was told why its OTel exports are dropped:
+  /// an exporter sends every few seconds, and the reason is news once.
+  otel_refusal_noticed: AtomicBool,
 }
 
-impl ConnCtx {}
+impl ConnCtx {
+  /// Tells the client something about its own configuration, for its log.
+  /// Best effort: it is informational, and a full write queue is a reason to
+  /// drop it rather than to wait under the `clients` lock this is called with.
+  fn notify(&self, service: Option<&str>, message: String) {
+    let notice = TunnelMessage::Notice {
+      service: service.map(str::to_string),
+      message,
+    };
+    if let Ok(json) = serde_json::to_string(&notice) {
+      let _ = self.tx_write.try_send(Message::Text(json.into()));
+    }
+  }
+
+  /// Tells the client `message` about the service at `service_index`, once
+  /// per connection, and says whether this was the first time, so the
+  /// server's own log line can follow the same rule. A setting the server
+  /// does not apply is never only the server's to know: the person editing
+  /// the client's file is reading the client's log.
+  fn notify_once(
+    &self,
+    handle: &mut crate::state::ClientHandle,
+    service_index: usize,
+    service: Option<&str>,
+    message: String,
+  ) -> bool {
+    if !handle
+      .service_at_mut(service_index)
+      .notices_sent
+      .insert(message.clone())
+    {
+      return false;
+    }
+    self.notify(service, message);
+    true
+  }
+}
 
 /// WebSocket processing logic. Listens for client frame inputs (Responses/Pings).
 pub(crate) async fn handle_socket(
@@ -698,6 +726,10 @@ pub(crate) async fn handle_socket(
         services: vec![crate::state::ServiceState {
           server_side_target: None,
           server_side_refused: None,
+          policy_conflict: None,
+          catch_all: false,
+          serves_http: false,
+          route_noticed: false,
           request_count: client_req_count.clone(),
           declared_path: None,
           assigned_path: perms.granted_path(),
@@ -705,8 +737,6 @@ pub(crate) async fn handle_socket(
           declared_hostnames: Vec::new(),
           assigned_hostnames,
           random_hostname: random_hostname.clone(),
-          override_path_bind: None,
-          override_hostname_binds: Vec::new(),
           capture: true,
           connections: None,
           connections_min: None,
@@ -736,6 +766,7 @@ pub(crate) async fn handle_socket(
           tunnels: Vec::new(),
           cache: false,
           cache_ignored_warned: false,
+          notices_sent: Default::default(),
           resilience: false,
           max_request_body: None,
           response_timeout: None,
@@ -789,6 +820,7 @@ pub(crate) async fn handle_socket(
     server_max_connections,
     max_inflated,
     stream_cache: std::sync::Mutex::new(HashMap::new()),
+    otel_refusal_noticed: AtomicBool::new(false),
   };
 
   // Read loop. Ends on the client closing the socket, or when `disconnect` is

@@ -5,7 +5,7 @@
 //! store. Touched surfaces: the in-memory traffic log, the request
 //! inspector captures, the per-hostname/per-token statistics aggregates,
 //! per-route stage-latency windows, the response cache, and the structured
-//! access log file (rewritten in place). Master super-admin only.
+//! access log file (rewritten in place). Server admin only.
 //!
 //! Visitor IPs are deliberately not part of access-log lines or statistics
 //! (queries are sanitized, no IP field is persisted), so the `ip` selector
@@ -111,7 +111,7 @@ pub(crate) async fn cache_stats_handler(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
 ) -> Response {
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
   let stats = state.response_cache.lock().await.stats();
@@ -133,8 +133,8 @@ pub(crate) async fn cache_purge_handler(
   Json(payload): Json<CachePurgeRequest>,
 ) -> Response {
   // The cache is server-global (keys are host|uri, not org-scoped), so the
-  // purge is master-admin only like the other global mutations.
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  // purge is server-admin only like the other global mutations.
+  if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
   let actor_ip = extract_client_ip(
@@ -203,8 +203,8 @@ pub(crate) async fn purge_handler(
   Json(payload): Json<PurgeRequest>,
 ) -> Response {
   // Purge crosses org boundaries (stats aggregates are global), so it is
-  // restricted to the master super-admin like export/import.
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  // restricted to the server admin like export/import.
+  if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
   let actor_ip = extract_client_ip(

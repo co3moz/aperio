@@ -1,87 +1,100 @@
 //! What `build_specs` turns a configuration into, which is the only place the
-//! whole file is seen at once: per-service fallbacks, connection pools, serve mode,
-//! the bandwidth budget, and the refusals that belong at config time rather than
-//! at runtime.
+//! whole file is seen at once: `defaults:` reaching each service, connection
+//! pools, serve mode, the bandwidth budget, and the refusals that belong at
+//! config time rather than at runtime.
 
 use super::*;
-use crate::config::ClientSettings;
+use crate::config::{ClientSettings, Service};
 use crate::service::ServiceSpec;
-use config::ServiceEntry;
+use aperio_config::layers::{self, Layer, Overlay, Scope};
 
+/// The server and token every fixture shares, prepended to its yaml.
+pub(crate) const SERVER: &str = "server: {url: 'https://tunnel.example.com', token: apr_test}\n";
+
+/// Settings resolved from `yaml` as the local file, with the one
+/// command-line service given as `(key, value)` pairs, exactly as the client
+/// resolves them.
+pub(crate) fn try_settings_with(
+  yaml: &str,
+  service: &[(&str, &str)],
+) -> Result<ClientSettings, String> {
+  let doc = layers::parse_document(&format!("{SERVER}{yaml}"))?;
+  layers::check_document(&doc, "aperio.yaml")?;
+  let mut overlay = Overlay::default();
+  for (key, value) in service {
+    overlay.set(
+      Scope::Service,
+      key,
+      serde_yaml::Value::String(value.to_string()),
+    );
+  }
+  crate::config::settings_from(layers::assemble(
+    vec![(Layer::Local, doc)],
+    vec![(Layer::Cli, overlay)],
+  )?)
+}
+
+/// Settings resolved from `yaml` as the local file.
+pub(crate) fn try_settings(yaml: &str) -> Result<ClientSettings, String> {
+  try_settings_with(yaml, &[])
+}
+
+/// Settings resolved from `yaml` as the local file; the yaml is the test's
+/// own, so a mistake in it is the test's bug.
+pub(crate) fn settings(yaml: &str) -> ClientSettings {
+  try_settings(yaml).unwrap_or_else(|e| panic!("{e}\n{yaml}"))
+}
+
+/// One service named on the command line, `http://localhost:3000` for
+/// `app.example.com`, with `yaml` as the file (its `defaults:` reach it).
+pub(crate) fn base_with(yaml: &str) -> ClientSettings {
+  try_settings_with(
+    yaml,
+    &[
+      ("target", "http://localhost:3000"),
+      ("hostname", "app.example.com"),
+    ],
+  )
+  .unwrap_or_else(|e| panic!("{e}\n{yaml}"))
+}
+
+/// One service named on the command line and nothing else.
 pub(crate) fn base_settings() -> ClientSettings {
-  ClientSettings {
-    name: None,
-    custom_name: None,
-    token: Some("apr_test".to_string()),
-    api_key: None,
-    scaling: None,
-    server_urls: Vec::new(),
-    serve_spa: false,
-    serve_404: None,
-    device_key: None,
-    device_key_file: None,
-    idle_timeout: None,
-    config_version: None,
-    server: Some("https://tunnel.example.com".to_string()),
-    target: Some("http://localhost:3000".to_string()),
-    serve: None,
-    hostnames: vec!["app.example.com".to_string()],
-    path: None,
-    trim_bind: None,
-    pass_hostname: false,
-    max_response_body: 50 * 1024 * 1024,
-    reload_drain_secs: 10,
-    retry_attempts: 1,
-    retry_backoff_ms: 100,
-    retry_all_methods: false,
-    breaker_failures: 0,
-    breaker_open_for_secs: 30,
-    max_request_body: None,
-    response_timeout: None,
-    timeout_secs: 30,
-    max_concurrent: None,
-    connections: None,
-    metrics_labels: Default::default(),
-    adaptive_concurrency: false,
-    multiplex: false,
-    otel_bridge: None,
-    startup_delay: None,
-    depends_on: None,
-    pid_file: None,
-    connect_timeout: None,
-    min_tls_version: None,
-    priority: 0,
-    bandwidth: None,
-    max_message_size: 32 * 1024 * 1024,
-    max_redirects: 5,
-    tcp_target: None,
-    target_health: None,
-    wait_for_backend: false,
-    health_interval: 10,
-    health_timeout: 5,
-    health_threshold: 2,
-    public: false,
-    server_side: false,
-    allow_server_forward: false,
-    visitor_auth: None,
-    allowed_ips: Vec::new(),
-    headers: None,
-    security_headers: None,
-    cache: false,
-    resilience: false,
-    capture: true,
-    webhook_inbox: false,
-    denied: None,
-    ip_family: crate::dial::IpFamily::Auto,
-    tls_policy: crate::dial::TlsPolicy::default(),
-    egress_proxy: None,
-    services: Vec::new(),
-    client_id: None,
-    tunnels: Vec::new(),
-    bind_tunnels: std::collections::HashMap::new(),
-    subscribe: Vec::new(),
-    messages_listen: None,
-    messages_mqtt_listen: None,
+  base_with("")
+}
+
+/// The first service's policy, for a test that changes one setting.
+pub(crate) fn policy(settings: &mut ClientSettings) -> &mut aperio_config::ServicePolicy {
+  &mut settings.services[0].entry.policy
+}
+
+/// The first service's entry.
+pub(crate) fn entry(settings: &mut ClientSettings) -> &mut aperio_config::ServiceEntry {
+  &mut settings.services[0].entry
+}
+
+/// A named service from a yaml mapping, for a test that lists services by
+/// hand rather than through a file.
+pub(crate) fn svc(name: &str, yaml: &str) -> Service {
+  Service {
+    name: Some(name.to_string()),
+    entry: serde_yaml::from_str(yaml).unwrap_or_else(|e| panic!("{e}\n{yaml}")),
+  }
+}
+
+/// The specs `yaml` builds into.
+pub(crate) fn specs(yaml: &str) -> Vec<ServiceSpec> {
+  build_specs(&settings(yaml), "base-id").unwrap_or_else(|e| panic!("{e}\n{yaml}"))
+}
+
+/// Why `yaml` does not build, from whichever stage refuses it.
+pub(crate) fn specs_err(yaml: &str) -> String {
+  match try_settings(yaml) {
+    Err(e) => e,
+    Ok(s) => match build_specs(&s, "base-id") {
+      Ok(_) => panic!("`{yaml}` built"),
+      Err(e) => e,
+    },
   }
 }
 
@@ -104,29 +117,28 @@ pub(crate) fn an_unusable_min_tls_version_is_refused_by_the_config_path() {
   // to return an error to and so exited the process. That turned one typo in
   // a hot-reloaded file into an outage for every service in it, when a bad
   // reload is supposed to be warned about and the previous configuration
-  // kept. `--check-config` was blind to it for the same reason.
+  // kept.
   let mut settings = base_settings();
-  settings.min_tls_version = Some("1.1".to_string());
-  let err = build_specs(&settings, "base-id", false).expect_err("1.1 is not offered");
+  policy(&mut settings).min_tls_version = Some("1.1".to_string());
+  let err = build_specs(&settings, "base-id").expect_err("1.1 is not offered");
   assert!(err.contains("min_tls_version"), "{err}");
 
   for good in ["1.2", "1.3", "TLSv1.2", ""] {
-    settings.min_tls_version = Some(good.to_string());
+    policy(&mut settings).min_tls_version = Some(good.to_string());
     assert!(
-      build_specs(&settings, "base-id", false).is_ok(),
+      build_specs(&settings, "base-id").is_ok(),
       "{good} should be accepted"
     );
   }
-  settings.min_tls_version = None;
-  assert!(build_specs(&settings, "base-id", false).is_ok());
+  policy(&mut settings).min_tls_version = None;
+  assert!(build_specs(&settings, "base-id").is_ok());
 }
 
 #[test]
 pub(crate) fn test_build_specs_tunnels_only() {
-  // A client may run with only a tunnels: list, nothing exposed, the
+  // A client may run with only a tunnels: section, nothing exposed, the
   // connection exists so a peer can bind the declared tunnels.
-  let mut settings = base_settings();
-  settings.target = None;
+  let mut settings = settings("");
   settings.tunnels = vec![protocol::TunnelDecl {
     custom_name: None,
     name: None,
@@ -136,9 +148,8 @@ pub(crate) fn test_build_specs_tunnels_only() {
     psk: None,
     proxy_protocol: false,
     idle_timeout: None,
-    expose: None,
   }];
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+  let specs = build_specs(&settings, "base-id").unwrap();
   assert_eq!(specs.len(), 1);
   assert!(specs[0].target.is_empty());
   assert_eq!(specs[0].tunnels.len(), 1);
@@ -157,9 +168,8 @@ pub(crate) fn test_build_specs_tunnels_validation() {
     psk: None,
     proxy_protocol: false,
     idle_timeout: None,
-    expose: None,
   }];
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+  let specs = build_specs(&settings, "base-id").unwrap();
   assert_eq!(specs[0].tunnels[0].protocol, "udp");
   settings.tunnels = vec![protocol::TunnelDecl {
     custom_name: None,
@@ -170,9 +180,8 @@ pub(crate) fn test_build_specs_tunnels_validation() {
     psk: None,
     proxy_protocol: false,
     idle_timeout: None,
-    expose: None,
   }];
-  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  let err = build_specs(&settings, "base-id").unwrap_err();
   assert!(err.contains("use tcp, udp, or tcp/udp"), "got: {err}");
 
   // The same target may be declared once per protocol (e.g. DNS tcp+udp).
@@ -186,7 +195,6 @@ pub(crate) fn test_build_specs_tunnels_validation() {
       psk: None,
       proxy_protocol: false,
       idle_timeout: None,
-      expose: None,
     },
     protocol::TunnelDecl {
       custom_name: None,
@@ -197,10 +205,9 @@ pub(crate) fn test_build_specs_tunnels_validation() {
       psk: None,
       proxy_protocol: false,
       idle_timeout: None,
-      expose: None,
     },
   ];
-  assert!(build_specs(&settings, "base-id", false).is_ok());
+  assert!(build_specs(&settings, "base-id").is_ok());
 
   // Targets must be host:port.
   settings.tunnels = vec![protocol::TunnelDecl {
@@ -212,9 +219,8 @@ pub(crate) fn test_build_specs_tunnels_validation() {
     psk: None,
     proxy_protocol: false,
     idle_timeout: None,
-    expose: None,
   }];
-  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  let err = build_specs(&settings, "base-id").unwrap_err();
   assert!(err.contains("host:port"), "got: {err}");
 
   // Duplicates are rejected.
@@ -227,10 +233,9 @@ pub(crate) fn test_build_specs_tunnels_validation() {
     psk: None,
     proxy_protocol: false,
     idle_timeout: None,
-    expose: None,
   };
   settings.tunnels = vec![decl.clone(), decl];
-  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  let err = build_specs(&settings, "base-id").unwrap_err();
   assert!(err.contains("more than once"), "got: {err}");
 
   // idle_timeout is udp-only and must be at least 1 second.
@@ -243,9 +248,8 @@ pub(crate) fn test_build_specs_tunnels_validation() {
     psk: None,
     proxy_protocol: false,
     idle_timeout: Some(120),
-    expose: None,
   }];
-  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  let err = build_specs(&settings, "base-id").unwrap_err();
   assert!(err.contains("only supported for udp"), "got: {err}");
   settings.tunnels = vec![protocol::TunnelDecl {
     custom_name: None,
@@ -256,9 +260,8 @@ pub(crate) fn test_build_specs_tunnels_validation() {
     psk: None,
     proxy_protocol: false,
     idle_timeout: Some(0),
-    expose: None,
   }];
-  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  let err = build_specs(&settings, "base-id").unwrap_err();
   assert!(err.contains("at least 1 second"), "got: {err}");
   settings.tunnels = vec![protocol::TunnelDecl {
     custom_name: None,
@@ -269,15 +272,14 @@ pub(crate) fn test_build_specs_tunnels_validation() {
     psk: None,
     proxy_protocol: false,
     idle_timeout: Some(300),
-    expose: None,
   }];
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+  let specs = build_specs(&settings, "base-id").unwrap();
   assert_eq!(specs[0].tunnels[0].idle_timeout, Some(300));
 }
 
 #[test]
 pub(crate) fn test_build_specs_single_service() {
-  let specs = build_specs(&base_settings(), "base-id", false).unwrap();
+  let specs = build_specs(&base_settings(), "base-id").unwrap();
   assert_eq!(specs.len(), 1);
   assert_eq!(specs[0].client_id, "base-id");
   assert_eq!(specs[0].target, "http://localhost:3000");
@@ -286,38 +288,26 @@ pub(crate) fn test_build_specs_single_service() {
 }
 
 #[test]
-pub(crate) fn test_build_specs_multi_service_fallbacks() {
-  let mut settings = base_settings();
-  settings.timeout_secs = 42;
-  settings.services = vec![
-    ServiceEntry {
-      name: Some("web".to_string()),
-      target: Some("http://localhost:3000".to_string()),
-      hostname: Some(aperio_config::Hostnames::One("Web.Example.COM".to_string())),
-      ..Default::default()
-    },
-    ServiceEntry {
-      name: Some("api".to_string()),
-      target: Some("http://localhost:4000".to_string()),
-      path: Some("/api".to_string()),
-      timeout: Some(7),
-      max_concurrent: Some(4),
-      ..Default::default()
-    },
-  ];
-
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+pub(crate) fn test_build_specs_defaults_reach_every_service() {
+  let specs = specs(
+    "defaults: {timeout: 42s}\n\
+     services:\n  \
+       web: {target: 'http://localhost:3000', hostname: Web.Example.COM}\n  \
+       api: {target: 'http://localhost:4000', path: /api, timeout: 7s, limits: {concurrent_requests: 4}}\n",
+  );
   assert_eq!(specs.len(), 2);
 
-  // Per-service ids derive from the base id by index (stable across reloads).
+  // Per-service ids derive from the base id by position (stable across
+  // reloads that do not reorder the file).
   assert_eq!(specs[0].client_id, "base-id-0");
   assert_eq!(specs[1].client_id, "base-id-1");
 
-  // Binds are strictly per entry: the top-level hostname must NOT leak in.
+  // Binds are strictly per entry and normalized.
   assert_eq!(specs[0].hostnames, vec!["web.example.com".to_string()]);
   assert!(specs[1].hostnames.is_empty());
 
-  // Tuning knobs fall back to the top-level resolved values.
+  // `defaults:` reaches a service that says nothing, and loses to one that
+  // says something.
   assert_eq!(specs[0].timeout_secs, 42);
   assert_eq!(specs[1].timeout_secs, 7);
   assert_eq!(specs[1].max_concurrent, Some(4));
@@ -329,97 +319,76 @@ pub(crate) fn test_build_specs_multi_service_fallbacks() {
 }
 
 #[test]
-pub(crate) fn test_build_specs_connections() {
-  // Default is a single connection; parallelism is opt-in via `connections: N`.
-  let specs = build_specs(&base_settings(), "base-id", false).unwrap();
-  assert_eq!(specs[0].connections, 1);
+pub(crate) fn a_target_is_read_the_same_way_wherever_it_is_written() {
+  // A bare port is the same backend in a file as on the command line.
+  let specs = specs("services:\n  web: {target: '3000'}\n  api: {target: 'api.internal'}\n");
+  assert_eq!(specs[0].target, "http://localhost:3000");
+  assert_eq!(specs[1].target, "http://api.internal");
+}
 
-  // Configured values pass through and a per-entry value overrides the top
-  // level. What the server permits is applied at connect time, not here.
-  let mut settings = base_settings();
-  settings.connections = Some(aperio_config::Connections::Fixed(3));
-  settings.services = vec![
-    ServiceEntry {
-      name: Some("web".to_string()),
-      target: Some("http://localhost:3000".to_string()),
-      ..Default::default()
-    },
-    ServiceEntry {
-      name: Some("api".to_string()),
-      target: Some("http://localhost:4000".to_string()),
-      connections: Some(aperio_config::Connections::Fixed(99)),
-      ..Default::default()
-    },
-  ];
-  let specs = build_specs(&settings, "base-id", false).unwrap();
-  assert_eq!(specs[0].connections, 3);
-  assert_eq!(specs[1].connections, 99);
+#[test]
+pub(crate) fn test_build_specs_connections() {
+  // Unwritten, a service of its own opens one connection and may grow to a
+  // few under load; `connections: N` fixes the count.
+  let specs_default = build_specs(&base_settings(), "base-id").unwrap();
+  assert_eq!(specs_default[0].connections_min, 1);
+  assert_eq!(
+    specs_default[0].connections,
+    crate::client::specs::DEFAULT_CONNECTIONS_MAX
+  );
+
+  // A default applies to every service and an entry's own value wins. What
+  // the server permits is applied at connect time, not here.
+  let built = specs(
+    "defaults: {connections: 3}\n\
+     services:\n  \
+       web: {target: 'http://localhost:3000'}\n  \
+       api: {target: 'http://localhost:4000', connections: 99}\n",
+  );
+  assert_eq!(built[0].connections, 3);
+  assert_eq!(built[1].connections, 99);
   // A fixed count is a pool that never moves: floor and ceiling are the same,
   // so the supervisor opens all of them and leaves them alone.
-  assert_eq!(specs[0].connections_min, 3);
-  assert_eq!(specs[1].connections_min, 99);
+  assert_eq!(built[0].connections_min, 3);
+  assert_eq!(built[1].connections_min, 99);
 }
 
 #[test]
 pub(crate) fn test_build_specs_elastic_connections() {
+  let pool = |yaml: &str| {
+    let built = build_specs(&base_with(yaml), "base-id").unwrap();
+    (built[0].connections_min, built[0].connections)
+  };
   // A range opens the floor and leaves the ceiling as headroom.
-  let mut settings = base_settings();
-  settings.connections = Some(aperio_config::Connections::Range(
-    aperio_config::ConnectionRange {
-      min: Some(2),
-      max: Some(8),
-    },
-  ));
-  let specs = build_specs(&settings, "base-id", false).unwrap();
-  assert_eq!(specs[0].connections_min, 2);
-  assert_eq!(specs[0].connections, 8);
-
+  assert_eq!(pool("defaults: {connections: {min: 2, max: 8}}"), (2, 8));
   // A range written the wrong way round is a typo, and the floor wins: the
   // alternative is opening fewer connections than the file's own `min` says.
-  settings.connections = Some(aperio_config::Connections::Range(
-    aperio_config::ConnectionRange {
-      min: Some(6),
-      max: Some(2),
-    },
-  ));
-  let specs = build_specs(&settings, "base-id", false).unwrap();
-  assert_eq!(specs[0].connections_min, 6);
-  assert_eq!(specs[0].connections, 6);
-
+  assert_eq!(pool("defaults: {connections: {min: 6, max: 2}}"), (6, 6));
   // `max` alone is a fixed pool of that size, not an elastic one from 1.
-  settings.connections = Some(aperio_config::Connections::Range(
-    aperio_config::ConnectionRange {
-      min: None,
-      max: Some(4),
-    },
-  ));
-  let specs = build_specs(&settings, "base-id", false).unwrap();
-  assert_eq!(specs[0].connections_min, 1);
-  assert_eq!(specs[0].connections, 4);
+  assert_eq!(pool("defaults: {connections: {max: 4}}"), (1, 4));
 }
 
 #[test]
 pub(crate) fn test_build_specs_cli_target_overrides_services() {
-  let mut settings = base_settings();
-  settings.services = vec![ServiceEntry {
-    target: Some("http://localhost:9000".to_string()),
-    ..Default::default()
-  }];
-  // A positional CLI target forces single-service mode.
-  let specs = build_specs(&settings, "base-id", true).unwrap();
+  // A service on the command line runs on its own, in place of the file's.
+  let settings = try_settings_with(
+    "services:\n  other: {target: 'http://localhost:9000'}\n",
+    &[("target", "http://localhost:3000")],
+  )
+  .unwrap();
+  let specs = build_specs(&settings, "base-id").unwrap();
   assert_eq!(specs.len(), 1);
   assert_eq!(specs[0].target, "http://localhost:3000");
+  assert!(specs[0].name.is_none());
 }
 
 #[test]
 pub(crate) fn test_build_specs_missing_service_target_fails() {
-  let mut settings = base_settings();
-  settings.services = vec![ServiceEntry {
-    name: Some("broken".to_string()),
-    ..Default::default()
-  }];
-  let err = build_specs(&settings, "base-id", false).unwrap_err();
-  assert!(err.contains("broken"), "got: {err}");
+  let err = specs_err("services:\n  broken: {hostname: x.example.com}\n");
+  assert!(
+    err.contains("broken") && err.contains("nothing to expose"),
+    "got: {err}"
+  );
 }
 
 #[tokio::test]
@@ -434,25 +403,10 @@ async fn test_apply_serve_mode_per_service() {
     dir_b.to_string_lossy().into_owned(),
   );
 
-  let mut settings = base_settings();
-  settings.target = None;
-  settings.services = vec![
-    ServiceEntry {
-      name: Some("a".to_string()),
-      serve: Some(dir_a.clone()),
-      ..Default::default()
-    },
-    ServiceEntry {
-      name: Some("b".to_string()),
-      serve: Some(dir_b),
-      ..Default::default()
-    },
-    ServiceEntry {
-      name: Some("a2".to_string()),
-      serve: Some(dir_a),
-      ..Default::default()
-    },
-  ];
+  let file = format!(
+    "services:\n  a: {{serve: '{dir_a}'}}\n  b: {{serve: '{dir_b}'}}\n  a2: {{serve: '{dir_a}'}}\n"
+  );
+  let mut settings = settings(&file);
   let mut started = std::collections::HashMap::new();
   apply_serve_mode(&mut settings, &mut started).await.unwrap();
 
@@ -461,7 +415,7 @@ async fn test_apply_serve_mode_per_service() {
   let targets: Vec<String> = settings
     .services
     .iter()
-    .map(|e| e.target.clone().unwrap())
+    .map(|s| s.entry.target.clone().unwrap())
     .collect();
   assert!(targets.iter().all(|t| t.starts_with("http://127.0.0.1:")));
   assert_ne!(targets[0], targets[1]);
@@ -469,7 +423,7 @@ async fn test_apply_serve_mode_per_service() {
   assert_eq!(started.len(), 2);
 
   // The rewritten entries build valid specs.
-  assert_eq!(build_specs(&settings, "base-id", false).unwrap().len(), 3);
+  assert_eq!(build_specs(&settings, "base-id").unwrap().len(), 3);
 
   // A reload with the same directories reuses the running servers.
   let ports = |m: &ServeListeners| {
@@ -478,16 +432,11 @@ async fn test_apply_serve_mode_per_service() {
     v
   };
   let before = ports(&started);
-  let mut reloaded = base_settings();
-  reloaded.target = None;
-  reloaded.services = settings.services.clone();
-  for entry in &mut reloaded.services {
-    entry.target = None; // as freshly parsed from the config file
-  }
+  let mut reloaded = crate::tests::settings(&file);
   apply_serve_mode(&mut reloaded, &mut started).await.unwrap();
   assert_eq!(before, ports(&started));
   assert_eq!(
-    reloaded.services[0].target, settings.services[0].target,
+    reloaded.services[0].entry.target, settings.services[0].entry.target,
     "the reloaded entry points at the same loopback server"
   );
 
@@ -506,20 +455,9 @@ async fn test_apply_serve_mode_defers_listener_teardown() {
     dir_b.to_string_lossy().into_owned(),
   );
 
-  let mut settings = base_settings();
-  settings.target = None;
-  settings.services = vec![
-    ServiceEntry {
-      name: Some("a".to_string()),
-      serve: Some(dir_a.clone()),
-      ..Default::default()
-    },
-    ServiceEntry {
-      name: Some("b".to_string()),
-      serve: Some(dir_b.clone()),
-      ..Default::default()
-    },
-  ];
+  let mut settings = settings(&format!(
+    "services:\n  a: {{serve: '{dir_a}'}}\n  b: {{serve: '{dir_b}'}}\n"
+  ));
   let mut started = std::collections::HashMap::new();
   apply_serve_mode(&mut settings, &mut started).await.unwrap();
   assert_eq!(started.len(), 2);
@@ -527,13 +465,7 @@ async fn test_apply_serve_mode_defers_listener_teardown() {
   // A reload that drops directory b. apply_serve_mode must NOT close b's
   // listener yet: the services still running were built from the previous
   // config and are pointing at it, and this reload may still fail validation.
-  let mut reloaded = base_settings();
-  reloaded.target = None;
-  reloaded.services = vec![ServiceEntry {
-    name: Some("a".to_string()),
-    serve: Some(dir_a.clone()),
-    ..Default::default()
-  }];
+  let mut reloaded = crate::tests::settings(&format!("services:\n  a: {{serve: '{dir_a}'}}\n"));
   let needed = apply_serve_mode(&mut reloaded, &mut started).await.unwrap();
   assert_eq!(
     started.len(),
@@ -553,15 +485,9 @@ async fn test_apply_serve_mode_defers_listener_teardown() {
 
 #[tokio::test]
 async fn test_apply_serve_mode_conflicts() {
-  // A services: entry cannot combine serve with a backend target.
-  let mut settings = base_settings();
-  settings.target = None;
-  settings.services = vec![ServiceEntry {
-    name: Some("clash".to_string()),
-    target: Some("http://localhost:3000".to_string()),
-    serve: Some(".".to_string()),
-    ..Default::default()
-  }];
+  // A service cannot combine serve with a backend target.
+  let mut settings =
+    settings("services:\n  clash: {target: 'http://localhost:3000', serve: '.'}\n");
   let mut started = std::collections::HashMap::new();
   let err = apply_serve_mode(&mut settings, &mut started)
     .await
@@ -571,35 +497,22 @@ async fn test_apply_serve_mode_conflicts() {
     "got: {err}"
   );
 
-  // The top-level serve still refuses a services: list, it drives
-  // single-service mode; per-service serving lives on the entries.
-  let mut settings = base_settings();
-  settings.target = None;
-  settings.serve = Some(".".to_string());
-  settings.services = vec![ServiceEntry {
-    target: Some("http://localhost:3000".to_string()),
-    ..Default::default()
-  }];
+  // Nor can the one service of the command line.
+  let mut settings =
+    try_settings_with("", &[("target", "http://localhost:3000"), ("serve", ".")]).unwrap();
   let err = apply_serve_mode(&mut settings, &mut started)
     .await
     .unwrap_err();
-  assert!(err.contains("single-service mode"), "got: {err}");
+  assert!(err.contains("mutually exclusive"), "got: {err}");
 }
 
 #[test]
 pub(crate) fn test_multi_hostname_list() {
   // A service may claim several hostnames via a list; the first is the
   // primary and all are normalized to lowercase.
-  let mut settings = base_settings();
-  settings.services = vec![ServiceEntry {
-    target: Some("http://localhost:9000".to_string()),
-    hostname: Some(aperio_config::Hostnames::Many(vec![
-      "App.Example.com".to_string(),
-      "www.example.com".to_string(),
-    ])),
-    ..Default::default()
-  }];
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+  let specs = specs(
+    "services:\n  web: {target: 'http://localhost:9000', hostname: [App.Example.com, www.example.com]}\n",
+  );
   assert_eq!(
     specs[0].hostnames,
     vec!["app.example.com".to_string(), "www.example.com".to_string()]
@@ -629,7 +542,6 @@ pub(crate) fn tcp_tunnel(target: &str) -> protocol::TunnelDecl {
     psk: None,
     proxy_protocol: false,
     idle_timeout: None,
-    expose: None,
   }
 }
 
@@ -642,52 +554,38 @@ pub(crate) fn test_build_specs_requires_token_and_server() {
   init_tracing();
   let mut settings = base_settings();
   settings.token = None;
-  let err = build_specs(&settings, "id", false).unwrap_err();
+  let err = build_specs(&settings, "id").unwrap_err();
   assert!(err.contains("tunnel token is required"), "got: {err}");
 
   let mut settings = base_settings();
   settings.server = None;
-  let err = build_specs(&settings, "id", false).unwrap_err();
+  let err = build_specs(&settings, "id").unwrap_err();
   assert!(err.contains("server URL is required"), "got: {err}");
 
   // A malformed server URL fails the WebSocket-URL build.
   let mut settings = base_settings();
   settings.server = Some("ftp://nope".to_string());
-  let err = build_specs(&settings, "id", false).unwrap_err();
+  let err = build_specs(&settings, "id").unwrap_err();
   assert!(err.contains("WebSocket URL"), "got: {err}");
 }
 
 #[test]
 pub(crate) fn test_build_specs_invalid_allowed_ips() {
   init_tracing();
-  // Client-level invalid allowlist entry.
-  let mut settings = base_settings();
-  settings.allowed_ips = vec!["not-an-ip".to_string()];
-  let err = build_specs(&settings, "id", false).unwrap_err();
+  let err = build_specs(&base_with("defaults: {allowed_ips: [not-an-ip]}"), "id").unwrap_err();
   assert!(err.contains("allowed_ips"), "got: {err}");
 
-  // Per-service invalid allowlist entry.
-  let mut settings = base_settings();
-  settings.services = vec![ServiceEntry {
-    name: Some("svc".to_string()),
-    target: Some("http://localhost:3000".to_string()),
-    allowed_ips: Some(vec!["999.999.0.0/8".to_string()]),
-    ..Default::default()
-  }];
-  let err = build_specs(&settings, "id", false).unwrap_err();
+  let err = specs_err(
+    "services:\n  svc: {target: 'http://localhost:3000', allowed_ips: ['999.999.0.0/8']}\n",
+  );
   assert!(
     err.contains("svc") && err.contains("allowed_ips"),
     "got: {err}"
   );
 
   // A valid mixture (IP, CIDR, '*') builds fine.
-  let mut settings = base_settings();
-  settings.allowed_ips = vec![
-    "10.0.0.1".to_string(),
-    "192.168.0.0/16".to_string(),
-    "*".to_string(),
-  ];
-  assert!(build_specs(&settings, "id", false).is_ok());
+  let settings = base_with("defaults: {allowed_ips: [10.0.0.1, 192.168.0.0/16, '*']}");
+  assert!(build_specs(&settings, "id").is_ok());
 }
 
 #[cfg(unix)]
@@ -696,53 +594,37 @@ pub(crate) fn test_build_specs_invalid_unix_target() {
   init_tracing();
   // A unix:// target without a socket path is rejected.
   let mut settings = base_settings();
-  settings.target = Some("unix://".to_string());
-  let err = build_specs(&settings, "id", false).unwrap_err();
+  entry(&mut settings).target = Some("unix://".to_string());
+  let err = build_specs(&settings, "id").unwrap_err();
   assert!(
     err.contains("unix://") && err.contains("socket path"),
     "got: {err}"
   );
 
-  // Per-service unix target without a path.
-  let mut settings = base_settings();
-  settings.services = vec![ServiceEntry {
-    name: Some("sock".to_string()),
-    target: Some("unix://".to_string()),
-    ..Default::default()
-  }];
-  let err = build_specs(&settings, "id", false).unwrap_err();
+  let err = specs_err("services:\n  sock: {target: 'unix://'}\n");
   assert!(err.contains("sock"), "got: {err}");
 
   // A well-formed unix target passes validation.
-  let mut settings = base_settings();
-  settings.target = Some("unix:///tmp/app.sock".to_string());
-  assert!(build_specs(&settings, "id", false).is_ok());
+  entry(&mut settings).target = Some("unix:///tmp/app.sock".to_string());
+  assert!(build_specs(&settings, "id").is_ok());
 }
 
 #[test]
 pub(crate) fn test_build_specs_invalid_denied() {
   init_tracing();
-  // Client-level denied must be an absolute http(s) URL.
-  let mut settings = base_settings();
-  settings.denied = Some("/relative".to_string());
-  let err = build_specs(&settings, "id", false).unwrap_err();
+  // denied must be an absolute http(s) URL.
+  let err = build_specs(&base_with("defaults: {denied: /relative}"), "id").unwrap_err();
   assert!(err.contains("denied"), "got: {err}");
 
-  // Per-service denied is validated too.
-  let mut settings = base_settings();
-  settings.services = vec![ServiceEntry {
-    name: Some("d".to_string()),
-    target: Some("http://localhost:3000".to_string()),
-    denied: Some("ftp://x".to_string()),
-    ..Default::default()
-  }];
-  let err = build_specs(&settings, "id", false).unwrap_err();
+  let err = specs_err("services:\n  d: {target: 'http://localhost:3000', denied: 'ftp://x'}\n");
   assert!(err.contains("d") && err.contains("denied"), "got: {err}");
 
   // A valid absolute URL is accepted and propagated.
-  let mut settings = base_settings();
-  settings.denied = Some("https://example.com/denied".to_string());
-  let specs = build_specs(&settings, "id", false).unwrap();
+  let specs = build_specs(
+    &base_with("defaults: {denied: 'https://example.com/denied'}"),
+    "id",
+  )
+  .unwrap();
   assert_eq!(
     specs[0].denied.as_deref(),
     Some("https://example.com/denied")
@@ -755,13 +637,13 @@ pub(crate) fn test_build_specs_invalid_bandwidth_warns() {
   // An unparseable bandwidth value is ignored (warned) rather than fatal.
   let mut settings = base_settings();
   settings.bandwidth = Some("not-a-rate".to_string());
-  let specs = build_specs(&settings, "id", false).unwrap();
+  let specs = build_specs(&settings, "id").unwrap();
   assert_eq!(specs[0].bandwidth_bps, None);
 
   // A valid value parses through.
   let mut settings = base_settings();
   settings.bandwidth = Some("8mbit".to_string());
-  let specs = build_specs(&settings, "id", false).unwrap();
+  let specs = build_specs(&settings, "id").unwrap();
   assert!(specs[0].bandwidth_bps.is_some());
 }
 
@@ -776,7 +658,7 @@ pub(crate) fn test_build_specs_server_urls_failover() {
     "https://tunnel.example.com".to_string(),
     "::not a url".to_string(),
   ];
-  let specs = build_specs(&settings, "id", false).unwrap();
+  let specs = build_specs(&settings, "id").unwrap();
   // Primary + the one new valid backup (duplicate primary and the invalid
   // entry are dropped).
   assert!(specs[0].ws_urls.len() >= 2, "urls: {:?}", specs[0].ws_urls);
@@ -796,12 +678,12 @@ pub(crate) fn test_build_specs_clamps_connections_warn() {
   // might mean, so it survives; an absurd one is cut back to something a
   // process can actually spawn.
   let mut settings = base_settings();
-  settings.connections = Some(aperio_config::Connections::Fixed(50));
-  let specs = build_specs(&settings, "id", false).unwrap();
+  policy(&mut settings).connections = Some(aperio_config::Connections::Fixed(50));
+  let specs = build_specs(&settings, "id").unwrap();
   assert_eq!(specs[0].connections, 50);
 
-  settings.connections = Some(aperio_config::Connections::Fixed(100_000));
-  let specs = build_specs(&settings, "id", false).unwrap();
+  policy(&mut settings).connections = Some(aperio_config::Connections::Fixed(100_000));
+  let specs = build_specs(&settings, "id").unwrap();
   assert_eq!(specs[0].connections, 256);
 }
 
@@ -810,7 +692,7 @@ pub(crate) fn test_build_specs_clamps_connections_warn() {
 // ---------------------------------------------------------------------------
 
 #[test]
-pub(crate) fn test_validate_tunnels_encrypt_and_expose() {
+pub(crate) fn test_validate_tunnels_encrypt() {
   init_tracing();
   let mut settings = base_settings();
 
@@ -819,14 +701,14 @@ pub(crate) fn test_validate_tunnels_encrypt_and_expose() {
   d.protocol = "udp".to_string();
   d.encrypt = true;
   settings.tunnels = vec![d];
-  let err = build_specs(&settings, "id", false).unwrap_err();
+  let err = build_specs(&settings, "id").unwrap_err();
   assert!(err.contains("only supported for tcp"), "got: {err}");
 
   // psk without encrypt is rejected.
   let mut d = tcp_tunnel("127.0.0.1:5432");
   d.psk = Some("k".to_string());
   settings.tunnels = vec![d];
-  let err = build_specs(&settings, "id", false).unwrap_err();
+  let err = build_specs(&settings, "id").unwrap_err();
   assert!(err.contains("psk without encrypt"), "got: {err}");
 
   // A valid encrypted tcp tunnel with a psk passes.
@@ -834,30 +716,7 @@ pub(crate) fn test_validate_tunnels_encrypt_and_expose() {
   d.encrypt = true;
   d.psk = Some("k".to_string());
   settings.tunnels = vec![d];
-  assert!(build_specs(&settings, "id", false).is_ok());
-
-  // expose on a non-tcp tunnel is rejected.
-  let mut d = tcp_tunnel("127.0.0.1:53");
-  d.protocol = "udp".to_string();
-  d.expose = Some("0.0.0.0:53".to_string());
-  settings.tunnels = vec![d];
-  let err = build_specs(&settings, "id", false).unwrap_err();
-  assert!(err.contains("only supported for tcp"), "got: {err}");
-
-  // expose together with encrypt is rejected.
-  let mut d = tcp_tunnel("127.0.0.1:5432");
-  d.encrypt = true;
-  d.expose = Some("0.0.0.0:5432".to_string());
-  settings.tunnels = vec![d];
-  let err = build_specs(&settings, "id", false).unwrap_err();
-  assert!(err.contains("expose together with encrypt"), "got: {err}");
-
-  // A plain exposed tcp tunnel passes and is normalized through.
-  let mut d = tcp_tunnel("127.0.0.1:5432");
-  d.expose = Some("0.0.0.0:5432".to_string());
-  settings.tunnels = vec![d];
-  let specs = build_specs(&settings, "id", false).unwrap();
-  assert_eq!(specs[0].tunnels[0].expose.as_deref(), Some("0.0.0.0:5432"));
+  assert!(build_specs(&settings, "id").is_ok());
 }
 
 #[test]
@@ -865,26 +724,32 @@ pub(crate) fn test_build_specs_requires_target() {
   init_tracing();
   // Nothing to expose, nothing to tunnel, nothing to carry: there is no
   // reason for the process to exist and it says so instead of connecting.
-  let mut settings = base_settings();
-  settings.target = None;
-  let err = build_specs(&settings, "id", false).unwrap_err();
+  let mut settings = settings("");
+  let err = build_specs(&settings, "id").unwrap_err();
   assert!(err.contains("nothing for this client to do"), "got: {err}");
 
-  // Messaging alone is reason enough, the same way a tunnels: list is: the
-  // connection serves no HTTP target and exists to carry something else.
+  // Messaging alone is reason enough, the same way a tunnels: section is:
+  // the connection serves no HTTP target and exists to carry something else.
   settings.messages_listen = Some("127.0.0.1:1888".to_string());
-  let specs = build_specs(&settings, "id", false).expect("a publish-only client is complete");
+  let specs = build_specs(&settings, "id").expect("a publish-only client is complete");
   assert_eq!(specs.len(), 1);
   assert!(specs[0].target.is_empty());
 }
 
 #[test]
+pub(crate) fn a_service_with_only_a_tcp_target_needs_no_http_one() {
+  let specs = specs("services:\n  pg: {tcp_target: '127.0.0.1:5432'}\n");
+  assert!(specs[0].target.is_empty());
+  assert_eq!(specs[0].tcp_target.as_deref(), Some("127.0.0.1:5432"));
+}
+
+#[test]
 pub(crate) fn test_build_specs_single_service_path_trim_bind() {
   init_tracing();
-  // A top-level path bind defaults trim_bind to true in single-service mode.
+  // A path bind defaults trim_bind to true.
   let mut settings = base_settings();
-  settings.path = Some("/api".to_string());
-  let specs = build_specs(&settings, "id", false).unwrap();
+  entry(&mut settings).path = Some("/api".to_string());
+  let specs = build_specs(&settings, "id").unwrap();
   assert_eq!(specs[0].path.as_deref(), Some("/api"));
   assert!(specs[0].trim_bind);
 }
@@ -894,47 +759,40 @@ pub(crate) fn test_build_specs_single_service_path_trim_bind() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_apply_serve_mode_top_level() {
+async fn test_apply_serve_mode_command_line_service() {
   init_tracing();
   let dir = std::env::temp_dir().join(format!("aperio-serve-top-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
   let dir = dir.to_string_lossy().into_owned();
 
-  // Top-level serve with no target rewrites the top-level target.
-  let mut settings = base_settings();
-  settings.target = None;
-  settings.serve = Some(dir.clone());
+  // `--serve` with no target rewrites the one service's target.
+  let mut settings = try_settings_with("", &[("serve", &dir)]).unwrap();
   let mut started = std::collections::HashMap::new();
   apply_serve_mode(&mut settings, &mut started).await.unwrap();
-  assert!(settings.target.unwrap().starts_with("http://127.0.0.1:"));
+  assert!(
+    settings.services[0]
+      .entry
+      .target
+      .clone()
+      .unwrap()
+      .starts_with("http://127.0.0.1:")
+  );
   assert_eq!(started.len(), 1);
 
-  // Top-level serve together with a target is a conflict.
-  let mut settings = base_settings();
-  settings.serve = Some(dir.clone());
-  // base_settings sets target, so this is the mutual-exclusion path.
-  let err = apply_serve_mode(&mut settings, &mut started)
-    .await
-    .unwrap_err();
-  assert!(err.contains("mutually exclusive"), "got: {err}");
-
-  // A services entry without serve is skipped by the serve rewrite.
-  let mut settings = base_settings();
-  settings.target = None;
-  settings.services = vec![ServiceEntry {
-    name: Some("plain".to_string()),
-    target: Some("http://localhost:3000".to_string()),
-    serve: None,
-    ..Default::default()
-  }];
+  // A service without serve is left alone by the rewrite.
+  let mut settings = settings_plain("services:\n  plain: {target: 'http://localhost:3000'}\n");
   apply_serve_mode(&mut settings, &mut started).await.unwrap();
   assert_eq!(
-    settings.services[0].target.as_deref(),
+    settings.services[0].entry.target.as_deref(),
     Some("http://localhost:3000"),
     "a non-serve entry is left untouched"
   );
 
   let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn settings_plain(yaml: &str) -> ClientSettings {
+  crate::tests::settings(yaml)
 }
 
 // ---------------------------------------------------------------------------
@@ -944,9 +802,8 @@ async fn test_apply_serve_mode_top_level() {
 #[tokio::test]
 async fn test_spawn_services_derives_connection_ids() {
   init_tracing();
-  let mut settings = base_settings();
-  settings.connections = Some(aperio_config::Connections::Fixed(3));
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+  let settings = base_with("defaults: {connections: 3}");
+  let specs = build_specs(&settings, "base-id").unwrap();
   let shared = Shared {
     shutting_down: Arc::new(AtomicBool::new(false)),
     shutdown_notify: Arc::new(tokio::sync::Notify::new()),
@@ -975,14 +832,13 @@ pub(crate) fn specs_with_deps(entries: &[(&str, &[&str])]) -> Vec<ServiceSpec> {
   let mut settings = base_settings();
   settings.services = entries
     .iter()
-    .map(|(name, deps)| ServiceEntry {
-      name: Some((*name).to_string()),
-      target: Some("http://localhost:3000".to_string()),
-      depends_on: Some(deps.iter().map(|d| (*d).to_string()).collect()),
-      ..Default::default()
+    .map(|(name, deps)| {
+      let mut service = svc(name, "{target: 'http://localhost:3000'}");
+      service.entry.depends_on = Some(deps.iter().map(|d| (*d).to_string()).collect());
+      service
     })
     .collect();
-  build_specs(&settings, "base-id", false).unwrap_or_default()
+  build_specs(&settings, "base-id").unwrap_or_default()
 }
 
 #[test]
@@ -993,48 +849,29 @@ pub(crate) fn depends_on_accepts_an_order_that_can_be_satisfied() {
 
 #[test]
 pub(crate) fn depends_on_rejects_a_name_that_is_not_in_the_file() {
-  let mut settings = base_settings();
-  settings.services = vec![ServiceEntry {
-    name: Some("api".to_string()),
-    target: Some("http://localhost:3000".to_string()),
-    depends_on: Some(vec!["databse".to_string()]),
-    ..Default::default()
-  }];
   // A typo would otherwise be invisible: at runtime everybody waits out the
   // grace period and then starts anyway, which looks exactly like working.
-  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  let err =
+    specs_err("services:\n  api: {target: 'http://localhost:3000', depends_on: [databse]}\n");
   assert!(err.contains("databse"), "{err}");
 }
 
 #[test]
 pub(crate) fn depends_on_rejects_a_cycle() {
-  let mut settings = base_settings();
-  settings.services = ["a", "b", "c"]
-    .iter()
-    .zip([["c"], ["a"], ["b"]])
-    .map(|(name, deps)| ServiceEntry {
-      name: Some((*name).to_string()),
-      target: Some("http://localhost:3000".to_string()),
-      depends_on: Some(deps.iter().map(|d| (*d).to_string()).collect()),
-      ..Default::default()
-    })
-    .collect();
   // No member of a cycle can ever come up first, so all of them wait and then
   // start anyway; the ordering the file asked for silently never happens.
-  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  let err = specs_err(
+    "services:\n  \
+       a: {target: '3000', depends_on: [c]}\n  \
+       b: {target: '3000', depends_on: [a]}\n  \
+       c: {target: '3000', depends_on: [b]}\n",
+  );
   assert!(err.contains("cycle"), "{err}");
 }
 
 #[test]
 pub(crate) fn depends_on_rejects_depending_on_itself() {
-  let mut settings = base_settings();
-  settings.services = vec![ServiceEntry {
-    name: Some("api".to_string()),
-    target: Some("http://localhost:3000".to_string()),
-    depends_on: Some(vec!["api".to_string()]),
-    ..Default::default()
-  }];
-  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  let err = specs_err("services:\n  api: {target: 'http://localhost:3000', depends_on: [api]}\n");
   assert!(err.contains("itself"), "{err}");
 }
 
@@ -1159,9 +996,9 @@ async fn await_dependencies_wakes_when_the_dependency_comes_up() {
 #[tokio::test]
 async fn reload_waits_for_unnamed_replacements_and_ignores_the_old_generation() {
   let settings = base_settings();
-  let old = build_specs(&settings, "client", false).unwrap();
+  let old = build_specs(&settings, "client").unwrap();
   let old_connection = old[0].pool_load.connection_up();
-  let fresh = build_specs(&settings, "client", false).unwrap();
+  let fresh = build_specs(&settings, "client").unwrap();
   assert!(fresh[0].name.is_none());
   let budget = Duration::from_millis(100);
   assert_eq!(
@@ -1187,8 +1024,8 @@ async fn reload_waits_for_unnamed_replacements_and_ignores_the_old_generation() 
 #[tokio::test]
 async fn reload_requires_all_replacements_to_be_live_at_the_same_time() {
   let settings = base_settings();
-  let first = build_specs(&settings, "first", false).unwrap().remove(0);
-  let second = build_specs(&settings, "second", false).unwrap().remove(0);
+  let first = build_specs(&settings, "first").unwrap().remove(0);
+  let second = build_specs(&settings, "second").unwrap().remove(0);
   let first_pool = first.pool_load.clone();
   let second_pool = second.pool_load.clone();
   let specs = vec![first, second];

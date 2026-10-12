@@ -12,8 +12,6 @@ fn create_req(
   ttl: Option<u64>,
 ) -> Json<AdminKeyCreateRequest> {
   Json(AdminKeyCreateRequest {
-    expose_bounds: None,
-    expose: Default::default(),
     name: name.to_string(),
     role: role.to_string(),
     org_id: org_id.map(|s| s.to_string()),
@@ -158,7 +156,7 @@ async fn create_accepts_valid_org() {
 }
 
 #[tokio::test]
-async fn create_and_revoke_require_master_admin() {
+async fn create_and_revoke_require_server_admin() {
   let state = Arc::new(test_state());
   // Non-admin (viewer) session is forbidden.
   let token = crate::test_support::seed_session(&state, Role::Viewer, Some("bob"), None).await;
@@ -184,9 +182,9 @@ async fn create_and_revoke_require_master_admin() {
 }
 
 #[tokio::test]
-async fn a_key_is_bounded_by_the_minters_grants() {
-  // A named master Admin runs the server and is not `*`: it may mint a
-  // master key, and not a key in a child organization it holds nothing in.
+async fn only_the_server_admin_mints_a_key() {
+  // A named master Admin administers master, not the server: an admin key is
+  // a server-wide credential, so it mints none, not even one for master.
   let state = Arc::new(test_state());
   let acme = state
     .org_store
@@ -224,7 +222,8 @@ async fn a_key_is_bounded_by_the_minters_grants() {
     create_req("k", "admin", None, None),
   )
   .await;
-  assert_eq!(resp.status(), StatusCode::OK);
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  assert!(state.admin_key_store.lock().await.list().is_empty());
   // The built-in account holds `*` and reaches acme.
   let resp = admin_keys_create_handler(
     State(state.clone()),

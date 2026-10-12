@@ -27,38 +27,39 @@ export const EXPLAIN_MESSAGES: Record<string, string> = {
     '503: a maintenance flag set by {actor} covers this hostname ({reason}), lifting at unix {until}',
   'maintenance.none': 'no maintenance flag covers this hostname',
 
-  'static_route.none_configured': 'no routes: rules configured',
-  'static_route.answers': '{status}: a routes: rule answers this path',
-  'static_route.answers_location': '{status}: a routes: rule answers this path, to {location}',
-  'static_route.no_match': 'no routes: rule matches this hostname and path',
+  'static_route.none_configured': 'no sites configured',
+  'static_route.answers': '{status}: a site answers this path by itself',
+  'static_route.answers_location': '{status}: a site answers this path by itself, to {location}',
+  'static_route.no_match': 'no site answers this hostname and path by itself',
 
   'preview_noindex.robots':
     '200: preview_noindex answers /robots.txt itself, so this path never reaches a client',
 
-  'waf.none_configured': 'no waf: rules configured',
-  'waf.denied': '403: blocked by a waf: rule ({reason})',
+  'waf.none_configured': 'no site has waf rules',
+  'waf.denied': '403: blocked by a waf rule ({reason})',
   'waf.no_match':
-    'no waf: rule matches this method and path (header and body rules need a real request)',
+    'no waf rule matches this method and path (header and body rules need a real request)',
 
   'route_rate_limit.covered':
-    'a rate_limits: rule covers this path ({rps} rps, burst {burst}); this dry run does not spend from it',
+    "a site's rate_limit covers this path ({rps} rps, burst {burst}); this dry run does not spend from it",
   'route_rate_limit.covered_methods':
-    'a rate_limits: rule covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it',
-  'route_rate_limit.none': 'no rate_limits: rule covers this path',
+    "a site's rate_limit covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it",
+  'route_rate_limit.none': "no site's rate_limit covers this path",
 
   'visitor_gate.client_password':
     "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate",
-  'visitor_gate.server_password_and_oidc':
-    "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured",
   'visitor_gate.server_password':
     "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set",
-  'visitor_gate.oidc':
-    'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors',
+  'visitor_gate.sso':
+    "visitors must sign in (or carry a share link) before this reaches a client: the server's gate asks for a single sign-on at an identity provider",
   'visitor_gate.aperio_login':
     "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization",
   'visitor_gate.open': 'this hostname is served without a visitor gate',
+  'visitor_gate.site':
+    "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare",
+  'visitor_gate.site_public': "a site's access opens this route to anyone, over what the clients serving it declare",
   'visitor_gate.undeclared':
-    'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it',
+    "nothing declares this route reachable and the server's `access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it",
 
   'routing.candidates': '{count} client(s) would take it: {clients}',
   'routing.none': 'no connected client serves this hostname and path',
@@ -69,8 +70,8 @@ export const EXPLAIN_MESSAGES: Record<string, string> = {
     'an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once',
 
   'fallback.redirect':
-    '{status}: the fallbacks: rule for this hostname redirects to {url} instead of a 504',
-  'no_client.504': '504: nothing serves this route, and no fallbacks: rule covers it',
+    "{status}: this hostname's fallback redirects to {url} instead of a 504",
+  'no_client.504': '504: nothing serves this route, and no site gives it a fallback',
 
   'client.reached': 'the request reaches a tunnel client ({clients})',
 
@@ -133,6 +134,9 @@ export const EXPLAIN_INELIGIBLE: Record<string, string> = {
   'ineligible.backend_unhealthy': 'its backend health probe is failing',
   'ineligible.missed_heartbeats': 'missed heartbeats',
   'ineligible.path_mismatch': 'its path bind does not match',
+  'ineligible.policy_conflict':
+    'its access, allowed_ips or denied differs from what already serves this route',
+  'ineligible.server_side_refused': 'it asked to be served from the server, and was refused',
 }
 
 /** The stage names, which are identifiers on the wire and prose on screen. */
@@ -163,11 +167,9 @@ export const EXPLAIN_STAGES: Record<string, string> = {
 // the same word in every language and left alone; these are the few that were
 // written as prose and so have to be said in the reader's.
 export const EXPLAIN_SETTINGS: Record<string, string> = {
-  'setting.default_access': 'default_access',
+  'setting.default_access': 'access',
   'setting.maintenance_mode': 'maintenance mode',
-  'setting.service_auth': 'auth: on the service',
-  'setting.server_auth_oidc': 'server_auth / OIDC',
-  'setting.server_auth': 'server_auth',
-  'setting.oidc': 'OIDC',
+  'setting.service_auth': 'access: on the service',
+  'setting.server_auth': 'access',
   'setting.host_path_binds': 'hostname/path binds',
 }

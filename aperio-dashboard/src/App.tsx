@@ -22,6 +22,7 @@ import { TOOLS_PANES, ToolsDialog, isToolsPage, type ToolsPage } from './compone
 import { SETTING_FIELDS, type FieldSpec } from '@/lib/settingsCatalog'
 import type { PaneFocus } from '@/lib/paneFocus'
 import type { SettingsPayload } from './lib/api'
+import { getAt } from '@/lib/configSchema'
 import { logoDataUri } from '@/lib/logo'
 import { ActivityChart } from './components/ActivityChart'
 import { DOCS_BASE, GetStartedCard } from './components/GetStartedCard'
@@ -55,7 +56,7 @@ import { useLiveData } from './hooks/useLiveData'
 import { usePoll } from './hooks/usePoll'
 import { useStream } from './hooks/useStream'
 import { api, logout, type Role } from './lib/api'
-import { formatBytes, formatUptime, NO_VALUE } from './lib/format'
+import { formatUptime, NO_VALUE } from './lib/format'
 import { readParams, writeParams } from './lib/url'
 import { useThemeMode } from './theme'
 import { useI18n } from '@/i18n'
@@ -132,25 +133,16 @@ const ACTIONS: {
 ]
 
 /**
- * What a setting is set to right now, as one short string.
- *
- * An override is what the server is actually running; the env default is what
- * it falls back to. Both are worth showing and they are not the same claim,
- * so an overridden value says so.
+ * What a setting is set to right now, as one short string. A size or a
+ * duration reads as the server writes it (`10MB`, `30s`), and a structured
+ * value as its yaml would start, which is enough to recognize it.
  */
 function describeSetting(payload: SettingsPayload, field: FieldSpec): string {
-  const override = payload.overrides[field.key]
-  const value = override ?? payload.defaults[field.key]
+  const value = getAt(payload.settings, field.key)
   if (value === undefined || value === null || value === '') return NO_VALUE
-  const text =
-    typeof value === 'boolean'
-      ? value
-        ? 'on'
-        : 'off'
-      : field.kind === 'bytes'
-        ? formatBytes(Number(value))
-        : String(value)
-  return override !== undefined && override !== null ? `${text} *` : text
+  if (typeof value === 'boolean') return value ? 'on' : 'off'
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
 }
 
 function loadHistory(): number[] {
@@ -310,14 +302,14 @@ export default function App() {
   // Until the session loads, assume the least privilege so admin-only pages
   // never flash; the server is the real gate regardless.
   const role = session?.role ?? 'viewer'
-  const masterAdmin = session?.master_admin ?? false
+  const serverAdmin = session?.server_admin ?? false
   const selectedOrg = session?.selected_org ?? 'master'
-  const allowedPages = useMemo(() => pagesForRole(role, masterAdmin), [role, masterAdmin])
+  const allowedPages = useMemo(() => pagesForRole(role, serverAdmin), [role, serverAdmin])
   // The dialog panes this session may open, in the order the dialogs list them.
   const mayOpen = useCallback(
     (p: { minRole: Role; masterOnly?: boolean }) =>
-      ROLE_ORDER[role] >= ROLE_ORDER[p.minRole] && (!p.masterOnly || masterAdmin),
-    [role, masterAdmin],
+      ROLE_ORDER[role] >= ROLE_ORDER[p.minRole] && (!p.masterOnly || serverAdmin),
+    [role, serverAdmin],
   )
   const settingsPanes = useMemo(() => SETTINGS_PANES.filter(mayOpen), [mayOpen])
   const toolsPanes = useMemo(() => TOOLS_PANES.filter(mayOpen), [mayOpen])
@@ -332,7 +324,7 @@ export default function App() {
   // opening rather than a poll because that is the only moment it matters.
   const [settingsPayload, setSettingsPayload] = useState<SettingsPayload | null>(null)
   useEffect(() => {
-    if (!paletteOpen || !masterAdmin || role !== 'admin') return
+    if (!paletteOpen || !serverAdmin || role !== 'admin') return
     let live = true
     api
       .settings()
@@ -341,7 +333,7 @@ export default function App() {
     return () => {
       live = false
     }
-  }, [paletteOpen, masterAdmin, role])
+  }, [paletteOpen, serverAdmin, role])
 
   // A role that can't see the current page (e.g. a viewer landing on a
   // bookmarked ?tab=settings) is bounced to the overview.
@@ -378,7 +370,7 @@ export default function App() {
         group: t('Settings & Tools'),
         run: () => openPane(p.id),
       })),
-      ...ACTIONS.filter((a) => ROLE_ORDER[role] >= ROLE_ORDER[a.minRole] && (!a.masterOnly || masterAdmin)).map(
+      ...ACTIONS.filter((a) => ROLE_ORDER[role] >= ROLE_ORDER[a.minRole] && (!a.masterOnly || serverAdmin)).map(
         (a) => ({
           id: `do-${a.target}`,
           label: t(a.label),
@@ -413,7 +405,7 @@ export default function App() {
       openPane,
       panes,
       role,
-      masterAdmin,
+      serverAdmin,
       settingsPayload,
       signOut,
       t,
@@ -429,8 +421,7 @@ export default function App() {
       username={session?.username ?? 'aperio'}
       role={role}
       selectedOrg={selectedOrg}
-      masterAdmin={masterAdmin}
-      allOrgs={session?.all_orgs ?? false}
+      serverAdmin={serverAdmin}
       orgs={session?.orgs ?? []}
     >
     <SidebarProvider>
@@ -445,7 +436,7 @@ export default function App() {
         <SettingsDialog
           page={overlay}
           role={role}
-          masterAdmin={masterAdmin}
+          serverAdmin={serverAdmin}
           focus={focus}
           onNavigate={openPane}
           onClose={() => setOverlay(null)}
@@ -455,7 +446,7 @@ export default function App() {
         <ToolsDialog
           page={overlay}
           role={role}
-          masterAdmin={masterAdmin}
+          serverAdmin={serverAdmin}
           focus={focus}
           onNavigate={openPane}
           onClose={() => setOverlay(null)}
@@ -473,7 +464,7 @@ export default function App() {
         sessionSeconds={session?.expires_in_seconds ?? null}
         version={health?.version ?? null}
         role={role}
-        masterAdmin={masterAdmin}
+        serverAdmin={serverAdmin}
         selectedOrg={selectedOrg}
         reachableOrgs={session?.orgs.length ?? 0}
         onSignOut={() => void signOut()}

@@ -13,6 +13,26 @@ pub(crate) fn test_tunnel_tx() -> mpsc::Sender<Message> {
   tx
 }
 
+/// The buffered response a request produced, whichever way it travelled:
+/// returned, or sent on the tunnel as a full-body frame (any response with a
+/// body).
+pub(crate) async fn answered(
+  rx: &mut mpsc::Receiver<Message>,
+  request: impl std::future::Future<Output = Option<TunnelMessage>>,
+) -> Option<TunnelMessage> {
+  if let Some(msg) = request.await {
+    return Some(msg);
+  }
+  while let Ok(Some(frame)) =
+    tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv()).await
+  {
+    if let Some(msg @ TunnelMessage::Response { .. }) = crate::protocol::decode_sent(&frame) {
+      return Some(msg);
+    }
+  }
+  None
+}
+
 /// Default forwarding context against the given mock target.
 pub(crate) fn test_ctx(target: &str, tunnel_tx: mpsc::Sender<Message>) -> ForwardContext {
   ForwardContext {
@@ -55,6 +75,7 @@ pub(crate) async fn mock_server(response: String) -> u16 {
 
 #[tokio::test]
 pub(crate) async fn test_handle_incoming_request() {
+  let (tunnel_tx, mut tunnel_rx) = mpsc::channel::<Message>(64);
   use tokio::io::{AsyncReadExt, AsyncWriteExt};
   use tokio::net::TcpListener;
 
@@ -82,20 +103,21 @@ pub(crate) async fn test_handle_incoming_request() {
 
   let headers = vec![("x-custom-header".to_string(), "custom-value".to_string())];
 
-  let ctx = test_ctx(&target_url, test_tunnel_tx());
-  let result = handle_incoming_request(
-    &ctx,
-    ForwardRequest {
-      id: "req-id-123".to_string(),
-      method: "GET".to_string(),
-      uri: "/test-path".to_string(),
-      headers,
-      body: None,
-      raw_body: None,
-    },
-    None,
-    false,
-    false,
+  let ctx = test_ctx(&target_url, tunnel_tx.clone());
+  let result = answered(
+    &mut tunnel_rx,
+    handle_incoming_request(
+      &ctx,
+      ForwardRequest {
+        id: "req-id-123".to_string(),
+        method: "GET".to_string(),
+        uri: "/test-path".to_string(),
+        headers,
+        body: None,
+        raw_body: None,
+      },
+      None,
+    ),
   )
   .await
   .expect("expected buffered response");
@@ -138,8 +160,6 @@ pub(crate) async fn test_backend_connection_refused_502() {
       raw_body: None,
     },
     None,
-    false,
-    false,
   )
   .await
   .expect("expected buffered error");
@@ -163,8 +183,6 @@ pub(crate) async fn test_invalid_method_400() {
       raw_body: None,
     },
     None,
-    false,
-    false,
   )
   .await
   .expect("expected buffered error");
@@ -188,8 +206,6 @@ pub(crate) async fn test_bad_base64_body_400() {
       raw_body: None,
     },
     None,
-    false,
-    false,
   )
   .await
   .expect("expected buffered error");
@@ -215,8 +231,6 @@ pub(crate) async fn test_unparsable_incoming_uri_400() {
       raw_body: None,
     },
     None,
-    false,
-    false,
   )
   .await
   .expect("expected buffered error");
@@ -241,8 +255,6 @@ pub(crate) async fn test_unparsable_target_url_502() {
       raw_body: None,
     },
     None,
-    false,
-    false,
   )
   .await
   .expect("expected buffered error");

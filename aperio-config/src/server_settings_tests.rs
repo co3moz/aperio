@@ -1,0 +1,305 @@
+//! What this pins down: an empty document is the defaults, a document only
+//! has to say what it changes, an unknown key anywhere is an error naming
+//! it, the minimal form writes back only what differs, and the special-path
+//! lists name settings that exist.
+
+use super::*;
+use crate::units::{ByteSize, Span};
+
+#[test]
+fn an_empty_document_is_the_defaults() {
+  assert_eq!(
+    ServerSettings::from_yaml("").unwrap(),
+    ServerSettings::default()
+  );
+  assert_eq!(
+    ServerSettings::from_yaml("{}").unwrap(),
+    ServerSettings::default()
+  );
+  let d = ServerSettings::default();
+  assert_eq!(d.limits.request_body, ByteSize::mb(10));
+  assert_eq!(d.gateway.response_timeout, Span::secs(30));
+  assert_eq!(d.access, crate::ServerAccess::Deny);
+  assert!(d.dashboard.enabled);
+  assert!(d.inspector.enabled && d.inspector.redact);
+  assert_eq!(d.shutdown.drain, Drain::For(Span::secs(0)));
+}
+
+#[test]
+fn a_document_only_says_what_it_changes() {
+  let s = ServerSettings::from_yaml(
+    "limits:\n  request_body: 5MB\ncache:\n  enabled: true\nrouting:\n  lb_strategy: primary-standby\n",
+  )
+  .unwrap();
+  assert_eq!(s.limits.request_body, ByteSize::mb(5));
+  assert_eq!(
+    s.limits.concurrent_requests, 100,
+    "the rest keeps its default"
+  );
+  assert!(s.cache.enabled);
+  assert_eq!(s.cache.size, ByteSize::mb(64));
+  assert_eq!(s.routing.lb_strategy, LbStrategy::PrimaryStandby);
+}
+
+#[test]
+fn an_unknown_key_is_an_error_that_names_it() {
+  for doc in [
+    "max_body_sise: 5\n",
+    "cache:\n  max_byte: 10\n",
+    "limits:\n  ip_rate:\n    bursts: 3\n",
+  ] {
+    let err = ServerSettings::from_yaml(doc).expect_err(doc);
+    assert!(err.contains("unknown field"), "{doc}: {err}");
+  }
+}
+
+#[test]
+fn units_are_read_and_a_bare_number_still_works() {
+  let s = ServerSettings::from_yaml("gateway:\n  timeout: 2m\n  response_timeout: 45\n").unwrap();
+  assert_eq!(s.gateway.timeout, Span::secs(120));
+  assert_eq!(s.gateway.response_timeout, Span::secs(45));
+  let s = ServerSettings::from_yaml("shutdown:\n  drain: auto\n").unwrap();
+  assert_eq!(s.shutdown.drain, Drain::Auto);
+  let s = ServerSettings::from_yaml("shutdown:\n  drain: 20s\n").unwrap();
+  assert_eq!(s.shutdown.drain, Drain::For(Span::secs(20)));
+}
+
+#[test]
+fn the_minimal_form_keeps_only_what_differs() {
+  assert_eq!(ServerSettings::default().minimal(), serde_json::json!({}));
+  let mut s = ServerSettings::default();
+  s.cache.enabled = true;
+  s.limits.tunnels = 200;
+  let m = s.minimal();
+  assert_eq!(
+    m,
+    serde_json::json!({"cache": {"enabled": true}, "limits": {"tunnels": 200}})
+  );
+  // And it reads back as the same settings.
+  let back: ServerSettings = serde_json::from_value(m).unwrap();
+  assert_eq!(back, s);
+}
+
+#[test]
+fn changed_paths_name_fields_and_whole_lists() {
+  let a = ServerSettings::default();
+  let mut b = a.clone();
+  b.proxy.trusted = vec!["10.0.0.0/8".into()];
+  b.cache.enabled = true;
+  let paths = a.changed_paths(&b);
+  assert!(paths.contains(&"proxy.trusted".to_string()), "{paths:?}");
+  assert!(paths.contains(&"cache.enabled".to_string()), "{paths:?}");
+  assert!(path_in("proxy.trusted", SECURITY_PATHS));
+  assert!(!path_in("cache.enabled", SECURITY_PATHS));
+}
+
+#[test]
+fn every_special_path_is_a_setting_that_exists() {
+  let tree = ServerSettings::default().to_value();
+  for path in SECURITY_PATHS.iter().chain(RESTART_PATHS) {
+    let mut node = &tree;
+    for part in path.split('.') {
+      // Optional fields are absent from the default tree; their section is
+      // what has to exist.
+      match node.get(part) {
+        Some(next) => node = next,
+        // A list section: the path names a field of its entries, which the
+        // schema has to know.
+        None if node.is_array() => {
+          let schema = serde_json::to_value(schemars::schema_for!(ServerSettings)).unwrap();
+          let section = path.split('.').next().unwrap();
+          let entry = schema["properties"][section]["items"]["$ref"]
+            .as_str()
+            .and_then(|r| r.rsplit('/').next())
+            .unwrap_or_else(|| panic!("{path}: `{section}` is not a list of entries"));
+          assert!(
+            schema["$defs"][entry]["properties"].get(part).is_some(),
+            "{path}: a `{section}` entry has no `{part}`"
+          );
+          break;
+        }
+        None => {
+          assert!(node.is_object(), "{path}: `{part}` is under a non-section");
+          break;
+        }
+      }
+    }
+  }
+}
+
+#[test]
+fn credentials_read_masked_and_a_mask_written_back_keeps_them() {
+  let stored = ServerSettings::from_yaml(
+    "oidc:\n  issuer: https://id.example.com\n  client_secret: hunter2\nmetrics:\n  enabled: true\n  token: m-token\notel:\n  headers:\n    authorization: Bearer abc\naccess:\n  - method: basic\n    users: ['dan:pw']\n  - method: bearer\n    secret: 0123456789abcdef\nsites:\n  - hostname: a.example.com\n    access: {method: basic, users: ['ada:site-pw']}\n  - hostname: b.example.com\n    access: public\n",
+  )
+  .unwrap();
+  let masked = stored.masked();
+  let text = masked.to_string();
+  for secret in [
+    "hunter2",
+    "m-token",
+    "Bearer abc",
+    "dan:pw",
+    "0123456789abcdef",
+    "ada:site-pw",
+  ] {
+    assert!(!text.contains(secret), "{secret} leaked: {text}");
+  }
+  // What is not a credential stays readable, and an unset one stays unset.
+  assert_eq!(masked["oidc"]["issuer"], "https://id.example.com");
+  assert_eq!(masked["access"][0]["method"], "basic");
+  assert_eq!(masked["sites"][0]["hostname"], "a.example.com");
+  assert_eq!(
+    masked["sites"][1]["access"], "public",
+    "a word is not a credential"
+  );
+  assert!(masked["edge"]["token"].is_null());
+
+  // Saving the masked document back changes nothing.
+  let mut incoming = masked.clone();
+  unmask(&mut incoming, &stored).unwrap();
+  let back: ServerSettings = serde_json::from_value(incoming).unwrap();
+  assert_eq!(back, stored);
+
+  // A credential typed over the mask is the new one.
+  let mut incoming = masked.clone();
+  incoming["metrics"]["token"] = "fresh".into();
+  unmask(&mut incoming, &stored).unwrap();
+  let back: ServerSettings = serde_json::from_value(incoming).unwrap();
+  assert_eq!(back.metrics.token.as_deref(), Some("fresh"));
+  assert_eq!(back.oidc.client_secret.as_deref(), Some("hunter2"));
+}
+
+#[test]
+fn a_mask_with_nothing_stored_behind_it_is_refused() {
+  let mut incoming = serde_json::json!({"edge": {"token": MASKED}});
+  let err = unmask(&mut incoming, &ServerSettings::default()).unwrap_err();
+  assert!(err.starts_with("edge.token"), "{err}");
+}
+
+#[test]
+fn every_secret_path_is_also_security_relevant() {
+  // A credential nobody may read must not be writable by somebody who could
+  // not change the rest of what guards it.
+  for path in SECRET_PATHS {
+    assert!(
+      path_in(path, SECURITY_PATHS),
+      "{path} is a credential but not a security path"
+    );
+  }
+}
+
+#[test]
+fn a_site_credential_comes_back_to_its_own_site_whatever_the_order() {
+  let stored = ServerSettings::from_yaml(
+    "sites:\n  - hostname: a.example.com\n    access: {method: basic, users: ['ada:pw-a']}\n  - hostname: b.example.com\n    access: {method: basic, users: ['bob:pw-b']}\n",
+  )
+  .unwrap();
+  // The dashboard shows the list masked, and somebody reorders it.
+  let mut incoming = stored.masked();
+  incoming["sites"].as_array_mut().unwrap().reverse();
+  unmask(&mut incoming, &stored).unwrap();
+  let back: ServerSettings = serde_json::from_value(incoming).unwrap();
+  let users = |s: &crate::Site| serde_json::to_value(&s.access).unwrap()["users"].clone();
+  assert_eq!(back.sites[0].hostname, "b.example.com");
+  assert_eq!(users(&back.sites[0]), serde_json::json!(["bob:pw-b"]));
+  assert_eq!(users(&back.sites[1]), serde_json::json!(["ada:pw-a"]));
+
+  // A mask on a site that has no stored credential is refused, not stored.
+  let mut incoming = stored.masked();
+  incoming["sites"][0]["hostname"] = "c.example.com".into();
+  assert!(unmask(&mut incoming, &stored).is_err());
+}
+
+#[test]
+fn a_change_to_who_reaches_a_site_is_a_security_change_and_a_page_is_not() {
+  let before = ServerSettings::from_yaml(
+    "sites:\n  - hostname: a.example.com\n    access: public\n    pages: {unavailable: down}\n",
+  )
+  .unwrap();
+  let page = ServerSettings::from_yaml(
+    "sites:\n  - hostname: a.example.com\n    access: public\n    pages: {unavailable: still down}\n",
+  )
+  .unwrap();
+  let gate = ServerSettings::from_yaml(
+    "sites:\n  - hostname: a.example.com\n    access: {method: aperio}\n    pages: {unavailable: down}\n",
+  )
+  .unwrap();
+  assert_eq!(before.changed_paths(&page), ["sites"]);
+  let changed = before.changed_paths(&gate);
+  assert!(changed.contains(&"sites.access".to_string()), "{changed:?}");
+  assert!(changed.iter().any(|p| path_in(p, SECURITY_PATHS)));
+  assert!(
+    !before
+      .changed_paths(&page)
+      .iter()
+      .any(|p| path_in(p, SECURITY_PATHS))
+  );
+}
+
+#[test]
+fn the_access_block_of_before_is_told_what_it_became() {
+  for old in [
+    "access:\n  gate: 'u:p'\n",
+    "access:\n  default: allow\n",
+    "access:\n  ignore_client_auth: true\n",
+  ] {
+    let err = ServerSettings::from_yaml(old).unwrap_err();
+    assert!(err.contains("one value since 0.13.0"), "{old}: {err}");
+  }
+  assert!(
+    ServerSettings::from_yaml("access: open\n")
+      .unwrap_err()
+      .contains("`deny`, `public`")
+  );
+  assert_eq!(
+    ServerSettings::from_yaml("access: public\n")
+      .unwrap()
+      .access,
+    crate::ServerAccess::Declared(crate::Access::Public)
+  );
+}
+
+#[test]
+fn a_resilience_profile_is_the_default_values_and_a_written_field_wins() {
+  let safe = ServerSettings::default().resilience;
+  assert_eq!(safe.profile, crate::ResilienceProfile::Safe);
+  assert_eq!(safe.failover().mode, FailoverMode::Retry);
+  assert!(safe.outlier().enabled);
+  assert!(
+    !safe.failover().all_methods,
+    "no profile decides that for a backend"
+  );
+
+  let off = ServerSettings::from_yaml("resilience:\n  profile: off\n")
+    .unwrap()
+    .resilience;
+  assert_eq!(off.failover().mode, FailoverMode::Fail);
+  assert!(!off.outlier().enabled);
+
+  let hard = ServerSettings::from_yaml(
+    "resilience:\n  profile: aggressive\n  failover:\n    mode: wait\n  outlier:\n    max_failures: 9\n",
+  )
+  .unwrap()
+  .resilience;
+  assert_eq!(
+    hard.failover().mode,
+    FailoverMode::Wait,
+    "written over the profile's"
+  );
+  assert_eq!(
+    hard.failover().max_jumps,
+    3,
+    "the profile's where not written"
+  );
+  assert!(hard.failover().retry_on_5xx);
+  assert_eq!(hard.outlier().max_failures, 9);
+}
+
+#[test]
+fn the_old_failover_and_outlier_sections_say_where_they_went() {
+  for old in ["failover:\n  mode: retry\n", "outlier:\n  enabled: true\n"] {
+    let err = ServerSettings::from_yaml(old).unwrap_err();
+    assert!(err.contains("moved under `resilience`"), "{old}: {err}");
+  }
+}

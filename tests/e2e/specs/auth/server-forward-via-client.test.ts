@@ -19,22 +19,24 @@ class ServerViaClientEndpoint extends AuthCheckEndpoint {}
 const HOST = 'server-via-client.e2e.local'
 
 export class ServerViaClientServer extends AperioServerBase({
-  env: { APERIO_VISITOR_IDENTITY_HEADERS: '1' },
+  settings: { identity_headers: { visitor: true } },
   dependencies: { endpoint: () => ServerViaClientEndpoint },
 }) {
   declare endpoint: ServerViaClientEndpoint
-  _configFile() {
-    return [
-      'server:',
-      '  auth:',
-      '    - method: forward',
-      `      url: http://127.0.0.1:${this.endpoint._port}/_authcheck`,
-      '      via: client',
-      '      request_headers: [x-e2e-user]',
-      '      response_headers: [x-auth-user]',
-      '      cache: 0',
-      '',
-    ].join('\n')
+  _settings() {
+    return {
+      ...super._settings(),
+      access: [
+        {
+          method: 'forward',
+          url: `http://127.0.0.1:${this.endpoint._port}/_authcheck`,
+          via: 'client',
+          request_headers: ['x-e2e-user'],
+          response_headers: ['x-auth-user'],
+          cache: 0,
+        },
+      ],
+    }
   }
 }
 

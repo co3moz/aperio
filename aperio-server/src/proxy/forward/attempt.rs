@@ -66,7 +66,7 @@ pub(super) struct Attempt<'a> {
   /// on. `selected` is reassigned by failover, which is why it is the loop's
   /// only mutable input.
   pub(super) selected: SelectedClient,
-  pub(super) canary: Option<(&'a str, crate::static_routes::Side)>,
+  pub(super) canary: Option<(&'a str, crate::sites::Side)>,
   pub(super) visitor: Option<VisitorIdentity>,
   /// The request body, one way or the other: `body_bytes` when it was
   /// buffered, `streamed_body` when the client takes it as a stream.
@@ -233,8 +233,7 @@ impl Attempt<'_> {
       // whichever client the first one failed over to, and one that does not
       // speak v6 cannot read it, so the request would hang until the gateway
       // timeout with no sign of why.
-      let full_body_frame =
-        !stream_request && body_frame_negotiated(selected.protocol, &body_bytes);
+      let full_body_frame = !stream_request && !body_bytes.is_empty();
       let base64_body = if stream_request || full_body_frame || body_bytes.is_empty() {
         None
       } else {
@@ -423,7 +422,7 @@ impl Attempt<'_> {
       }
 
       // Await the response with the per-attempt response timeout, most specific
-      // first: a matching `routes:` policy entry's `timeout`, then the serving
+      // first: the most specific matching site's `timeout`, then the serving
       // client's per-service `response_timeout` override when it declared one,
       // then the global gateway response timeout. The route wins over the
       // service because it is the operator's own server-side configuration,
@@ -433,10 +432,8 @@ impl Attempt<'_> {
       // `.max(1)` clamp.
       let route_timeout = state
         .config()
-        .static_routes
-        .policy_for(request_host.as_deref(), &uri_path_owned)
-        .and_then(|rule| rule.timeout)
-        .filter(|s| *s > 0);
+        .sites
+        .timeout_for(request_host.as_deref(), &uri_path_owned);
       let response_timeout = route_timeout
         .or(selected.response_timeout.filter(|s| *s > 0))
         .map(std::time::Duration::from_secs)
@@ -472,28 +469,15 @@ impl Attempt<'_> {
       match outcome {
         Some(mut tunnel_res) => {
           let response_received_at = Instant::now();
-          // Server-side `headers.response` rewrite rules (aperio-server.yaml),
-          // applied before every consumer, the visitor response, the response
-          // cache and the inspector capture, so all views agree.
-          tunnel_res.headers = state
-            .config()
-            .header_rules
-            .response
-            .apply(std::mem::take(&mut tunnel_res.headers));
-          // Then the matching `routes:` policy entry, which wins over the
-          // server-wide rules for the route it names. A `cache-control` added
-          // here is what the visitor, the response cache and the inspector all
-          // see, since this runs before any of them.
-          if let Some(rule) = state
-            .config()
-            .static_routes
-            .policy_for(request_host.as_deref(), &uri_path_owned)
-          {
-            tunnel_res.headers = rule
-              .header_transforms
-              .response
-              .apply(std::mem::take(&mut tunnel_res.headers));
-          }
+          // The matching sites' response header edits, broadest first so the
+          // narrowest has the last word, applied before every consumer: a
+          // `cache-control` added here is what the visitor, the response cache
+          // and the inspector all see.
+          tunnel_res.headers = state.config().sites.response_headers(
+            request_host.as_deref(),
+            &uri_path_owned,
+            std::mem::take(&mut tunnel_res.headers),
+          );
           // Preview noindex: responses served via a random subdomain carry
           // X-Robots-Tag so search engines never index preview environments
           // (applied here so the cache and the inspector agree too).
@@ -519,7 +503,7 @@ impl Attempt<'_> {
             record_outlier_failure(&state, &selected.id, selected.service_name.as_deref()).await;
           }
 
-          // Transparent retry on a buffered server error (APERIO_RETRY_ON_5XX):
+          // Transparent retry on a buffered server error (failover.retry_on_5xx):
           // a fully-buffered 5xx the retry policy covers is re-dispatched to
           // another client instead of being returned. No response bytes have
           // reached the visitor yet, so this is safe for retryable methods.
@@ -667,14 +651,17 @@ impl Attempt<'_> {
           // Store cacheable buffered GET responses (streamed responses are never
           // cached). A 200 honors the advertised Cache-Control lifetime; a
           // 404/410 may be negatively cached for a short TTL
-          // (APERIO_CACHE_NEGATIVE_TTL) to shield a backend from repeated misses.
+          // (cache.negative_ttl) to shield a backend from repeated misses.
           if cache_eligible && tunnel_res.stream_rx.is_none() {
             let ttl = if status_code == StatusCode::OK {
               crate::cache::response_cache_ttl(&tunnel_res.headers)
             } else if matches!(tunnel_res.status, 404 | 410)
               && !crate::cache::response_uncacheable(&tunnel_res.headers)
             {
-              let neg = crate::cache::negative_cache_ttl();
+              // Read per response, so a settings change applies to the next
+              // one; 0s = negative caching off. Not a cache.rs helper: that
+              // module stays free of crate references for the benches.
+              let neg = crate::live::current().cache.negative_ttl.0;
               (!neg.is_zero()).then_some(neg)
             } else {
               None

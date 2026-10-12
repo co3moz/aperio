@@ -24,7 +24,7 @@ export async function api(
 ): Promise<CliResult> {
   try {
     const { stdout, stderr } = await run(CLIENT_BIN, ['api', ...args], {
-      env: { ...process.env, APERIO_SERVER_URL: serverUrl, APERIO_API_KEY: apiKey },
+      env: { ...process.env, APERIO_SERVER_URL: serverUrl, APERIO_SERVER_API_KEY: apiKey },
       maxBuffer: 16 * 1024 * 1024,
     })
     return { ok: true, stdout, stderr }
@@ -38,7 +38,7 @@ export async function api(
 export async function apiWithoutKey(serverUrl: string, args: string[]): Promise<CliResult> {
   try {
     const { stdout, stderr } = await run(CLIENT_BIN, ['api', ...args], {
-      env: { ...process.env, APERIO_SERVER_URL: serverUrl, APERIO_API_KEY: '' },
+      env: { ...process.env, APERIO_SERVER_URL: serverUrl, APERIO_SERVER_API_KEY: '' },
     })
     return { ok: true, stdout, stderr }
   } catch (e) {

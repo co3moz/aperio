@@ -188,10 +188,11 @@ async fn an_unfenced_org_still_needs_a_client_serving_it() {
 async fn enable_specific_hostname_served_ok() {
   let state = Arc::new(test_state());
   // A master-org client serving example.com.
-  state.clients.write().await.insert(
-    "c1".to_string(),
-    mock_client(Some("example.com"), None, None, None),
-  );
+  state
+    .clients
+    .write()
+    .await
+    .insert("c1".to_string(), mock_client(Some("example.com"), None));
   let headers = admin_headers(&state).await;
 
   let resp = maintenance_set_handler(
@@ -210,10 +211,11 @@ async fn enable_specific_hostname_served_ok() {
 async fn enable_other_orgs_hostname_refused() {
   let state = Arc::new(test_state());
   // Client serves example.com but belongs to the master org (org_id None).
-  state.clients.write().await.insert(
-    "c1".to_string(),
-    mock_client(Some("example.com"), None, None, None),
-  );
+  state
+    .clients
+    .write()
+    .await
+    .insert("c1".to_string(), mock_client(Some("example.com"), None));
   // Caller scoped to "acme", a different org from the client's None.
   let headers = master_with_org(&state, "acme").await;
 
@@ -231,10 +233,11 @@ async fn enable_other_orgs_hostname_refused() {
 #[tokio::test]
 async fn enable_twice_is_idempotent() {
   let state = Arc::new(test_state());
-  state.clients.write().await.insert(
-    "c1".to_string(),
-    mock_client(Some("example.com"), None, None, None),
-  );
+  state
+    .clients
+    .write()
+    .await
+    .insert("c1".to_string(), mock_client(Some("example.com"), None));
   let headers = admin_headers(&state).await;
 
   for _ in 0..2 {
@@ -637,7 +640,7 @@ async fn a_fenced_org_cannot_flag_a_hostname_a_master_client_serves() {
     .id;
   state.clients.write().await.insert(
     "master-conn".to_string(),
-    mock_client(Some("app.example.com"), None, None, None),
+    mock_client(Some("app.example.com"), None),
   );
   let headers = master_with_org(&state, &org).await;
 
@@ -692,7 +695,7 @@ async fn an_org_may_still_flag_a_hostname_its_own_client_serves() {
     .id;
   {
     let mut clients = state.clients.write().await;
-    let mut mine = mock_client(Some("app.example.com"), None, None, None);
+    let mut mine = mock_client(Some("app.example.com"), None);
     mine.perms.org_id = Some(org.clone());
     clients.insert("acme-conn".to_string(), mine);
   }

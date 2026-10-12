@@ -7,7 +7,7 @@ import { waitFor } from '../../lib/env.js'
 
 /** No random subdomains and no bind: this phase's only client serves
  *  everything, so the visitor needs no Host override. */
-export class H2Server extends AperioServerBase({ env: { APERIO_RANDOM_SUBDOMAIN: '' } }) {}
+export class H2Server extends AperioServerBase({ settings: { routing: { random_subdomain: null } } }) {}
 
 export class H2Backend extends MockH2Base() {}
 
@@ -16,7 +16,13 @@ export class H2Client extends ClientFor(() => H2Server, () => H2Backend) {
     // `target_health: /` against an h2c target means the standard
     // grpc.health.v1.Health/Check RPC, not a GET, which a prior-knowledge
     // HTTP/2 server would refuse.
-    return { APERIO_TARGET: this.backend._target(), APERIO_TARGET_HEALTH: '/' }
+    // Requests reach it by the server's own address, so it serves every
+    // hostname nothing else claims.
+    return {
+      APERIO_TARGET: this.backend._target(),
+      APERIO_HEALTH_ENDPOINT: '/',
+      APERIO_HOSTNAME: '*',
+    }
   }
 }
 

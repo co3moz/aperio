@@ -28,7 +28,6 @@ pub(crate) fn select_client_pool(
   clients: &HashMap<String, ClientHandle>,
   uri_path: &str,
   request_host: Option<&str>,
-  require_hostname_bind: bool,
   down_threshold: Duration,
 ) -> Option<(Vec<ServiceRef>, RouteGroupKey)> {
   // --- Eligibility stage ---
@@ -55,8 +54,14 @@ pub(crate) fn select_client_pool(
     })
     // A service refused server-side serving is excluded here rather than
     // relayed, so it answers as an unclaimed route does. See the refusal in
-    // `declare.rs` for why relaying would be the worse failure.
-    .filter(|(_, s)| s.backend_healthy && s.admin_enabled && s.server_side_refused.is_none())
+    // `declare.rs` for why relaying would be the worse failure. One whose
+    // policy disagrees with its route's is out too, see `agree.rs`.
+    .filter(|(_, s)| {
+      s.backend_healthy
+        && s.admin_enabled
+        && s.server_side_refused.is_none()
+        && s.policy_conflict.is_none()
+    })
     .collect();
 
   // --- Hostname stage ---
@@ -72,16 +77,17 @@ pub(crate) fn select_client_pool(
   let (host_pool, host_key): (Vec<(ServiceRef, &ServiceState)>, Option<String>) =
     if !host_matched.is_empty() {
       (host_matched, request_host.map(|h| h.to_string()))
-    } else if require_hostname_bind {
-      // Strict mode: unbound services are never eligible.
-      return None;
     } else {
-      let unbound: Vec<(ServiceRef, &ServiceState)> = eligible
+      // A hostname nobody claims goes to the services that asked for every
+      // such hostname with `hostname: "*"`. Naming no hostname is not that:
+      // it used to be, which made a forgotten hostname a site serving
+      // whatever reached the server.
+      let catch_all: Vec<(ServiceRef, &ServiceState)> = eligible
         .iter()
-        .filter(|(_, s)| !s.has_hostname_bind())
+        .filter(|(_, s)| s.catch_all)
         .map(|(r, s)| (r.clone(), *s))
         .collect();
-      (unbound, None)
+      (catch_all, None)
     };
 
   if host_pool.is_empty() {
@@ -222,8 +228,6 @@ pub(crate) struct SelectedClient {
   pub(crate) org_id: Option<String>,
   /// Client-process instance ID (from Ping); used by failover `wait` mode.
   pub(crate) instance_id: Option<String>,
-  /// Tunnel protocol version the client announced (None until known).
-  pub(crate) protocol: Option<u32>,
   /// The client opted into the server-side response cache (Ping `cache`).
   pub(crate) cache: bool,
   /// Where this request goes instead of over the tunnel, when the service was
@@ -303,14 +307,13 @@ pub(crate) async fn pick_proxy_client(
   visitor_ip: Option<IpAddr>,
   // Which side of a route's canary split this request belongs on, already
   // decided from the route policy, the request's headers and the visitor.
-  canary: Option<(&str, crate::static_routes::Side)>,
+  canary: Option<(&str, crate::sites::Side)>,
 ) -> PickOutcome {
   let clients = state.clients.read().await;
   let Some((pool, group_key)) = select_client_pool(
     &clients,
     uri_path,
     request_host,
-    state.config().require_hostname_bind,
     state.config().client_down_threshold,
   ) else {
     return PickOutcome::NoRoute;
@@ -379,7 +382,6 @@ pub(crate) async fn pick_proxy_client(
       token_id: c.perms.token_id.clone(),
       org_id: c.perms.org_id.clone(),
       instance_id: c.reported_instance_id.clone(),
-      protocol: c.client_protocol,
       cache: svc.cache,
       server_side_target: svc.server_side_target.clone(),
       resilience: svc.resilience,
@@ -414,7 +416,6 @@ pub(crate) async fn route_exists(
     &clients,
     uri_path,
     request_host,
-    state.config().require_hostname_bind,
     state.config().client_down_threshold,
   ) else {
     return false;
@@ -468,7 +469,7 @@ pub(crate) async fn route_declaration_pending(state: &AppState) -> bool {
 fn narrow_to_side(
   pool: &[ServiceRef],
   clients: &HashMap<String, ClientHandle>,
-  (service, side): (&str, crate::static_routes::Side),
+  (service, side): (&str, crate::sites::Side),
 ) -> Vec<ServiceRef> {
   pool
     .iter()
@@ -478,8 +479,8 @@ fn narrow_to_side(
         .and_then(|s| s.service_name.as_deref())
         .is_some_and(|name| name == service);
       match side {
-        crate::static_routes::Side::Canary => is_canary,
-        crate::static_routes::Side::Stable => !is_canary,
+        crate::sites::Side::Canary => is_canary,
+        crate::sites::Side::Stable => !is_canary,
       }
     })
     .cloned()
@@ -507,7 +508,6 @@ pub(crate) async fn route_is_public(
     &clients,
     uri_path,
     request_host,
-    state.config().require_hostname_bind,
     state.config().client_down_threshold,
   ) else {
     return false;

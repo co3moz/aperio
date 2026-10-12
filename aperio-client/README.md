@@ -25,7 +25,7 @@ npm --prefix ../tests/e2e test         # full end-to-end suite (needs debug bina
 | `src/proxy/ws.rs` | WebSocket upgrade pass-through to the backend |
 | `src/tcp.rs` | Raw TCP tunneling: `tcp_target` bridge and emergency-tunnel data path |
 | `src/udp.rs` | UDP datagram relay for `protocol: udp` tunnels (idle timeout, session tracking) |
-| `src/bind_tunnels.rs` | Consumer side of emergency tunnels (`--bind-tunnels`): discovery + local listeners |
+| `src/bind_tunnels.rs` | Consumer side of emergency tunnels (`aperio-client bind`): discovery + local listeners |
 | `src/e2e.rs` | End-to-end tunnel encryption (X25519 + ChaCha20-Poly1305) between two clients |
 | `src/check.rs` | `aperio-client check`: config validation and connectivity diagnostics |
 

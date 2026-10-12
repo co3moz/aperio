@@ -19,25 +19,42 @@ const clientFields = fieldsOf(client, client)
 const serverFields = fieldsOf(server, server)
 
 describe('the client schema through the builder', () => {
-  it('offers a name on a declared tunnel', () => {
-    const tunnels = find(clientFields, 'tunnels')
-    expect(tunnels?.kind).toBe('objectList')
-    const keys = tunnels?.children?.map((c) => c.key)
-    expect(keys).toContain('name')
-    expect(keys).toContain('target')
-    expect(keys).toContain('protocol')
+  it('edits services, tunnels and binds as maps keyed by name', () => {
+    // A name is the key an entry is written under, so each of these is a map
+    // of name → entry and is edited in a dialog, one entry per name.
+    for (const key of ['services', 'tunnels']) {
+      expect(find(clientFields, key)?.kind, key).toBe('objectMap')
+    }
+    const tunnel = find(clientFields, 'tunnels')?.children?.map((c) => c.key)
+    expect(tunnel).toContain('target')
+    expect(tunnel).toContain('protocol')
+    expect(tunnel).not.toContain('name')
   })
 
-  it('keeps bind-tunnels editable now that an entry may also be a bare port', () => {
-    // The value schema became `anyOf [integer, BindTunnelEntry]`. If the
-    // flattener took the integer branch, or gave up, the section would render
-    // as an uneditable row instead of a dialog.
-    const bind = find(clientFields, 'bind-tunnels')
+  it('keeps binds editable now that an entry may also be a bare port', () => {
+    // The value schema is `anyOf [integer, BindEntry]`. If the flattener took
+    // the integer branch, or gave up, the section would render as an
+    // uneditable row instead of a dialog.
+    const bind = find(clientFields, 'binds')
     expect(bind?.kind).toBe('objectMap')
     const keys = bind?.children?.map((c) => c.key)
     expect(keys).toContain('port')
     expect(keys).toContain('address')
     expect(keys).toContain('token')
+  })
+
+  it('offers every service setting under defaults', () => {
+    const defaults = find(clientFields, 'defaults')
+    expect(defaults?.kind).toBe('object')
+    const keys = defaults?.children?.map((c) => c.key) ?? []
+    for (const key of ['access', 'timeout', 'health', 'limits', 'cache', 'inspector']) {
+      expect(keys, key).toContain(key)
+    }
+    // Where a service's traffic comes from and goes to belongs to the one
+    // service, never to a default.
+    for (const key of ['target', 'hostname', 'path', 'depends_on']) {
+      expect(keys, key).not.toContain(key)
+    }
   })
 
   it('describes the combined transport as an option', () => {
@@ -48,58 +65,15 @@ describe('the client schema through the builder', () => {
   })
 })
 
-describe('the single-service keys on their way out', () => {
-  // They only ever worked in a file with no `services:` list, and a file is
-  // where a deployment is written down: two shapes for "what this client
-  // exposes" is a question nobody should have to answer. The shorthand stays
-  // on the CLI and in the environment, where a one-liner is the point.
-  const SINGLE = ['target', 'serve', 'hostname', 'path', 'tcp_target', 'target_health']
-
-  it('is marked deprecated in the schema the form reads', () => {
-    for (const key of SINGLE) {
-      expect(find(clientFields, key)?.deprecated, key).toBe(true)
+describe('the server settings through the builder', () => {
+  it('reads every section as a block of its own', () => {
+    // The settings document is sections all the way down; a section that
+    // came out as a single field would put every one of its settings out of
+    // the form's reach.
+    for (const section of ['limits', 'gateway', 'routing', 'proxy', 'cache', 'oidc']) {
+      expect(find(serverFields, section)?.kind, section).toBe('object')
     }
-  })
-
-  it('leaves the keys that are genuinely per-entry fallbacks alone', () => {
-    // These stay top-level in the multi-service shape: the client falls back
-    // to them per entry, so flagging them would tell people to remove a key
-    // that still does its job.
-    for (const key of ['trim_bind', 'pass_hostname', 'serve_spa', 'serve_404', 'services']) {
-      expect(find(clientFields, key)?.deprecated, key).toBeFalsy()
-    }
-  })
-
-  it('flags the block spelling of the probe path, but not its siblings', () => {
-    // `health.interval` and friends are genuine per-entry defaults; only the
-    // endpoint is read by nothing once a services: list exists.
-    const health = find(clientFields, 'health')?.children ?? []
-    expect(find(health, 'endpoint')?.deprecated).toBe(true)
-    for (const key of ['interval', 'timeout', 'threshold', 'wait_for_backend']) {
-      expect(find(health, key)?.deprecated, key).toBeFalsy()
-    }
-  })
-
-  it('still names the same key on a services entry, undeprecated', () => {
-    // The replacement has to be reachable, or the advice is empty.
-    const entry = find(clientFields, 'services')?.children ?? []
-    // `target_health` is excluded: on an entry it is still flagged, as the old
-    // flat spelling of `health.endpoint`. That is a different complaint with a
-    // different answer, and the answer, the block, is checked right below.
-    for (const key of SINGLE.filter((k) => k !== 'target_health')) {
-      expect(find(entry, key)?.deprecated, key).toBeFalsy()
-    }
-    const entryHealth = find(entry, 'health')?.children ?? []
-    expect(find(entryHealth, 'endpoint')?.deprecated).toBeFalsy()
-  })
-})
-
-describe('the server schema through the builder', () => {
-  it('offers the identity form of an expose entry', () => {
-    const expose = find(serverFields, 'expose')
-    expect(expose?.kind).toBe('objectList')
-    const keys = expose?.children?.map((c) => c.key)
-    expect(keys).toEqual(expect.arrayContaining(['port', 'tunnel', 'token', 'key']))
+    expect(find(serverFields, 'sites')?.kind).toBe('objectList')
   })
 })
 
@@ -118,7 +92,7 @@ describe('every setting reaches an editor', () => {
 
   it('has only the known map-of-scalar holes', () => {
     // Every one is `map of name → scalar`, which has no editor yet; the map
-    // of name → *object* does, which is how `bind-tunnels` itself is edited.
+    // of name → *object* does, which is how `services` itself is edited.
     // The list grows when a setting of that shape is added: `metrics_labels`
     // and `subscribe.env` joined it one cycle, `auth.claims` the next, and
     // both went unnoticed until the snapshot was regenerated. That was the
@@ -126,12 +100,11 @@ describe('every setting reaches an editor', () => {
     // the snapshot is current, so a stale one fails in Rust rather than
     // hiding a new hole here.
     expect(unsupported(clientFields).sort()).toEqual([
-      'auth.claims',
-      'bind-tunnels.override',
-      'headers.request.add',
-      'headers.response.add',
-      'metrics_labels',
-      'services.auth.claims',
+      'defaults.access.claims',
+      'defaults.headers.request',
+      'defaults.headers.response',
+      'defaults.metrics_labels',
+      'services.access.claims',
       'services.headers.request',
       'services.headers.response',
       'services.metrics_labels',
@@ -140,16 +113,18 @@ describe('every setting reaches an editor', () => {
   })
 
   it('has only the same holes in the server schema', () => {
-    // `routes.headers.*` is the same shape reached through a policy rule, and
-    // `auth.claims` is the claim map a `jwt` method requires, reached by both
-    // spellings of the server's own gate.
+    // `sites.headers.*` is the header shape reached through a site,
+    // `sites.waf.header` is a block two lists deep, which the builder leaves
+    // to the yaml view on purpose, `access.claims` and `sites.access.claims`
+    // are the claim map a `jwt` method requires, and `otel.headers` is a map
+    // of header names to values.
     expect(unsupported(serverFields).sort()).toEqual([
-      'headers.request.add',
-      'headers.response.add',
-      'routes.headers.request',
-      'routes.headers.response',
-      'server.auth.claims',
-      'server_auth.claims',
+      'access.claims',
+      'otel.headers',
+      'sites.access.claims',
+      'sites.headers.request',
+      'sites.headers.response',
+      'sites.waf.header',
     ])
   })
 })

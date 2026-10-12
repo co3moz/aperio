@@ -45,9 +45,13 @@ fn run_npm(dir: &Path, args: &[&str]) {
   } else {
     Command::new("npm")
   };
+  // The release the dashboard is built into, so its help links point at the
+  // documentation of that release rather than at master, where a page may
+  // since have moved.
   let status = cmd
     .args(args)
     .current_dir(dir)
+    .env("APERIO_VERSION", env!("CARGO_PKG_VERSION"))
     .status()
     .unwrap_or_else(|e| {
       panic!(

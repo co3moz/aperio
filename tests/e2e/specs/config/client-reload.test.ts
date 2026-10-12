@@ -11,8 +11,8 @@ import { BaseServerFor, BaseBackendFor } from '../base/fixtures.js'
  *  past what the per-IP bucket refills; the reload is what is under test,
  *  not the limiter. */
 class ReloadServer extends BaseServerFor() {
-  _env() {
-    return { ...super._env(), APERIO_IP_LIMIT_MAX: '100000', APERIO_IP_LIMIT_REFILL: '10000' }
+  _settings() {
+    return { ...super._settings(), limits: { ip_rate: { burst: 100000, per_second: 10000 } } }
   }
 }
 class ReloadBackend extends BaseBackendFor() {}
@@ -34,14 +34,14 @@ class ReloadClient extends ClientFor(() => ReloadServer, () => ReloadBackend) {
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
       'services:',
-      `  - target: ${this.backend._url}`,
+      '  web:',
+      `    target: ${this.backend._url}`,
       `    hostname: ${HOST}`,
-      '    name: web',
-      '    public: true',
-      `  - target: ${this.backend._url}`,
+      '    access: public',
+      '  second:',
+      `    target: ${this.backend._url}`,
       `    hostname: second-${HOST}`,
-      '    name: second',
-      '    public: true',
+      '    access: public',
       `    custom_name: "${note}"`,
       '',
     ].join('\n')
@@ -89,16 +89,17 @@ export class ClientReloadSpec extends Test({
       !log.includes('did not come up within'),
       `the handover completed inside its budget:\n${log}`,
     )
-    // And the old connections are gone: two services, two connections, no
-    // ghost holding a third slot.
+    // And the old connection is gone: two services sharing one connection,
+    // which is what a file with two services gets, and no ghost holding a
+    // second slot.
     await waitFor(
       async () => {
         const health = await this.server._json<{ connected_clients: number }>('/aperio/health', {
           headers: { authorization: `Bearer ${this.server._token}` },
         })
-        return health.connected_clients === 2
+        return health.connected_clients === 1
       },
-      { timeoutMs: 15_000, label: 'exactly the two replacement connections' },
+      { timeoutMs: 15_000, label: 'exactly the one replacement connection' },
     )
   }
 }

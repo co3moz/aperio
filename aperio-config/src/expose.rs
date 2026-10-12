@@ -1,17 +1,16 @@
 //! Public listener contracts shared by config validation and management.
 //!
 //! A stored resource names an organization id, never a mutable display name.
-//! Legacy YAML claims remain on `ExposeEntry` and are resolved by the server.
 
 use std::net::IpAddr;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::ExposeEntry;
-
-/// Explicit actions; tenant roles alone never grant public listener control.
-/// Every non-read action implies read, but never another mutation or delegation.
+/// What may be done to a public listener. Which of these a caller holds is
+/// decided by its role in the listener's organization: every role reads, an
+/// operator also enables, disables and disconnects, an admin also creates,
+/// changes and deletes.
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[derive(
   Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, JsonSchema,
@@ -25,11 +24,10 @@ pub enum ExposeAction {
   Disable,
   Delete,
   Disconnect,
-  Delegate,
 }
 
 impl ExposeAction {
-  pub const ALL: [Self; 8] = [
+  pub const ALL: [Self; 7] = [
     Self::Read,
     Self::Create,
     Self::Update,
@@ -37,7 +35,6 @@ impl ExposeAction {
     Self::Disable,
     Self::Delete,
     Self::Disconnect,
-    Self::Delegate,
   ];
 
   pub fn as_str(self) -> &'static str {
@@ -49,7 +46,6 @@ impl ExposeAction {
       Self::Disable => "disable",
       Self::Delete => "delete",
       Self::Disconnect => "disconnect",
-      Self::Delegate => "delegate",
     }
   }
 }
@@ -94,7 +90,7 @@ impl std::fmt::Display for ExposeError {
   }
 }
 
-/// The qualified spelling used by both file rules and tunnel discovery.
+/// The qualified `<org>@<name>` spelling tunnel discovery and binds use.
 pub fn split_qualified(raw: &str) -> (Option<&str>, &str) {
   match raw.trim().split_once('@') {
     Some((org, name)) => (Some(org.trim()), name.trim()),
@@ -102,151 +98,12 @@ pub fn split_qualified(raw: &str) -> (Option<&str>, &str) {
   }
 }
 
-impl ExposeEntry {
-  pub fn explicit_org(&self) -> Option<&str> {
-    match split_qualified(self.tunnel.as_deref().unwrap_or_default()) {
-      (Some(org), _) => Some(org),
-      (None, _) => self.org.as_deref().map(str::trim).filter(|o| !o.is_empty()),
-    }
-  }
-
-  pub fn qualified_name(&self) -> String {
-    let (_, name) = split_qualified(self.tunnel.as_deref().unwrap_or_default());
-    match (self.explicit_org(), self.token.as_deref()) {
-      (Some(org), _) => format!("{org}@{name}"),
-      (None, Some(token)) => format!("{name} (token {token})"),
-      (None, None) => format!("master@{name}"),
-    }
-  }
-
-  pub fn label(&self) -> String {
-    match (&self.tunnel, &self.key) {
-      (Some(_), _) => format!("tunnel {}", self.qualified_name()),
-      (None, Some(_)) => "a key-matched tunnel".into(),
-      (None, None) => "nothing".into(),
-    }
-  }
-
-  /// The caller supplies implemented transports so a schema refactor cannot
-  /// accidentally enable UDP before a public UDP relay exists.
-  pub fn validate(&self, supported: &[ExposeProtocol]) -> Vec<ExposeError> {
-    let mut errors = Vec::new();
-    if !supported.iter().any(|p| p.as_str() == self.protocol) {
-      errors.push(ExposeError::new(
-        "protocol",
-        "unsupported public expose protocol",
-      ));
-    }
-    if self.port == 0 {
-      errors.push(ExposeError::new(
-        "port",
-        "port 0 lets the OS pick; name a reachable port",
-      ));
-    }
-    match (&self.tunnel, &self.key) {
-      (Some(name), _) => {
-        let (prefix, bare) = split_qualified(name);
-        if let Err(e) = crate::validate_tunnel_name(bare) {
-          errors.push(ExposeError::new("tunnel", e));
-        }
-        if let (Some(prefix), Some(org)) = (prefix, self.org.as_deref())
-          && !prefix.eq_ignore_ascii_case(org.trim())
-        {
-          errors.push(ExposeError::new(
-            "org",
-            "tunnel prefix and org name different organizations",
-          ));
-        }
-      }
-      (None, Some(key)) if key.trim().len() < 8 => {
-        errors.push(ExposeError::new(
-          "key",
-          "the key must be at least 8 characters",
-        ));
-      }
-      (None, None) => errors.push(ExposeError::new(
-        "tunnel",
-        "needs a tunnel naming what the port relays into",
-      )),
-      _ => {}
-    }
-    let protocol = if self.protocol == "udp" {
-      ExposeProtocol::Udp
-    } else {
-      ExposeProtocol::Tcp
-    };
-    let spec = ExposeSpec {
-      advertised_host: self.advertised_host.clone(),
-      org_id: "master".into(),
-      tunnel: "validation".into(),
-      listener: ExposeListener {
-        address: self
-          .address
-          .unwrap_or_else(|| "0.0.0.0".parse().expect("literal IP")),
-        port: self.port,
-        protocol,
-      },
-      enabled: self.enabled,
-      limits: self
-        .limits
-        .clone()
-        .unwrap_or_else(|| ExposeLimits::defaults(protocol)),
-      allowed_ips: self.allowed_ips.clone(),
-    };
-    errors.extend(
-      spec
-        .validate()
-        .into_iter()
-        .filter(|error| error.field != "listener.port")
-        .map(|mut error| {
-          if error.field == "listener.address" {
-            error.field = "address".into();
-          }
-          error
-        }),
-    );
-    errors
-  }
-}
-
-/// Validate a legacy file section, with indexed field paths for diagnostics.
-pub fn validate_entries_at_address(
-  rules: &[ExposeEntry],
-  supported: &[ExposeProtocol],
-  default_address: IpAddr,
-) -> Vec<ExposeError> {
-  let mut resolved = rules.to_vec();
-  for rule in &mut resolved {
-    rule.address = Some(rule.address.unwrap_or(default_address));
-  }
-  validate_entries(&resolved, supported)
-}
-
-/// Validate declarations before a server bind address is available.
-pub fn validate_entries(rules: &[ExposeEntry], supported: &[ExposeProtocol]) -> Vec<ExposeError> {
-  let mut errors = Vec::new();
-  let mut ports = std::collections::HashSet::new();
-  for (i, rule) in rules.iter().enumerate() {
-    let mut local = rule.validate(supported);
-    if !ports.insert((rule.address, rule.protocol.as_str(), rule.port)) {
-      local.push(ExposeError::new(
-        "port",
-        format!("port {} is declared twice for {}", rule.port, rule.protocol),
-      ));
-    }
-    errors.extend(local.into_iter().map(|mut error| {
-      error.field = format!("expose[{i}].{}", error.field);
-      error
-    }));
-  }
-  errors
-}
-
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExposeSource {
-  File,
+  /// Created and managed through the API or the dashboard, the only source
+  /// there is since the server stopped reading a configuration file.
   Api,
 }
 

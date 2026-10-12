@@ -245,7 +245,7 @@ pub(crate) async fn proxy_http_request(
         // a stealth refusal. Except that a *resilient* cached answer is
         // itself the declaration, and this is the one condition it exists
         // for: an entry is only consulted here once its client is gone, so
-        // refusing makes `resilience: true` work exactly while nobody needs
+        // refusing makes `cache.offline` work exactly while nobody needs
         // it.
         //
         // This is #119. The intermittent 504 was this refusal, reached
@@ -299,12 +299,17 @@ pub(crate) async fn proxy_http_request(
   let request_host = extract_request_host(&headers);
   let uri_path_owned = uri_str.split('?').next().unwrap_or(&uri_str).to_string();
 
-  // WAF-lite deny rules (`waf:` section): reject path/method/header attacks
-  // with 403 before the request is dispatched or its body read.
+  // A site's `waf` deny rules: reject path/method/header attacks with 403
+  // before the request is dispatched or its body read.
   {
     let cfg = state.config();
-    if !cfg.waf.is_empty()
-      && let Some(reason) = cfg.waf.deny_reason(&method_str, &uri_path_owned, &headers)
+    if cfg.sites.has_waf()
+      && let Some(reason) = cfg.sites.waf_deny(
+        request_host.as_deref(),
+        &method_str,
+        &uri_path_owned,
+        &headers,
+      )
     {
       let reason = reason.to_string();
       log_request_failure(
@@ -321,9 +326,8 @@ pub(crate) async fn proxy_http_request(
     }
   }
 
-  // Per-route rate limit (a route's own `rate_limit:`, else the `rate_limits:`
-  // section): a shared token bucket caps aggregate rps to a matched
-  // host+path+method, protecting expensive endpoints.
+  // A site's `rate_limit`: a shared token bucket caps aggregate rps to a
+  // matched host+path+method, protecting expensive endpoints.
   if !state
     .check_route_rate_limit(request_host.as_deref(), &uri_path_owned, &method_str)
     .await
@@ -401,9 +405,8 @@ pub(crate) async fn proxy_http_request(
   // the split mean nothing precisely when something is going wrong.
   let canary_side = state
     .config()
-    .static_routes
-    .policy_for(request_host.as_deref(), &uri_path_owned)
-    .and_then(|rule| rule.canary.as_ref())
+    .sites
+    .canary_for(request_host.as_deref(), &uri_path_owned)
     .map(|rule| {
       let sent = rule
         .header
@@ -471,23 +474,16 @@ pub(crate) async fn proxy_http_request(
       {
         return resp;
       }
-      // Per-hostname fallback URL (`fallbacks:` section): redirect an
-      // unclaimed hostname to a configured origin/status page instead of 504.
-      // Never for a denied visitor (stealth), the redirect would leak the
-      // route's existence.
+      // A site's `fallback`: redirect an unclaimed hostname to a configured
+      // origin/status page instead of 504. Never for a denied visitor
+      // (stealth), the redirect would leak the route's existence.
       if !denied {
         let cfg = state.config();
-        if !cfg.fallbacks.is_empty()
-          && let Some(rule) = cfg.fallbacks.matched(request_host.as_deref())
-        {
+        if let Some(rule) = cfg.sites.fallback_for(request_host.as_deref()) {
           let path = uri_str.split('?').next().unwrap_or(&uri_str);
           let query = uri_str.split_once('?').map(|(_, q)| q);
-          let location = crate::fallbacks::redirect_location(rule, path, query);
-          let status = if rule.permanent {
-            StatusCode::MOVED_PERMANENTLY
-          } else {
-            StatusCode::FOUND
-          };
+          let location = rule.location(path, query);
+          let status = rule.status();
           log_request_success(
             &state,
             uuid::Uuid::new_v4().to_string(),
@@ -565,7 +561,7 @@ pub(crate) async fn proxy_http_request(
     return refuse(&state, Limit::OrgQuota);
   }
 
-  // Server-side response cache (APERIO_CACHE + the client's `cache: true`):
+  // Server-side response cache (cache.enabled + the client's `cache: true`):
   // a fresh cached GET answer skips the tunnel round-trip entirely. Only
   // credential-less plain GETs qualify, and only responses whose
   // Cache-Control explicitly allowed shared caching were stored.
@@ -719,7 +715,7 @@ pub(crate) async fn proxy_http_request(
     .and_then(|v| v.to_str().ok())
     .is_some_and(|v| v.to_ascii_lowercase().contains("chunked"));
   // Effective request body cap: the service's own declared limit (Ping
-  // `max_request_body`) can only tighten the global APERIO_MAX_BODY_SIZE.
+  // `max_request_body`) can only tighten the global limits.request_body.
   let body_limit = effective_body_limit(state.config().max_body_size, selected.max_request_body);
   // Declared over-limit bodies keep failing fast with 413 even when they
   // would otherwise be streamed.
@@ -745,9 +741,8 @@ pub(crate) async fn proxy_http_request(
   // crosses the tunnel, and there is no tunnel here. Deciding it at this one
   // place rather than in the dispatch keeps the two from disagreeing, which
   // would have shown up as a body pumped into a socket nobody is reading.
-  let stream_request = (selected.server_side_target.is_some()
-    || selected.protocol.unwrap_or(1) >= 2)
-    && (chunked_upload || content_length.is_some_and(|l| l > REQUEST_STREAM_THRESHOLD));
+  let stream_request =
+    chunked_upload || content_length.is_some_and(|l| l > REQUEST_STREAM_THRESHOLD);
   // Bytes forwarded by the streamed-body pump (for stats attribution).
   let streamed_bytes = Arc::new(AtomicU64::new(0));
 
@@ -779,16 +774,19 @@ pub(crate) async fn proxy_http_request(
     }
   };
 
-  // WAF-lite body-size rules (`waf:` with `max_body`): reject an oversized
-  // body on a matched route with 413, now that the length is known. Streamed
-  // request bodies (protocol v2) are governed only by the global body limit.
+  // A site's `waf` size rules (`max_body`): reject an oversized body on a
+  // matched route with 413, now that the length is known. Streamed request
+  // bodies are governed only by the global body limit.
   if !stream_request {
     let cfg = state.config();
-    if !cfg.waf.is_empty()
-      && let Some(reason) =
-        cfg
-          .waf
-          .body_reason(&method_str, &uri_path_owned, &headers, body_bytes.len())
+    if cfg.sites.has_waf()
+      && let Some(reason) = cfg.sites.waf_body(
+        request_host.as_deref(),
+        &method_str,
+        &uri_path_owned,
+        &headers,
+        body_bytes.len(),
+      )
     {
       let reason = reason.to_string();
       log_request_failure(
@@ -869,23 +867,14 @@ pub(crate) async fn proxy_http_request(
     })
     .flatten();
 
-  // Server-side `headers.request` rewrite rules (aperio-server.yaml), applied
-  // before the inspector capture so replay and capture match what was sent.
-  // A matching `routes:` policy entry applies after the server-wide rules, so
-  // the narrower rule is the one that gets the last word.
-  let serialized_headers = state
-    .config()
-    .header_rules
-    .request
-    .apply(serialized_headers);
-  let serialized_headers = match state
-    .config()
-    .static_routes
-    .policy_for(request_host.as_deref(), &uri_path_owned)
-  {
-    Some(rule) => rule.header_transforms.request.apply(serialized_headers),
-    None => serialized_headers,
-  };
+  // The matching sites' request header edits, broadest first so the
+  // narrowest has the last word, applied before the inspector capture so
+  // replay and capture match what was sent.
+  let serialized_headers = state.config().sites.request_headers(
+    request_host.as_deref(),
+    &uri_path_owned,
+    serialized_headers,
+  );
 
   // Capture (truncated) request data for the dashboard inspector before the
   // originals are moved into the tunnel message. Streamed bodies are not

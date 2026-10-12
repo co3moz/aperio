@@ -25,6 +25,7 @@ fn info(expires_at: u64, username: Option<&str>) -> SessionInfo {
     selected_org: None,
     bound_org: None,
     login_host: None,
+    sso_issuer: None,
   }
 }
 

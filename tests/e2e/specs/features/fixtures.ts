@@ -5,7 +5,7 @@ import { UnixBackendBase } from '../../lib/uds.js'
 
 /** The features phase accumulates many concurrent clients, so the default
  *  ten-tunnel cap is lifted the way the bash phase lifts it. */
-export class FeatureServer extends AperioServerBase({ env: { APERIO_MAX_TUNNELS: '30' } }) {}
+export class FeatureServer extends AperioServerBase({ settings: { limits: { tunnels: 30 } } }) {}
 
 export class MainBackend extends StandardBackendBase() {}
 export class SecondBackend extends StandardBackendBase() {}
@@ -93,17 +93,17 @@ export class MultiServiceClient extends AperioClientBase({
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
       'services:',
-      '  - name: web',
+      '  web:',
       `    target: ${this.web._url}`,
       '    hostname: web.e2e.local',
-      '  - name: api',
+      '  api:',
       `    target: ${this.api._url}`,
       '    hostname: api.e2e.local',
       '    webhook_inbox: true',
-      '  - name: upload',
+      '  upload:',
       `    target: ${this.web._url}`,
       '    hostname: upload.e2e.local',
-      '    max_request_body: 64',
+      '    limits: { request_body: 64 }',
       '    security_headers: true',
       '',
     ].join('\n')
@@ -143,7 +143,7 @@ export class HomeConfigClient extends FeatureClient {
       USERPROFILE: this._home,
       APERIO_TARGET: this.backend._url,
       APERIO_HOSTNAME: 'home.e2e.local',
-      APERIO_TARGET_HEALTH: '/health',
+      APERIO_HEALTH_ENDPOINT: '/health',
       // Deliberately unset, so what reaches the server proves the home file
       // was read.
       APERIO_SERVER_URL: '',

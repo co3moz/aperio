@@ -149,6 +149,16 @@ impl ConnCtx {
     compress_out.store(true, Ordering::SeqCst);
   }
 
+  /// Tells the client, once per connection, why its OTel exports go nowhere.
+  fn otel_refused(&self, why: &str) {
+    if !self
+      .otel_refusal_noticed
+      .swap(true, std::sync::atomic::Ordering::Relaxed)
+    {
+      self.notify(None, why.to_string());
+    }
+  }
+
   /// Handles the client announcing a graceful drain.
   /// Forwards an OTLP export a client sent over the tunnel.
   ///
@@ -165,12 +175,20 @@ impl ConnCtx {
         "Client {} sent an OTel export but the bridge is not enabled",
         self.client_id
       );
+      self.otel_refused(
+        "OTel exports are dropped: this server's bridge is off (`otel_bridge`), so nothing \
+         this client receives on its `otel_bridge` listener reaches a collector",
+      );
       return;
     }
     if !crate::api::otlp::may_bridge(&self.perms) {
       warn!(
         "Client {} sent an OTel export but its token does not carry allow_otel",
         self.client_id
+      );
+      self.otel_refused(
+        "OTel exports are dropped: this client's token does not carry `allow_otel`, so \
+         nothing this client receives on its `otel_bridge` listener reaches a collector",
       );
       return;
     }
@@ -304,7 +322,7 @@ impl ConnCtx {
             c.services.iter().any(|s| {
               let host_ok = match host_key {
                 Some(h) => s.matches_host(h),
-                None => !s.has_hostname_bind(),
+                None => s.catch_all,
               };
               host_ok && s.effective_path_bind() == path_key.as_ref()
             })

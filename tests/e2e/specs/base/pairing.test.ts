@@ -3,19 +3,15 @@ import assert from 'node:assert/strict'
 import { BaseServerFor, BaseBackendFor, BaseClientFor, HOST } from './fixtures.js'
 
 /**
- * What this file pins down: the connect-time version gate (#113) refuses the
- * pairing it says it refuses, at the upgrade, and refuses nothing else.
+ * What this file pins down: the connect-time version gate refuses, at the
+ * upgrade, every pairing that does not share a minor release, in either
+ * direction, and a peer that announces nothing or nothing readable; and it
+ * admits the same minor. The refusal is a sentence naming both releases and
+ * the side to upgrade.
  *
- * The gate ships with its floor equal to the documented promise, so today it
- * turns nobody away. That is precisely why it needs a test that drives a
- * refusal deliberately: a mechanism that never fires in the suite is a
- * mechanism nobody would notice breaking, and the moment it matters is the
- * moment somebody narrows the floor for a real break.
- *
- * The refusal is driven with a raw upgrade request rather than a real old
- * client, because there is no released client old enough to be refused by
- * today's floor. A hand-made request announcing an ancient version is the same
- * thing from the server's side: the header is all it reads.
+ * Driven with raw upgrade requests rather than real clients of other
+ * releases: the header is all the server reads, so a hand-made request
+ * announcing a version is the same thing from its side.
  */
 
 class PairingServer extends BaseServerFor() {}
@@ -77,6 +73,16 @@ export class PairingGateSpec extends Test({
   timeout: 60_000,
   dependencies: { server: () => PairingServer, client: () => PairingClient },
 }) {
+  /** The server's own release, as its refusal of an ancient client names it. */
+  async _serverRelease(): Promise<string> {
+    const res = await upgradeWith(this.server._url, this.server._token, {
+      'x-aperio-release': '0.0.1',
+    })
+    const found = /this server is (\d+\.\d+\.\d+)/.exec(res.body)
+    assert.ok(found, `the refusal names the server's release: ${res.body}`)
+    return found[1]
+  }
+
   async aClientTooOldIsRefusedAtTheUpgradeWithBothVersionsNamed() {
     const res = await upgradeWith(this.server._url, this.server._token, {
       'x-aperio-release': '0.0.1',
@@ -88,35 +94,41 @@ export class PairingGateSpec extends Test({
     assert.match(res.body, /Upgrade the client/, res.body)
   }
 
-  async aClientThatAnnouncesNothingIsAdmitted() {
-    // Silence predates the header and is inside the documented window.
-    // Reading it as age would take a fleet down on the upgrade that
-    // introduced the gate, which is the outage this exists to avoid.
+  async aClientThatAnnouncesNothingIsRefusedAsOlder() {
+    // Silence predates the rule, which makes it an older minor.
     const res = await upgradeWith(this.server._url, this.server._token, {})
-    assert.notEqual(res.status, 426, res.body)
+    assert.equal(res.status, 426, res.body)
+    assert.match(res.body, /announced no release/, res.body)
+    assert.match(res.body, /Upgrade the client/, res.body)
   }
 
-  async aGarbledVersionIsNotEvidenceOfAge() {
+  async aGarbledVersionIsRefused() {
     const res = await upgradeWith(this.server._url, this.server._token, {
       'x-aperio-release': 'not-a-version',
     })
-    assert.notEqual(res.status, 426, res.body)
+    assert.equal(res.status, 426, res.body)
   }
 
-  async theServerAnnouncesWhatItIsAndWhatItAccepts() {
-    // The other half of the window: only the client can judge whether the
-    // server is too old for it, so the server has to say.
+  async aNewerMinorIsRefusedAndTheServerIsTheOneToUpgrade() {
+    const [major, minor] = (await this._serverRelease()).split('.').map(Number)
     const res = await upgradeWith(this.server._url, this.server._token, {
-      'x-aperio-release': '99.0.0',
+      'x-aperio-release': `${major}.${minor + 1}.0`,
     })
-    assert.notEqual(res.status, 426, 'a newer client is not an unsupported pairing')
-    assert.match(res.headers['x-aperio-release'] ?? '', /^\d+\.\d+\.\d+/)
-    assert.match(res.headers['x-aperio-min-client'] ?? '', /^\d+\.\d+\.\d+/)
+    assert.equal(res.status, 426, res.body)
+    assert.match(res.body, /Upgrade the server/, res.body)
   }
 
-  async theRealClientOfThisBuildIsServedExactlyAsBefore() {
-    // The whole promise of shipping the mechanism with the floor where the
-    // documentation already puts it: nothing that works today stops working.
+  async theSameMinorIsAdmittedAndTheServerSaysWhatItIs() {
+    const [major, minor] = (await this._serverRelease()).split('.').map(Number)
+    // Another patch of the same minor: the pairing the rule promises.
+    const res = await upgradeWith(this.server._url, this.server._token, {
+      'x-aperio-release': `${major}.${minor}.99`,
+    })
+    assert.notEqual(res.status, 426, res.body)
+    assert.match(res.headers['x-aperio-release'] ?? '', /^\d+\.\d+\.\d+/)
+  }
+
+  async theRealClientOfThisBuildIsServed() {
     const res = await this.server._fetch('/hello', { headers: { host: HOST } })
     assert.equal(res.status, 200)
   }

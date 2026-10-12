@@ -1,0 +1,13 @@
+# First-start settings for this example, read once into an empty data
+# directory. Start the server with:
+#
+#   APERIO_SERVER_TOKEN=apr_health_check_multi_change_me APERIO_INIT_FILE=server-init.yaml aperio-server
+#
+# After the first start the settings live in the database: change them from
+# the dashboard (Settings), with `PUT /aperio/api/settings`, or export them
+# with `GET /aperio/api/export?include=settings`.
+
+settings:
+  alerts:
+    # Alert when any known service stays down longer than a minute.
+    client_down: 1m

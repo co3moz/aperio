@@ -93,7 +93,11 @@ fn build_request(url: &str, token: Option<&str>) -> axum::http::Request<()> {
     .header("Connection", "Upgrade")
     .header("Upgrade", "websocket")
     .header("Sec-WebSocket-Version", "13")
-    .header("Sec-WebSocket-Key", generate_key());
+    .header("Sec-WebSocket-Key", generate_key())
+    .header(
+      aperio_config::pairing::RELEASE_HEADER,
+      env!("CARGO_PKG_VERSION"),
+    );
   if let Some(t) = token {
     b = b.header("Authorization", format!("Bearer {t}"));
   }
@@ -125,7 +129,7 @@ async fn connect_consumer(url: &str) -> WsClient {
 }
 
 async fn seed_client(state: &AppState, id: &str, f: impl FnOnce(&mut ClientHandle)) {
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   f(&mut c);
   state.clients.write().await.insert(id.to_string(), c);
 }
@@ -150,7 +154,6 @@ fn tcp_tunnel(target: &str) -> TunnelDecl {
     protocol: "tcp".into(),
     encrypt: false,
     idle_timeout: None,
-    expose: None,
   }
 }
 
@@ -162,7 +165,6 @@ fn udp_tunnel(target: &str) -> TunnelDecl {
     protocol: "udp".into(),
     encrypt: false,
     idle_timeout: None,
-    expose: None,
   }
 }
 
@@ -573,7 +575,7 @@ async fn tcp_relay_full_roundtrip() {
   // frames the relay pushes toward the client.
   let (ctx, mut crx) = mpsc::channel::<Message>(16);
   {
-    let mut c = mock_client(None, None, None, None);
+    let mut c = mock_client(None, None);
     c.tx = ctx;
     c.sole_mut().tcp_enabled = true;
     state.clients.write().await.insert("c1".into(), c);
@@ -592,10 +594,14 @@ async fn tcp_relay_full_roundtrip() {
     .send(TMessage::Binary(vec![10, 20, 30].into()))
     .await
     .unwrap();
-  match recv_msg(&mut crx).await {
-    Message::Text(t) => assert!(t.contains("TcpData")),
-    other => panic!("expected TcpData, got {other:?}"),
-  }
+  let frame = recv_msg(&mut crx).await;
+  assert!(
+    matches!(
+      crate::test_support::sent_message(&frame),
+      Some(TunnelMessage::TcpData { .. })
+    ),
+    "expected TcpData, got {frame:?}"
+  );
 
   // Tunnel -> consumer via the registered relay channel.
   let relay_tx = wait_for_tcp_stream(&state).await;
@@ -633,7 +639,7 @@ async fn udp_relay_full_roundtrip() {
   let state = Arc::new(test_state());
   let (ctx, mut crx) = mpsc::channel::<Message>(16);
   {
-    let mut c = mock_client(None, None, None, None);
+    let mut c = mock_client(None, None);
     c.tx = ctx;
     c.sole_mut().tunnels = vec![udp_tunnel("127.0.0.1:9")];
     state.clients.write().await.insert("c1".into(), c);
@@ -650,10 +656,14 @@ async fn udp_relay_full_roundtrip() {
     .send(TMessage::Binary(vec![7, 7].into()))
     .await
     .unwrap();
-  match recv_msg(&mut crx).await {
-    Message::Text(t) => assert!(t.contains("UdpDatagram")),
-    other => panic!("expected UdpDatagram, got {other:?}"),
-  }
+  let frame = recv_msg(&mut crx).await;
+  assert!(
+    matches!(
+      crate::test_support::sent_message(&frame),
+      Some(TunnelMessage::UdpDatagram { .. })
+    ),
+    "expected UdpDatagram, got {frame:?}"
+  );
 
   let relay_tx = wait_for_udp_stream(&state).await;
   relay_tx

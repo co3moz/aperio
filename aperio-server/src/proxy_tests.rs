@@ -9,7 +9,7 @@ use crate::protocol::TunnelMessage;
 use crate::settings::{FailoverMode, ServerConfig};
 use crate::state::TunnelResponse;
 use crate::store::tokens::TokenSpec;
-use crate::test_support::{mock_client, test_config, test_peer, test_state_with};
+use crate::test_support::{mock_client, sites, test_config, test_peer, test_state_with};
 use axum::body::Body;
 use axum::extract::ws::Message;
 use axum::extract::{ConnectInfo, State};
@@ -62,9 +62,9 @@ pub(crate) async fn gateway_timeout_response_plain_and_custom() {
   let resp = gateway_timeout_response(&state, None, "504 fallback");
   assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
 
-  // Custom global 504 page → HTML.
+  // The `*` site's 504 page → HTML.
   let mut cfg = test_config();
-  cfg.custom_504_page = Some("<h1>down</h1>".to_string());
+  cfg.sites = sites("- hostname: \"*\"\n  pages: {unavailable: \"<h1>down</h1>\"}\n");
   let state = test_state_with(cfg);
   let resp = gateway_timeout_response(&state, None, "504 fallback");
   assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
@@ -83,7 +83,7 @@ pub(crate) async fn maintenance_response_sets_retry_after() {
   assert_eq!(resp.headers().get("retry-after").unwrap(), "300");
 
   let mut cfg = test_config();
-  cfg.custom_503_page = Some("<h1>maint</h1>".to_string());
+  cfg.sites = sites("- hostname: \"*\"\n  pages: {maintenance: \"<h1>maint</h1>\"}\n");
   let state = test_state_with(cfg);
   let resp = maintenance_response(&state, None, &open);
   assert_eq!(
@@ -246,7 +246,7 @@ pub(crate) async fn record_outlier_failure_guarded_by_config() {
     .clients
     .write()
     .await
-    .insert("c1".to_string(), mock_client(None, None, None, None));
+    .insert("c1".to_string(), mock_client(None, None));
   record_outlier_failure(&state, "c1", None).await;
 
   // Enabled → records against the serving client (and tolerates a missing id).
@@ -258,7 +258,7 @@ pub(crate) async fn record_outlier_failure_guarded_by_config() {
     .clients
     .write()
     .await
-    .insert("c1".to_string(), mock_client(None, None, None, None));
+    .insert("c1".to_string(), mock_client(None, None));
   record_outlier_failure(&state, "c1", None).await;
   record_outlier_failure(&state, "missing", None).await;
 }
@@ -279,7 +279,7 @@ pub(crate) async fn mark_connected(state: &AppState) {
 /// Inserts a client whose receiver is retained so dispatched frames can be
 /// observed and answered. Returns the receiver.
 pub(crate) async fn insert_live_client(state: &AppState, id: &str) -> mpsc::Receiver<Message> {
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   state.clients.write().await.insert(id.to_string(), c);
@@ -398,7 +398,7 @@ pub(crate) async fn handler_serves_cache_hit_without_tunnel() {
   let state = connected(cfg);
   mark_connected(&state).await;
   // Client marked cacheable; its receiver stays dropped since we never dispatch.
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.sole_mut().cache = true;
   state.clients.write().await.insert("c1".to_string(), c);
   // Pre-seed a fresh cache entry for GET /cached.
@@ -508,12 +508,12 @@ pub(crate) fn spawn_custom(
   tokio::spawn(async move {
     let mut i = 0;
     while i < responses.len() {
-      let Some(Message::Text(text)) = rx.recv().await else {
+      let Some(frame) = rx.recv().await else {
         return;
       };
-      let id = match serde_json::from_str::<TunnelMessage>(&text) {
-        Ok(TunnelMessage::Request { id, .. }) => id,
-        Ok(TunnelMessage::RequestStart { id, .. }) => id,
+      let id = match crate::test_support::sent_message(&frame) {
+        Some(TunnelMessage::Request { id, .. }) => id,
+        Some(TunnelMessage::RequestStart { id, .. }) => id,
         _ => continue, // streamed-body chunks / RequestEnd
       };
       if let Some(req) = state.pending_requests.lock().await.remove(&id) {
@@ -558,7 +558,7 @@ pub(crate) async fn handler_stores_cacheable_response() {
   cfg.cache_enabled = true;
   let state = connected(cfg);
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.sole_mut().cache = true;
@@ -585,7 +585,7 @@ pub(crate) async fn handler_negatively_caches_404() {
   cfg.cache_enabled = true;
   let state = connected(cfg);
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.sole_mut().cache = true;
@@ -599,7 +599,7 @@ pub(crate) async fn handler_negatively_caches_404() {
 pub(crate) async fn handler_webhook_inbox_records_post() {
   let state = connected(test_config());
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.sole_mut().webhook_inbox = true;
@@ -724,7 +724,7 @@ pub(crate) async fn handler_streamed_upload_round_trip() {
   let state = connected(test_config());
   mark_connected(&state).await;
   // A protocol-v2 client streams large uploads as RequestStart + chunk frames.
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.client_protocol = Some(2);
@@ -793,7 +793,7 @@ pub(crate) async fn handler_holds_a_request_until_the_client_declares_its_route(
   mark_connected(&state).await;
 
   // A connection that has opened but not declared: no binds, no Ping.
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.last_ping_at = None;
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
@@ -827,7 +827,7 @@ pub(crate) async fn handler_holds_a_request_until_the_client_declares_its_route(
 
 #[tokio::test]
 pub(crate) async fn a_wrong_declaration_does_not_hold_a_request_open_ended() {
-  // Open posture with strict hostname binding: the gate allows the request,
+  // Open posture, and nothing serves every hostname: the gate allows the request,
   // but no bound route exists and a connection is still arriving, so it is
   // held. When that connection declares a *different* host there is nothing
   // left to wait for, and the request must not sleep to the gateway timeout.
@@ -835,13 +835,13 @@ pub(crate) async fn a_wrong_declaration_does_not_hold_a_request_open_ended() {
   // break keyed on `undeclared` alone gets wrong.
   let mut cfg = test_config();
   cfg.default_access = crate::settings::DefaultAccess::Allow;
-  cfg.require_hostname_bind = true;
   cfg.gateway_timeout = std::time::Duration::from_secs(30);
   let state = connected(cfg);
   mark_connected(&state).await;
 
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.last_ping_at = None;
+  c.sole_mut().catch_all = false;
   state.clients.write().await.insert("c1".to_string(), c);
 
   let s2 = state.clone();
@@ -875,7 +875,7 @@ pub(crate) async fn handler_swr_serves_stale_and_revalidates() {
   cfg.cache_enabled = true;
   let state = connected(cfg);
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.sole_mut().cache = true;
@@ -912,7 +912,7 @@ pub(crate) async fn handler_swr_serves_stale_and_revalidates() {
 pub(crate) async fn handler_denied_visitor_stealth_504() {
   let state = connected(test_config());
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   // The caller (127.0.0.1) is not in the client's allowlist → rejected, and no
   // `denied:` redirect is declared → stealth 504 (identical to unclaimed).
   c.sole_mut().allowed_ips = vec!["10.0.0.0/8".to_string()];
@@ -925,7 +925,7 @@ pub(crate) async fn handler_denied_visitor_stealth_504() {
 pub(crate) async fn handler_denied_visitor_redirect_302() {
   let state = connected(test_config());
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.sole_mut().allowed_ips = vec!["10.0.0.0/8".to_string()];
   c.sole_mut().denied = Some("https://denied.example/blocked".to_string());
   state.clients.write().await.insert("c1".to_string(), c);
@@ -983,7 +983,7 @@ pub(crate) async fn handler_inflight_limiter_admits_request() {
   use tokio::sync::Semaphore;
   let state = connected(test_config());
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.sole_mut().max_concurrent = Some(2);
@@ -1000,7 +1000,7 @@ pub(crate) async fn handler_single_flight_follower_serves_from_cache() {
   cfg.cache_enabled = true;
   let state = connected(cfg);
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.sole_mut().cache = true;
@@ -1087,7 +1087,7 @@ pub(crate) async fn handler_dispatch_send_failure_returns_502() {
     .clients
     .write()
     .await
-    .insert("c1".to_string(), mock_client(None, None, None, None));
+    .insert("c1".to_string(), mock_client(None, None));
   let resp = run(state, get("/dead")).await;
   assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
 }
@@ -1100,7 +1100,7 @@ pub(crate) async fn handler_inflight_limiter_timeout_returns_429() {
   cfg.gateway_timeout = std::time::Duration::from_millis(50);
   let state = connected(cfg);
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, _rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.sole_mut().max_concurrent = Some(1);
@@ -1155,7 +1155,7 @@ pub(crate) async fn handler_token_daily_quota_returns_429() {
     .lock()
     .await
     .insert(token.id.clone(), (today, 1000));
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, _rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.perms.token_id = Some(token.id.clone());
@@ -1180,7 +1180,7 @@ pub(crate) async fn handler_mirrors_h2_authority_to_host() {
 #[tokio::test]
 pub(crate) async fn handler_visitor_gate_denies_with_302() {
   let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  cfg.visitor_auth = crate::test_support::basic_gate("user:secret");
   let state = connected(cfg);
   mark_connected(&state).await;
   let _rx = insert_live_client(&state, "c1").await;
@@ -1278,7 +1278,7 @@ pub(crate) async fn handler_fully_filtered_cookie_dropped() {
 pub(crate) async fn handler_response_timeout_override_and_header_strip() {
   let state = connected(test_config());
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.sole_mut().response_timeout = Some(5); // per-service response-timeout override
@@ -1317,7 +1317,7 @@ pub(crate) async fn handler_streamed_upload_truncates_oversized_body() {
   cfg.max_body_size = 256 * 1024; // below the streamed body size
   let state = connected(cfg);
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(256);
   c.tx = tx;
   c.client_protocol = Some(2);
@@ -1361,36 +1361,13 @@ pub(crate) async fn handler_org_month_quota_returns_429() {
     None,
     Some(&org.id),
   );
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, _rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.perms.org_id = Some(org.id.clone());
   state.clients.write().await.insert("c1".to_string(), c);
   let resp = run(state, get("/orgquota")).await;
   assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
-}
-
-#[test]
-pub(crate) fn a_body_frame_is_decided_per_client_not_per_request() {
-  // The bug this covers: the choice was made once, before the dispatch loop,
-  // and the loop re-enters with a *different* client after a failover or a
-  // 5xx retry. A v6 frame handed to a client that speaks v5 is a message it
-  // cannot read, so the request hung until the gateway timeout with nothing
-  // saying why.
-  let body = b"payload".as_slice();
-  assert!(body_frame_negotiated(Some(6), body));
-  assert!(body_frame_negotiated(Some(7), body));
-  assert!(
-    !body_frame_negotiated(Some(5), body),
-    "v5 needs base64 in JSON"
-  );
-  assert!(!body_frame_negotiated(Some(2), body));
-  assert!(
-    !body_frame_negotiated(None, body),
-    "a client that announced nothing is assumed old"
-  );
-  // An empty body has nothing to carry either way, so it stays in the JSON.
-  assert!(!body_frame_negotiated(Some(6), b""));
 }
 
 // --- request id correlation (planned_features #30) --------------------------

@@ -35,14 +35,14 @@ export const TOOLS_PANES: PaneSpec<ToolsPage>[] = [
 export function ToolsDialog({
   page,
   role,
-  masterAdmin,
+  serverAdmin,
   focus,
   onNavigate,
   onClose,
 }: {
   page: ToolsPage
   role: Role
-  masterAdmin: boolean
+  serverAdmin: boolean
   focus?: PaneFocus | null
   onNavigate: (page: ToolsPage) => void
   onClose: () => void
@@ -53,7 +53,7 @@ export function ToolsDialog({
       page={page}
       panes={TOOLS_PANES}
       role={role}
-      masterAdmin={masterAdmin}
+      serverAdmin={serverAdmin}
       focus={focus}
       title={t('Tools')}
       description={t('Diagnose, inspect and generate, the things you reach for when something needs working out.')}

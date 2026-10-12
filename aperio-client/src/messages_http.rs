@@ -13,7 +13,7 @@
 //! Loopback by default, and no authentication of its own: anything that can
 //! open a socket on this host is already running as a local process next to
 //! the client's credentials. Binding it anywhere else is the operator's
-//! decision and is warned about, the same way `bind-tunnels` warns.
+//! decision and is warned about, the same way `aperio-client bind` warns.
 
 use std::net::SocketAddr;
 use std::sync::Arc;

@@ -7,7 +7,6 @@
 //! it becomes a set of half-built structs handed between them, which is more
 //! moving parts than the thing it would be organising.
 
-use crate::settings::{SettingsOverrides, apply_settings_overrides, override_keys};
 use crate::state::{
   AppState, CAPTURE_MAX_ENTRIES, ConnectionState, DurationHistogram, ServerStats,
 };
@@ -20,107 +19,63 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, watch};
-use tracing::{error, info, warn};
+use tracing::error;
 
-/// Everything the server resolves before it can exist: the environment (with
-/// the yaml file already folded in by `config_file::load`), the persisted
-/// stores, the settings-override layering, and the assembled `AppState`.
+/// Everything the server resolves before it can exist: the boot environment,
+/// the settings document from the database (or the init file on a first
+/// start), the persisted stores, and the assembled `AppState`.
 ///
-/// `None` means "refuse to start", and the reason has already been logged:
-/// an invalid trusted-proxy list, admin allowlist, or outbound allowlist.
-/// Split out of `async_main` (planned_features #21) so startup can be
-/// exercised in-process instead of only as a spawned server.
-// Split at the one seam this function has: `ServerConfig` absorbs the eighty
-// settings, so only eight named values cross from [`config`] into the assembly
-// below. Splitting anywhere *inside* the settings pass would mean handing
-// partial configs between the pieces, which is what kept this file whole until
-// the seam was found.
+/// `None` means "refuse to start", and the reason has already been logged.
+// Split at the one seam this function has: `ServerConfig` absorbs the
+// settings, so only the opened stores cross from [`config`] into the
+// assembly below.
 pub(crate) mod config;
 
-pub(crate) async fn build_state() -> Option<StartupBundle> {
+pub(crate) async fn build_state(
+  boot: crate::boot::Boot,
+  settings: aperio_config::server_settings::ServerSettings,
+  init: Option<crate::api::export::ImportDump>,
+) -> Option<StartupBundle> {
+  let data_dir = boot.data_dir.clone();
+  crate::live::set(settings.clone());
   let config::Resolved {
     config,
     access_log,
     admin_key_store,
-    data_dir,
     inbox_store,
-    metrics_enabled,
-    require_hostname_bind,
     token_store,
-  } = config::resolve()?;
-  let config = config;
-
-  // Dashboard-editable settings: env-derived values are the defaults, and
-  // overrides persisted from earlier dashboard edits apply on top.
-  let settings_path = std::path::PathBuf::from(&data_dir).join("settings.json");
-  let settings_overrides = std::fs::read_to_string(&settings_path)
-    .ok()
-    .and_then(
-      |raw| match serde_json::from_str::<SettingsOverrides>(&raw) {
-        Ok(o) => Some(o),
-        Err(e) => {
-          error!(
-            "Failed to parse {:?}: {}, ignoring persisted settings",
-            settings_path, e
-          );
-          None
-        }
-      },
-    )
-    .unwrap_or_default();
-  // The file wins over a stored dashboard override for the same key, and the
-  // override is dropped rather than out-voted. Both directions of the old
-  // behaviour were wrong: the file said one thing and the server did another,
-  // and the override survived to come back the day the key left the file.
-  let file_layer_for_pruning = crate::settings::file_overrides();
-  let mut settings_overrides = settings_overrides;
-  let dropped = crate::settings::drop_conflicting(&file_layer_for_pruning, &mut settings_overrides);
-  if !dropped.is_empty() {
-    warn!(
-      "Dropped {} dashboard override(s) that aperio-server.yaml also sets, the file wins: {:?}. \
-       Set them in the file if you meant them; they are gone from {:?}.",
-      dropped.len(),
-      dropped,
-      settings_path
-    );
-    match serde_json::to_string_pretty(&settings_overrides) {
-      Ok(json) => {
-        if let Err(e) = crate::api::settings::write_owner_only(&settings_path, json.as_bytes()) {
-          error!(
-            "Failed to rewrite {:?} without the dropped overrides: {}",
-            settings_path, e
-          );
-        }
-      }
-      Err(e) => error!("Failed to serialize the pruned settings: {}", e),
+  } = match config::resolve(&settings, &boot.token, &data_dir) {
+    Ok(resolved) => resolved,
+    Err(e) => {
+      error!(
+        "Refusing to start: the stored settings are not usable ({e}). Fix them with `aperio-server settings reset <path>`."
+      );
+      return None;
     }
-  }
-  let overridden = override_keys(&settings_overrides);
-  if !overridden.is_empty() {
-    info!(
-      "Applying persisted dashboard settings from {:?} (overridden: {:?})",
-      settings_path, overridden
-    );
-  }
-  let config_env_defaults = Arc::new(config);
-  // Layer: env defaults -> aperio-server.yaml live settings -> dashboard
-  // overrides. The file's scalar values were also folded into the env
-  // defaults at startup; layering them explicitly is what lets hot-reload
-  // change them later without touching the environment.
-  let file_layer = crate::settings::file_overrides();
-  let file_based = apply_settings_overrides(&config_env_defaults, &file_layer);
-  let config = apply_settings_overrides(&file_based, &settings_overrides);
-
-  if require_hostname_bind {
-    info!(
-      "Hostname bind requirement is ENABLED: clients without a hostname bind will not receive traffic."
-    );
-  }
+  };
+  crate::outbound::set_egress(config.outbound_policy.egress.clone());
+  let metrics_enabled = settings.metrics.enabled;
 
   // OIDC SSO configuration (optional). The issuer is a configured URL the
   // server fetches from, so it goes through the outbound fence like every
   // other one, which is also why this runs after the config is resolved.
-  let oidc_runtime = oidc::load_from_env(&config.outbound_policy).await;
+  let oidc_runtime = oidc::load(&settings.oidc, &config.outbound_policy).await;
+  // Said where it can still be read before anyone is let in: OIDC used to
+  // gate every visitor by being configured, and a server upgraded with
+  // `access: public` would otherwise open what that gate covered without a
+  // word.
+  if oidc_runtime.is_some()
+    && config.default_access == crate::settings::DefaultAccess::Allow
+    && !config.visitor_auth.gates()
+  {
+    tracing::warn!(
+      "OIDC is configured and the server's `access` is `public`: since 0.13.0 OIDC is the \
+       dashboard's sign-in and gates no visitor by being configured, so every route nothing \
+       else declares is open to anyone. Set `access` to `{{method: aperio}}` to ask visitors \
+       for this server's sign-in, or to `{{method: sso, ...}}` for an identity provider of \
+       their own."
+    );
+  }
 
   // Copied out before config moves into the state (values needed by the
   // live structures below).
@@ -129,10 +84,7 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
   let audit_max_size = config.audit_max_size;
   let audit_max_files = config.audit_max_files;
 
-  // Dashboard defaults to enabled. Set APERIO_DASHBOARD=0 to disable.
-  let dashboard_enabled = !std::env::var("APERIO_DASHBOARD")
-    .map(|val| val == "0" || val.to_lowercase() == "false")
-    .unwrap_or(false);
+  let dashboard_enabled = settings.dashboard.enabled;
 
   let (client_connected_tx, _) = watch::channel(false);
   let (shutdown_tx, _) = watch::channel(false);
@@ -184,9 +136,9 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     events_tx,
     changes_tx,
     config_store: std::sync::RwLock::new(Arc::new(config)),
-    config_env_defaults,
-    settings_overrides: Mutex::new(settings_overrides),
-    settings_path,
+    settings_store: Mutex::new(crate::store::settings::SettingsStore::load(&data_dir)),
+    started_with: Arc::new(settings.clone()),
+    data_dir: data_dir.clone(),
     exposes: Mutex::new(crate::expose_manager::ExposeManager::load(&data_dir)),
     active_proxied_requests: Arc::new(AtomicUsize::new(0)),
     active_ws_connections: Arc::new(AtomicUsize::new(0)),
@@ -227,6 +179,8 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
     oidc: oidc_runtime,
     org_oidc: Mutex::new(HashMap::new()),
     oidc_states: Mutex::new(HashMap::new()),
+    sso_runtimes: Mutex::new(HashMap::new()),
+    sso_states: Mutex::new(HashMap::new()),
     tcp_streams: Mutex::new(HashMap::new()),
     udp_streams: Mutex::new(HashMap::new()),
     response_cache: Mutex::new(crate::cache::ResponseCache::default()),
@@ -246,21 +200,13 @@ pub(crate) async fn build_state() -> Option<StartupBundle> {
 
   crate::access_log::spawn_telemetry_collector(state.clone(), telemetry_rx);
 
-  // Recorded once the audit log exists: a dropped override changed how this
-  // server behaves, and the operator who set it from a browser is not the one
-  // reading the startup log.
-  if !dropped.is_empty() {
-    state
-      .audit(
-        "settings_override_dropped",
-        "system",
-        "system",
-        &format!(
-          "aperio-server.yaml also sets {}; the file wins and the stored override was removed",
-          dropped.join(", ")
-        ),
-      )
-      .await;
+  // A first start configured from the init file applies the rest of the
+  // document (tokens, users, organizations...) now that the stores exist.
+  if let Some(init) = init
+    && let Err(e) = crate::api::export::apply_document(&state, init).await
+  {
+    error!("Refusing to start: APERIO_INIT_FILE could not be applied ({e})");
+    return None;
   }
 
   // The accounts the stores read wider than a single organization, once: a

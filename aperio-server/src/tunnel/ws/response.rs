@@ -332,12 +332,7 @@ impl ConnCtx {
       // directly, so a visitor that stops reading cannot stall the
       // other streams sharing this tunnel; past the byte watermark
       // the client is asked to pause producing this stream.
-      let flow = crate::state::StreamFlow::new(
-        id.clone(),
-        tx_write.clone(),
-        state.client_supports_pause(client_id).await,
-        state.stream_limits(),
-      );
+      let flow = crate::state::StreamFlow::new(id.clone(), tx_write.clone(), state.stream_limits());
       let chunk_tx = spawn_consumer_pump(chunk_tx, state.config().gateway_response_timeout, flow);
       state.response_streams.lock().await.insert(
         id.clone(),

@@ -20,18 +20,19 @@ pub(crate) fn valid_visitor_creds(creds: &str) -> bool {
 ///
 /// Returns `Some("user:password")` only when the serving pool is non-empty and
 /// *every* client in it declares the *same* override, mirroring the "all
-/// members must agree" rule of [`route_is_public`], so a request can never be
+/// members must agree" rule of [`route_is_public`]. A pool agrees by
+/// construction, since a service that disagrees with its route is refused
+/// when it declares (`tunnel/ws/agree.rs`); this stays as the backstop, so a
+/// request can never be
 /// gated by (or leak past) an override that only some pool members set. Returns
-/// `None` (use the server's own gate) when the pool is empty, mixed, declares
-/// differing credentials, or the server set `APERIO_IGNORE_CLIENT_AUTH`.
+/// `None` (use the server's own gate) when the pool is empty, mixed, or
+/// declares differing credentials. A site's `access` is checked before any of
+/// this and wins over it.
 pub(crate) async fn route_visitor_auth(
   state: &AppState,
   uri_path: &str,
   request_host: Option<&str>,
 ) -> Option<String> {
-  if state.config().ignore_client_auth {
-    return None;
-  }
   // Mirror `route_is_public`: a traversal path must not select (or unlock) a
   // client's per-service credentials for a scope it could escape from.
   if request_path_has_traversal(uri_path) {
@@ -42,7 +43,6 @@ pub(crate) async fn route_visitor_auth(
     &clients,
     uri_path,
     request_host,
-    state.config().require_hostname_bind,
     state.config().client_down_threshold,
   )?;
   if pool.is_empty() {
@@ -77,9 +77,6 @@ pub(crate) async fn route_visitor_policy(
   uri_path: &str,
   request_host: Option<&str>,
 ) -> Option<crate::visitor_auth::Policy> {
-  if state.config().ignore_client_auth {
-    return None;
-  }
   if request_path_has_traversal(uri_path) {
     return None;
   }
@@ -88,7 +85,6 @@ pub(crate) async fn route_visitor_policy(
     &clients,
     uri_path,
     request_host,
-    state.config().require_hostname_bind,
     state.config().client_down_threshold,
   )?;
   if pool.is_empty() {
@@ -131,7 +127,6 @@ pub(crate) async fn route_path_bind(
     &clients,
     uri_path,
     request_host,
-    state.config().require_hostname_bind,
     state.config().client_down_threshold,
   )?;
   // Every client in a pool shares the bind, that is what pools them.
@@ -155,9 +150,6 @@ pub(crate) async fn route_path_bind(
 /// traversal path, the answer was to serve it: `/./admin` reached the backend
 /// with no credential while `/admin` answered 401.
 pub(crate) async fn host_has_visitor_auth(state: &AppState, request_host: Option<&str>) -> bool {
-  if state.config().ignore_client_auth {
-    return false;
-  }
   let clients = state.clients.read().await;
   // Asked of each service, not of the connection. Reading the gate off one
   // service and the hostname off another is the same bug in a second
@@ -175,8 +167,8 @@ pub(crate) async fn host_has_visitor_auth(state: &AppState, request_host: Option
           .is_some_and(|policy| policy.gates());
       declares_gate
         && match request_host {
-          Some(h) => s.matches_host(h) || !s.has_hostname_bind(),
-          None => !s.has_hostname_bind(),
+          Some(h) => s.matches_host(h) || s.catch_all,
+          None => s.catch_all,
         }
     })
   })
@@ -221,7 +213,7 @@ pub(crate) async fn wait_for_candidate(
 
 /// True when in-flight failover may re-dispatch this method: idempotent
 /// methods (RFC 9110) are safe to send twice, while POST/PATCH may execute
-/// twice on the backend and require the APERIO_FAILOVER_ALL_METHODS opt-in.
+/// twice on the backend and require the failover.all_methods opt-in.
 pub(crate) fn method_retryable(method: &str, all_methods: bool) -> bool {
   all_methods
     || matches!(

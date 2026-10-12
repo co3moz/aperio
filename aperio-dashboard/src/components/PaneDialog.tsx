@@ -57,7 +57,7 @@ export function PaneDialog<Id extends string>({
   page,
   panes,
   role,
-  masterAdmin,
+  serverAdmin,
   focus,
   title,
   description,
@@ -69,7 +69,7 @@ export function PaneDialog<Id extends string>({
   page: Id
   panes: PaneSpec<Id>[]
   role: Role
-  masterAdmin: boolean
+  serverAdmin: boolean
   /** Something finer than a pane to reveal on open, see `PaneFocus`. */
   focus?: PaneFocus | null
   /** Names the dialog for screen readers; the panes carry the visible titles. */
@@ -83,7 +83,7 @@ export function PaneDialog<Id extends string>({
 }) {
   const { t } = useI18n()
   const visible = panes.filter(
-    (p) => ROLE_ORDER[role] >= ROLE_ORDER[p.minRole] && (!p.masterOnly || masterAdmin),
+    (p) => ROLE_ORDER[role] >= ROLE_ORDER[p.minRole] && (!p.masterOnly || serverAdmin),
   )
   // The pane actually shown. A link (or a stale one) can name a pane this
   // role may not open, and falling back to the first *visible* one is the

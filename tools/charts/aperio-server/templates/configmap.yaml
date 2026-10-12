@@ -1,14 +1,15 @@
 {{- /*
-  `values.config` rendered as the server's own yaml, unchanged.
+  `values.initSettings` rendered as the server's first-start document.
 
   A ConfigMap rather than a Secret: the master token is deliberately not in
-  here (it arrives as APERIO_SERVER_TOKEN from a Secret), and a config an
+  here (it arrives as APERIO_SERVER_TOKEN from a Secret), and a document an
   operator can read with `kubectl get cm -o yaml` is worth more than one they
-  have to base64-decode. Anything else secret belongs in `extraEnv`.
+  have to base64-decode. A credential the settings need (an OIDC client
+  secret, say) is better set from the dashboard after the first start, where
+  it is stored and never read back.
 
-  The checksum annotation on the pod is what makes `helm upgrade` restart the
-  server when this changes; without it the file changes under a process that
-  only reads it at startup.
+  The server reads this once, into an empty database; later changes to it do
+  not reach a running server, so the pod is not restarted for them.
 */ -}}
 apiVersion: v1
 kind: ConfigMap
@@ -17,5 +18,6 @@ metadata:
   labels:
     {{- include "aperio-server.labels" . | nindent 4 }}
 data:
-  aperio-server.yaml: |
-    {{- toYaml .Values.config | nindent 4 }}
+  server-init.yaml: |
+    settings:
+      {{- toYaml .Values.initSettings | nindent 6 }}

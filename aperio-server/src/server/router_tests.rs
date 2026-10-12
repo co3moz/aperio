@@ -14,36 +14,36 @@ use axum::Router;
 use axum::body::Body as ComposedBody;
 use axum::response::Response as ComposedResponse;
 
-/// Boots the real startup path (env -> stores -> state -> router) inside the
-/// test process, under the shared config lock, with a throwaway data dir.
 fn composed_app<T>(
   f: impl FnOnce(std::sync::Arc<ComposedState>, Router, &tokio::runtime::Runtime) -> T,
 ) -> T {
-  let _lock = crate::test_support::config_lock();
-  let dir = crate::test_support::test_temp_root().join(format!("boot-{}", uuid::Uuid::new_v4()));
-  std::fs::create_dir_all(&dir).unwrap();
-  let vars = [
-    ("APERIO_SERVER_TOKEN", "0123456789abcdef0123456789abcdef"),
-    ("APERIO_DATA_DIR", dir.to_str().unwrap()),
-    ("APERIO_METRICS", "1"),
-  ];
-  for (k, v) in vars {
-    unsafe { std::env::set_var(k, v) };
-  }
+  let boot = boot_in_a_fresh_dir();
+  let settings =
+    aperio_config::server_settings::ServerSettings::from_yaml("metrics:\n  enabled: true\n")
+      .unwrap();
   let rt = tokio::runtime::Builder::new_current_thread()
     .enable_all()
     .build()
     .unwrap();
   let (state, app) = rt.block_on(async {
-    let bundle = build_state().await.expect("a clean env must build");
+    let bundle = build_state(boot, settings, None)
+      .await
+      .expect("the defaults must build");
     let app = build_router(bundle.state.clone(), bundle.metrics_enabled);
     (bundle.state, app)
   });
-  let out = f(state, app, &rt);
-  for (k, _) in vars {
-    unsafe { std::env::remove_var(k) };
+  f(state, app, &rt)
+}
+
+/// The boot settings a server needs before its database opens, over a
+/// throwaway data directory.
+fn boot_in_a_fresh_dir() -> crate::boot::Boot {
+  let dir = crate::test_support::test_temp_root().join(format!("boot-{}", uuid::Uuid::new_v4()));
+  std::fs::create_dir_all(&dir).unwrap();
+  crate::boot::Boot {
+    token: "0123456789abcdef0123456789abcdef".to_string(),
+    data_dir: dir.to_string_lossy().into_owned(),
   }
-  out
 }
 
 /// One in-process request against the composed router. The connect-info the
@@ -145,24 +145,15 @@ fn the_composed_router_answers_its_own_surface() {
 
 #[test]
 fn build_state_refuses_a_partial_trust_configuration() {
-  let _lock = crate::test_support::config_lock();
-  let dir = crate::test_support::test_temp_root().join(format!("boot-{}", uuid::Uuid::new_v4()));
-  std::fs::create_dir_all(&dir).unwrap();
-  unsafe {
-    std::env::set_var("APERIO_SERVER_TOKEN", "0123456789abcdef0123456789abcdef");
-    std::env::set_var("APERIO_DATA_DIR", dir.to_str().unwrap());
-    std::env::set_var("APERIO_TRUSTED_PROXIES", "not-an-ip-range");
-  }
+  let settings = aperio_config::server_settings::ServerSettings::from_yaml(
+    "proxy:\n  trusted: [not-an-ip-range]\n",
+  )
+  .unwrap();
   let rt = tokio::runtime::Builder::new_current_thread()
     .enable_all()
     .build()
     .unwrap();
-  let refused = rt.block_on(build_state());
-  unsafe {
-    std::env::remove_var("APERIO_TRUSTED_PROXIES");
-    std::env::remove_var("APERIO_SERVER_TOKEN");
-    std::env::remove_var("APERIO_DATA_DIR");
-  }
+  let refused = rt.block_on(build_state(boot_in_a_fresh_dir(), settings, None));
   assert!(
     refused.is_none(),
     "a partial trusted-proxy list must refuse startup"

@@ -34,6 +34,7 @@ pub(crate) const SERVICE_DECL_IN_SERVICE_STATE: &[(&str, Option<&str>)] = &[
   ("path_bind", Some("declared_path")),
   ("hostname_bind", Some("declared_hostname")),
   ("hostname_binds", Some("declared_hostnames")),
+  ("http", Some("serves_http")),
   ("max_concurrent", Some("max_concurrent")),
   ("bandwidth_bps", Some("bandwidth_bps")),
   ("priority", Some("priority")),
@@ -78,8 +79,6 @@ pub(crate) const SERVICE_SCOPED_DERIVED: &[&str] = &[
   "assigned_path",
   "assigned_hostnames",
   "random_hostname",
-  "override_path_bind",
-  "override_hostname_binds",
   "inflight_limiter",
   // The band `adaptive_concurrency` moves the limiter inside, which is one
   // service's band: two services on a connection announce their own numbers
@@ -96,10 +95,19 @@ pub(crate) const SERVICE_SCOPED_DERIVED: &[&str] = &[
   "allowed_ips_invalid_warned",
   "cache_ignored_warned",
   "scaling_invalid_warned",
+  "notices_sent",
   // The service's answer, not the connection's: one service of a process may
   // have been refused server-side serving while its neighbour serves. Held on
   // the connection it would let one service's refusal stop another.
   "server_side_refused",
+  // The service's agreement with its route, likewise its own.
+  "policy_conflict",
+  // Read off the hostname binds: `*` among them asks for every hostname no
+  // other service claims.
+  "catch_all",
+  // Said once per connection: a catch-all the token may not claim, or a
+  // service nothing routes to.
+  "route_noticed",
 ];
 
 /// What genuinely belongs to the connection, and stays one per socket.
@@ -249,14 +257,16 @@ impl ServiceState {
       request_count: Arc::new(AtomicU64::new(0)),
       server_side_target: None,
       server_side_refused: None,
+      policy_conflict: None,
+      catch_all: false,
+      serves_http: false,
+      route_noticed: false,
       declared_path: None,
       assigned_path: None,
       declared_hostname: None,
       declared_hostnames: Vec::new(),
       assigned_hostnames: Vec::new(),
       random_hostname: None,
-      override_path_bind: None,
-      override_hostname_binds: Vec::new(),
       capture: true,
       connections: None,
       connections_min: None,
@@ -286,6 +296,7 @@ impl ServiceState {
       tunnels: Vec::new(),
       cache: false,
       cache_ignored_warned: false,
+      notices_sent: Default::default(),
       resilience: false,
       max_request_body: None,
       response_timeout: None,
@@ -335,22 +346,15 @@ impl ServiceState {
     false
   }
 
-  /// Path bind used for routing: dashboard override wins over the declared
-  /// value, which wins over the token-granted value.
+  /// Path bind used for routing: the declared value wins over the
+  /// token-granted one.
   pub(crate) fn effective_path_bind(&self) -> Option<&String> {
-    self
-      .override_path_bind
-      .as_ref()
-      .or(self.declared_path.as_ref())
-      .or(self.assigned_path.as_ref())
+    self.declared_path.as_ref().or(self.assigned_path.as_ref())
   }
 
-  /// Hostnames used for routing. A dashboard override replaces the whole
-  /// set; otherwise the union of assigned and declared hostnames applies.
+  /// Hostnames used for routing: what the token granted and what the client
+  /// declared, together. Nothing else names a hostname a client serves.
   pub(crate) fn effective_hostnames(&self) -> Vec<&String> {
-    if !self.override_hostname_binds.is_empty() {
-      return self.override_hostname_binds.iter().collect();
-    }
     let mut set: Vec<&String> = self.assigned_hostnames.iter().collect();
     if let Some(d) = &self.declared_hostname
       && !set.contains(&d)
@@ -382,10 +386,6 @@ impl ServiceState {
       .effective_hostnames()
       .iter()
       .any(|h| h.as_str() == host)
-  }
-
-  pub(crate) fn has_hostname_bind(&self) -> bool {
-    !self.effective_hostnames().is_empty()
   }
 }
 
@@ -424,15 +424,6 @@ pub(crate) struct ServiceState {
   /// The randomly assigned hostname within `assigned_hostnames`, tracked
   /// separately so a runtime pattern change can swap it in place.
   pub(crate) random_hostname: Option<String>,
-  /// Temporary path bind override set from the dashboard. Not persisted:
-  /// lost when the client reconnects or the server restarts.
-  pub(crate) override_path_bind: Option<String>,
-  /// Temporary hostname binds set from the dashboard, replacing every declared
-  /// and assigned name while set. A list rather than a single name so an
-  /// operator can retarget the hostname the client declared without dropping
-  /// the random subdomain the server handed it (or the other way round). Not
-  /// persisted: lost when the client reconnects or the server restarts.
-  pub(crate) override_hostname_binds: Vec<String>,
   /// The concurrency limit currently *enforced* for this service, which is
   /// also what is displayed.
   ///
@@ -471,8 +462,21 @@ pub(crate) struct ServiceState {
   /// relaying would produce broken requests rather than slow ones, and the
   /// operator would be reading a backend error instead of a permission one.
   pub(crate) server_side_refused: Option<String>,
+  /// Set while this service's policy for its route (`access`, `allowed_ips`,
+  /// `denied`) differs from one already serving the route, carrying the
+  /// sentence the client was told. Kept out of routing, and settled again on
+  /// every heartbeat (`tunnel/ws/agree.rs`).
+  pub(crate) policy_conflict: Option<String>,
+  /// The service wrote `hostname: "*"`: it serves every hostname no other
+  /// service claims. Nothing joins that pool any more by naming no hostname.
+  pub(crate) catch_all: bool,
+  /// The service has an HTTP target (`ServiceDecl::http`).
+  pub(crate) serves_http: bool,
+  /// The client was told once that its catch-all was not applied, or that
+  /// nothing routes to this service.
+  pub(crate) route_noticed: bool,
   /// False when the service asked not to be recorded for the request
-  /// inspector (`capture: false` in its aperio.yaml), announced via Ping.
+  /// inspector (`inspector: false` in its aperio.yaml), announced via Ping.
   pub(crate) capture: bool,
   /// Parallel tunnel connections the client runs for this service
   /// (`connections:`), announced via Ping. Display-only: the server treats
@@ -496,7 +500,7 @@ pub(crate) struct ServiceState {
   /// True when the client announced a TCP target (experimental TCP tunneling).
   pub(crate) tcp_enabled: bool,
   /// Latest backend health verdict reported by the client's own probe
-  /// (APERIO_TARGET_HEALTH). False = excluded from routing while the
+  /// (`health.endpoint`). False = excluded from routing while the
   /// tunnel connection itself stays up.
   pub(crate) backend_healthy: bool,
   /// False only while a configured health check has not completed its first
@@ -544,21 +548,25 @@ pub(crate) struct ServiceState {
   /// so a heartbeat every few seconds cannot flood the log.
   pub(crate) scaling_invalid_warned: bool,
   /// Tunnels declared by the client via Ping (`tunnels:` list): normally
-  /// unexposed local services a peer client may bind with `--bind-tunnels`
+  /// unexposed local services a peer client may bind with `aperio-client bind`
   /// (same token, explicit client id required).
   pub(crate) tunnels: Vec<crate::protocol::TunnelDecl>,
   /// The client opted its service into the server-side response cache
-  /// (`cache: true` via Ping). Effective only with APERIO_CACHE on.
+  /// (`cache: true` via Ping). Effective only with cache.enabled on.
   pub(crate) cache: bool,
   /// Ensures the "cache requested but the server cache is disabled" warning
   /// logs once per connection, not on every heartbeat.
   pub(crate) cache_ignored_warned: bool,
+  /// What this connection has already been told about this service, by the
+  /// sentence itself: a declaration repeats on every Ping, and a refusal is
+  /// news to the client the first time only. See `ConnCtx::notify_once`.
+  pub(crate) notices_sent: std::collections::HashSet<String>,
   /// The client asked for serve-stale resilience: cached responses for its
   /// routes stay servable (marked) while no healthy client is connected.
   pub(crate) resilience: bool,
   /// Client-declared request body cap for this service, in bytes (via Ping).
   /// Enforced before dispatch with an early 413; never loosens the global
-  /// APERIO_MAX_BODY_SIZE limit.
+  /// limits.request_body limit.
   pub(crate) max_request_body: Option<u64>,
   /// Client-declared per-service response timeout, in seconds (via Ping).
   /// Overrides the global gateway response timeout for this service's

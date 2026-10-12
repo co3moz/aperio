@@ -33,6 +33,8 @@ export const AUDIT_EVENT_GROUPS: AuditEventGroup[] = [
       'login_lockout',
       'oidc_login_success',
       'oidc_login_denied',
+      'sso_login_success',
+      'sso_login_denied',
       'passkey_registered',
       'passkey_deleted',
       'totp_enabled',
@@ -67,7 +69,6 @@ export const AUDIT_EVENT_GROUPS: AuditEventGroup[] = [
       'client_draining',
       'client_enabled',
       'client_disabled',
-      'client_overrule',
       'tunnel_created',
       'tunnel_deleted',
       'tunnel_denied',
@@ -101,9 +102,8 @@ export const AUDIT_EVENT_GROUPS: AuditEventGroup[] = [
   {
     label: 'Configuration',
     events: [
-      'config_reloaded',
       'settings_updated',
-      'settings_override_dropped',
+      'settings_security_changed',
       'maintenance_on',
       'maintenance_off',
       'cache_purged',

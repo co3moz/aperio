@@ -43,8 +43,6 @@ pub(crate) enum Identity {
     name: String,
     role: Role,
     scope: GrantOrg,
-    expose: std::collections::BTreeSet<grants::ExposeAction>,
-    expose_bounds: Option<aperio_config::expose_policy::ExposePolicy>,
   },
 }
 
@@ -71,18 +69,7 @@ impl Caller {
         Some(org) => vec![Grant::new(GrantOrg::Child(org.clone()), *role)],
         None => grants::legacy_grants(*role, None).0,
       },
-      Identity::Key {
-        role,
-        scope,
-        expose,
-        expose_bounds,
-        ..
-      } => {
-        let mut grant = Grant::new(scope.clone(), *role);
-        grant.expose = expose.clone();
-        grant.expose_bounds = expose_bounds.clone();
-        vec![grant]
-      }
+      Identity::Key { role, scope, .. } => vec![Grant::new(scope.clone(), *role)],
     }
   }
 
@@ -91,35 +78,23 @@ impl Caller {
     grants::role_in(&self.grants(), org)
   }
 
-  /// Admin of the master organization: the gate on everything that is a
-  /// property of the server rather than of one tenant. Held directly, or
-  /// through `*` Admin.
-  pub(crate) fn is_master_admin(&self) -> bool {
-    self.role_in(None) == Some(Role::Admin)
+  /// The server admin: `*` Admin, the gate on everything that is a property
+  /// of the server rather than of one organization (its settings, the
+  /// organizations, admin keys, port allocations), and the only caller that
+  /// may hand `*` to somebody else. Master's Admin is an organization's
+  /// admin like any other.
+  pub(crate) fn is_server_admin(&self) -> bool {
+    grants::is_server_admin(&self.grants())
   }
 
-  /// Effective public-listener actions, recomputed from current grants.
+  /// What this caller may do with organization `org`'s public listeners
+  /// (`None` = master): the actions its role there carries.
   pub(crate) fn expose_actions(&self, org: Option<&str>) -> Vec<grants::ExposeAction> {
     let grants = self.grants();
     grants::ExposeAction::ALL
       .into_iter()
       .filter(|a| grants::may_expose(&grants, org, *a))
       .collect()
-  }
-
-  pub(crate) fn expose_bounds(
-    &self,
-    org: &str,
-  ) -> Option<aperio_config::expose_policy::ExposePolicy> {
-    grants::expose_bounds(
-      &self.grants(),
-      if org == "master" { None } else { Some(org) },
-    )
-  }
-
-  /// Holds `*` Admin: the only caller that may hand `*` to somebody else.
-  pub(crate) fn holds_all_admin(&self) -> bool {
-    grants::holds_all_admin(&self.grants())
   }
 
   /// Whether this caller may give, or take away, `grant`.
@@ -192,6 +167,20 @@ impl Caller {
   }
 }
 
+/// Seconds since the request's dashboard session was signed in, `None` when
+/// the request carries no session (an admin key, or nothing). What a
+/// security-relevant change reads to ask for a recent sign-in.
+pub(crate) async fn session_age(state: &AppState, headers: &HeaderMap) -> Option<u64> {
+  let token = session_cookie(headers, state.config().secure_cookies)?;
+  let created = state
+    .sessions
+    .lock()
+    .await
+    .get(token)
+    .map(|i| i.created_at)?;
+  Some(crate::store::sessions::now_secs().saturating_sub(created))
+}
+
 /// Resolves the request's credential: a valid admin-plane session cookie
 /// first, then a programmatic admin key. `None` when neither is presented or
 /// neither is valid, which includes the session of a disabled account.
@@ -233,16 +222,7 @@ pub(crate) async fn resolve_caller(state: &AppState, headers: &HeaderMap) -> Opt
             username: user.username.clone(),
             grants: user
               .role_in(Some(&org))
-              .map(|role| {
-                let mut grant = Grant::new(GrantOrg::Child(org.clone()), role);
-                grant.expose_bounds = grants::expose_bounds(&user.grants, Some(&org));
-                // The bound organization limits scope, not capabilities.
-                grant.expose = grants::ExposeAction::ALL
-                  .into_iter()
-                  .filter(|a| grants::may_expose(&user.grants, Some(&org), *a))
-                  .collect();
-                vec![grant]
-              })
+              .map(|role| vec![Grant::new(GrantOrg::Child(org.clone()), role)])
               .unwrap_or_default(),
           }),
           None
@@ -287,15 +267,18 @@ pub(crate) async fn resolve_caller(state: &AppState, headers: &HeaderMap) -> Opt
     }
   }
   let presented = extract_token(headers)?;
-  let store = state.admin_key_store.lock().await;
-  let key = store.verify(&presented)?;
+  let (key, adopted) = {
+    let mut store = state.admin_key_store.lock().await;
+    let key = store.verify(&presented).cloned();
+    (key, store.take_adopted())
+  };
+  crate::api::admin_keys::audit_adopted(state, adopted).await;
+  let key = key?;
   Some(Caller {
     identity: Identity::Key {
       name: key.name.clone(),
       role: key.role,
       scope: key.scope(),
-      expose: key.expose.clone(),
-      expose_bounds: key.expose_bounds.clone(),
     },
     selected: None,
   })

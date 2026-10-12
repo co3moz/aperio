@@ -57,9 +57,6 @@ pub(crate) struct ProcessFacilities {
   pub(crate) http_face: Option<Face>,
   pub(crate) mqtt_face: Option<Face>,
   pub(crate) runners: Option<tokio::task::JoinHandle<()>>,
-  /// What `otel_bridge:` said at startup, to notice a reload that changes the
-  /// part of it that cannot be applied.
-  pub(crate) otel_bridge: Option<aperio_config::OtelBridge>,
   /// The server and token the https transport posts with, when that transport
   /// is in use. Updated on reload: they are read per export, so this is one
   /// part of the bridge that does follow the file.
@@ -127,7 +124,7 @@ impl ProcessFacilities {
           crate::messages_run::Runner::new(
             entry.topic.clone(),
             command.to_string(),
-            entry.timeout,
+            entry.timeout.map(|t| t.as_secs()),
             entry.max_concurrent,
             entry
               .env
@@ -175,24 +172,8 @@ impl ProcessFacilities {
     // The rest of the bridge is the one facility a reload cannot rebuild: the
     // receiving end of its queue is held by whichever tunnel connection is
     // live, and moving that would mean handing every service a different
-    // queue mid-flight. Saying so is better than ignoring the edit.
-    let unappliable = |cfg: &Option<aperio_config::OtelBridge>| {
-      cfg.as_ref().map(|c| {
-        (
-          c.listen.clone(),
-          c.listen_grpc.clone(),
-          c.queue,
-          c.transport.clone(),
-        )
-      })
-    };
-    if !first && unappliable(&self.otel_bridge) != unappliable(&settings.otel_bridge) {
-      warn!(
-        "otel_bridge: the listeners, queue or transport changed, and those cannot be rebuilt \
-         while the client runs; restart to apply them"
-      );
-    }
-    self.otel_bridge = settings.otel_bridge.clone();
+    // queue mid-flight. `otel_bridge` is marked as applied at startup in the
+    // schema, so the reload names it with the other keys of that kind.
     Ok(())
   }
 }

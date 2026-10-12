@@ -1,7 +1,7 @@
 //! Prints a JSON Schema for the Aperio config files to stdout.
 //!
 //! - `cargo run -p aperio-config`            → the `aperio.yaml` client schema
-//! - `cargo run -p aperio-config -- --server` → the `aperio-server.yaml` schema
+//! - `cargo run -p aperio-config -- --server` → the server's settings schema
 //!
 //! Handy for CI (the release workflow versions both) and for regenerating a
 //! schema by hand.

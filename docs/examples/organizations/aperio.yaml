@@ -6,8 +6,7 @@ server:
   token: apr_acme_scoped_token_change_me
 
 services:
-  - target: http://localhost:3000
-    public: true
+  app:
+    target: http://localhost:3000
+    access: public
     hostname: app.acme.example.com
-
-version: 0.12.0

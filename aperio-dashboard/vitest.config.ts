@@ -8,6 +8,8 @@ export default defineConfig({
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
+  // What vite.config.ts defines for a build; a test links to master.
+  define: { __APERIO_VERSION__: 'null' },
   test: {
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     environment: 'node',

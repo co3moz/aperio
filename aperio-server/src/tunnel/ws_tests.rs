@@ -58,6 +58,10 @@ pub(super) fn client_request(url: &str, token: &str) -> axum::http::Request<()> 
     .header("Upgrade", "websocket")
     .header("Sec-WebSocket-Version", "13")
     .header("Sec-WebSocket-Key", generate_key())
+    .header(
+      aperio_config::pairing::RELEASE_HEADER,
+      env!("CARGO_PKG_VERSION"),
+    )
     .header("Authorization", format!("Bearer {token}"))
     .body(())
     .unwrap()
@@ -125,52 +129,27 @@ pub(super) async fn read_until_pong(ws: &mut Client) -> bool {
   }
 }
 
-/// A default Ping with only the connection id set; individual tests mutate the
-/// fields they care about.
+/// A default Ping declaring one healthy service with nothing else set;
+/// individual tests mutate the fields they care about.
 pub(super) fn base_ping() -> TunnelMessage {
   TunnelMessage::Ping {
-    name: None,
-    services: None,
-    service_custom_name: None,
+    services: vec![crate::protocol::ServiceDecl {
+      backend_healthy: true,
+      backend_probed: true,
+      ..Default::default()
+    }],
     client_id: "self".into(),
+    name: None,
     timestamp: 1,
-    path_bind: None,
-    hostname_bind: None,
-    hostname_binds: Vec::new(),
-    max_concurrent: None,
-    tcp: false,
     version: None,
     protocol: None,
-    backend_healthy: true,
-    backend_probed: true,
+    client_key: None,
+    drain_secs: None,
     cpu_percent: None,
     rss_bytes: None,
     rtt_ms: None,
     jitter_ms: None,
     reconnects: None,
-    priority: 0,
-    bandwidth_bps: None,
-    service: None,
-    public: false,
-    visitor_auth: None,
-    visitor_auth_methods: None,
-    allowed_ips: Vec::new(),
-    tunnels: Vec::new(),
-    cache: false,
-    resilience: false,
-    no_capture: false,
-    max_request_body: None,
-    response_timeout: None,
-    client_key: None,
-    webhook_inbox: false,
-    denied: None,
-    scaling: None,
-    connections: None,
-    connections_min: None,
-    connections_max: None,
-    config_notes: Vec::new(),
-    metrics_labels: Default::default(),
-    drain_secs: None,
   }
 }
 
@@ -460,11 +439,8 @@ pub(super) fn alternates_are_capped() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-pub(super) async fn the_handshake_says_what_protocol_this_server_speaks() {
-  // Read by a client before it has declared anything, which is what makes a
-  // capability that changes the *first Ping* negotiable at all: multiplexing
-  // is decided from this number, and a server too old to send it is a server
-  // too old to serve a list.
+pub(super) async fn the_handshake_says_what_release_this_server_is() {
+  // Read by the client to apply the pairing rule from its own end.
   let state = Arc::new(test_state());
   let url = start_server(state.clone()).await;
   let (token, _) = make_dynamic_token(&state, true).await;
@@ -474,13 +450,32 @@ pub(super) async fn the_handshake_says_what_protocol_this_server_speaks() {
     .expect("the handshake");
   let announced = resp
     .headers()
-    .get(PROTOCOL_HEADER)
+    .get(aperio_config::pairing::RELEASE_HEADER)
     .expect("the announcement")
     .to_str()
     .unwrap()
-    .parse::<u32>()
-    .expect("a number");
-  assert_eq!(announced, PROTOCOL_VERSION);
+    .to_string();
+  assert_eq!(announced, env!("CARGO_PKG_VERSION"));
+}
+
+#[tokio::test]
+pub(super) async fn a_client_on_another_minor_is_refused_with_426() {
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut req = client_request(&url, "test");
+  req.headers_mut().insert(
+    aperio_config::pairing::RELEASE_HEADER,
+    axum::http::HeaderValue::from_static("0.1.0"),
+  );
+  match tokio_tungstenite::connect_async(req).await {
+    Err(tokio_tungstenite::tungstenite::Error::Http(resp)) => {
+      assert_eq!(resp.status().as_u16(), 426);
+      let body = String::from_utf8(resp.body().clone().unwrap_or_default()).unwrap();
+      assert!(body.contains("this client is 0.1.0"), "{body}");
+      assert!(body.ends_with("Upgrade the client."), "{body}");
+    }
+    other => panic!("expected a 426 refusal, got {other:?}"),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -546,19 +541,17 @@ pub(super) async fn a_v8_entry_outranks_the_singular_field_it_disagrees_with() {
 
   let mut ping = base_ping();
   if let TunnelMessage::Ping {
-    ref mut services,
-    ref mut max_concurrent,
-    ref mut response_timeout,
-    ..
+    ref mut services, ..
   } = ping
   {
-    *max_concurrent = Some(5);
-    *response_timeout = Some(11);
-    *services = Some(vec![crate::protocol::ServiceDecl {
+    let d = &mut services[0];
+    d.max_concurrent = Some(5);
+    d.response_timeout = Some(11);
+    *services = vec![crate::protocol::ServiceDecl {
       max_concurrent: Some(9),
       response_timeout: Some(22),
       ..Default::default()
-    }]);
+    }];
   }
   send(&mut ws, &ping).await;
 
@@ -592,15 +585,12 @@ pub(super) async fn without_a_list_the_singular_fields_still_decide() {
 
   let mut ping = base_ping();
   if let TunnelMessage::Ping {
-    ref mut services,
-    ref mut max_concurrent,
-    ref mut response_timeout,
-    ..
+    ref mut services, ..
   } = ping
   {
-    *services = None;
-    *max_concurrent = Some(5);
-    *response_timeout = Some(11);
+    let d = &mut services[0];
+    d.max_concurrent = Some(5);
+    d.response_timeout = Some(11);
   }
   send(&mut ws, &ping).await;
 
@@ -628,10 +618,10 @@ pub(super) async fn a_named_service_keeps_its_state_across_heartbeats() {
     ref mut services, ..
   } = ping
   {
-    *services = Some(vec![crate::protocol::ServiceDecl {
+    *services = vec![crate::protocol::ServiceDecl {
       service: Some("api".into()),
       ..Default::default()
-    }]);
+    }];
   }
   send(&mut ws, &ping).await;
   let id = wait_client_id(&state).await;
@@ -684,9 +674,10 @@ pub(super) async fn a_ping_declaring_two_services_is_served_as_two() {
     ref mut services, ..
   } = ping
   {
-    *services = Some(vec![
+    *services = vec![
       crate::protocol::ServiceDecl {
         service: Some("api".into()),
+        hostname_bind: Some("*".into()),
         path_bind: Some("/api".into()),
         // Declared healthy, as a real client does: the entry is authoritative,
         // so an omitted flag is a service announcing itself down.
@@ -696,6 +687,7 @@ pub(super) async fn a_ping_declaring_two_services_is_served_as_two() {
       },
       crate::protocol::ServiceDecl {
         service: Some("web".into()),
+        hostname_bind: Some("*".into()),
         path_bind: Some("/web".into()),
         // Declared healthy, as a real client does: the entry is authoritative,
         // so an omitted flag is a service announcing itself down.
@@ -703,7 +695,7 @@ pub(super) async fn a_ping_declaring_two_services_is_served_as_two() {
         response_timeout: Some(22),
         ..Default::default()
       },
-    ]);
+    ];
   }
   send(&mut ws, &ping).await;
   let id = wait_client_id(&state).await;
@@ -738,7 +730,6 @@ pub(super) async fn a_ping_declaring_two_services_is_served_as_two() {
     &clients,
     "/web/x",
     None,
-    false,
     std::time::Duration::from_secs(3600),
   )
   .expect("routed");
@@ -766,7 +757,7 @@ pub(super) async fn a_service_the_client_stops_declaring_leaves_routing() {
       ref mut services, ..
     } = ping
     {
-      *services = Some(list);
+      *services = list;
     }
     ping
   };
@@ -776,6 +767,7 @@ pub(super) async fn a_service_the_client_stops_declaring_leaves_routing() {
     &two(vec![
       crate::protocol::ServiceDecl {
         service: Some("api".into()),
+        hostname_bind: Some("*".into()),
         path_bind: Some("/api".into()),
         // Declared healthy, as a real client does: the entry is authoritative,
         // so an omitted flag is a service announcing itself down.
@@ -784,6 +776,7 @@ pub(super) async fn a_service_the_client_stops_declaring_leaves_routing() {
       },
       crate::protocol::ServiceDecl {
         service: Some("web".into()),
+        hostname_bind: Some("*".into()),
         path_bind: Some("/web".into()),
         // Declared healthy, as a real client does: the entry is authoritative,
         // so an omitted flag is a service announcing itself down.
@@ -820,7 +813,6 @@ pub(super) async fn a_service_the_client_stops_declaring_leaves_routing() {
       &clients,
       "/web/x",
       None,
-      false,
       std::time::Duration::from_secs(3600),
     )
     .is_none(),
@@ -852,7 +844,7 @@ pub(super) async fn a_service_added_later_announces_into_the_cell_the_writer_rea
     ref mut services, ..
   } = ping
   {
-    *services = Some(vec![decl("api", None)]);
+    *services = vec![decl("api", None)];
   }
   send(&mut ws, &ping).await;
   let id = wait_client_id(&state).await;
@@ -871,7 +863,7 @@ pub(super) async fn a_service_added_later_announces_into_the_cell_the_writer_rea
     ref mut services, ..
   } = ping2
   {
-    *services = Some(vec![decl("api", None), decl("web", Some(125_000))]);
+    *services = vec![decl("api", None), decl("web", Some(125_000))];
   }
   send(&mut ws, &ping2).await;
   let _ = read_until_pong(&mut ws).await;

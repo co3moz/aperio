@@ -29,8 +29,8 @@ use super::*;
 /// trusted.
 ///
 /// **Legacy header mode** (`trusted_proxies` empty):
-/// 1. A configured `real_ip_header` (APERIO_REAL_IP_HEADER, or
-///    `CF-Connecting-IP` via the APERIO_TRUST_CF_HEADER opt-in). Never
+/// 1. A configured `real_ip_header` (`proxy.real_ip_header`, for example
+///    `CF-Connecting-IP`). Never
 ///    consulted automatically: any visitor can send such a header, and an
 ///    intermediate proxy that was never told about it will pass it through
 ///    untouched, trusting it implicitly would let clients spoof their IP for
@@ -138,7 +138,7 @@ fn extract_via_trusted_chain(
   chain.first().copied().unwrap_or(peer)
 }
 
-/// Parses the APERIO_TRUSTED_PROXIES value: a comma-separated list of IPs
+/// Parses trusted proxy entries (`proxy.trusted`, joined with commas): IPs
 /// (`203.0.113.7`) and CIDR ranges (`10.0.0.0/8`). Invalid entries are
 /// rejected (returned in the error) rather than silently dropped, so a typo
 /// cannot silently shrink the trusted set.
@@ -201,7 +201,7 @@ fn warn_if_xff_rewritten(headers: &HeaderMap, cf_ip: IpAddr) {
        with the real client, an intermediate proxy is rewriting X-Forwarded-For to its own peer. \
        Using the Cloudflare header for the client IP; check your reverse-proxy chain so forwarded \
        headers are trusted and preserved (e.g. Traefik forwardedHeaders / nginx real_ip), or set \
-       APERIO_REAL_IP_HEADER explicitly."
+       proxy.real_ip_header explicitly."
     );
   }
 }

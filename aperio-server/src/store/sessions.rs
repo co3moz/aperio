@@ -83,6 +83,13 @@ pub(crate) struct SessionInfo {
   /// cookie value lifted from one hostname is not good on every other.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub(crate) login_host: Option<String>,
+  /// The identity provider a visitor signed in at, for a session an `sso`
+  /// gate minted. Only that method's gate accepts it, on the hostname in
+  /// `scope_host`, and only while its email is still on the allowlist; a
+  /// visitor password session, which no `sso` gate asked for, never stands in
+  /// for one.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub(crate) sso_issuer: Option<String>,
 }
 
 impl SessionInfo {

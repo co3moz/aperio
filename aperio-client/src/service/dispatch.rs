@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, info, warn};
@@ -33,7 +33,6 @@ pub(crate) struct Dispatch<'a> {
   pub(crate) health_report: &'a Arc<crate::health_report::HealthReport>,
   pub(crate) tx_write: mpsc::Sender<Message>,
   pub(crate) last_pong_time: Arc<Mutex<std::time::Instant>>,
-  pub(crate) server_protocol: Arc<AtomicU32>,
   pub(crate) compress_out: Arc<AtomicBool>,
   pub(crate) stream_pauses: crate::flow::PauseRegistry,
   /// The socket's frame cap. Top-level rather than per service, so it is one
@@ -77,7 +76,6 @@ impl Dispatch<'_> {
       health_report,
       tx_write,
       last_pong_time,
-      server_protocol,
       compress_out,
       stream_pauses,
       max_message_size: _,
@@ -87,7 +85,6 @@ impl Dispatch<'_> {
       active_udp_streams,
       connection_inflight,
     } = self;
-    let mut version_skew_warned = false;
     let mut ended = Ended::default();
     loop {
       tokio::select! {
@@ -203,7 +200,6 @@ impl Dispatch<'_> {
                                           shared.inflight_requests.clone(),
                                           connection_inflight.clone(),
                                       );
-                                      let proto = server_protocol.clone();
                                       let raw_body = frame_body.take();
                                       let pool = spec.pool_load.clone();
                                       pool.enter();
@@ -225,17 +221,10 @@ impl Dispatch<'_> {
                                           if let Some(a) = &adaptive_for_task {
                                               a.record_wait(waiting.elapsed());
                                           }
-                                          let peer = proto.load(Ordering::Relaxed);
-                                          let binary = peer >= 2;
-                                          // v5: a buffered response goes out as one frame,
-                                          // envelope and body, instead of base64 in JSON.
-                                          let full_body = peer >= 5;
                                           let response = handle_incoming_request(
                                               &ctx,
                                               ForwardRequest { id, method, uri, headers, body, raw_body },
                                               None,
-                                              binary,
-                                              full_body,
                                           )
                                           .await;
 
@@ -276,7 +265,6 @@ impl Dispatch<'_> {
                                           connection_inflight.clone(),
                                       );
                                       let streams = active_request_streams.clone();
-                                      let proto = server_protocol.clone();
                                       let pool = spec.pool_load.clone();
                                       pool.enter();
                                       let adaptive_for_task = services[service_index].adaptive.clone();
@@ -289,11 +277,6 @@ impl Dispatch<'_> {
                                           if let Some(a) = &adaptive_for_task {
                                               a.record_wait(waiting.elapsed());
                                           }
-                                          let peer = proto.load(Ordering::Relaxed);
-                                          let binary = peer >= 2;
-                                          // v5: a buffered response goes out as one frame,
-                                          // envelope and body, instead of base64 in JSON.
-                                          let full_body = peer >= 5;
                                           let response = handle_incoming_request(
                                               &ctx,
                                               ForwardRequest {
@@ -305,8 +288,6 @@ impl Dispatch<'_> {
                                                   raw_body: None,
                                               },
                                               Some(body_rx),
-                                              binary,
-                                              full_body,
                                           )
                                           .await;
                                           streams.lock().await.remove(&id);
@@ -357,9 +338,6 @@ impl Dispatch<'_> {
                                       let client_timeout = spec.timeout_secs;
                                       let activity = shared.activity_clock();
                                       let pauses = stream_pauses.clone();
-                                      // The peer's version decides how this stream's binary
-                                      // frames travel back.
-                                      let peer = server_protocol.load(Ordering::Relaxed);
 
                                       tokio::spawn(async move {
                                           handle_upgrade_request(
@@ -375,7 +353,6 @@ impl Dispatch<'_> {
                                               client_timeout,
                                               activity,
                                               pauses,
-                                              peer,
                                           )
                                           .await;
                                       });
@@ -456,14 +433,10 @@ impl Dispatch<'_> {
                                               let streams = active_tcp_streams.clone();
                                               let activity = shared.activity_clock();
                                               let pauses = stream_pauses.clone();
-                                              // The peer's version, read when the stream opens:
-                                              // it decides whether this relay's payloads travel
-                                              // as v7 binary frames or base64 in JSON.
-                                              let peer = server_protocol.load(Ordering::Relaxed);
                                               tokio::spawn(async move {
                                                   let e2e = encrypt.then_some(crate::e2e::E2eParams { psk });
                                                   let announce = proxy_protocol.then_some(visitor).flatten();
-                                                  handle_tcp_open(stream_id, target_addr, tx, streams, bytes_rx, abort_rx, e2e, activity, pauses, peer, announce).await;
+                                                  handle_tcp_open(stream_id, target_addr, tx, streams, bytes_rx, abort_rx, e2e, activity, pauses, announce).await;
                                               });
                                           }
                                           None => {
@@ -506,9 +479,8 @@ impl Dispatch<'_> {
                                               let tx = tx_write.clone();
                                               let streams = active_udp_streams.clone();
                                               let activity = shared.activity_clock();
-                                              let peer = server_protocol.load(Ordering::Relaxed);
                                               tokio::spawn(async move {
-                                                  handle_udp_open(stream_id, target_addr, tx, streams, dg_rx, abort_rx, idle_timeout, activity, peer).await;
+                                                  handle_udp_open(stream_id, target_addr, tx, streams, dg_rx, abort_rx, idle_timeout, activity).await;
                                               });
                                           }
                                           None => {
@@ -625,6 +597,14 @@ impl Dispatch<'_> {
                                   TunnelMessage::HostnameAssigned { hostname } => {
                                       info!("[{}] Server assigned hostname to this client: {}", label, hostname);
                                   }
+                                  TunnelMessage::Notice { service, message } => {
+                                      // Said here as well as in the server's log, which is
+                                      // not where the person editing this file is looking.
+                                      match service {
+                                          Some(name) => warn!("[{}] The server says, about {}: {}", label, name, message),
+                                          None => warn!("[{}] The server says: {}", label, message),
+                                      }
+                                  }
                                   TunnelMessage::AuthAsk {
                                       id,
                                       url,
@@ -676,25 +656,9 @@ impl Dispatch<'_> {
                                       info!("[{}] Server announced a graceful shutdown; will reconnect aggressively.", label);
                                       ended.server_announced_shutdown = true;
                                   }
-                                  TunnelMessage::Pong { timestamp, version, protocol } => {
+                                  TunnelMessage::Pong { timestamp, .. } => {
                                       debug!("Pong received: {}", timestamp);
                                       health_report.pong_received();
-                                      if let Some(p) = protocol {
-                                          server_protocol.store(p, Ordering::Relaxed);
-                                      }
-                                      // Log version skew once per connection, not per heartbeat.
-                                      if !version_skew_warned
-                                        && let Some(p) = protocol
-                                        && p != PROTOCOL_VERSION
-                                      {
-                                          version_skew_warned = true;
-                                          warn!(
-                                              "Server speaks tunnel protocol v{} (server version {}) but this client speaks v{}; update the older side",
-                                              p,
-                                              version.as_deref().unwrap_or("unknown"),
-                                              PROTOCOL_VERSION
-                                          );
-                                      }
                                       let mut lock = last_pong_time.lock().await;
                                       *lock = Instant::now();
                                   }

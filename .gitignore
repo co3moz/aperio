@@ -29,18 +29,6 @@ data/
 # Coverage instrumentation artifacts
 *.profraw
 
-# LaTeX build artefacts from docs/book
-docs/book/*.aux
-docs/book/*.log
-docs/book/*.out
-docs/book/*.toc
-docs/book/*.lof
-docs/book/*.lot
-docs/book/*.fls
-docs/book/*.fdb_latexmk
-docs/book/*.synctex.gz
-docs/book/*.pdf
-
 # Conformance run artefacts: the Autobahn HTML/JSON report, the generated
 # fuzzingclient config, and the throwaway data directory of the server it
 # brings up.

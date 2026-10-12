@@ -4,8 +4,9 @@ server:
   token: apr_messaging_change_me
 
 services:
-  - target: http://localhost:3000
-    public: true
+  app:
+    target: http://localhost:3000
+    access: public
     hostname: app.example.com
 
 # What this client listens for. Filters are MQTT's: `+` is one level, `#` is
@@ -24,7 +25,7 @@ subscribe:
   # mint the tokens that may publish to it with a matching `topics` scope.
   - topic: deploy/web
     run: sh ./deploy.sh     # `sh` so no executable bit is needed on the script
-    timeout: 120          # seconds before the run is killed (default 60)
+    timeout: 2m           # before the run is killed (default 60s)
     max_concurrent: 1     # runs at once; the rest are dropped, not queued
 
   # The server's own events, on the reserved namespace. A bare `#` above does
@@ -35,7 +36,6 @@ subscribe:
 
 # Where an application on this machine attaches. Both may run at once and
 # share one subscription set; drop whichever you do not need.
-messages_listen: 127.0.0.1:1888        # SSE to subscribe, POST to publish
-messages_mqtt_listen: 127.0.0.1:1883   # MQTT 3.1.1, for an existing client library
-
-version: 0.12.0
+messages:
+  listen: 127.0.0.1:1888        # SSE to subscribe, POST to publish
+  mqtt_listen: 127.0.0.1:1883   # MQTT 3.1.1, for an existing client library

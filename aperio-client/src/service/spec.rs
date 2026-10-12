@@ -85,6 +85,23 @@ impl PoolLoad {
   }
 }
 
+/// Whether a service may share its connection with the others, and why.
+///
+/// Two ways to say yes, because they are not refused the same way: a service
+/// that asked is told when it cannot share, and one that only went along with
+/// the default is not, since nothing it wrote is being overruled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Multiplex {
+  /// `multiplex: false`, the one service of the command line, or a service
+  /// the default leaves on a connection of its own.
+  No,
+  /// `multiplex: true`.
+  Asked,
+  /// Nothing written, one of several services, and nothing in it that a
+  /// shared socket would change.
+  ByDefault,
+}
+
 /// Everything a service needs to run, fully resolved. Built by `main` from
 /// the layered configuration; rebuilt (and the service respawned) on
 /// config hot-reload.
@@ -150,11 +167,16 @@ pub(crate) struct ServiceSpec {
   /// for a fixed pool; lower for an elastic one, where the supervisor opens
   /// this many and grows towards `connections` under load.
   pub(crate) connections_min: u32,
-  /// This service asked to share a connection with the others that did
-  /// (`multiplex: true`). What it asked for, not what it got: whether it
-  /// actually shares one is `multiplex_group`, since sharing needs somebody to
-  /// share with.
-  pub(crate) multiplex: bool,
+  /// Whether this service may share a connection with the others that may.
+  /// What it asked for, or what the default made of its silence, not what it
+  /// got: whether it actually shares one is `multiplex_group`, since sharing
+  /// needs somebody to share with.
+  pub(crate) multiplex: Multiplex,
+  /// `connections:` was not written, so the pool is the default's to size:
+  /// an elastic one for a service on a connection of its own, unless its
+  /// bandwidth is paced. Settled by `build_specs` once grouping and the
+  /// bandwidth budget are known.
+  pub(crate) pool_by_default: bool,
   /// The group of services this one is carried on a single connection with,
   /// settled by `build_specs` because that is the only place that sees every
   /// service at once.
@@ -215,7 +237,7 @@ pub(crate) struct ServiceSpec {
   /// a reload applies it with the rest of the config).
   pub(crate) allow_server_forward: bool,
   /// Per-service visitor login (`user:password`) the server should gate this
-  /// service behind, overriding its own APERIO_SERVER_AUTH (None = no override).
+  /// service behind, overriding its own `access` (None = no override).
   pub(crate) visitor_auth: Option<String>,
   /// The full `auth:` policy for this service, when it says more than the
   /// scalar above can carry. Announced only to a server that said it
@@ -225,14 +247,14 @@ pub(crate) struct ServiceSpec {
   /// announced via Ping and enforced by the server before dispatch.
   pub(crate) allowed_ips: Vec<String>,
   /// Tunnels declared by this client process (`tunnels:` list): normally
-  /// unexposed local services a peer client may bind with `--bind-tunnels`.
+  /// unexposed local services a peer client may bind with `aperio-client bind`.
   /// Announced via Ping on every connection of the process.
   pub(crate) tunnels: Vec<TunnelDecl>,
   /// Header add/remove rules for this service's proxied HTTP traffic
   /// (config `headers:`; None = pass through untouched).
   pub(crate) headers: Option<crate::config::HeaderRules>,
   /// Opt this service into the server-side response cache (announced via
-  /// Ping; effective only when the server enables APERIO_CACHE).
+  /// Ping; effective only when the server has `cache.enabled`).
   pub(crate) cache: bool,
   /// Ask the server to keep serving this service's cached responses while
   /// no healthy client is connected (announced via Ping; needs `cache`).
@@ -641,7 +663,7 @@ impl ServiceRuntime {
       }
       (true, _, _) => {
         warn!(
-          "[{}] adaptive_concurrency needs max_concurrent to be set; there is no number to move",
+          "[{}] limits.adaptive_concurrency needs limits.concurrent_requests to be set; there is no number to move",
           spec.label()
         );
         None

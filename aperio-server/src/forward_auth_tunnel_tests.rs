@@ -25,7 +25,7 @@ fn cfg(cache_secs: u64) -> ForwardConfig {
 async fn state_with_client() -> (Arc<AppState>, tokio::sync::mpsc::Receiver<Message>) {
   let state = Arc::new(test_state());
   let (tx, rx) = tokio::sync::mpsc::channel::<Message>(8);
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.tx = tx;
   state.clients.write().await.insert("c1".to_string(), c);
   (state, rx)
@@ -240,7 +240,7 @@ async fn the_ask_is_priced_from_the_visitors_bucket_and_capped_per_connection() 
   config.ip_limit_refill = 0.0;
   let state = Arc::new(test_state_with(config));
   let (tx, mut rx) = tokio::sync::mpsc::channel::<Message>(64);
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.tx = tx;
   state.clients.write().await.insert("c1".to_string(), c);
   let first = {
@@ -290,7 +290,7 @@ async fn the_ask_is_priced_from_the_visitors_bucket_and_capped_per_connection() 
   config.ip_limit_max = 100.0;
   let roomy = Arc::new(test_state_with(config));
   let (tx, mut rx2) = tokio::sync::mpsc::channel::<Message>(64);
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.tx = tx;
   roomy.clients.write().await.insert("c1".to_string(), c);
   {
@@ -359,7 +359,7 @@ async fn cached_admission_is_scoped_to_the_client_that_granted_it() {
   let (tx_a, mut rx_a) = tokio::sync::mpsc::channel::<Message>(8);
   let (tx_b, mut rx_b) = tokio::sync::mpsc::channel::<Message>(8);
   for (id, tx) in [("a", tx_a), ("b", tx_b)] {
-    let mut client = mock_client(Some("app.test"), None, None, None);
+    let mut client = mock_client(Some("app.test"), None);
     client.tx = tx;
     state.clients.write().await.insert(id.to_string(), client);
   }

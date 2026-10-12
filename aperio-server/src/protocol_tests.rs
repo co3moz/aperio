@@ -73,19 +73,15 @@ fn test_decode_never_panics_and_holds_invariants() {
 }
 
 #[test]
-fn test_ping_backward_compat() {
-  // Ping messages without the newer optional fields (older clients) parse,
-  // and the serde defaults hold: backend_healthy=true, tunnels empty.
-  let ping = r#"{"type":"Ping","client_id":"c","timestamp":1,"path_bind":null}"#;
+fn a_ping_carries_its_services_as_a_list() {
+  // One shape: every service is an entry of `services`, even a single one.
+  let ping = r#"{"type":"Ping","client_id":"c","timestamp":1,"services":[{"service":"web"}]}"#;
   let msg: TunnelMessage = serde_json::from_str(ping).unwrap();
   match msg {
-    TunnelMessage::Ping {
-      backend_healthy,
-      tunnels,
-      ..
-    } => {
-      assert!(backend_healthy);
-      assert!(tunnels.is_empty());
+    TunnelMessage::Ping { services, .. } => {
+      assert_eq!(services.len(), 1);
+      assert_eq!(services[0].service.as_deref(), Some("web"));
+      assert!(services[0].tunnels.is_empty());
     }
     other => panic!("expected Ping, got {other:?}"),
   }
@@ -214,11 +210,10 @@ fn a_deflated_full_request_payload_round_trips() {
 }
 
 #[test]
-fn relay_frame_picks_the_shape_the_peer_speaks() {
+fn relay_frame_carries_the_bytes_raw() {
   use axum::extract::ws::Message;
 
-  // v7: a tagged binary frame carrying the bytes verbatim.
-  let frame = relay_frame(7, FRAME_TCP_DATA, "s1", b"raw-bytes", |data| {
+  let frame = relay_frame(FRAME_TCP_DATA, "s1", b"raw-bytes", |data| {
     TunnelMessage::TcpData {
       stream_id: "s1".to_string(),
       data,
@@ -226,42 +221,18 @@ fn relay_frame_picks_the_shape_the_peer_speaks() {
   })
   .expect("a frame is produced");
   let Message::Binary(bytes) = frame else {
-    panic!("v7 gets a binary frame");
+    panic!("a binary frame");
   };
   let (tag, id, payload) = decode_binary_frame(&bytes).expect("well-formed");
   assert_eq!(tag, FRAME_TCP_DATA);
   assert_eq!(id, "s1");
   assert_eq!(payload, b"raw-bytes");
 
-  // v6 and below: the JSON message with a base64 payload, the shape every
-  // client before this release understands. Handing them the frame above
-  // would be silently dropped, which is why one function owns this decision.
-  for peer in [1, 2, 5, 6] {
-    let frame = relay_frame(peer, FRAME_TCP_DATA, "s1", b"raw-bytes", |data| {
-      TunnelMessage::TcpData {
-        stream_id: "s1".to_string(),
-        data,
-      }
-    })
-    .expect("a frame is produced");
-    let Message::Text(json) = frame else {
-      panic!("peer v{peer} must get JSON");
-    };
-    match serde_json::from_str::<TunnelMessage>(&json).expect("valid JSON") {
-      TunnelMessage::TcpData { stream_id, data } => {
-        assert_eq!(stream_id, "s1");
-        use base64::prelude::*;
-        assert_eq!(BASE64_STANDARD.decode(data).unwrap(), b"raw-bytes");
-      }
-      other => panic!("unexpected message: {other:?}"),
-    }
-  }
-
   // A stream id too long for the one-byte length prefix cannot be framed;
   // rather than truncate it, the encoder refuses and the caller falls back
   // to the JSON shape, which has no such limit.
   let long_id = "x".repeat(300);
-  let frame = relay_frame(7, FRAME_TCP_DATA, &long_id, b"payload", |data| {
+  let frame = relay_frame(FRAME_TCP_DATA, &long_id, b"payload", |data| {
     TunnelMessage::TcpData {
       stream_id: long_id.clone(),
       data,

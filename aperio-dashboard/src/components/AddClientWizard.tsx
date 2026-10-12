@@ -29,6 +29,13 @@ interface WizardState {
   tokenName: string
 }
 
+/** The hostname the client declares: the one entered, or `*`, every hostname
+ *  no other service claims. A service naming none is routed nowhere, so an
+ *  empty field must not become an empty declaration. */
+function hostnameOf(s: WizardState): string {
+  return s.hostname.trim() || '*'
+}
+
 /** Extracts the port when the target is a plain http://localhost:<port>. */
 function localPort(target: string): string | null {
   const m = target.trim().match(/^http:\/\/(?:localhost|127\.0\.0\.1):(\d+)\/?$/)
@@ -40,10 +47,10 @@ function dockerCommand(serverUrl: string, token: string, s: WizardState): string
     'docker run -d --name aperio-client --restart unless-stopped --network host \\',
     `  -e APERIO_SERVER_URL=${serverUrl} \\`,
     `  -e APERIO_SERVER_TOKEN=${token} \\`,
-    `  -e APERIO_CLIENT_TARGET=${s.target} \\`,
+    `  -e APERIO_TARGET=${s.target} \\`,
   ]
-  if (s.hostname) lines.push(`  -e APERIO_HOSTNAME_BIND=${s.hostname} \\`)
-  if (s.path) lines.push(`  -e APERIO_PATH_BIND=${s.path} \\`)
+  lines.push(`  -e 'APERIO_HOSTNAME=${hostnameOf(s)}' \\`)
+  if (s.path) lines.push(`  -e APERIO_PATH=${s.path} \\`)
   lines.push(`  ${CLIENT_IMAGE}`)
   return lines.join('\n')
 }
@@ -59,10 +66,8 @@ function cliCommand(serverUrl: string, token: string, s: WizardState): string {
     `  --server-url ${serverUrl} \\`,
     `  --server-token ${token}`,
   ]
-  if (s.hostname) {
-    lines[lines.length - 1] += ' \\'
-    lines.push(`  --hostname ${s.hostname}`)
-  }
+  lines[lines.length - 1] += ' \\'
+  lines.push(`  --hostname '${hostnameOf(s)}'`)
   if (s.path) {
     lines[lines.length - 1] += ' \\'
     lines.push(`  --path ${s.path}`)
@@ -76,10 +81,12 @@ function yamlConfig(serverUrl: string, token: string, s: WizardState): string {
     'server:',
     `  url: ${serverUrl}`,
     `  token: ${token}`,
-    `target: ${s.target}`,
+    'services:',
+    '  app:',
+    `    target: ${s.target}`,
+    `    hostname: "${hostnameOf(s)}"`,
   ]
-  if (s.hostname) lines.push(`hostname: ${s.hostname}`)
-  if (s.path) lines.push(`path: ${s.path}`)
+  if (s.path) lines.push(`    path: ${s.path}`)
   lines.push('', '# then run:', '#   aperio-client')
   return lines.join('\n')
 }

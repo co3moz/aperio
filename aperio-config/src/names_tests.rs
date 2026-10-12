@@ -18,7 +18,6 @@ fn decl(name: Option<&str>, target: &str, protocol: &str) -> TunnelDecl {
     psk: None,
     proxy_protocol: false,
     idle_timeout: None,
-    expose: None,
   }
 }
 
@@ -59,8 +58,8 @@ fn a_derived_name_is_stable() {
 
 #[test]
 fn a_name_shaped_like_a_client_id_is_refused() {
-  // `bind-tunnels:` keys are read as a name and fall back to a client id, so
-  // the two shapes have to stay disjoint for that fallback to be unambiguous.
+  // A `binds:` key is a name, and a name must never be mistakable for the
+  // client id an earlier release let a key fall back to.
   assert!(looks_like_client_id("3beebfdb-079f-4a00-9e03-1bb6eb9222b4"));
   assert!(validate_tunnel_name("3beebfdb-079f-4a00-9e03-1bb6eb9222b4").is_err());
   assert!(!looks_like_client_id("pg_main"));
@@ -111,10 +110,10 @@ fn a_slug_is_a_name_whatever_it_started_as() {
 #[test]
 fn a_bind_entry_accepts_the_short_and_long_forms() {
   // `pg_main: 15432` is the whole entry for most bindings.
-  let short: BindTunnelValue = serde_yaml::from_str("15432").unwrap();
+  let short: BindValue = serde_yaml::from_str("15432").unwrap();
   assert_eq!(short.entry().port, Some(15432));
 
-  let long: BindTunnelValue = serde_yaml::from_str("port: 15432\naddress: 0.0.0.0\n").unwrap();
+  let long: BindValue = serde_yaml::from_str("port: 15432\naddress: 0.0.0.0\n").unwrap();
   let entry = long.entry();
   assert_eq!(entry.port, Some(15432));
   assert_eq!(entry.address.as_deref(), Some("0.0.0.0"));

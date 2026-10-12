@@ -29,7 +29,7 @@ fn req(
 /// A connected client in `org` announcing one tunnel named `name`, keyed by
 /// `cid` in the client map.
 async fn declare(state: &Arc<AppState>, cid: &str, org: &str, name: &str) {
-  let mut c = crate::test_support::mock_client(None, None, None, None);
+  let mut c = crate::test_support::mock_client(None, None);
   c.perms = ClientPerms {
     master: false,
     hostnames: Vec::new(),
@@ -52,7 +52,6 @@ async fn declare(state: &Arc<AppState>, cid: &str, org: &str, name: &str) {
     protocol: "tcp".to_string(),
     encrypt: false,
     idle_timeout: None,
-    expose: None,
   }];
   state.clients.write().await.insert(cid.to_string(), c);
 }
@@ -112,6 +111,7 @@ async fn list_requires_auth() {
       selected_org: None,
       bound_org: None,
       login_host: None,
+      sso_issuer: None,
     },
   );
   let (status, _) = listed_names(&state, cookie_headers(&visitor)).await;

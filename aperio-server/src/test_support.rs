@@ -6,7 +6,7 @@
 //! they need with `use crate::test_support::*`.
 #![allow(dead_code)]
 
-use crate::settings::{FailoverMode, LbStrategy, ServerConfig, SettingsOverrides};
+use crate::settings::{FailoverMode, LbStrategy, ServerConfig};
 use crate::state::{
   AppState, ClientHandle, ClientPerms, ConnectionState, DurationHistogram, ServerStats,
   SessionInfo, TunnelResponse,
@@ -25,10 +25,9 @@ use std::sync::atomic::{AtomicU64, AtomicUsize};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, mpsc, watch};
 
-/// Generous health threshold so mock clients (which never ping) stay eligible.
 /// Serializes every test that touches process-global configuration state: the
-/// parsed `aperio-server.yaml` document, the `APERIO_*` environment, and the
-/// `aperio-server.yaml` written into the working directory.
+/// `APERIO_*` environment the boot settings are read from, and files written
+/// into the working directory.
 ///
 /// A plain mutex, held for the length of the test. It replaces nine copies of
 /// a hand-rolled lock file that broke any lock older than thirty seconds,
@@ -41,21 +40,17 @@ use tokio::sync::{Mutex, mpsc, watch};
 /// Poisoning is recovered rather than propagated: one panicking test should
 /// fail alone, not turn every later test into a second failure.
 ///
-/// **Acquiring also forgets the loaded config document**, and that is not
-/// tidiness. The environment is re-established by each test's own guard, but
-/// the document is not: `config_file::load()` returns early when there is no
-/// file to read, which is right for a server that was started without one and
-/// means a test which loaded a config leaves it behind for whoever runs next.
-/// That produced a failure roughly one run in fifteen, in whichever test
-/// happened to follow the one that loads `version: not-a-version`, with the
-/// assertion failing for a reason that was nowhere in its own code.
+/// Acquiring also resets this thread's live settings document to the
+/// defaults. The document is per thread in a test build (see [`crate::live`]),
+/// so this is only hygiene for a test that reuses its thread.
 pub(crate) fn config_lock() -> std::sync::MutexGuard<'static, ()> {
   static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
   let guard = LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-  crate::config_file::forget();
+  crate::live::reset();
   guard
 }
 
+/// Generous health threshold so mock clients (which never ping) stay eligible.
 pub(crate) const TEST_THRESHOLD: Duration = Duration::from_secs(3600);
 
 /// A throwaway store directory, under one root per test process.
@@ -166,15 +161,12 @@ pub(crate) fn test_config() -> ServerConfig {
     access_events: true,
     ip_limit_max: 1000.0,
     ip_limit_refill: 100.0,
-    visitor_auth_block: None,
     visitor_auth: crate::visitor_auth::Policy::default(),
     trust_proxy: false,
-    ignore_client_auth: false,
     real_ip_header: None,
     trusted_proxies: Vec::new(),
     admin_allowed_ips: Vec::new(),
     secure_cookies: false,
-    require_hostname_bind: false,
     default_access: crate::settings::DefaultAccess::Allow,
     metrics_token: None,
     scaling_enabled: false,
@@ -189,8 +181,6 @@ pub(crate) fn test_config() -> ServerConfig {
     random_subdomain_suffix: None,
     client_down_threshold: TEST_THRESHOLD,
     tunnel_compression: false,
-    custom_504_page: None,
-    custom_503_page: None,
     lb_strategy: LbStrategy::RoundRobin,
     failover_mode: FailoverMode::Fail,
     failover_max_jumps: 2,
@@ -210,13 +200,7 @@ pub(crate) fn test_config() -> ServerConfig {
     audit_max_size: 10 * 1024 * 1024,
     audit_max_files: 3,
     ui_language: "en".to_string(),
-    header_rules: Default::default(),
-    static_routes: Default::default(),
-    error_pages: Default::default(),
-    route_limits: Default::default(),
-    fallbacks: Default::default(),
-    waf: Default::default(),
-    maintenance_windows: Default::default(),
+    sites: Default::default(),
     alert_rules: Default::default(),
     denied_ips: Default::default(),
     identity_headers: false,
@@ -245,6 +229,10 @@ pub(crate) fn test_config() -> ServerConfig {
 
 /// A full [`AppState`] with the given config and fresh throwaway stores.
 pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
+  let settings_dir = test_temp_root()
+    .join(format!("settings-{}", uuid::Uuid::new_v4()))
+    .to_string_lossy()
+    .into_owned();
   let (client_connected_tx, _) = watch::channel(false);
   // Receiver dropped on purpose: with no collector task, every telemetry
   // try_send fails Closed and the caller records inline, which keeps unit
@@ -276,13 +264,10 @@ pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
     traffic_tx: tokio::sync::broadcast::channel(16).0,
     events_tx: tokio::sync::broadcast::channel(16).0,
     changes_tx: tokio::sync::broadcast::channel(64).0,
-    config_store: std::sync::RwLock::new(Arc::new(config.clone())),
-    config_env_defaults: Arc::new(config),
-    settings_overrides: Mutex::new(SettingsOverrides::default()),
-    settings_path: test_temp_root().join(format!(
-      "aperio-test-settings-{}.json",
-      uuid::Uuid::new_v4()
-    )),
+    config_store: std::sync::RwLock::new(Arc::new(config)),
+    settings_store: Mutex::new(crate::store::settings::SettingsStore::load(&settings_dir)),
+    started_with: Arc::new(aperio_config::server_settings::ServerSettings::default()),
+    data_dir: settings_dir.clone(),
     exposes: Mutex::new(crate::expose_manager::ExposeManager::load(
       &test_temp_root()
         .join(format!("exposes-{}", uuid::Uuid::new_v4()))
@@ -325,6 +310,8 @@ pub(crate) fn test_state_with(config: ServerConfig) -> AppState {
     oidc: None,
     org_oidc: Mutex::new(HashMap::new()),
     oidc_states: Mutex::new(HashMap::new()),
+    sso_runtimes: Mutex::new(HashMap::new()),
+    sso_states: Mutex::new(HashMap::new()),
     tcp_streams: Mutex::new(HashMap::new()),
     udp_streams: Mutex::new(HashMap::new()),
     response_cache: Mutex::new(crate::cache::ResponseCache::default()),
@@ -346,12 +333,7 @@ pub(crate) fn test_state() -> AppState {
 }
 
 /// A mock tunnel client handle (master perms, admin enabled, healthy).
-pub(crate) fn mock_client(
-  hostname_bind: Option<&str>,
-  path_bind: Option<&str>,
-  override_hostname: Option<&str>,
-  override_path: Option<&str>,
-) -> ClientHandle {
+pub(crate) fn mock_client(hostname_bind: Option<&str>, path_bind: Option<&str>) -> ClientHandle {
   let (tx, _rx) = mpsc::channel::<Message>(1);
   ClientHandle {
     declared_name: None,
@@ -380,6 +362,12 @@ pub(crate) fn mock_client(
     services: vec![crate::state::ServiceState {
       server_side_target: None,
       server_side_refused: None,
+      policy_conflict: None,
+      // A mock that names no hostname stands for a client serving every
+      // hostname, which since 0.13.0 has to be said: `hostname: "*"`.
+      catch_all: hostname_bind.is_none(),
+      serves_http: false,
+      route_noticed: false,
       metrics_labels: Vec::new(),
       service_custom_name: None,
       request_count: Arc::new(AtomicU64::new(0)),
@@ -389,11 +377,6 @@ pub(crate) fn mock_client(
       declared_hostnames: Vec::new(),
       assigned_hostnames: Vec::new(),
       random_hostname: None,
-      override_path_bind: override_path.map(|s| s.to_string()),
-      override_hostname_binds: override_hostname
-        .map(|s| s.to_string())
-        .into_iter()
-        .collect(),
       capture: true,
       connections: None,
       connections_min: None,
@@ -421,6 +404,7 @@ pub(crate) fn mock_client(
       tunnels: Vec::new(),
       cache: false,
       cache_ignored_warned: false,
+      notices_sent: Default::default(),
       resilience: false,
       max_request_body: None,
       response_timeout: None,
@@ -456,6 +440,7 @@ pub(crate) async fn seed_session(
       selected_org: org,
       bound_org: None,
       login_host: None,
+      sso_issuer: None,
     },
   );
   token
@@ -517,4 +502,80 @@ pub(crate) fn ok_tunnel_response() -> TunnelResponse {
     stream_rx: None,
     timings: None,
   }
+}
+
+/// Reads a frame the server sent a client as the message it carries.
+///
+/// Relay payloads and buffered request bodies travel as tagged binary frames,
+/// so a test that inspects what reached a client reads both shapes through
+/// here: a binary frame comes back as the JSON variant it stands for, with
+/// its bytes base64-encoded, so assertions stay about the message.
+pub(crate) fn sent_message(msg: &Message) -> Option<crate::protocol::TunnelMessage> {
+  use crate::protocol::{
+    FRAME_REQUEST_FULL, FRAME_REQUEST_FULL_ZLIB, FRAME_TCP_DATA, FRAME_UDP_DATAGRAM,
+    FRAME_WS_DATA_BIN, TunnelMessage, decode_binary_frame, inflate_payload, split_full_response,
+  };
+  use base64::prelude::*;
+  match msg {
+    Message::Text(text) => serde_json::from_str(text).ok(),
+    Message::Binary(bytes) => {
+      let (tag, id, payload) = decode_binary_frame(bytes)?;
+      let (stream_id, data) = (id.to_string(), BASE64_STANDARD.encode(payload));
+      match tag {
+        FRAME_TCP_DATA => Some(TunnelMessage::TcpData { stream_id, data }),
+        FRAME_UDP_DATAGRAM => Some(TunnelMessage::UdpDatagram { stream_id, data }),
+        FRAME_WS_DATA_BIN => Some(TunnelMessage::WsData {
+          stream_id,
+          data,
+          is_text: false,
+        }),
+        FRAME_REQUEST_FULL | FRAME_REQUEST_FULL_ZLIB => {
+          let inflated;
+          let payload = if tag == FRAME_REQUEST_FULL_ZLIB {
+            inflated = inflate_payload(payload, 64 << 20)?;
+            &inflated[..]
+          } else {
+            payload
+          };
+          let (json, body) = split_full_response(payload)?;
+          match serde_json::from_str(json).ok()? {
+            TunnelMessage::Request {
+              service,
+              id,
+              method,
+              uri,
+              headers,
+              ..
+            } => Some(TunnelMessage::Request {
+              service,
+              id,
+              method,
+              uri,
+              headers,
+              body: Some(BASE64_STANDARD.encode(body)),
+            }),
+            other => Some(other),
+          }
+        }
+        _ => None,
+      }
+    }
+    _ => None,
+  }
+}
+
+/// The gate a single `user:password` compiles to, the shape most proxy tests
+/// put in front of a route.
+pub(crate) fn basic_gate(credential: &str) -> crate::visitor_auth::Policy {
+  crate::visitor_auth::Policy::compile(&aperio_config::AuthSetting::Credentials(
+    credential.to_string(),
+  ))
+}
+
+/// A `sites` list written as yaml, compiled. A refusal panics: a test's
+/// sites are meant to be valid.
+pub(crate) fn sites(yaml: &str) -> crate::sites::Sites {
+  let raw: Vec<aperio_config::Site> =
+    serde_yaml::from_str(yaml).unwrap_or_else(|e| panic!("sites: {e}"));
+  crate::sites::Sites::compile(&raw).unwrap_or_else(|e| panic!("sites: {e}"))
 }

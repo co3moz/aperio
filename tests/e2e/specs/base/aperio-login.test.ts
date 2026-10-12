@@ -5,8 +5,8 @@ import { BaseServerFor, BaseBackendFor, BaseClientFor, HOST } from './fixtures.j
 /** This file's own server: its gate is `auth: {method: aperio}`, which would
  *  put every other file's plain proxied request behind a login. */
 class AperioLoginServer extends BaseServerFor() {
-  _configFile() {
-    return ['server:', '  auth:', '    method: aperio', ''].join('\n')
+  _settings() {
+    return { ...super._settings(), access: { method: 'aperio' } }
   }
 }
 class AperioLoginBackend extends BaseBackendFor() {}

@@ -138,7 +138,7 @@ pub(crate) fn warn_if_beyond_the_machine(
     match warning {
       Warning::NotEnoughDescriptors { wanted, available } => {
         warn!(
-          "max_ws_connections ({}) plus max_tunnels ({}) is {} connections, and this process may \
+          "limits.websockets ({}) plus limits.tunnels ({}) is {} connections, and this process may \
            open only {} file descriptors. Past that, `accept` fails with EMFILE and connections \
            break at a number nobody configured. Raise the limit (`ulimit -n`, or LimitNOFILE= in \
            a systemd unit) or lower the two settings.",

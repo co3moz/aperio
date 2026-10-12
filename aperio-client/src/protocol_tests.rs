@@ -52,13 +52,9 @@ fn test_tunnel_decl_serde_defaults() {
   let decl: TunnelDecl = serde_json::from_str(r#"{"target":"127.0.0.1:27017"}"#).unwrap();
   assert_eq!(decl.protocol, "tcp");
 
-  // Ping messages without a tunnels field (older peers) parse fine.
-  let ping = r#"{"type":"Ping","client_id":"c","timestamp":1,"path_bind":null}"#;
-  let msg: TunnelMessage = serde_json::from_str(ping).unwrap();
-  match msg {
-    TunnelMessage::Ping { tunnels, .. } => assert!(tunnels.is_empty()),
-    other => panic!("expected Ping, got {other:?}"),
-  }
+  // A service entry without a tunnels field parses with none.
+  let decl: ServiceDecl = serde_json::from_str(r#"{"service":"web"}"#).unwrap();
+  assert!(decl.tunnels.is_empty());
 
   // TcpOpen without a target (older servers) parses as the legacy form.
   let open = r#"{"type":"TcpOpen","stream_id":"s1"}"#;
@@ -198,4 +194,23 @@ fn a_full_request_frame_is_read_the_way_the_server_writes_it() {
   assert_eq!(out_json, json);
   assert_eq!(out_body, &form[..]);
   assert_eq!(FRAME_REQUEST_FULL_ZLIB, 6, "the tag the server sends");
+}
+
+#[test]
+fn a_notice_is_read_with_and_without_the_service_it_is_about() {
+  let named: TunnelMessage =
+    serde_json::from_str(r#"{"type":"Notice","service":"web","message":"m"}"#).unwrap();
+  match named {
+    TunnelMessage::Notice { service, message } => {
+      assert_eq!(service.as_deref(), Some("web"));
+      assert_eq!(message, "m");
+    }
+    other => panic!("expected Notice, got {other:?}"),
+  }
+  // The server leaves `service` out when the connection names none.
+  let unnamed: TunnelMessage = serde_json::from_str(r#"{"type":"Notice","message":"m"}"#).unwrap();
+  assert!(matches!(
+    unnamed,
+    TunnelMessage::Notice { service: None, .. }
+  ));
 }

@@ -1,21 +1,20 @@
 //! Configuration: CLI arguments (clap), the `aperio.yaml` files, environment
 //! variables, and the layering between them.
 //!
-//! Sources from lowest to highest precedence:
+//! Layers from lowest to highest precedence, merged key by key by the one rule
+//! in `aperio_config::layers`:
 //!
 //! 1. `~/.aperio.yaml`, user-level defaults shared across projects
-//! 2. environment variables
-//! 3. `./aperio.yaml` (or the `--config` path)
+//! 2. `./aperio.yaml` (or the `--config` path)
+//! 3. environment variables
 //! 4. CLI arguments
 //!
-//! Naming is mechanical across the three surfaces: CLI `--server-token` ↔
-//! yaml `server.token` ↔ env `APERIO_SERVER_TOKEN`. Each setting has exactly
-//! one canonical env name (no `APERIO_CLIENT_*` scoping aliases), `client_id`
-//! keeps `APERIO_CLIENT_ID` because "client" is part of the concept, not a
-//! redundant prefix.
+//! Every setting has one name. Its environment variable is derived from it
+//! (`server.url` is `APERIO_SERVER_URL`, `defaults.timeout` is
+//! `APERIO_TIMEOUT`), and a CLI flag spells the same key (`--server-url`).
 
 // Split by which layer each part is about: the command line, the file, and the
-// pass that turns four sources into one settings struct.
+// pass that turns the layers into one settings struct.
 pub(crate) mod cli;
 pub(crate) mod file;
 pub(crate) mod resolve;
@@ -24,12 +23,10 @@ pub(crate) use cli::*;
 pub(crate) use file::*;
 pub(crate) use resolve::*;
 
-use std::collections::HashMap;
-
 use crate::protocol::TunnelDecl;
 // The `aperio.yaml` structs live in the shared `aperio-config` crate so the
 // build script can derive a JSON Schema from the exact types parsed here.
-pub(crate) use aperio_config::{FileConfig, HeaderRules, SecurityHeaders, ServiceEntry};
+pub(crate) use aperio_config::{HeaderRules, SecurityHeaders, ServiceEntry};
 
 /// Parses a human bandwidth value into bytes/second. Bit-based suffixes
 /// (`kbit`, `mbit`, `gbit`) divide by 8; byte-based suffixes (`kb`, `mb`,
@@ -59,139 +56,24 @@ pub(crate) fn parse_bandwidth(raw: &str) -> Option<u64> {
   Some((parsed * multiplier) as u64)
 }
 
-// --- CLI ------------------------------------------------------------------
+/// One service the client runs: its name (none for the one service the
+/// command line or the environment describes) and its entry, with
+/// `defaults:` already laid under it.
+#[derive(Clone)]
+pub(crate) struct Service {
+  pub(crate) name: Option<String>,
+  pub(crate) entry: ServiceEntry,
+}
 
-/// Fully resolved client settings, after layering CLI > ./aperio.yaml >
-/// environment > ~/.aperio.yaml and applying defaults.
+/// Fully resolved client settings, after merging the layers and applying
+/// defaults.
 pub(crate) struct ClientSettings {
   pub(crate) token: Option<String>,
-  /// Autoscaling declaration (config files only): the endpoint the server
-  /// calls when a service of this client needs capacity.
-  pub(crate) scaling: Option<aperio_config::ScalingDecl>,
-  /// Retire this client after it has served nothing for this long, in
-  /// seconds (config files / env only; None = never).
-  pub(crate) idle_timeout: Option<u64>,
-  /// The Aperio version this config declares it was written for; drives the
-  /// upgrade-safety check at startup. None = the file says nothing.
-  pub(crate) config_version: Option<String>,
-  /// Admin API key used by the `api` subcommand (never by the tunnel).
-  pub(crate) api_key: Option<String>,
   pub(crate) server: Option<String>,
   /// Additional server URLs to fail over to, tried in order after `server`.
   pub(crate) server_urls: Vec<String>,
-  pub(crate) target: Option<String>,
-  /// Static directory to serve instead of a backend (single-service mode;
-  /// mutually exclusive with `target`).
-  pub(crate) serve: Option<String>,
-  /// Public hostname(s) claimed for this client's traffic (one string, a
-  /// list, or a comma-separated CLI/env value).
-  pub(crate) hostnames: Vec<String>,
-  pub(crate) path: Option<String>,
-  /// Explicit trim_bind wish; `None` = default (true when a path bind is set).
-  pub(crate) trim_bind: Option<bool>,
-  pub(crate) pass_hostname: bool,
-  pub(crate) max_response_body: usize,
-  /// Backend retry policy: total attempts (1 = off), first backoff in
-  /// milliseconds (doubled per attempt), and whether non-idempotent methods
-  /// are retried too.
-  /// Seconds a config reload waits for in-flight requests before dropping a
-  /// stopped service's connection (0 = drop at once).
-  pub(crate) reload_drain_secs: u64,
-  pub(crate) retry_attempts: u32,
-  pub(crate) retry_backoff_ms: u64,
-  pub(crate) retry_all_methods: bool,
-  /// Backend circuit breaker: consecutive failures that open it (0 = off) and
-  /// how long it stays open before one request probes the backend again.
-  pub(crate) breaker_failures: u32,
-  pub(crate) breaker_open_for_secs: u64,
-  /// Largest request body, in bytes, visitors may upload (None = only the
-  /// server's global limit applies). Announced via Ping; the server rejects
-  /// bigger uploads with an early 413 before they enter the tunnel.
-  pub(crate) max_request_body: Option<u64>,
-  /// Per-service override of the server's gateway response timeout, in seconds
-  /// (announced via Ping; None = the server's global value applies).
-  pub(crate) response_timeout: Option<u64>,
-  pub(crate) timeout_secs: u64,
-  pub(crate) max_concurrent: Option<u32>,
-  /// Seconds to wait for the TCP connection to a backend (yaml
-  /// `connect_timeout`, env `APERIO_CONNECT_TIMEOUT`; None = only the
-  /// whole-request timeout applies).
-  pub(crate) connect_timeout: Option<u64>,
-  /// Lowest TLS version accepted from an `https://` backend, `1.2` or `1.3`
-  /// (yaml `min_tls_version`, env `APERIO_MIN_TLS_VERSION`).
-  pub(crate) min_tls_version: Option<String>,
-  /// Move the announced `max_concurrent` with backend pressure (yaml
-  /// `adaptive_concurrency`, env `APERIO_ADAPTIVE_CONCURRENCY`).
-  pub(crate) adaptive_concurrency: bool,
-  /// The OTLP bridge block (yaml `otel_bridge`), unset = no bridge.
-  pub(crate) otel_bridge: Option<aperio_config::OtelBridge>,
-  /// Seconds a service waits before opening its tunnel (yaml `startup_delay`,
-  /// env `APERIO_STARTUP_DELAY`).
-  pub(crate) startup_delay: Option<u64>,
-  /// Services every entry waits for before opening its tunnel, unless it
-  /// names its own (yaml `depends_on`, env `APERIO_DEPENDS_ON` as `a,b`).
-  pub(crate) depends_on: Option<Vec<String>>,
-  /// Path to write the process pid to (yaml `pid_file`, env
-  /// `APERIO_PID_FILE`).
-  pub(crate) pid_file: Option<String>,
-  /// Static Prometheus labels announced to the server (yaml `metrics_labels`,
-  /// env `APERIO_METRICS_LABELS` as `k=v,k=v`).
-  pub(crate) metrics_labels: std::collections::BTreeMap<String, String>,
-  /// Parallel tunnel connections per service (yaml `connections`, env
-  /// `APERIO_CONNECTIONS` / `APERIO_CONNECTIONS_MIN` / `APERIO_CONNECTIONS_MAX`;
-  /// 1 = default). A range makes the pool elastic.
-  pub(crate) connections: Option<aperio_config::Connections>,
-  /// Carry every service that asks for it on one WebSocket instead of one each
-  /// (yaml `multiplex`, env `APERIO_MULTIPLEX`). The file-wide default; a
-  /// `services:` entry may override it either way.
-  pub(crate) multiplex: bool,
-  pub(crate) priority: u32,
-  pub(crate) bandwidth: Option<String>,
-  pub(crate) max_message_size: usize,
-  pub(crate) max_redirects: usize,
-  pub(crate) tcp_target: Option<String>,
-  /// What to call this client's service on screen, for a single service named
-  /// on the command line or in the environment. A `services:` entry carries
-  /// its own `custom_name:`.
-  pub(crate) custom_name: Option<String>,
-  pub(crate) target_health: Option<String>,
-  /// Hold the service out of routing until the backend first accepts a
-  /// connection (superseded by `target_health` when that is set).
-  pub(crate) wait_for_backend: bool,
-  pub(crate) health_interval: u64,
-  pub(crate) health_timeout: u64,
-  pub(crate) health_threshold: u32,
-  /// Ask the server to skip its visitor auth gate for this service.
-  pub(crate) public: bool,
-  /// Ask the server to reach this service's target itself instead of relaying
-  /// through this client (top-level default for every entry, or the single
-  /// service of a file-less client).
-  pub(crate) server_side: bool,
-  /// Answer a `forward` check whose endpoint the server wrote, not this
-  /// client's own config (`allow_server_forward`).
-  pub(crate) allow_server_forward: bool,
-  /// This service's visitor gate: the `user:password` scalar that predates
-  /// the grammar, one `{method: ...}` block, or a list of them
-  /// (None = no override, the server's own gate applies).
-  pub(crate) visitor_auth: Option<aperio_config::AuthSetting>,
-  /// Visitor IPs/CIDRs allowed to reach the exposed service (empty = everyone).
-  pub(crate) allowed_ips: Vec<String>,
-  /// Header add/remove rules for proxied traffic (config files only;
-  /// per-service `headers:` entries override this).
-  pub(crate) headers: Option<HeaderRules>,
-  /// Security response-header preset (config files only; per-service
-  /// `security_headers:` entries override this).
-  pub(crate) security_headers: Option<SecurityHeaders>,
-  /// Opt into the server-side response cache (server must enable APERIO_CACHE).
-  pub(crate) cache: bool,
-  /// Keep serving cached responses while this client is offline (server-side).
-  pub(crate) resilience: bool,
-  /// Record transactions for the dashboard's request inspector (default true).
-  pub(crate) capture: bool,
-  /// Persist inbound POSTs into the server's webhook inbox (announced via Ping).
-  pub(crate) webhook_inbox: bool,
-  /// Redirect URL for visitors rejected by `allowed_ips` (None = stealth).
-  pub(crate) denied: Option<String>,
+  /// Admin API key used by the `api` subcommand (never by the tunnel).
+  pub(crate) api_key: Option<String>,
   /// IP family to dial the server over (auto/ipv4/ipv6). Process-wide; applied
   /// at startup via `dial::set_ip_family`.
   pub(crate) ip_family: crate::dial::IpFamily,
@@ -201,20 +83,26 @@ pub(crate) struct ClientSettings {
   /// Proxy the tunnel dial goes through, if the network needs one.
   /// Process-wide like the two above, applied via `dial::set_egress_proxy`.
   pub(crate) egress_proxy: Option<crate::egress::EgressProxy>,
-  /// `services:` entries from the local config file (empty = single-service
-  /// mode driven by `target`). Per-entry gaps fall back to the resolved
-  /// top-level values above.
-  pub(crate) services: Vec<ServiceEntry>,
-  /// Persistent client instance id (CLI > local file > env). None = a
-  /// random UUID is generated per run.
+  /// Fixed instance id. None = the one kept in `client_id_file`.
   pub(crate) client_id: Option<String>,
+  /// Where a generated instance id is kept. None = the default file for the
+  /// config file being read, or none at all without one.
+  pub(crate) client_id_file: Option<String>,
   /// What to call this client on screen and in the server's logs. A label,
   /// never an address: `client_id` stays the identity.
   pub(crate) name: Option<String>,
-  /// Tunnels declared by this client (local config file only).
+  /// The services to run, in order.
+  pub(crate) services: Vec<Service>,
+  /// True when `services` is the one service the command line or the
+  /// environment describes, rather than a file's map.
+  pub(crate) single: bool,
+  /// `defaults:` alone, for the connection a client with no service still
+  /// opens to carry its tunnels and messages.
+  pub(crate) defaults: ServiceEntry,
+  /// Tunnels declared by this client.
   pub(crate) tunnels: Vec<TunnelDecl>,
-  /// `bind-tunnels:` entries (local config file only).
-  pub(crate) bind_tunnels: HashMap<String, aperio_config::BindTunnelValue>,
+  /// `binds:` entries, by tunnel name.
+  pub(crate) binds: aperio_config::Named<aperio_config::BindValue>,
   /// `subscribe:` entries: the filters this process listens to, and the
   /// commands some of them run.
   pub(crate) subscribe: Vec<aperio_config::SubscribeEntry>,
@@ -222,6 +110,23 @@ pub(crate) struct ClientSettings {
   pub(crate) messages_listen: Option<String>,
   /// Local address the MQTT face listens on (None = no MQTT listener).
   pub(crate) messages_mqtt_listen: Option<String>,
+  /// The OTLP bridge block, unset = no bridge.
+  pub(crate) otel_bridge: Option<aperio_config::OtelBridge>,
+  /// Autoscaling declaration: the endpoint the server calls when a service of
+  /// this client needs capacity.
+  pub(crate) scaling: Option<aperio_config::ScalingDecl>,
+  /// Retire this client after it has served nothing for this long, in
+  /// seconds (None = never).
+  pub(crate) idle_timeout: Option<u64>,
+  /// Seconds a config reload waits for in-flight requests before dropping a
+  /// stopped service's connection (0 = drop at once).
+  pub(crate) reload_drain_secs: u64,
+  /// The client's whole link budget, divided across its services.
+  pub(crate) bandwidth: Option<String>,
+  pub(crate) max_message_size: usize,
+  /// Answer a `forward` check whose endpoint the server wrote, not this
+  /// client's own config (`allow_server_forward`).
+  pub(crate) allow_server_forward: bool,
   /// Static-file mode: SPA history fallback (process-wide).
   pub(crate) serve_spa: bool,
   /// Static-file mode: custom 404 page path (process-wide).
@@ -230,131 +135,16 @@ pub(crate) struct ClientSettings {
   pub(crate) device_key: Option<String>,
   /// File the device key is read from (and generated into on first run).
   pub(crate) device_key_file: Option<String>,
+  /// Path to write the process pid to.
+  pub(crate) pid_file: Option<String>,
+  /// Which layer each value came from, for `check`.
+  pub(crate) sources: std::collections::BTreeMap<String, aperio_config::layers::Layer>,
+  /// The values of the keys a running client applies only at startup, so a
+  /// reload can say which of them it did not apply.
+  pub(crate) restart_values: std::collections::BTreeMap<String, serde_json::Value>,
   // `log_level` / `log_format` are deliberately absent: the subscriber has to
   // be installed before the config files are loaded, so they are resolved by
   // `log_settings` instead (same layering, just earlier).
-}
-
-/// Which configuration layer supplied a value (used by `check` to explain
-/// where each setting came from).
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Source {
-  Cli,
-  LocalFile,
-  Env,
-  HomeFile,
-}
-
-impl Source {
-  pub(crate) fn label(&self) -> &'static str {
-    match self {
-      Source::Cli => "CLI argument",
-      Source::LocalFile => "the local config file",
-      Source::Env => "environment",
-      Source::HomeFile => "~/.aperio.yaml",
-    }
-  }
-}
-
-/// Layer that supplied each core connection setting (None = unset anywhere).
-pub(crate) struct SettingsSources {
-  pub(crate) server: Option<Source>,
-  pub(crate) token: Option<Source>,
-  pub(crate) target: Option<Source>,
-}
-
-/// Highest-precedence layer that provides a value, mirroring `layered()`.
-fn source_of<T>(cli: bool, local: Option<&T>, env: Option<&T>, home: Option<&T>) -> Option<Source> {
-  if cli {
-    Some(Source::Cli)
-  } else if local.is_some() {
-    Some(Source::LocalFile)
-  } else if env.is_some() {
-    Some(Source::Env)
-  } else if home.is_some() {
-    Some(Source::HomeFile)
-  } else {
-    None
-  }
-}
-
-/// Reports which layer each core setting came from, the diagnostic
-/// counterpart of [`resolve_settings`], used by `aperio-client check`.
-pub(crate) fn resolve_sources(
-  cli: &CliArgs,
-  home: &FileConfig,
-  local: &FileConfig,
-) -> SettingsSources {
-  let (local_url, home_url) = (local.server_url(), home.server_url());
-  let (local_token, home_token) = (local.server_token(), home.server_token());
-  SettingsSources {
-    server: source_of(
-      cli.opts.server_url.is_some(),
-      local_url.as_ref(),
-      env_str("APERIO_SERVER_URL").as_ref(),
-      home_url.as_ref(),
-    ),
-    token: source_of(
-      cli.opts.server_token.is_some(),
-      local_token.as_ref(),
-      env_str("APERIO_SERVER_TOKEN").as_ref(),
-      home_token.as_ref(),
-    ),
-    target: source_of(
-      cli.target.is_some(),
-      local.target.as_ref(),
-      env_str("APERIO_TARGET").as_ref(),
-      home.target.as_ref(),
-    ),
-  }
-}
-
-/// Non-empty environment lookup.
-fn env_str(key: &str) -> Option<String> {
-  std::env::var(key).ok().filter(|s| !s.trim().is_empty())
-}
-
-fn env_parse<T: std::str::FromStr>(key: &str) -> Option<T> {
-  env_str(key).and_then(|v| v.parse().ok())
-}
-
-fn env_bool(key: &str) -> Option<bool> {
-  env_str(key).map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-}
-
-/// Layered lookup: CLI > local file > environment > home file.
-fn layered<T>(cli: Option<T>, local: Option<T>, env: Option<T>, home: Option<T>) -> Option<T> {
-  cli.or(local).or(env).or(home)
-}
-
-/// The keys the client's yaml files actually write, so an upgrade report can
-/// skip a change about a key this deployment never set.
-///
-/// Read separately from `FileConfig`: the typed struct cannot say whether a
-/// key was written or merely defaulted, and that difference is the whole point
-/// here. Both layers count, a key inherited from `~/.aperio.yaml` is as set
-/// as one written next to the binary.
-pub(crate) fn config_keys(explicit_config: Option<&str>) -> aperio_config::compat::ConfigKeys {
-  let read = |path: &str| -> Option<serde_yaml::Mapping> {
-    let raw = std::fs::read_to_string(path).ok()?;
-    match serde_yaml::from_str::<serde_yaml::Value>(&raw).ok()? {
-      serde_yaml::Value::Mapping(map) => Some(map),
-      _ => None,
-    }
-  };
-  let mut merged = serde_yaml::Mapping::new();
-  for doc in [
-    home_config_path().and_then(|p| read(&p.to_string_lossy())),
-    read(explicit_config.unwrap_or("aperio.yaml")),
-  ]
-  .into_iter()
-  .flatten()
-  {
-    for (k, v) in doc {
-      merged.insert(k, v);
-    }
-  }
-  aperio_config::compat::ConfigKeys::from_mapping(&merged)
 }
 
 /// The two logging settings, resolved before the subscriber is installed.
@@ -367,225 +157,34 @@ pub(crate) struct LogSettings {
 ///
 /// Logging has to be initialized before the configuration files are loaded,
 /// since loading them logs; so these two keys are read from the files here,
-/// silently, and the ordinary layered resolution happens later as usual. A
-/// file that does not parse is ignored rather than reported: the real load a
-/// moment later reports it properly, through the logger this call configures.
+/// silently, and the ordinary resolution happens later as usual. A file that
+/// does not parse is ignored rather than reported: the real load a moment
+/// later reports it properly, through the logger this call configures.
 pub(crate) fn log_settings(explicit_config: Option<&str>) -> LogSettings {
-  let read = |path: &str| -> Option<FileConfig> {
-    let raw = std::fs::read_to_string(path).ok()?;
-    serde_yaml::from_str::<FileConfig>(&raw).ok()
+  let read = |path: &std::path::Path| -> serde_yaml::Mapping {
+    std::fs::read_to_string(path)
+      .ok()
+      .and_then(|raw| aperio_config::layers::parse_document(&raw).ok())
+      .unwrap_or_default()
   };
-  let local = read(explicit_config.unwrap_or("aperio.yaml"));
-  let home = home_config_path().and_then(|p| read(&p.to_string_lossy()));
-  let pick = |f: fn(&FileConfig) -> Option<String>, env: &str| {
-    layered(
-      None,
-      local.as_ref().and_then(f),
-      env_str(env),
-      home.as_ref().and_then(f),
-    )
+  let local = read(std::path::Path::new(
+    explicit_config.unwrap_or("aperio.yaml"),
+  ));
+  let home = home_config_path().map(|p| read(&p)).unwrap_or_default();
+  let pick = |key: &str| -> Option<String> {
+    let var = aperio_config::layers::env_var(key);
+    let from_file =
+      |doc: &serde_yaml::Mapping| doc.get(key).and_then(|v| v.as_str()).map(str::to_string);
+    std::env::var(&var)
+      .ok()
+      .filter(|v| !v.trim().is_empty())
+      .or_else(|| from_file(&local))
+      .or_else(|| from_file(&home))
   };
   LogSettings {
-    level: pick(|c| c.log_level.clone(), "LOG_LEVEL"),
-    format: pick(|c| c.log_format.clone(), "APERIO_LOG_FORMAT"),
+    level: pick("log_level"),
+    format: pick("log_format"),
   }
-}
-
-/// Splits a comma-separated environment value into trimmed, non-empty items.
-fn split_csv(raw: &str) -> Vec<String> {
-  raw
-    .split(',')
-    .map(|s| s.trim().to_string())
-    .filter(|s| !s.is_empty())
-    .collect()
-}
-
-/// Resolves `otel_bridge:` across the file and the environment.
-///
-/// Field by field rather than all-or-nothing, like `scaling:`: a deployment
-/// keeps the shape in the file and injects the one value that differs per
-/// host. Any of the four variables alone is enough to turn the bridge on,
-/// which is what a container platform needs, since it has no file to edit.
-fn resolve_otel_bridge(local: &FileConfig, home: &FileConfig) -> Option<aperio_config::OtelBridge> {
-  let block = local
-    .otel_bridge
-    .clone()
-    .or_else(|| home.otel_bridge.clone());
-  let listen = env_str("APERIO_OTEL_BRIDGE_LISTEN");
-  let listen_grpc = env_str("APERIO_OTEL_BRIDGE_LISTEN_GRPC");
-  let transport = env_str("APERIO_OTEL_BRIDGE_TRANSPORT");
-  let queue: Option<usize> = env_parse("APERIO_OTEL_BRIDGE_QUEUE");
-  if block.is_none()
-    && listen.is_none()
-    && listen_grpc.is_none()
-    && transport.is_none()
-    && queue.is_none()
-  {
-    return None;
-  }
-  let block = block.unwrap_or(aperio_config::OtelBridge {
-    listen: None,
-    listen_grpc: None,
-    transport: None,
-    queue: None,
-  });
-  Some(aperio_config::OtelBridge {
-    listen: listen.or(block.listen),
-    listen_grpc: listen_grpc.or(block.listen_grpc),
-    transport: transport.or(block.transport),
-    queue: queue.or(block.queue),
-  })
-}
-
-/// Resolves `metrics_labels:` across the file and the environment.
-///
-/// The environment spelling is a flat `k=v,k=v` list rather than a nested
-/// structure, because that is what a container platform can actually inject.
-/// It replaces the file's map rather than merging into it: a half-overridden
-/// label set is harder to reason about than either of the two it came from.
-fn resolve_metrics_labels(
-  local: &FileConfig,
-  home: &FileConfig,
-) -> std::collections::BTreeMap<String, String> {
-  let from_env = || {
-    let raw = env_str("APERIO_METRICS_LABELS")?;
-    let parsed: std::collections::BTreeMap<String, String> = raw
-      .split(',')
-      .filter_map(|pair| pair.split_once('='))
-      .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
-      .filter(|(k, v)| !k.is_empty() && !v.is_empty())
-      .collect();
-    (!parsed.is_empty()).then_some(parsed)
-  };
-  layered(
-    None,
-    local.metrics_labels.clone(),
-    from_env(),
-    home.metrics_labels.clone(),
-  )
-  .unwrap_or_default()
-}
-
-/// Resolves the top-level `connections:` across the file and the environment.
-///
-/// The three variables are layered as one value rather than field by field:
-/// `APERIO_CONNECTIONS` and the `_MIN`/`_MAX` pair are two spellings of the
-/// same setting, and letting a stray `APERIO_CONNECTIONS_MAX` quietly turn a
-/// deliberate fixed count into an elastic pool is the kind of surprise this
-/// setting can least afford.
-fn resolve_connections(
-  local: &FileConfig,
-  home: &FileConfig,
-) -> Option<aperio_config::Connections> {
-  let from_env = || {
-    let min: Option<u32> = env_parse("APERIO_CONNECTIONS_MIN");
-    let max: Option<u32> = env_parse("APERIO_CONNECTIONS_MAX");
-    if min.is_some() || max.is_some() {
-      return Some(aperio_config::Connections::Range(
-        aperio_config::ConnectionRange { min, max },
-      ));
-    }
-    env_parse::<u32>("APERIO_CONNECTIONS")
-      .filter(|n| *n > 0)
-      .map(aperio_config::Connections::Fixed)
-  };
-  layered(
-    None,
-    local.connections.clone(),
-    from_env(),
-    home.connections.clone(),
-  )
-}
-
-/// Builds the autoscaling declaration, layering the yaml block against the
-/// `APERIO_SCALING_*` variables field by field rather than all-or-nothing, so
-/// a deployment can keep the shape in the file and inject only the secret (or
-/// the URL) from the environment. Without a URL there is nothing to call, so
-/// the whole declaration stays `None`.
-fn resolve_scaling(local: &FileConfig, home: &FileConfig) -> Option<aperio_config::ScalingDecl> {
-  let l = local.scaling.as_ref();
-  let h = home.scaling.as_ref();
-  let url = layered(
-    None,
-    l.map(|s| s.url.clone()).filter(|u| !u.trim().is_empty()),
-    env_str("APERIO_SCALING_URL"),
-    h.map(|s| s.url.clone()).filter(|u| !u.trim().is_empty()),
-  )?;
-  Some(aperio_config::ScalingDecl {
-    url,
-    secret: layered(
-      None,
-      l.and_then(|s| s.secret.clone()),
-      env_str("APERIO_SCALING_SECRET"),
-      h.and_then(|s| s.secret.clone()),
-    ),
-    // min/max are plain numbers rather than options in the yaml struct, so a
-    // block that set them is taken as authoritative and the environment only
-    // fills in for a block that is absent entirely.
-    min: layered(
-      None,
-      l.map(|s| s.min),
-      env_parse("APERIO_SCALING_MIN"),
-      h.map(|s| s.min),
-    )
-    .unwrap_or(0),
-    max: layered(
-      None,
-      l.map(|s| s.max),
-      env_parse("APERIO_SCALING_MAX"),
-      h.map(|s| s.max),
-    )
-    .unwrap_or(0),
-    cold_start: layered(
-      None,
-      l.and_then(|s| s.cold_start.clone()),
-      env_str("APERIO_SCALING_COLD_START"),
-      h.and_then(|s| s.cold_start.clone()),
-    ),
-    target_utilization: layered(
-      None,
-      l.and_then(|s| s.target_utilization),
-      env_parse("APERIO_SCALING_TARGET_UTILIZATION"),
-      h.and_then(|s| s.target_utilization),
-    ),
-    window: layered(
-      None,
-      l.and_then(|s| s.window.clone()),
-      env_str("APERIO_SCALING_WINDOW"),
-      h.and_then(|s| s.window.clone()),
-    ),
-    cooldown: layered(
-      None,
-      l.and_then(|s| s.cooldown.clone()),
-      env_str("APERIO_SCALING_COOLDOWN"),
-      h.and_then(|s| s.cooldown.clone()),
-    ),
-  })
-}
-
-/// Builds a security-header selection from the environment:
-/// `APERIO_SECURITY_HEADERS` alone enables (or disables) the preset, and the
-/// granular `APERIO_SECURITY_HEADERS_*` variables pick headers individually,
-/// mirroring the two yaml forms. `None` when nothing is set.
-fn security_headers_from_env() -> Option<SecurityHeaders> {
-  let options = aperio_config::SecurityHeaderOptions {
-    hsts: env_bool("APERIO_SECURITY_HEADERS_HSTS"),
-    hsts_max_age: env_parse("APERIO_SECURITY_HEADERS_HSTS_MAX_AGE"),
-    frame_options: env_str("APERIO_SECURITY_HEADERS_FRAME_OPTIONS"),
-    nosniff: env_bool("APERIO_SECURITY_HEADERS_NOSNIFF"),
-    referrer_policy: env_str("APERIO_SECURITY_HEADERS_REFERRER_POLICY"),
-    csp: env_str("APERIO_SECURITY_HEADERS_CSP"),
-  };
-  let any_granular = options.hsts.is_some()
-    || options.hsts_max_age.is_some()
-    || options.frame_options.is_some()
-    || options.nosniff.is_some()
-    || options.referrer_policy.is_some()
-    || options.csp.is_some();
-  if any_granular {
-    return Some(SecurityHeaders::Detailed(options));
-  }
-  env_bool("APERIO_SECURITY_HEADERS").map(SecurityHeaders::Flag)
 }
 
 /// Folds a `security_headers:` preset into a service's response header rules.
@@ -614,16 +213,6 @@ pub(crate) fn merge_security_headers(
   Some(rules)
 }
 
-/// Splits a comma-separated allowlist into trimmed, non-empty entries.
-pub(crate) fn split_ip_list(raw: &str) -> Vec<String> {
-  raw
-    .split(',')
-    .map(str::trim)
-    .filter(|s| !s.is_empty())
-    .map(str::to_string)
-    .collect()
-}
-
 /// Validates one visitor allowlist entry: `*`, a plain IP, or a CIDR range.
 /// Mirrors the server's `valid_ip_entry` so misconfigurations fail at startup
 /// instead of silently on the server.
@@ -647,43 +236,6 @@ pub(crate) fn valid_ip_entry(entry: &str) -> bool {
     }
     None => entry.parse::<std::net::IpAddr>().is_ok(),
   }
-}
-
-/// Resolves the service hostname(s) across the layers: CLI `--hostname`
-/// (comma-separated), the local file, the env (`APERIO_HOSTNAME`,
-/// comma-separated), then the home file. The highest layer that sets any
-/// hostname wins wholesale; values are normalized to lowercase.
-fn resolve_hostnames(o: &CommonOpts, local: &FileConfig, home: &FileConfig) -> Vec<String> {
-  let norm = |list: Vec<String>| -> Vec<String> {
-    list
-      .into_iter()
-      .map(|h| h.trim().to_ascii_lowercase())
-      .filter(|h| !h.is_empty())
-      .collect::<Vec<_>>()
-  };
-  let from_cli = o
-    .hostname
-    .as_ref()
-    .map(|s| norm(split_ip_list(s)))
-    .filter(|v| !v.is_empty());
-  let from_local = local
-    .hostname
-    .clone()
-    .map(|h| norm(h.into_vec()))
-    .filter(|v| !v.is_empty());
-  let from_env = env_str("APERIO_HOSTNAME")
-    .map(|s| norm(split_ip_list(&s)))
-    .filter(|v| !v.is_empty());
-  let from_home = home
-    .hostname
-    .clone()
-    .map(|h| norm(h.into_vec()))
-    .filter(|v| !v.is_empty());
-  from_cli
-    .or(from_local)
-    .or(from_env)
-    .or(from_home)
-    .unwrap_or_default()
 }
 
 // --- Server URL helpers ------------------------------------------------------

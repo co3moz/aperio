@@ -1,12 +1,22 @@
 use tracing::{info, warn};
 
 /// Resolves this client's trust-on-first-use device key for token pinning,
-/// announced in the Ping. Opt-in: an explicit `key` is used as given;
-/// otherwise `file` names a path whose contents are used, generating and
-/// persisting a fresh random key there on first run. `None` (nothing
-/// announced) when neither is set. Both come from the layered configuration
-/// (yaml `device_key` / `device_key_file`, or their `APERIO_*` spellings).
-fn resolve_device_key(key: Option<String>, file: Option<String>) -> Option<String> {
+/// announced in the Ping. An explicit `key` is used as given; otherwise
+/// `file` names a path whose contents are used, generating and persisting a
+/// fresh random key there on first run. `None` (nothing announced) when
+/// neither is set. Both come from the layered configuration (yaml
+/// `device_key` / `device_key_file`, or their `APERIO_*` spellings), and a
+/// client reading a config file has a default `file` beside its id.
+///
+/// `file_is_default` says the path was not configured. A key that cannot be
+/// kept there is then not announced at all: a key that changes with every
+/// restart would pin the token, on a server enforcing pinning, to a machine
+/// that forgets itself at the next start, which is worse than not pinning.
+fn resolve_device_key(
+  key: Option<String>,
+  file: Option<String>,
+  file_is_default: bool,
+) -> Option<String> {
   if let Some(v) = key {
     let v = v.trim().to_string();
     if !v.is_empty() {
@@ -19,6 +29,11 @@ fn resolve_device_key(key: Option<String>, file: Option<String>) -> Option<Strin
   match std::fs::read_to_string(&path) {
     Ok(k) if !k.trim().is_empty() => Some(k.trim().to_string()),
     _ => {
+      if let Some(parent) = std::path::Path::new(&path).parent()
+        && !parent.as_os_str().is_empty()
+      {
+        let _ = std::fs::create_dir_all(parent);
+      }
       let key = format!(
         "{}{}",
         uuid::Uuid::new_v4().simple(),
@@ -61,6 +76,13 @@ fn resolve_device_key(key: Option<String>, file: Option<String>) -> Option<Strin
       }
       match write_res {
         Ok(()) => info!("Generated a new device key at {path} for token pinning"),
+        Err(e) if file_is_default => {
+          warn!(
+            "Could not keep a device key at {path}: {e}. Announcing none; set `device_key` or \
+             `device_key_file` if the server enforces token pinning"
+          );
+          return None;
+        }
         Err(e) => warn!(
           "Could not persist the device key to {path}: {e}. Running with an in-memory key that changes on every restart, if the server enforces token pinning it will reject this client after a restart. On a read-only or ephemeral filesystem, set a stable key via the APERIO_DEVICE_KEY environment variable instead of a file."
         ),
@@ -73,14 +95,18 @@ fn resolve_device_key(key: Option<String>, file: Option<String>) -> Option<Strin
 /// Where the device key comes from, resolved from the full configuration
 /// layering (yaml `device_key`/`device_key_file`, or `APERIO_DEVICE_KEY` /
 /// `APERIO_DEVICE_KEY_FILE`) and installed once at startup.
-static DEVICE_KEY_SOURCES: std::sync::OnceLock<(Option<String>, Option<String>)> =
+static DEVICE_KEY_SOURCES: std::sync::OnceLock<(Option<String>, Option<String>, bool)> =
   std::sync::OnceLock::new();
 
 /// Installs the device-key sources. Called once from `main` before any
 /// service connects; a later call is ignored, so a config reload cannot swap
 /// the identity of a running process out from under the server's pin.
-pub(crate) fn set_device_key_sources(key: Option<String>, file: Option<String>) {
-  let _ = DEVICE_KEY_SOURCES.set((key, file));
+pub(crate) fn set_device_key_sources(
+  key: Option<String>,
+  file: Option<String>,
+  file_is_default: bool,
+) {
+  let _ = DEVICE_KEY_SOURCES.set((key, file, file_is_default));
 }
 
 /// The process-wide device key, resolved once.
@@ -88,8 +114,8 @@ pub(crate) fn device_key() -> Option<String> {
   static KEY: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
   KEY
     .get_or_init(|| {
-      let (key, file) = DEVICE_KEY_SOURCES.get().cloned().unwrap_or_default();
-      resolve_device_key(key, file)
+      let (key, file, file_is_default) = DEVICE_KEY_SOURCES.get().cloned().unwrap_or_default();
+      resolve_device_key(key, file, file_is_default)
     })
     .clone()
 }

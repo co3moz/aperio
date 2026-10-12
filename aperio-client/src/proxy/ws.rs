@@ -43,8 +43,6 @@ pub(crate) async fn handle_upgrade_request(
   client_timeout_secs: u64,
   activity: crate::service::ActivityClock,
   pauses: crate::flow::PauseRegistry,
-  // The tunnel protocol the server announced; v7 takes binary WS frames raw.
-  protocol: u32,
 ) {
   info!("Handling WebSocket upgrade for stream {}", stream_id);
 
@@ -259,7 +257,6 @@ pub(crate) async fn handle_upgrade_request(
           // they keep the JSON shape whatever the peer speaks.
           if let Message::Binary(data) = &msg {
             let Some(frame) = crate::protocol::relay_frame(
-              protocol,
               crate::protocol::FRAME_WS_DATA_BIN,
               &stream_id_clone,
               data,

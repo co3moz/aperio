@@ -56,8 +56,6 @@ async fn test_handle_incoming_request_streams_large_body() {
       raw_body: None,
     },
     None,
-    false,
-    false,
   )
   .await;
 
@@ -67,8 +65,8 @@ async fn test_handle_incoming_request_streams_large_body() {
   let mut got_start = false;
   let mut got_end = false;
   let mut total_bytes = 0usize;
-  while let Some(Message::Text(json)) = rx.recv().await {
-    match serde_json::from_str::<TunnelMessage>(&json).unwrap() {
+  while let Some(frame) = rx.recv().await {
+    match crate::protocol::decode_sent(&frame).unwrap() {
       TunnelMessage::ResponseStart { id, status, .. } => {
         assert_eq!(id, "req-stream-1");
         assert_eq!(status, 200);
@@ -112,26 +110,28 @@ async fn test_streamed_request_body_forwarded() {
     }
   });
 
-  // Feed the request body through the streamed-body channel (v2 path).
+  // Feed the request body through the streamed-body channel.
   let (btx, brx) = mpsc::channel::<Result<bytes::Bytes, std::io::Error>>(4);
   btx.send(Ok(b"stream-".to_vec().into())).await.unwrap();
   btx.send(Ok(b"payload".to_vec().into())).await.unwrap();
   drop(btx);
 
-  let ctx = test_ctx(&target_url, test_tunnel_tx());
-  let result = handle_incoming_request(
-    &ctx,
-    ForwardRequest {
-      id: "req-sbody".to_string(),
-      method: "POST".to_string(),
-      uri: "/upload".to_string(),
-      headers: vec![],
-      body: None,
-      raw_body: None,
-    },
-    Some(brx),
-    false,
-    false,
+  let (tunnel_tx, mut tunnel_rx) = mpsc::channel::<Message>(64);
+  let ctx = test_ctx(&target_url, tunnel_tx);
+  let result = answered(
+    &mut tunnel_rx,
+    handle_incoming_request(
+      &ctx,
+      ForwardRequest {
+        id: "req-sbody".to_string(),
+        method: "POST".to_string(),
+        uri: "/upload".to_string(),
+        headers: vec![],
+        body: None,
+        raw_body: None,
+      },
+      Some(brx),
+    ),
   )
   .await
   .expect("expected buffered response");
@@ -206,17 +206,13 @@ async fn test_stream_truncated_at_limit() {
       raw_body: None,
     },
     None,
-    false,
-    false,
   )
   .await;
   assert!(result.is_none(), "large body streams, got {result:?}");
 
   let mut got_abort = false;
-  while let Some(Message::Text(json)) = rx.recv().await {
-    if let TunnelMessage::ResponseAbort { .. } =
-      serde_json::from_str::<TunnelMessage>(&json).unwrap()
-    {
+  while let Some(frame) = rx.recv().await {
+    if let Some(TunnelMessage::ResponseAbort { .. }) = crate::protocol::decode_sent(&frame) {
       got_abort = true;
       break;
     }
@@ -273,8 +269,6 @@ async fn a_body_over_the_cap_before_streaming_is_refused_whole() {
       raw_body: None,
     },
     None,
-    false,
-    false,
   )
   .await;
 
@@ -287,8 +281,7 @@ async fn a_body_over_the_cap_before_streaming_is_refused_whole() {
   // And not one byte of the body went out on the tunnel.
   rx.close();
   while let Some(msg) = rx.recv().await {
-    if let Message::Text(json) = msg {
-      let parsed = serde_json::from_str::<TunnelMessage>(&json).unwrap();
+    if let Some(parsed) = crate::protocol::decode_sent(&msg) {
       assert!(
         !matches!(
           parsed,

@@ -1,0 +1,36 @@
+# First-start settings for this example, read once into an empty data
+# directory. Start the server with:
+#
+#   APERIO_SERVER_TOKEN=apr_oidc_change_me APERIO_INIT_FILE=server-init.yaml aperio-server
+#
+# After the first start the settings live in the database: change them from
+# the dashboard (Settings), with `PUT /aperio/api/settings`, or export them
+# with `GET /aperio/api/export?include=settings`.
+
+settings:
+  # Visitors sign in at your identity provider before anything proxied
+  # reaches them. It is their sign-in alone: a session for the hostname they
+  # signed in on, which opens the site and nothing of Aperio. Register
+  # https://<hostname>/aperio/sso/callback at the provider for each hostname.
+  access:
+    method: sso
+    issuer: https://accounts.google.com
+    client_id: replace-with-your-oauth-client-id
+    client_secret: replace-with-your-oauth-client-secret
+    # Who may see the sites: exact addresses, *@domain, or * for anyone the
+    # issuer authenticates.
+    allowed_emails:
+      - "*@example.com"
+      - contractor@partner.org
+    # Requested scopes (default `openid email`).
+    scopes: openid email profile
+
+  # The dashboard's own sign-in can use the same provider, with a client
+  # registration of its own. It lets operators in, with the roles their
+  # records give them, and gates no visitor.
+  # oidc:
+  #   issuer: https://accounts.google.com
+  #   client_id: replace-with-another-oauth-client-id
+  #   client_secret: replace-with-its-secret
+  #   allowed_emails: [admin@example.com]
+  #   redirect_url: https://tunnel.example.com/aperio/oidc/callback

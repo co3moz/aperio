@@ -26,59 +26,41 @@ async fn ping_master_applies_all_binds() {
 
   let mut ping = base_ping();
   if let TunnelMessage::Ping {
-    ref mut path_bind,
-    ref mut hostname_bind,
-    ref mut hostname_binds,
-    ref mut max_concurrent,
-    ref mut tcp,
+    ref mut services,
     ref mut version,
     ref mut protocol,
-    ref mut priority,
-    ref mut bandwidth_bps,
-    ref mut service,
-    ref mut public,
-    ref mut visitor_auth,
-    ref mut allowed_ips,
-    ref mut tunnels,
-    ref mut cache,
-    ref mut resilience,
-    ref mut max_request_body,
-    ref mut response_timeout,
-    ref mut webhook_inbox,
-    ref mut denied,
-    ref mut backend_healthy,
     ..
   } = ping
   {
-    *path_bind = Some("/api".into());
-    *hostname_bind = Some("example.com".into());
-    *hostname_binds = vec!["a.example.com".into(), "b.example.com".into()];
-    *max_concurrent = Some(4);
-    *tcp = true;
+    let d = &mut services[0];
+    d.path_bind = Some("/api".into());
+    d.hostname_bind = Some("example.com".into());
+    d.hostname_binds = vec!["a.example.com".into(), "b.example.com".into()];
+    d.max_concurrent = Some(4);
+    d.tcp = true;
     *version = Some("9.9.9".into());
     *protocol = Some(9999);
-    *priority = 7;
-    *bandwidth_bps = Some(1_000_000);
-    *service = Some("svc".into());
-    *public = true;
-    *visitor_auth = Some("user:pass".into());
-    *allowed_ips = vec!["127.0.0.1".into(), "bogus".into()];
-    *tunnels = vec![TunnelDecl {
+    d.priority = 7;
+    d.bandwidth_bps = Some(1_000_000);
+    d.service = Some("svc".into());
+    d.public = true;
+    d.visitor_auth = Some("user:pass".into());
+    d.allowed_ips = vec!["127.0.0.1".into(), "bogus".into()];
+    d.tunnels = vec![TunnelDecl {
       custom_name: None,
       name: None,
       target: "127.0.0.1:9".into(),
       protocol: "tcp".into(),
       encrypt: false,
       idle_timeout: None,
-      expose: None,
     }];
-    *cache = true;
-    *resilience = true;
-    *max_request_body = Some(1000);
-    *response_timeout = Some(30);
-    *webhook_inbox = true;
-    *denied = Some("https://example.com/denied".into());
-    *backend_healthy = false;
+    d.cache = true;
+    d.resilience = true;
+    d.max_request_body = Some(1000);
+    d.response_timeout = Some(30);
+    d.webhook_inbox = true;
+    d.denied = Some("https://example.com/denied".into());
+    d.backend_healthy = false;
   }
   send(&mut ws, &ping).await;
   read_until_pong(&mut ws).await;
@@ -109,11 +91,11 @@ async fn ping_master_applies_all_binds() {
   // and the healthy-again transition.
   let mut ping2 = ping.clone();
   if let TunnelMessage::Ping {
-    ref mut backend_healthy,
-    ..
+    ref mut services, ..
   } = ping2
   {
-    *backend_healthy = true;
+    let d = &mut services[0];
+    d.backend_healthy = true;
   }
   send(&mut ws, &ping2).await;
   read_until_pong(&mut ws).await;
@@ -141,13 +123,12 @@ async fn ping_master_invalid_visitor_and_denied() {
 
   let mut ping = base_ping();
   if let TunnelMessage::Ping {
-    ref mut visitor_auth,
-    ref mut denied,
-    ..
+    ref mut services, ..
   } = ping
   {
-    *visitor_auth = Some("no-colon-here".into()); // invalid creds
-    *denied = Some("ftp://bad".into()); // not http(s) -> filtered
+    let d = &mut services[0];
+    d.visitor_auth = Some("no-colon-here".into()); // invalid creds
+    d.denied = Some("ftp://bad".into()); // not http(s) -> filtered
   }
   send(&mut ws, &ping).await;
   read_until_pong(&mut ws).await;
@@ -168,15 +149,13 @@ async fn ping_dynamic_token_denies_public_and_visitor_auth() {
 
   let mut ping = base_ping();
   if let TunnelMessage::Ping {
-    ref mut public,
-    ref mut visitor_auth,
-    ref mut allowed_ips,
-    ..
+    ref mut services, ..
   } = ping
   {
-    *public = true;
-    *visitor_auth = Some("user:pass".into());
-    *allowed_ips = vec!["10.0.0.0/8".into(), "junk".into()];
+    let d = &mut services[0];
+    d.public = true;
+    d.visitor_auth = Some("user:pass".into());
+    d.allowed_ips = vec!["10.0.0.0/8".into(), "junk".into()];
   }
   send(&mut ws, &ping).await;
   read_until_pong(&mut ws).await;
@@ -191,6 +170,72 @@ async fn ping_dynamic_token_denies_public_and_visitor_auth() {
   assert!(h.sole().public_denied_warned);
   assert!(h.sole().visitor_auth_denied_warned);
   assert_eq!(h.sole().allowed_ips, vec!["10.0.0.0/8".to_string()]);
+}
+
+/// Every `Notice` the server sends before the next `Pong`.
+async fn notices_until_pong(ws: &mut Client) -> Vec<(Option<String>, String)> {
+  let mut notices = Vec::new();
+  loop {
+    if let TMessage::Text(t) = next_frame(ws).await.expect("stream ended before pong") {
+      match serde_json::from_str::<TunnelMessage>(&t) {
+        Ok(TunnelMessage::Pong { .. }) => return notices,
+        Ok(TunnelMessage::Notice { service, message }) => notices.push((service, message)),
+        _ => {}
+      }
+    }
+  }
+}
+
+#[tokio::test]
+async fn a_gate_the_token_cannot_set_is_told_to_the_client_once() {
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let (secret, _id) = make_dynamic_token(&state, false).await;
+  let mut ws = connect(&url, &secret).await;
+  wait_client_id(&state).await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    services[0].service = Some("web".into());
+    services[0].public = true;
+  }
+  send(&mut ws, &ping).await;
+  let notices = notices_until_pong(&mut ws).await;
+  assert_eq!(notices.len(), 1, "{notices:?}");
+  assert_eq!(notices[0].0.as_deref(), Some("web"));
+  assert!(
+    notices[0].1.contains("`access: public` was not applied"),
+    "{}",
+    notices[0].1
+  );
+
+  // The log line is said once per connection; so is the notice.
+  send(&mut ws, &ping).await;
+  assert!(notices_until_pong(&mut ws).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_service_refused_by_the_closed_default_is_told_why() {
+  let mut cfg = test_config();
+  cfg.default_access = crate::settings::DefaultAccess::Deny;
+  let state = Arc::new(test_state_with(cfg));
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  wait_client_id(&state).await;
+
+  send(&mut ws, &base_ping()).await;
+  let notices = notices_until_pong(&mut ws).await;
+  assert_eq!(notices.len(), 1, "{notices:?}");
+  assert_eq!(notices[0].0, None, "an unnamed service is not named");
+  assert!(
+    notices[0].1.contains("visitors are refused"),
+    "{}",
+    notices[0].1
+  );
+  assert!(notices[0].1.contains("access: public"), "{}", notices[0].1);
 }
 
 // --- Token pinning ----------------------------------------------------------
@@ -366,10 +411,10 @@ async fn a_v8_ping_declaring_one_service_is_the_shape_that_already_worked() {
     ref mut services, ..
   } = ping
   {
-    *services = Some(vec![crate::protocol::ServiceDecl {
+    *services = vec![crate::protocol::ServiceDecl {
       hostname_bind: Some("one.e2e.local".into()),
       ..Default::default()
-    }]);
+    }];
   }
   send(&mut ws, &ping).await;
 
@@ -513,14 +558,12 @@ async fn a_service_list_past_the_ceiling_is_refused_before_it_is_walked() {
     ref mut services, ..
   } = ping
   {
-    *services = Some(
-      (0..MAX_DECLARED_SERVICES + 1)
-        .map(|i| crate::protocol::ServiceDecl {
-          service: Some(format!("svc{i}")),
-          ..Default::default()
-        })
-        .collect(),
-    );
+    *services = (0..MAX_DECLARED_SERVICES + 1)
+      .map(|i| crate::protocol::ServiceDecl {
+        service: Some(format!("svc{i}")),
+        ..Default::default()
+      })
+      .collect();
   }
   send(&mut ws, &ping).await;
 
@@ -543,14 +586,12 @@ async fn a_list_at_the_ceiling_is_served() {
     ref mut services, ..
   } = ping
   {
-    *services = Some(
-      (0..MAX_DECLARED_SERVICES)
-        .map(|i| crate::protocol::ServiceDecl {
-          service: Some(format!("svc{i}")),
-          ..Default::default()
-        })
-        .collect(),
-    );
+    *services = (0..MAX_DECLARED_SERVICES)
+      .map(|i| crate::protocol::ServiceDecl {
+        service: Some(format!("svc{i}")),
+        ..Default::default()
+      })
+      .collect();
   }
   send(&mut ws, &ping).await;
   read_until_pong(&mut ws).await;
@@ -571,11 +612,11 @@ async fn a_list_at_the_ceiling_is_served() {
 fn ping_with_concurrency(n: u32) -> TunnelMessage {
   let mut ping = base_ping();
   if let TunnelMessage::Ping {
-    ref mut max_concurrent,
-    ..
+    ref mut services, ..
   } = ping
   {
-    *max_concurrent = Some(n);
+    let d = &mut services[0];
+    d.max_concurrent = Some(n);
   }
   ping
 }
@@ -725,10 +766,10 @@ async fn a_permitted_target_is_served_from_the_server() {
     ref mut services, ..
   } = ping
   {
-    *services = Some(vec![crate::protocol::ServiceDecl {
+    *services = vec![crate::protocol::ServiceDecl {
       server_side_target: Some("http://10.1.2.3:8080".into()),
       ..Default::default()
-    }]);
+    }];
   }
   send(&mut ws, &ping).await;
   let cid = wait_client_id(&state).await;
@@ -758,10 +799,10 @@ async fn a_token_without_the_permission_is_refused_and_not_relayed() {
     ref mut services, ..
   } = ping
   {
-    *services = Some(vec![crate::protocol::ServiceDecl {
+    *services = vec![crate::protocol::ServiceDecl {
       server_side_target: Some("http://10.1.2.3:8080".into()),
       ..Default::default()
-    }]);
+    }];
   }
   send(&mut ws, &ping).await;
   let cid = wait_client_id(&state).await;
@@ -808,11 +849,11 @@ async fn a_target_outside_the_operators_list_is_refused() {
     ref mut services, ..
   } = ping
   {
-    *services = Some(vec![crate::protocol::ServiceDecl {
+    *services = vec![crate::protocol::ServiceDecl {
       hostname_bind: Some("ss.e2e.local".into()),
       server_side_target: Some("http://192.168.9.9:8080".into()),
       ..Default::default()
-    }]);
+    }];
   }
   send(&mut ws, &ping).await;
   let cid = wait_client_id(&state).await;
@@ -900,7 +941,7 @@ async fn a_client_that_sends_no_name_keeps_showing_its_id() {
 /// The name is a label, and nothing addresses the client by it.
 ///
 /// This is the property the whole design rests on: `client_id` stays the
-/// identity because failover and `bind_tunnels:` need one value per process,
+/// identity because failover and `binds:` need one value per process,
 /// and a name is shared by replicas on purpose. Two connections calling
 /// themselves the same thing must therefore stay two connections.
 #[tokio::test]
@@ -934,4 +975,249 @@ async fn two_clients_may_share_a_name_and_stay_two_clients() {
     2,
     "a shared name must not merge two connections into one"
   );
+}
+
+#[tokio::test]
+async fn a_service_whose_hostname_a_site_gates_is_told_its_access_does_not_decide() {
+  let mut cfg = test_config();
+  cfg.sites =
+    crate::test_support::sites("- hostname: app.example.com\n  access: {method: aperio}\n");
+  let state = Arc::new(test_state_with(cfg));
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  wait_client_id(&state).await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    services[0].service = Some("web".into());
+    services[0].hostname_bind = Some("app.example.com".into());
+    services[0].public = true;
+  }
+  send(&mut ws, &ping).await;
+  let notices = notices_until_pong(&mut ws).await;
+  assert_eq!(notices.len(), 1, "{notices:?}");
+  assert!(
+    notices[0]
+      .1
+      .contains("is not what decides who reaches app.example.com"),
+    "{}",
+    notices[0].1
+  );
+  send(&mut ws, &ping).await;
+  assert!(notices_until_pong(&mut ws).await.is_empty(), "said once");
+}
+
+/// A ping declaring one service with these hostname binds, serving HTTP.
+fn ping_with_hostnames(hostname: Option<&str>, http: bool) -> TunnelMessage {
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    services[0].service = Some("web".into());
+    services[0].hostname_bind = hostname.map(str::to_string);
+    services[0].http = http;
+    services[0].public = true;
+  }
+  ping
+}
+
+#[tokio::test]
+async fn a_star_hostname_asks_for_every_hostname_and_a_master_token_may() {
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  let cid = wait_client_id(&state).await;
+  send(&mut ws, &ping_with_hostnames(Some("*"), true)).await;
+  assert!(
+    notices_until_pong(&mut ws).await.is_empty(),
+    "nothing to say"
+  );
+  let clients = state.clients.read().await;
+  let s = clients.get(&cid).unwrap().sole();
+  assert!(s.catch_all);
+  assert!(s.effective_hostnames().is_empty(), "`*` is not a hostname");
+}
+
+#[tokio::test]
+async fn a_token_limited_to_hostnames_may_not_claim_all_of_them() {
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let (secret, _) = {
+    let mut store = state.token_store.lock().await;
+    let (rec, secret) = store
+      .create(crate::store::tokens::TokenSpec {
+        name: "fenced".into(),
+        hostnames: vec!["app.example.com".into()],
+        allow_public: true,
+        ..Default::default()
+      })
+      .unwrap();
+    (secret, rec.id)
+  };
+  let mut ws = connect(&url, &secret).await;
+  let cid = wait_client_id(&state).await;
+  send(&mut ws, &ping_with_hostnames(Some("*"), true)).await;
+  let notices = notices_until_pong(&mut ws).await;
+  assert_eq!(notices.len(), 1, "{notices:?}");
+  assert!(notices[0].1.contains("was not applied"), "{}", notices[0].1);
+  assert!(
+    !state
+      .clients
+      .read()
+      .await
+      .get(&cid)
+      .unwrap()
+      .sole()
+      .catch_all
+  );
+}
+
+#[tokio::test]
+async fn a_web_service_with_no_hostname_is_told_nothing_routes_to_it() {
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  wait_client_id(&state).await;
+  send(&mut ws, &ping_with_hostnames(None, true)).await;
+  let notices = notices_until_pong(&mut ws).await;
+  assert_eq!(notices.len(), 1, "{notices:?}");
+  assert!(
+    notices[0].1.contains("nothing routes to this service"),
+    "{}",
+    notices[0].1
+  );
+  send(&mut ws, &ping_with_hostnames(None, true)).await;
+  assert!(notices_until_pong(&mut ws).await.is_empty(), "said once");
+}
+
+#[tokio::test]
+async fn a_carrier_with_no_web_target_is_not_told() {
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  wait_client_id(&state).await;
+  send(&mut ws, &ping_with_hostnames(None, false)).await;
+  assert!(notices_until_pong(&mut ws).await.is_empty());
+}
+
+// --- what the server does not apply is said to the client ------------------
+
+/// The text of every notice, for a `contains` over all of them.
+fn said(notices: &[(Option<String>, String)]) -> String {
+  notices
+    .iter()
+    .map(|(_, m)| m.as_str())
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+/// A client asks for features the server has off: the response cache,
+/// serve-stale, autoscaling; and writes an allowlist entry that is not an
+/// address. Each is said to the client, by name, the first time only.
+#[tokio::test]
+async fn every_feature_the_server_does_not_apply_is_told_to_the_client_once() {
+  // The test configuration has the cache and autoscaling off.
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let mut ws = connect(&url, "test").await;
+  wait_client_id(&state).await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    let d = &mut services[0];
+    d.service = Some("web".into());
+    d.cache = true;
+    d.resilience = true;
+    d.allowed_ips = vec!["10.0.0.0/8".into(), "not-an-ip".into()];
+    d.scaling = Some(
+      serde_json::from_value(serde_json::json!({"url": "https://scale.example.com/up"}))
+        .expect("a scaling block"),
+    );
+  }
+  send(&mut ws, &ping).await;
+  let notices = notices_until_pong(&mut ws).await;
+  let text = said(&notices);
+  assert!(text.contains("`cache:` is not applied"), "{text}");
+  assert!(text.contains("`cache.offline` is not applied"), "{text}");
+  assert!(text.contains("`allowed_ips` entries not-an-ip"), "{text}");
+  assert!(text.contains("`scaling:` is not applied"), "{text}");
+  assert!(
+    notices.iter().all(|(s, _)| s.as_deref() == Some("web")),
+    "each names its service: {notices:?}"
+  );
+
+  // The next heartbeat repeats the declaration, and says nothing new.
+  send(&mut ws, &ping).await;
+  assert!(notices_until_pong(&mut ws).await.is_empty());
+}
+
+/// A hostname the token does not grant is dropped, and the client hears
+/// which one, rather than finding its route answering 504.
+#[tokio::test]
+async fn a_hostname_the_token_does_not_grant_is_told_to_the_client() {
+  let state = Arc::new(test_state());
+  let url = start_server(state.clone()).await;
+  let secret = {
+    let mut store = state.token_store.lock().await;
+    store
+      .create(crate::store::tokens::TokenSpec {
+        name: "narrow".into(),
+        hostnames: vec!["a.example.com".into()],
+        ..Default::default()
+      })
+      .expect("the test store can be written to")
+      .1
+  };
+  let mut ws = connect(&url, &secret).await;
+  wait_client_id(&state).await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    services[0].hostname_binds = vec!["a.example.com".into(), "b.example.com".into()];
+  }
+  send(&mut ws, &ping).await;
+  let text = said(&notices_until_pong(&mut ws).await);
+  assert!(
+    text.contains("`hostname: b.example.com` was not applied"),
+    "{text}"
+  );
+  assert!(!text.contains("a.example.com"), "{text}");
+  send(&mut ws, &ping).await;
+  assert!(notices_until_pong(&mut ws).await.is_empty());
+}
+
+/// A refused `server_side` is the client's to hear too: its service is not
+/// routed, which looks like an outage from the client's side otherwise.
+#[tokio::test]
+async fn a_refused_server_side_is_told_to_the_client() {
+  let state = state_allowing("10.0.0.0/8");
+  let url = start_server(state.clone()).await;
+  let (secret, _id) = make_dynamic_token(&state, false).await;
+  let mut ws = connect(&url, &secret).await;
+  wait_client_id(&state).await;
+
+  let mut ping = base_ping();
+  if let TunnelMessage::Ping {
+    ref mut services, ..
+  } = ping
+  {
+    *services = vec![crate::protocol::ServiceDecl {
+      server_side_target: Some("http://10.1.2.3:8080".into()),
+      ..Default::default()
+    }];
+  }
+  send(&mut ws, &ping).await;
+  let text = said(&notices_until_pong(&mut ws).await);
+  assert!(text.contains("`server_side` is refused"), "{text}");
+  assert!(text.contains("allow_server_side"), "{text}");
 }

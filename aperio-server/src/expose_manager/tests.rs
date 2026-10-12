@@ -58,7 +58,7 @@ async fn install(state: &Arc<AppState>, rules: Vec<ExposeResource>) -> Result<()
 }
 async fn client(state: &Arc<AppState>, version: u32) -> mpsc::Receiver<Message> {
   let (tx, rx) = mpsc::channel(128);
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.tx = tx;
   c.client_protocol = Some(version);
   c.sole_mut().tunnels = vec![TunnelDecl {
@@ -68,20 +68,16 @@ async fn client(state: &Arc<AppState>, version: u32) -> mpsc::Receiver<Message> 
     protocol: "tcp/udp".into(),
     encrypt: false,
     idle_timeout: None,
-    expose: None,
   }];
   state.clients.write().await.insert("client".into(), c);
   rx
 }
 async fn message(rx: &mut mpsc::Receiver<Message>) -> TunnelMessage {
-  match tokio::time::timeout(Duration::from_secs(3), rx.recv())
+  let frame = tokio::time::timeout(Duration::from_secs(3), rx.recv())
     .await
     .expect("relay deadline")
-    .expect("client channel")
-  {
-    Message::Text(json) => serde_json::from_str(&json).unwrap(),
-    other => panic!("unexpected frame {other:?}"),
-  }
+    .expect("client channel");
+  crate::test_support::sent_message(&frame).unwrap_or_else(|| panic!("unexpected frame {frame:?}"))
 }
 async fn udp_open(rx: &mut mpsc::Receiver<Message>, expected: &[u8]) -> String {
   let id = match message(rx).await {
@@ -244,71 +240,6 @@ async fn draining_udp_retains_session_quota_until_sessions_end() {
 #[tokio::test]
 async fn draining_udp_retains_bandwidth_quota_until_sessions_end() {
   draining_quota_case(ExposeProtocol::Udp, true).await;
-}
-
-#[test]
-fn duplicate_file_identities_are_rejected_before_startup_or_reload_binds() {
-  let _lock = crate::test_support::config_lock();
-  struct Cleanup;
-  impl Drop for Cleanup {
-    fn drop(&mut self) {
-      let _ = std::fs::remove_file("aperio-server.yaml");
-      crate::config_file::forget();
-    }
-  }
-  let _cleanup = Cleanup;
-  tokio::runtime::Builder::new_current_thread()
-    .enable_all()
-    .build()
-    .unwrap()
-    .block_on(async {
-      let state = Arc::new(test_state());
-      let rule = fresh(ExposeProtocol::Tcp).await;
-      let port = rule.spec.listener.port;
-      let valid = format!("expose:\n  - port: {port}\n    tunnel: echo\n");
-      let duplicate = format!(
-        "{valid}  - port: {port}\n    address: 127.0.0.1\n    tunnel: other\n    enabled: false\n"
-      );
-      std::fs::write("aperio-server.yaml", &duplicate).unwrap();
-      crate::config_file::reload().unwrap();
-      let mut manager = state.exposes.lock().await;
-      manager.initialize(&state, "127.0.0.1").await;
-      assert!(
-        manager
-          .file_error
-          .as_ref()
-          .unwrap()
-          .contains("declared twice")
-      );
-      assert!(manager.entries.is_empty());
-      let socket = tokio::net::TcpListener::bind(("127.0.0.1", port))
-        .await
-        .unwrap();
-      drop(socket);
-
-      std::fs::write("aperio-server.yaml", valid).unwrap();
-      crate::config_file::reload().unwrap();
-      manager.reload(&state, "127.0.0.1").await.unwrap();
-      let id = format!("file:tcp:127.0.0.1:{port}");
-      let runtime = manager.entries[&id].runtime.clone();
-      std::fs::write("aperio-server.yaml", duplicate).unwrap();
-      crate::config_file::reload().unwrap();
-      assert!(
-        manager
-          .reload(&state, "127.0.0.1")
-          .await
-          .unwrap_err()
-          .contains("declared twice")
-      );
-      assert!(Arc::ptr_eq(&manager.entries[&id].runtime, &runtime));
-      assert!(manager.entries[&id].rule.resource.spec.enabled);
-      manager.shutdown().await;
-      assert!(
-        tokio::net::TcpListener::bind(("127.0.0.1", port))
-          .await
-          .is_ok()
-      );
-    });
 }
 
 #[tokio::test]
@@ -545,48 +476,6 @@ async fn udp_target_edits_only_affect_new_peers() {
 }
 
 #[tokio::test]
-async fn invalid_file_reload_keeps_api_and_file_generations() {
-  let state = Arc::new(test_state());
-  let api = fresh(ExposeProtocol::Tcp).await;
-  let mut file_resource = fresh(ExposeProtocol::Udp).await;
-  file_resource.source = ExposeSource::File;
-  file_resource.id = format!("file:udp:127.0.0.1:{}", file_resource.spec.listener.port);
-  let file = ManagedRule {
-    legacy: Some(aperio_config::ExposeEntry {
-      protocol: "udp".into(),
-      port: file_resource.spec.listener.port,
-      tunnel: Some("echo".into()),
-      ..Default::default()
-    }),
-    resource: file_resource,
-  };
-  let mut manager = state.exposes.lock().await;
-  let mut document = manager.store.document.clone();
-  document.resources = vec![api.clone()];
-  manager
-    .apply(&state, document.clone(), vec![file.clone()], true, false)
-    .await
-    .unwrap();
-  let before = manager.store.document.revision;
-  let mut conflict = file.clone();
-  conflict.resource.spec.listener = api.spec.listener.clone();
-  assert!(
-    manager
-      .apply(&state, document, vec![conflict], false, false)
-      .await
-      .is_err()
-  );
-  assert_eq!(manager.store.document.revision, before);
-  assert_eq!(
-    manager.entries[&file.resource.id].rule.resource,
-    file.resource
-  );
-  assert_eq!(manager.entries[&api.id].rule.resource, api);
-  drop(manager);
-  clean(&state).await;
-}
-
-#[tokio::test]
 async fn udp_packet_and_per_ip_limits_bound_admission() {
   let state = Arc::new(test_state());
   let mut rx = client(&state, 6).await;
@@ -638,7 +527,7 @@ async fn udp_packet_and_per_ip_limits_bound_admission() {
 async fn udp_flood_with_slow_tunnel_stays_bounded_and_another_listener_progresses() {
   let state = Arc::new(test_state());
   let (blocked_tx, _blocked_rx) = mpsc::channel(1);
-  let mut slow = mock_client(None, None, None, None);
+  let mut slow = mock_client(None, None);
   slow.tx = blocked_tx;
   slow.sole_mut().tunnels = vec![TunnelDecl {
     name: Some("slow".into()),
@@ -647,7 +536,6 @@ async fn udp_flood_with_slow_tunnel_stays_bounded_and_another_listener_progresse
     protocol: "udp".into(),
     encrypt: false,
     idle_timeout: None,
-    expose: None,
   }];
   state
     .clients

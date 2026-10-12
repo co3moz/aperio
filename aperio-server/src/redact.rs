@@ -4,7 +4,7 @@
 //! original bytes), but everything served to the dashboard passes through
 //! here first: credential-bearing headers and secret-looking body fields are
 //! masked so tokens and passwords never reach a viewer's browser, the HAR
-//! download, or copy-as-cURL. Disable with `APERIO_INSPECTOR_REDACT=0`.
+//! download, or copy-as-cURL. Disable with `inspector.redact: false`.
 
 use crate::state::CapturedRequest;
 use base64::prelude::*;
@@ -59,49 +59,10 @@ const SENSITIVE_FIELDS: &[&str] = &[
   "cvc",
 ];
 
-/// How `APERIO_INSPECTOR_REDACT` reads, given the raw value.
-///
-/// Split out of [`redaction_enabled`] so it can be tested at all. The switch
-/// is read once into a `OnceLock`, which is right for a hot path and means the
-/// first caller in a process decides for every later one, so the parsing could
-/// never be exercised both ways from a test. A mutation run made the cost of
-/// that concrete: inverting the comparison, dropping the negation and swapping
-/// the `&&` all survived, which is three ways for redaction to be off while
-/// the operator believes it is on.
-fn redaction_setting(raw: Option<&str>) -> bool {
-  match raw {
-    None => true,
-    Some(v) => v != "0" && !v.eq_ignore_ascii_case("false"),
-  }
-}
-
-/// True unless the operator opted out with `APERIO_INSPECTOR_REDACT=0`.
-///
-/// Skipped by the mutation sweep on purpose (planned_features #158): the
-/// first caller in a process fixes the answer for every later one, so a test
-/// process that does not set the variable cannot tell `-> true` from the
-/// original. The parsing this wraps is `redaction_setting`, tested both ways.
-#[mutants::skip]
+/// Whether the inspector masks secrets (`inspector.redact`), read per call
+/// so a settings change applies to the next capture shown.
 pub(crate) fn redaction_enabled() -> bool {
-  use std::sync::OnceLock;
-  static ENABLED: OnceLock<bool> = OnceLock::new();
-  *ENABLED
-    .get_or_init(|| redaction_setting(std::env::var("APERIO_INSPECTOR_REDACT").ok().as_deref()))
-}
-
-/// True when a configuration/setting key name suggests it carries a secret and
-/// its value must be masked in logs and the audit trail (matches *auth*,
-/// *token*, *secret*, *password*, *credential*, case-insensitive).
-pub(crate) fn config_key_is_secret(name: &str) -> bool {
-  let lower = name.to_ascii_lowercase();
-  ["auth", "token", "secret", "password", "credential"]
-    .iter()
-    .any(|needle| lower.contains(needle))
-}
-
-/// The placeholder substituted for masked secret values.
-pub(crate) fn mask() -> &'static str {
-  MASK
+  crate::live::current().inspector.redact
 }
 
 /// High-signal secret substrings: any field/param/header name *containing* one

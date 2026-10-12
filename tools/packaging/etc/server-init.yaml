@@ -1,0 +1,12 @@
+# The settings a new Aperio server starts with, read once, on the first
+# start, into an empty database (APERIO_INIT_FILE in aperio-server.env).
+#
+# After that the settings live in the database and change from the dashboard
+# (Settings), so editing this file and restarting changes nothing. To apply a
+# document like this one to a running server, `POST /aperio/api/import` it.
+settings:
+  # Uncomment when a proxy is in front, so visitor IPs in the logs and in
+  # `allowed_ips` are the real ones rather than the proxy's.
+  # proxy:
+  #   trusted:
+  #     - 127.0.0.1

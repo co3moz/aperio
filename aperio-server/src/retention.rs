@@ -1,19 +1,22 @@
 //! Per-data-type retention policies: a background pruner that enforces
 //! independent TTLs on the persisted traffic records.
 //!
-//! Configuration (all in **days**, unset/0 = keep forever, the historical
-//! behavior):
+//! Configuration, the `retention` settings (whole days count, unset or under
+//! a day = keep forever, the historical behavior):
 //!
-//! - `APERIO_RETENTION_CAPTURES`, inspector captures and webhook inbox entries
-//! - `APERIO_RETENTION_ACCESS_LOG`, lines of the `APERIO_ACCESS_LOG` file
-//! - `APERIO_RETENTION_AUDIT`, audit events (rotated generations whose
-//!   newest event expired are deleted whole; the active file only loses its
-//!   leading prefix, keeping the hash chain verifiable)
-//! - `APERIO_RETENTION_STATS`, day-granularity statistics buckets
-//!   (week/month/year buckets keep their built-in caps)
+//! - `retention.captures`, inspector captures and webhook inbox entries
+//! - `retention.access_log`, lines of the `logging.access_log` file
+//! - `retention.audit`, audit events (rotated generations whose newest event
+//!   expired are deleted whole; the active file only loses its leading
+//!   prefix, keeping the hash chain verifiable)
+//! - `retention.stats`, day-granularity statistics buckets (week/month/year
+//!   buckets keep their built-in caps)
+//! - `retention.db_max_size`, the disk guard's cap on the store
 //!
-//! The pruner runs once at startup and then hourly. Each cycle that removes
-//! anything is logged; a `retention_pruned` audit event records the counts.
+//! The pruner runs once at startup and then hourly, reading the settings on
+//! every cycle, so a change applies from the next one. Each cycle that
+//! removes anything is logged; a `retention_pruned` audit event records the
+//! counts.
 
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -23,12 +26,45 @@ use crate::state::AppState;
 /// Seconds between pruner cycles.
 const PRUNE_INTERVAL_SECS: u64 = 3600;
 
-/// Reads one retention env var: days, `None` when unset, unparsable, or 0.
-fn retention_days(name: &str) -> Option<u64> {
-  std::env::var(name)
-    .ok()
-    .and_then(|v| v.trim().parse::<u64>().ok())
-    .filter(|d| *d > 0)
+/// What a retention setting prunes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Surface {
+  Captures,
+  AccessLog,
+  Audit,
+  Stats,
+}
+
+impl Surface {
+  const ALL: [Surface; 4] = [
+    Surface::Captures,
+    Surface::AccessLog,
+    Surface::Audit,
+    Surface::Stats,
+  ];
+
+  /// The setting, as an operator writes it.
+  fn path(self) -> &'static str {
+    match self {
+      Surface::Captures => "retention.captures",
+      Surface::AccessLog => "retention.access_log",
+      Surface::Audit => "retention.audit",
+      Surface::Stats => "retention.stats",
+    }
+  }
+
+  /// The setting in whole days, `None` when unset or under a day.
+  fn days(self) -> Option<u64> {
+    let settings = crate::live::current();
+    let retention = &settings.retention;
+    let span = match self {
+      Surface::Captures => retention.captures,
+      Surface::AccessLog => retention.access_log,
+      Surface::Audit => retention.audit,
+      Surface::Stats => retention.stats,
+    }?;
+    Some(span.as_secs() / 86_400).filter(|d| *d > 0)
+  }
 }
 
 /// Unix cutoff timestamp for a TTL of `days` days.
@@ -79,7 +115,7 @@ async fn prune_access_log(state: &AppState, cutoff: u64) -> usize {
 pub(crate) async fn run_cycle(state: &Arc<AppState>) -> RetentionReport {
   let mut report = RetentionReport::default();
 
-  if let Some(days) = retention_days("APERIO_RETENTION_CAPTURES") {
+  if let Some(days) = Surface::Captures.days() {
     let cutoff = cutoff_ts(days);
     {
       let mut captures = state.captured_requests.lock().await;
@@ -94,15 +130,15 @@ pub(crate) async fn run_cycle(state: &Arc<AppState>) -> RetentionReport {
     report.inbox = state.inbox_store.lock().await.prune_older_than(cutoff);
   }
 
-  if let Some(days) = retention_days("APERIO_RETENTION_ACCESS_LOG") {
+  if let Some(days) = Surface::AccessLog.days() {
     report.access_log_lines = prune_access_log(state, cutoff_ts(days)).await;
   }
 
-  if let Some(days) = retention_days("APERIO_RETENTION_AUDIT") {
+  if let Some(days) = Surface::Audit.days() {
     report.audit_events = state.audit.lock().await.prune_older_than(cutoff_ts(days));
   }
 
-  if let Some(days) = retention_days("APERIO_RETENTION_STATS") {
+  if let Some(days) = Surface::Stats.days() {
     report.stats_buckets = state
       .persistent_stats
       .lock()
@@ -124,9 +160,10 @@ static DISK_WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBoo
 
 /// The configured cap on `aperio.db` (plus its WAL/SHM sidecars), in bytes.
 fn db_max_bytes() -> Option<u64> {
-  std::env::var("APERIO_DB_MAX_BYTES")
-    .ok()
-    .and_then(|v| v.trim().parse::<u64>().ok())
+  crate::live::current()
+    .retention
+    .db_max_size
+    .map(|s| s.0)
     .filter(|b| *b > 0)
 }
 
@@ -218,48 +255,32 @@ async fn disk_guard_cycle(state: &Arc<AppState>, cap: u64, data_dir: &std::path:
     .await;
 }
 
-/// Spawns the background pruner: one cycle at startup, then hourly. Inert
-/// when neither a retention variable nor the disk cap is configured.
+/// Spawns the background pruner: one cycle at startup, then hourly. Always
+/// running, so retention can be configured without a restart; a cycle with
+/// nothing configured does nothing.
 pub(crate) fn spawn(state: Arc<AppState>) {
-  let configured: Vec<&str> = [
-    "APERIO_RETENTION_CAPTURES",
-    "APERIO_RETENTION_ACCESS_LOG",
-    "APERIO_RETENTION_AUDIT",
-    "APERIO_RETENTION_STATS",
-  ]
-  .into_iter()
-  .filter(|name| retention_days(name).is_some())
-  .collect();
-  let disk_cap = db_max_bytes();
-  if configured.is_empty() && disk_cap.is_none() {
-    return;
+  let mut configured: Vec<&str> = Surface::ALL
+    .into_iter()
+    .filter(|s| s.days().is_some())
+    .map(Surface::path)
+    .collect();
+  if db_max_bytes().is_some() {
+    configured.push("retention.db_max_size");
   }
-  // The data dir is where the settings overrides live.
-  let data_dir = state
-    .settings_path
-    .parent()
-    .map(|p| p.to_path_buf())
-    .unwrap_or_else(|| std::path::PathBuf::from("."));
-  info!(
-    "Retention pruner enabled ({}{}); running at startup and hourly",
-    configured.join(", "),
-    if disk_cap.is_some() {
-      if configured.is_empty() {
-        "APERIO_DB_MAX_BYTES"
-      } else {
-        ", APERIO_DB_MAX_BYTES"
-      }
-    } else {
-      ""
-    }
-  );
+  if !configured.is_empty() {
+    info!(
+      "Retention pruner enabled ({}); running at startup and hourly",
+      configured.join(", ")
+    );
+  }
+  let data_dir = std::path::PathBuf::from(&state.data_dir);
   crate::supervise::spawn_supervised("retention", move || {
     let (state, data_dir) = (state.clone(), data_dir.clone());
     async move {
       let mut interval = tokio::time::interval(std::time::Duration::from_secs(PRUNE_INTERVAL_SECS));
       loop {
         interval.tick().await;
-        if let Some(cap) = disk_cap {
+        if let Some(cap) = db_max_bytes() {
           disk_guard_cycle(&state, cap, &data_dir).await;
         }
         let report = run_cycle(&state).await;

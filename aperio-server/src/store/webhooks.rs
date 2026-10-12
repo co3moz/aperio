@@ -289,32 +289,15 @@ impl DeliveryLog {
   }
 }
 
-/// Delays between delivery attempts. Overridable for tests and impatient
-/// operators via APERIO_WEBHOOK_RETRY_SCHEDULE (comma-separated seconds;
-/// empty string = no retries). Attempt count = schedule length + 1.
-pub(crate) fn retry_schedule() -> &'static [std::time::Duration] {
-  use std::sync::OnceLock;
-  static SCHEDULE: OnceLock<Vec<std::time::Duration>> = OnceLock::new();
-  SCHEDULE.get_or_init(|| {
-    match std::env::var("APERIO_WEBHOOK_RETRY_SCHEDULE") {
-      Ok(raw) => raw
-        .split(',')
-        .filter_map(|part| {
-          let part = part.trim();
-          if part.is_empty() {
-            None
-          } else {
-            part.parse::<u64>().ok().map(std::time::Duration::from_secs)
-          }
-        })
-        .collect(),
-      // Default: 4 retries over ~1.5 minutes (1s, 5s, 25s, 60s).
-      Err(_) => vec![1, 5, 25, 60]
-        .into_iter()
-        .map(std::time::Duration::from_secs)
-        .collect(),
-    }
-  })
+/// Delays between delivery attempts (`webhooks.retry_schedule`; empty = no
+/// retries). Attempt count = schedule length + 1.
+pub(crate) fn retry_schedule() -> Vec<std::time::Duration> {
+  crate::live::current()
+    .webhooks
+    .retry_schedule
+    .iter()
+    .map(|span| span.0)
+    .collect()
 }
 
 /// Sends one webhook payload once. `Ok(status)` for a completed request of

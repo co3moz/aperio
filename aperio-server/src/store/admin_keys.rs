@@ -26,11 +26,6 @@ pub struct AdminKey {
   pub key_prefix: String,
   /// Role this key authenticates as (its privilege ceiling).
   pub role: Role,
-  #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
-  #[schema(value_type = Vec<String>)]
-  pub expose: std::collections::BTreeSet<super::grants::ExposeAction>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub expose_bounds: Option<aperio_config::expose_policy::ExposePolicy>,
   /// The child organization this key acts within; `None` = master, or every
   /// organization when `scope` says so. Kept as the older binaries wrote it;
   /// `scope()` is what to read.
@@ -74,6 +69,12 @@ impl AdminKey {
   }
 }
 
+/// How stale the in-memory keys may be. `aperio-server admin create-key` and
+/// `revoke-key` write the table from another process while the server runs;
+/// reading it again at most this often is what puts their change in force,
+/// for a key added and, more to the point, for a key revoked.
+const REREAD_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// Persistent store for programmatic admin API keys, backed by the
 /// `admin_keys` table of the shared SQLite store.
 pub struct AdminKeyStore {
@@ -82,6 +83,12 @@ pub struct AdminKeyStore {
   /// Names of the keys `load` read as `*` from a pre-scope row, for the
   /// start-up audit event. Taken once by `take_widened`.
   widened_on_load: Vec<String>,
+  /// When the table was last read.
+  read_at: std::time::Instant,
+  /// Keys found in the table that this process did not write, minted from
+  /// the command line while the server ran. Taken once by `take_adopted`,
+  /// for the audit log the other process could not write to.
+  adopted: Vec<AdminKey>,
 }
 
 impl AdminKeyStore {
@@ -101,6 +108,8 @@ impl AdminKeyStore {
       conn,
       keys,
       widened_on_load: widened,
+      read_at: std::time::Instant::now(),
+      adopted: Vec::new(),
     };
     // Written back at once, so the conversion happens exactly once: a row
     // that carries a scope is never converted again.
@@ -137,6 +146,41 @@ impl AdminKeyStore {
     std::mem::take(&mut self.widened_on_load)
   }
 
+  /// Keys another process added since the last call, once.
+  pub fn take_adopted(&mut self) -> Vec<AdminKey> {
+    std::mem::take(&mut self.adopted)
+  }
+
+  /// Reads the table again, so a key the command line added or revoked
+  /// while the server ran is seen here. A read that fails keeps what is in
+  /// memory: an empty answer from a busy database must not read as "every
+  /// key was revoked", and the next write would then have made it so.
+  pub fn reread(&mut self) {
+    self.read_at = std::time::Instant::now();
+    let mut keys = match read_rows(&self.conn) {
+      Ok(keys) => keys,
+      Err(e) => {
+        tracing::error!(
+          "Failed to re-read admin keys from the store: {e}; keeping the ones in memory"
+        );
+        return;
+      }
+    };
+    Self::convert_legacy_rows(&mut keys);
+    for key in &keys {
+      if !self.keys.iter().any(|have| have.id == key.id) {
+        tracing::warn!(
+          "Admin key '{}' ({}:{}) was added to the data directory outside this server; it is in force now",
+          key.name,
+          key.scope().as_str(),
+          key.role.as_str()
+        );
+        self.adopted.push(key.clone());
+      }
+    }
+    self.keys = keys;
+  }
+
   /// Rewrites the admin_keys table. Returns whether the write succeeded.
   fn persist(&mut self) -> bool {
     let rows: Vec<(String, String)> = self
@@ -165,37 +209,12 @@ impl AdminKeyStore {
   /// plaintext secret (available only at creation time). `scope` is where it
   /// acts; `org_id` is written alongside for the binaries that read only
   /// that, and a `*` key reads there as the master key it would have been.
-  #[cfg(test)]
   pub fn create(
     &mut self,
     name: String,
     role: Role,
     scope: GrantOrg,
     ttl_seconds: Option<u64>,
-  ) -> Option<(AdminKey, String)> {
-    self.create_with_expose(name, role, scope, ttl_seconds, Default::default())
-  }
-
-  #[cfg(test)]
-  pub fn create_with_expose(
-    &mut self,
-    name: String,
-    role: Role,
-    scope: GrantOrg,
-    ttl_seconds: Option<u64>,
-    expose: std::collections::BTreeSet<super::grants::ExposeAction>,
-  ) -> Option<(AdminKey, String)> {
-    self.create_with_bounds(name, role, scope, ttl_seconds, expose, None)
-  }
-
-  pub fn create_with_bounds(
-    &mut self,
-    name: String,
-    role: Role,
-    scope: GrantOrg,
-    ttl_seconds: Option<u64>,
-    expose: std::collections::BTreeSet<super::grants::ExposeAction>,
-    expose_bounds: Option<aperio_config::expose_policy::ExposePolicy>,
   ) -> Option<(AdminKey, String)> {
     let secret = format!(
       "apk_{}{}",
@@ -212,13 +231,13 @@ impl AdminKeyStore {
       key_hash: hash_token(&secret),
       key_prefix: secret.chars().take(12).collect(),
       role,
-      expose,
-      expose_bounds,
       org_id,
       scope: Some(scope),
       created_at: now_secs(),
       expires_at: ttl_seconds.map(|ttl| now_secs().saturating_add(ttl)),
     };
+    // What another process wrote is kept: the write below replaces the table.
+    self.reread();
     self.keys.push(record.clone());
     if !self.persist() {
       // Rolled back for the reason `revoke` below reverts its removal: a key
@@ -240,6 +259,7 @@ impl AdminKeyStore {
   /// a compromised credential on a full disk was told the job was done by the
   /// same value that meant it had failed, and the key went on authenticating.
   pub fn revoke(&mut self, id: &str) -> Result<(), crate::store::NotWritten> {
+    self.reread();
     let Some(pos) = self.keys.iter().position(|k| k.id == id) else {
       return Err(crate::store::NotWritten::NoSuchRecord);
     };
@@ -258,14 +278,35 @@ impl AdminKeyStore {
   }
 
   /// Verifies a presented secret against the store, returning the matching
-  /// non-expired key. The hashes are compared in constant time.
-  pub fn verify(&self, secret: &str) -> Option<&AdminKey> {
+  /// non-expired key. The hashes are compared in constant time. The table is
+  /// read again first when the copy in memory is older than [`REREAD_EVERY`],
+  /// which costs one small read a second however many requests arrive.
+  pub fn verify(&mut self, secret: &str) -> Option<&AdminKey> {
+    if self.read_at.elapsed() >= REREAD_EVERY {
+      self.reread();
+    }
     let hash = hash_token(secret);
     self
       .keys
       .iter()
       .find(|k| !k.is_expired() && crate::auth::constant_time_eq_str(&k.key_hash, &hash))
   }
+}
+
+/// Every parseable row of the table, or the error that stopped the read.
+/// `load_all` answers an error with an empty list, which is right for a
+/// first load and wrong for a re-read: see [`AdminKeyStore::reread`].
+fn read_rows(conn: &rusqlite::Connection) -> rusqlite::Result<Vec<AdminKey>> {
+  let mut stmt = conn.prepare("SELECT data FROM admin_keys")?;
+  let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+  let mut out = Vec::new();
+  for raw in rows {
+    match serde_json::from_str::<AdminKey>(&raw?) {
+      Ok(key) => out.push(key),
+      Err(e) => tracing::error!("Skipping unparseable admin_keys row: {e}"),
+    }
+  }
+  Ok(out)
 }
 
 #[cfg(test)]

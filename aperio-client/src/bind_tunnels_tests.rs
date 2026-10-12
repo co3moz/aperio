@@ -1,90 +1,17 @@
-//! How a `--bind-tunnels` selection resolves: which peer's tunnels a key reaches,
-//! what a short-form entry means, which port is chosen, and that one entry that
-//! cannot resolve does not take its siblings down with it.
+//! How `aperio-client bind` resolves what it was given: which tunnel a name
+//! reaches, what a short-form entry means, which port is chosen, and that one
+//! entry that cannot resolve does not take its siblings down with it.
 
 use super::*;
-use aperio_config::{BindTunnelEntry, BindTunnelValue};
+use aperio_config::{BindEntry, BindValue, Named};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-fn settings_with(
-  token: Option<&str>,
-  bind_tunnels: HashMap<String, BindTunnelValue>,
-) -> ClientSettings {
-  ClientSettings {
-    name: None,
-    custom_name: None,
-    token: token.map(|t| t.to_string()),
-    api_key: None,
-    scaling: None,
-    server_urls: Vec::new(),
-    serve_spa: false,
-    serve_404: None,
-    device_key: None,
-    device_key_file: None,
-    idle_timeout: None,
-    config_version: None,
-    server: Some("https://tunnel.example.com".to_string()),
-    target: None,
-    serve: None,
-    hostnames: Vec::new(),
-    path: None,
-    trim_bind: None,
-    pass_hostname: false,
-    max_response_body: 50 * 1024 * 1024,
-    reload_drain_secs: 10,
-    retry_attempts: 1,
-    retry_backoff_ms: 100,
-    retry_all_methods: false,
-    breaker_failures: 0,
-    breaker_open_for_secs: 30,
-    max_request_body: None,
-    response_timeout: None,
-    timeout_secs: 30,
-    max_concurrent: None,
-    connections: None,
-    metrics_labels: Default::default(),
-    adaptive_concurrency: false,
-    multiplex: false,
-    otel_bridge: None,
-    startup_delay: None,
-    depends_on: None,
-    pid_file: None,
-    connect_timeout: None,
-    min_tls_version: None,
-    priority: 0,
-    bandwidth: None,
-    max_message_size: 32 * 1024 * 1024,
-    max_redirects: 5,
-    tcp_target: None,
-    target_health: None,
-    wait_for_backend: false,
-    health_interval: 10,
-    health_timeout: 5,
-    health_threshold: 2,
-    public: false,
-    server_side: false,
-    allow_server_forward: false,
-    visitor_auth: None,
-    allowed_ips: Vec::new(),
-    headers: None,
-    security_headers: None,
-    cache: false,
-    resilience: false,
-    capture: true,
-    webhook_inbox: false,
-    denied: None,
-    ip_family: crate::dial::IpFamily::Auto,
-    tls_policy: crate::dial::TlsPolicy::default(),
-    egress_proxy: None,
-    services: Vec::new(),
-    client_id: None,
-    tunnels: Vec::new(),
-    bind_tunnels,
-    subscribe: Vec::new(),
-    messages_listen: None,
-    messages_mqtt_listen: None,
-  }
+fn settings_with(token: Option<&str>, binds: Named<BindValue>) -> ClientSettings {
+  let mut settings = crate::tests::settings("");
+  settings.token = token.map(|t| t.to_string());
+  settings.binds = binds;
+  settings
 }
 
 /// One tunnel as discovery would report it.
@@ -94,7 +21,6 @@ fn view(name: &str, target: &str, protocol: &str) -> TunnelView {
     name: name.to_string(),
     protocol: protocol.to_string(),
     target: target.to_string(),
-    client_id: Some("peer-1".to_string()),
     available: true,
     encrypt: false,
     idle_timeout: None,
@@ -111,10 +37,10 @@ fn view_in(org: &str, name: &str, target: &str) -> TunnelView {
   }
 }
 
-fn entry_with(port: Option<u16>) -> BindTunnelValue {
-  BindTunnelValue::Entry(BindTunnelEntry {
+fn entry_with(port: Option<u16>) -> BindValue {
+  BindValue::Entry(BindEntry {
     port,
-    ..BindTunnelEntry::default()
+    ..BindEntry::default()
   })
 }
 
@@ -124,12 +50,12 @@ fn entry_with(port: Option<u16>) -> BindTunnelValue {
 
 #[test]
 fn a_name_resolves_against_what_the_server_lists() {
-  let mut map = HashMap::new();
+  let mut map = Named::new();
   map.insert("pg_main".to_string(), entry_with(Some(15432)));
   let visible = vec![view("pg_main", "127.0.0.1:5432", "tcp")];
   let planned = plan(
     &settings_with(Some("apr_t"), map),
-    "",
+    &[],
     &visible,
     &Some("apr_t".to_string()),
   )
@@ -141,52 +67,17 @@ fn a_name_resolves_against_what_the_server_lists() {
 
 #[test]
 fn a_short_form_entry_is_just_the_local_port() {
-  let mut map = HashMap::new();
-  map.insert("dns".to_string(), BindTunnelValue::Port(5300));
+  let mut map = Named::new();
+  map.insert("dns".to_string(), BindValue::Port(5300));
   let visible = vec![view("dns", "192.168.3.100:53", "udp")];
   let planned = plan(
     &settings_with(Some("apr_t"), map),
-    "",
+    &[],
     &visible,
     &Some("apr_t".to_string()),
   )
   .unwrap();
   assert_eq!(planned[0].port, 5300);
-}
-
-#[test]
-fn a_client_id_key_binds_every_tunnel_that_peer_declares() {
-  // The older spelling. It still works, and its `override:` map still names
-  // local ports per declared target.
-  let mut map = HashMap::new();
-  map.insert(
-    "peer-1".to_string(),
-    BindTunnelValue::Entry(BindTunnelEntry {
-      overrides: [("127.0.0.1:5432".to_string(), 15432u16)]
-        .into_iter()
-        .collect(),
-      ..BindTunnelEntry::default()
-    }),
-  );
-  let visible = vec![
-    view("pg_main", "127.0.0.1:5432", "tcp"),
-    view("redis", "127.0.0.1:6379", "tcp"),
-  ];
-  let planned = plan(
-    &settings_with(Some("apr_t"), map),
-    "",
-    &visible,
-    &Some("apr_t".to_string()),
-  )
-  .unwrap();
-  assert_eq!(planned.len(), 2);
-  let pg = planned
-    .iter()
-    .find(|b| b.label.contains("pg_main"))
-    .unwrap();
-  assert_eq!(pg.port, 15432, "the override applies to its target");
-  let redis = planned.iter().find(|b| b.label.contains("redis")).unwrap();
-  assert_eq!(redis.port, 6379, "no override: the declared port is reused");
 }
 
 #[test]
@@ -196,8 +87,8 @@ fn an_empty_section_binds_everything_the_token_may_reach() {
     view("dns", "192.168.3.100:53", "udp"),
   ];
   let planned = plan(
-    &settings_with(Some("apr_t"), HashMap::new()),
-    "",
+    &settings_with(Some("apr_t"), Named::new()),
+    &[],
     &visible,
     &Some("apr_t".to_string()),
   )
@@ -209,13 +100,13 @@ fn an_empty_section_binds_everything_the_token_may_reach() {
 fn an_unresolvable_entry_does_not_take_down_the_others() {
   // A break-glass tool: three of four tunnels up during an incident beats
   // none, so an unknown name is reported and skipped, not fatal.
-  let mut map = HashMap::new();
+  let mut map = Named::new();
   map.insert("pg_main".to_string(), entry_with(None));
   map.insert("does-not-exist".to_string(), entry_with(None));
   let visible = vec![view("pg_main", "127.0.0.1:5432", "tcp")];
   let planned = plan(
     &settings_with(Some("apr_t"), map),
-    "",
+    &[],
     &visible,
     &Some("apr_t".to_string()),
   )
@@ -228,8 +119,8 @@ fn an_unresolvable_entry_does_not_take_down_the_others() {
 fn an_explicit_selection_that_cannot_resolve_is_an_error() {
   let visible = vec![view("pg_main", "127.0.0.1:5432", "tcp")];
   let err = plan(
-    &settings_with(Some("apr_t"), HashMap::new()),
-    "nope",
+    &settings_with(Some("apr_t"), Named::new()),
+    &["nope".to_string()],
     &visible,
     &Some("apr_t".to_string()),
   )
@@ -244,8 +135,8 @@ fn an_explicit_selection_that_cannot_resolve_is_an_error() {
 fn a_binding_without_any_token_is_an_error() {
   let visible = vec![view("pg_main", "127.0.0.1:5432", "tcp")];
   let err = plan(
-    &settings_with(None, HashMap::new()),
-    "pg_main",
+    &settings_with(None, Named::new()),
+    &["pg_main".to_string()],
     &visible,
     &None,
   )
@@ -449,18 +340,18 @@ async fn binding_opens_listeners_for_the_discovered_tunnels() {
   .to_string();
   let server = spawn_http(move |_| (200, body.clone())).await;
 
-  let mut map = HashMap::new();
-  map.insert("pg_main".to_string(), BindTunnelValue::Port(39210));
-  map.insert("dns".to_string(), BindTunnelValue::Port(39211));
+  let mut map = Named::new();
+  map.insert("pg_main".to_string(), BindValue::Port(39210));
+  map.insert("dns".to_string(), BindValue::Port(39211));
   // An encrypted tunnel with no psk: warns, still binds.
-  map.insert("vault".to_string(), BindTunnelValue::Port(39212));
+  map.insert("vault".to_string(), BindValue::Port(39212));
   let settings = settings_with(Some("apr_test"), map);
 
   // run_bind_tunnels never returns, so run it in the background and then
   // connect to one of the listeners it opened.
   let server2 = server.clone();
   tokio::spawn(async move {
-    run_bind_tunnels(&settings, &server2, "").await;
+    run_bind_tunnels(&settings, &server2, &[]).await;
   });
   tokio::time::sleep(Duration::from_millis(500)).await;
   let connected = tokio::net::TcpStream::connect("127.0.0.1:39210").await;
@@ -569,13 +460,13 @@ async fn a_combined_tunnel_opens_both_listeners_on_one_port() {
   .to_string();
   let server = spawn_http(move |_| (200, body.clone())).await;
 
-  let mut map = HashMap::new();
-  map.insert("dns".to_string(), BindTunnelValue::Port(39230));
+  let mut map = Named::new();
+  map.insert("dns".to_string(), BindValue::Port(39230));
   let settings = settings_with(Some("apr_test"), map);
 
   let server2 = server.clone();
   tokio::spawn(async move {
-    run_bind_tunnels(&settings, &server2, "").await;
+    run_bind_tunnels(&settings, &server2, &[]).await;
   });
   tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -595,48 +486,24 @@ async fn a_combined_tunnel_opens_both_listeners_on_one_port() {
 }
 
 #[test]
-fn a_client_id_key_accepts_the_process_id_and_a_connection_id() {
-  // Discovery reports the process's own `client_id`, but a file written
-  // before names existed may name one of its connections, which is what the
-  // server used to answer to. Both must select the same peer.
-  let process = "dae0d524-3408-4a1a-bbda-304c7502d3ce";
-  for key in [
-    process.to_string(),
-    format!("{process}-0"),
-    format!("{process}-c2"),
-  ] {
-    let mut map = HashMap::new();
-    map.insert(key.clone(), entry_with(None));
-    let mut visible = vec![view("dns", "192.168.3.100:53", "udp")];
-    visible[0].client_id = Some(process.to_string());
-    let planned = plan(
-      &settings_with(Some("apr_t"), map),
-      "",
-      &visible,
-      &Some("apr_t".to_string()),
-    )
-    .unwrap();
-    assert_eq!(planned.len(), 1, "`{key}` should select the peer");
-  }
-}
-
-#[test]
-fn a_client_id_key_does_not_reach_a_different_peer() {
-  let mut map = HashMap::new();
+fn a_client_id_is_not_a_name() {
+  // Addressing a peer by its id bound every tunnel it declared, under an id
+  // that changed with every run that did not pin one. A binding names one
+  // tunnel, the way a file names it.
+  let mut map = Named::new();
   map.insert(
-    "dae0d524-3408-4a1a-bbda-304c7502d3cf".to_string(),
+    "3f2504e0-4f89-41d3-9a0c-0305e82c3301".to_string(),
     entry_with(None),
   );
-  let mut visible = vec![view("dns", "192.168.3.100:53", "udp")];
-  visible[0].client_id = Some("dae0d524-3408-4a1a-bbda-304c7502d3ce".to_string());
+  let visible = vec![view("pg_main", "127.0.0.1:5432", "tcp")];
   let planned = plan(
     &settings_with(Some("apr_t"), map),
-    "",
+    &[],
     &visible,
     &Some("apr_t".to_string()),
   )
   .unwrap();
-  assert!(planned.is_empty(), "a different uuid must not match");
+  assert!(planned.is_empty(), "an id binds nothing");
 }
 
 #[test]
@@ -648,11 +515,11 @@ fn an_org_qualified_key_binds_that_organizations_tunnel() {
     view_in("payments", "postgres", "127.0.0.1:5432"),
     view_in("billing", "postgres", "127.0.0.1:5433"),
   ];
-  let mut map = HashMap::new();
-  map.insert("billing@postgres".to_string(), BindTunnelValue::Port(15433));
+  let mut map = Named::new();
+  map.insert("billing@postgres".to_string(), BindValue::Port(15433));
   let planned = plan(
     &settings_with(Some("apr_t"), map),
-    "",
+    &[],
     &visible,
     &Some("apr_t".to_string()),
   )
@@ -669,11 +536,11 @@ fn a_qualified_key_naming_the_wrong_organization_binds_nothing() {
   // that it does not quietly fall back to the same name in another
   // organization.
   let visible = vec![view_in("payments", "postgres", "127.0.0.1:5432")];
-  let mut map = HashMap::new();
-  map.insert("billing@postgres".to_string(), BindTunnelValue::Port(15433));
+  let mut map = Named::new();
+  map.insert("billing@postgres".to_string(), BindValue::Port(15433));
   let planned = plan(
     &settings_with(Some("apr_t"), map),
-    "",
+    &[],
     &visible,
     &Some("apr_t".to_string()),
   )
@@ -684,11 +551,11 @@ fn a_qualified_key_naming_the_wrong_organization_binds_nothing() {
 #[test]
 fn master_is_the_qualifier_for_the_built_in_organization() {
   let visible = vec![view("postgres", "127.0.0.1:5432", "tcp")];
-  let mut map = HashMap::new();
-  map.insert("master@postgres".to_string(), BindTunnelValue::Port(15432));
+  let mut map = Named::new();
+  map.insert("master@postgres".to_string(), BindValue::Port(15432));
   let planned = plan(
     &settings_with(Some("apr_t"), map),
-    "",
+    &[],
     &visible,
     &Some("apr_t".to_string()),
   )
@@ -704,11 +571,11 @@ fn a_bare_name_that_two_organizations_carry_is_refused_rather_than_guessed() {
     view_in("payments", "postgres", "127.0.0.1:5432"),
     view_in("billing", "postgres", "127.0.0.1:5433"),
   ];
-  let mut map = HashMap::new();
-  map.insert("postgres".to_string(), BindTunnelValue::Port(15432));
+  let mut map = Named::new();
+  map.insert("postgres".to_string(), BindValue::Port(15432));
   let planned = plan(
     &settings_with(Some("apr_t"), map),
-    "",
+    &[],
     &visible,
     &Some("apr_t".to_string()),
   )
@@ -717,8 +584,8 @@ fn a_bare_name_that_two_organizations_carry_is_refused_rather_than_guessed() {
 
   // The same key given explicitly on the command line reports why.
   let err = plan(
-    &settings_with(Some("apr_t"), HashMap::new()),
-    "postgres",
+    &settings_with(Some("apr_t"), Named::new()),
+    &["postgres".to_string()],
     &visible,
     &Some("apr_t".to_string()),
   )

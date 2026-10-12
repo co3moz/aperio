@@ -6,15 +6,17 @@ use serde::{Deserialize, Serialize};
 /// `PartialEq` so a config reload can notice that this block changed: the
 /// bridge is the one facility a running client cannot rebuild, so the change
 /// is reported rather than silently ignored.
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct OtelBridge {
   /// Address for the OTLP/HTTP receiver, the one every SDK can reach with
   /// `OTEL_EXPORTER_OTLP_ENDPOINT`. Default: `127.0.0.1:4318`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["127.0.0.1:4318"]))]
   pub listen: Option<String>,
   /// Address for the OTLP/gRPC receiver, for SDKs pinned to that transport.
   /// Unset = no gRPC listener. Conventionally port 4317.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["127.0.0.1:4317"]))]
   pub listen_grpc: Option<String>,
   /// How exports reach the server: `tunnel` sends them as frames on the
@@ -25,14 +27,186 @@ pub struct OtelBridge {
   /// property that makes this worth having; `https` exists because a client
   /// whose telemetry is bursty may prefer it to stay off the tunnel entirely,
   /// where it would share flow control with proxied traffic.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["tunnel", "https"]))]
   pub transport: Option<String>,
   /// Exports to hold when the far end is not keeping up. Past this, the
   /// newest is dropped and counted, never waited on: an exporter that cannot
   /// hand off its batch blocks the application it is instrumenting, so
   /// telemetry must never be the reason a tunnel stalls. Default: `256`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [256]))]
   pub queue: Option<usize>,
+}
+
+/// Who may reach a route: `public`, one method block, or a list of them.
+///
+/// One grammar wherever a route's access is written: a client service's
+/// `access:`, a site's `access`, and the server's own `access` (which adds
+/// `deny`, see [`ServerAccess`]). The methods are `basic`, `bearer`, `jwt`,
+/// `forward` and `aperio`, and a list admits a visitor when **any** of its
+/// methods does, which is what "a browser signs in, a script presents a key"
+/// needs.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Access {
+  /// `public`: anyone, with no login (needs a token that allows it).
+  Public,
+  /// One method: `{method: basic, users: "admin:${PASS}"}`.
+  One(Box<AuthMethodSpec>),
+  /// Several methods, any one of which admits the visitor.
+  Any(Vec<AuthMethodSpec>),
+}
+
+impl JsonSchema for Access {
+  fn schema_name() -> std::borrow::Cow<'static, str> {
+    "Access".into()
+  }
+
+  fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let method = generator.subschema_for::<AuthMethodSpec>();
+    schemars::json_schema!({
+      "description": "`public`, one method block, or a list of them (any one admits).",
+      // Written whole in the environment (`APERIO_ACCESS=public`, or the
+      // block as yaml): a method's fields are not settings of their own.
+      "x-env": "whole",
+      "anyOf": [
+        { "type": "string", "const": "public", "description": "Anyone, with no login (needs a token that allows it)." },
+        method,
+        { "type": "array", "items": method }
+      ]
+    })
+  }
+}
+
+impl Serialize for Access {
+  fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+    match self {
+      Access::Public => s.serialize_str("public"),
+      Access::One(spec) => spec.serialize(s),
+      Access::Any(specs) => specs.serialize(s),
+    }
+  }
+}
+
+impl<'de> Deserialize<'de> for Access {
+  fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+    use serde::de::Error;
+    // Read loosely first and then strictly, so a mistake inside a method block
+    // is reported by the block's own fields ("unknown field `userz`") rather
+    // than as an untagged enum matching nothing.
+    match serde_json::Value::deserialize(d)? {
+      serde_json::Value::String(word) if word.trim() == "public" => Ok(Access::Public),
+      serde_json::Value::String(word) => Err(D::Error::custom(format!(
+        "`{word}` is not an access policy; write `public`, or a method block such as \
+         {{method: basic, users: \"user:password\"}}"
+      ))),
+      value @ serde_json::Value::Object(_) => serde_json::from_value(value)
+        .map(|spec| Access::One(Box::new(spec)))
+        .map_err(D::Error::custom),
+      value @ serde_json::Value::Array(_) => serde_json::from_value(value)
+        .map(Access::Any)
+        .map_err(D::Error::custom),
+      other => Err(D::Error::custom(format!(
+        "`{other}` is not an access policy; write `public`, a method block, or a list of them"
+      ))),
+    }
+  }
+}
+
+impl Access {
+  /// The policy in the method grammar the tunnel handshake carries:
+  /// `public` is the open gate, `method: none`.
+  pub fn auth_setting(&self) -> AuthSetting {
+    match self {
+      Access::Public => AuthSetting::One(Box::new(AuthMethodSpec {
+        method: "none".to_string(),
+        ..Default::default()
+      })),
+      Access::One(spec) => AuthSetting::One(spec.clone()),
+      Access::Any(specs) => AuthSetting::Any(specs.clone()),
+    }
+  }
+}
+
+/// The server's `access`: what a route answers when nothing more specific
+/// says. `deny` (the default) refuses a route nothing declares; otherwise the
+/// grammar of [`Access`], so `public` serves it to anyone and a method gates
+/// it.
+///
+/// It replaces three settings that each said a part of this:
+/// `access.default` (`deny` or `allow`), `access.gate` (the gate for a route
+/// that declares none) and `access.ignore_client_auth` (whose job a site's
+/// `access` does now, per hostname rather than for the whole server).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum ServerAccess {
+  /// A route nothing declares is not published.
+  #[default]
+  Deny,
+  /// `public`, or a gate, for a route nothing declares.
+  Declared(Access),
+}
+
+impl JsonSchema for ServerAccess {
+  fn schema_name() -> std::borrow::Cow<'static, str> {
+    "ServerAccess".into()
+  }
+
+  fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let method = generator.subschema_for::<AuthMethodSpec>();
+    schemars::json_schema!({
+      "description": "`deny` (the default), `public`, one method block, or a list of them (any one admits).",
+      "anyOf": [
+        { "type": "string", "enum": ["deny", "public"] },
+        method,
+        { "type": "array", "items": method }
+      ]
+    })
+  }
+}
+
+impl Serialize for ServerAccess {
+  fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+    match self {
+      ServerAccess::Deny => s.serialize_str("deny"),
+      ServerAccess::Declared(access) => access.serialize(s),
+    }
+  }
+}
+
+impl<'de> Deserialize<'de> for ServerAccess {
+  fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+    use serde::de::Error;
+    let value = serde_json::Value::deserialize(d)?;
+    match &value {
+      serde_json::Value::String(word) if word.trim() == "deny" => return Ok(ServerAccess::Deny),
+      serde_json::Value::String(word) if word.trim() != "public" => {
+        return Err(D::Error::custom(format!(
+          "`{word}` is not an access policy; write `deny`, `public`, or a method block such \
+           as {{method: aperio}}"
+        )));
+      }
+      // The block `access` was before 0.13.0. Said in full, because read as a
+      // method block it would be refused for a missing `method`, which sends
+      // the reader looking in the wrong place.
+      serde_json::Value::Object(map)
+        if !map.contains_key("method")
+          && ["default", "gate", "ignore_client_auth"]
+            .iter()
+            .any(|k| map.contains_key(*k)) =>
+      {
+        return Err(D::Error::custom(
+          "`access` is one value since 0.13.0: `deny`, `public`, or a gate. `access.gate` \
+           is now `access` itself, `access.default: allow` is `access: public`, and \
+           `access.ignore_client_auth` is a site's `access`, which wins over what clients \
+           declare for that hostname",
+        ));
+      }
+      _ => {}
+    }
+    serde_json::from_value::<Access>(value)
+      .map(ServerAccess::Declared)
+      .map_err(D::Error::custom)
+  }
 }
 
 /// How a visitor gate is written, on either side of the tunnel.
@@ -46,7 +220,7 @@ pub struct OtelBridge {
 /// The variants are ordered for `untagged`: a YAML scalar can only be the
 /// first, a mapping only the second, a sequence only the third, so a value is
 /// never read as the wrong shape.
-#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, PartialEq)]
 #[serde(untagged)]
 pub enum AuthSetting {
   /// `auth: "user:password"`, the spelling that predates the method grammar.
@@ -71,10 +245,11 @@ pub enum AuthSetting {
 #[serde(deny_unknown_fields)]
 pub struct AuthMethodSpec {
   /// The gate: `none` (deliberately open), `basic` (a `user:password`
-  /// login), `bearer`, `jwt`, `forward`, or `aperio` (this server's own
+  /// login), `bearer`, `jwt`, `forward`, `aperio` (this server's own
   /// sign-in: a dashboard session reaching the hostname's organization, with
-  /// no credential to invent).
-  #[schemars(extend("examples" = ["basic", "none", "aperio"]))]
+  /// no credential to invent), or `sso` (a sign-in at an identity provider
+  /// of the visitor's, which grants nothing on Aperio itself).
+  #[schemars(extend("examples" = ["basic", "none", "aperio", "sso"]))]
   pub method: String,
   /// `basic`: the credentials that open this gate, each `user:password`.
   /// A single value or a list.
@@ -107,10 +282,31 @@ pub struct AuthMethodSpec {
   #[schemars(extend("examples" = ["${JWT_SECRET}"]))]
   pub hmac_secret: Option<String>,
   /// `jwt`: required `iss` claim. Strongly recommended: without it any issuer
-  /// whose key the JWKS happens to carry is accepted.
+  /// whose key the JWKS happens to carry is accepted. `sso`: the identity
+  /// provider, whose discovery document names its endpoints.
   #[serde(default)]
   #[schemars(extend("examples" = ["https://accounts.example.com"]))]
   pub issuer: Option<String>,
+  /// `sso`: the client id registered at the identity provider. Its redirect
+  /// URI is `https://<hostname>/aperio/sso/callback`, for each hostname the
+  /// gate covers.
+  #[serde(default)]
+  #[schemars(extend("examples" = ["aperio-visitors"]))]
+  pub client_id: Option<String>,
+  /// `sso`: the client secret registered with that id.
+  #[serde(default)]
+  #[schemars(extend("examples" = ["${SSO_CLIENT_SECRET}"]))]
+  pub client_secret: Option<String>,
+  /// `sso`: the visitors let in, by the verified email the provider reports:
+  /// exact addresses, `*@domain`, or `*` for anyone the provider signs in.
+  /// One or a list.
+  #[serde(default)]
+  #[schemars(extend("examples" = ["*@example.com", ["ada@example.com", "*@partner.example"]]))]
+  pub allowed_emails: Option<Credentials>,
+  /// `sso`: the scopes asked for. Default `openid email`.
+  #[serde(default)]
+  #[schemars(extend("examples" = ["openid email profile"]))]
+  pub scopes: Option<String>,
   /// `jwt`: required `aud` claim, one or a list of accepted values.
   #[serde(default)]
   #[schemars(extend("examples" = ["aperio", ["aperio", "internal-tools"]]))]
@@ -188,6 +384,14 @@ pub fn forward_via_client(spec: &AuthMethodSpec) -> bool {
 pub fn validate_client_declared_auth(setting: &AuthSetting) -> Result<(), String> {
   validate_auth_setting(setting)?;
   for (i, spec) in setting.methods().iter().enumerate() {
+    if spec.method.trim().eq_ignore_ascii_case("sso") {
+      return Err(format!(
+        "`auth:` entry #{}: `method: sso` is written in the server's settings, its own `access` \
+         or a site's: the identity provider and its client secret are the operator's, not \
+         something to send through a tunnel",
+        i + 1
+      ));
+    }
     if spec.method.trim().eq_ignore_ascii_case("forward") && !forward_via_client(spec) {
       return Err(format!(
         "`auth:` entry #{}: a `forward` declared on a client has to say `via: client`, since its \
@@ -239,10 +443,9 @@ impl AuthSetting {
   /// The single `user:password` this policy is equivalent to, when it is
   /// equivalent to one.
   ///
-  /// This is what travels to a server that predates the grammar, and what the
-  /// existing scalar surfaces (`APERIO_SERVER_AUTH`, the dashboard's editable
-  /// value) still read. `None` means the policy says something the scalar
-  /// cannot: no credential at all, several of them, or another method.
+  /// This is what the scalar field of a service declaration still carries.
+  /// `None` means the policy says something the scalar cannot: no credential
+  /// at all, several of them, or another method.
   pub fn as_single_credential(&self) -> Option<&str> {
     match self {
       AuthSetting::Credentials(creds) => Some(creds.as_str()),
@@ -275,7 +478,7 @@ impl AuthMethodSpec {
 /// Deliberately a closed set: the open version was considered and withdrawn
 /// (`planned_features.md` #103). Further methods each arrive as their own
 /// entry rather than as a plugin interface.
-pub const AUTH_METHODS: &[&str] = &["none", "basic", "bearer", "jwt", "forward", "aperio"];
+pub const AUTH_METHODS: &[&str] = &["none", "basic", "bearer", "jwt", "forward", "aperio", "sso"];
 
 /// Shortest `bearer` secret accepted.
 ///
@@ -469,6 +672,47 @@ pub fn validate_auth_setting(setting: &AuthSetting) -> Result<(), String> {
               return Err(at("a claim requirement has a blank name".to_string()));
             }
           }
+        }
+      }
+      "sso" => {
+        if spec.users.is_some()
+          || spec.secret.is_some()
+          || spec.jwks_url.is_some()
+          || spec.hmac_secret.is_some()
+          || spec.url.is_some()
+        {
+          return Err(at(
+            "`method: sso` signs a visitor in at an identity provider; it takes `issuer:`, \
+             `client_id:`, `client_secret:` and `allowed_emails:`"
+              .to_string(),
+          ));
+        }
+        let issuer = spec.issuer.as_deref().map(str::trim).unwrap_or_default();
+        if !issuer.starts_with("https://") && !issuer.starts_with("http://") {
+          return Err(at(
+            "`method: sso` needs `issuer:`, the identity provider's URL".to_string(),
+          ));
+        }
+        for (field, value) in [
+          ("client_id", spec.client_id.as_deref()),
+          ("client_secret", spec.client_secret.as_deref()),
+        ] {
+          if value.is_none_or(|v| v.trim().is_empty()) {
+            return Err(at(format!(
+              "`method: sso` needs `{field}:`, as registered at the identity provider"
+            )));
+          }
+        }
+        if spec
+          .allowed_emails
+          .as_ref()
+          .is_none_or(|e| e.as_slice().iter().all(|v| v.trim().is_empty()))
+        {
+          return Err(at(
+            "`method: sso` needs `allowed_emails:`; write `*` to let in anyone the provider \
+             signs in, which is a choice worth making on purpose"
+              .to_string(),
+          ));
         }
       }
       "basic" => {

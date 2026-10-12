@@ -8,6 +8,7 @@ mod adaptive;
 mod api;
 mod bind_tunnels;
 mod check;
+mod client_id;
 mod config;
 mod dial;
 mod e2e;
@@ -15,6 +16,7 @@ mod egress;
 mod flow;
 mod forward_ask;
 mod health_report;
+mod init;
 mod messages_http;
 mod messages_mqtt;
 mod messages_run;
@@ -48,8 +50,8 @@ pub(crate) use client::specs::*;
 use aperio_config::format_bandwidth;
 use check::run_check;
 use config::{
-  CliMode, build_ws_url, load_home_config, parse_bandwidth, parse_cli, resolve_settings,
-  resolve_sources,
+  CliMode, build_ws_url, load_home_config, normalize_target, parse_bandwidth, parse_cli,
+  resolve_settings,
 };
 
 /// How long a reload waits for the replacement connections to come up before
@@ -130,6 +132,34 @@ pub(crate) fn test_http_client() -> reqwest::Client {
   reqwest::Client::new()
 }
 
+/// Accepts a tunnel WebSocket the way a server of this client's release does.
+///
+/// A bare `accept_async` answers with no release, which the pairing check
+/// reads as a server from before the rule and refuses. Mock servers in the
+/// tests accept through here so they look like what they stand in for.
+// The error type is tungstenite's, so its size is not ours to box away.
+#[cfg(test)]
+#[allow(clippy::result_large_err)]
+pub(crate) async fn accept_paired<S>(
+  stream: S,
+) -> Result<tokio_tungstenite::WebSocketStream<S>, tokio_tungstenite::tungstenite::Error>
+where
+  S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+  tokio_tungstenite::accept_hdr_async(
+    stream,
+    |_req: &tokio_tungstenite::tungstenite::handshake::server::Request,
+     mut resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
+      resp.headers_mut().insert(
+        aperio_config::pairing::RELEASE_HEADER,
+        tokio_tungstenite::tungstenite::http::HeaderValue::from_static(env!("CARGO_PKG_VERSION")),
+      );
+      Ok(resp)
+    },
+  )
+  .await
+}
+
 /// Entry point for the Aperio client, called by the thin binary in
 /// `main.rs`. Resolves the layered configuration, spawns one service task per
 /// exposed target, and supervises them: a config-file change re-resolves
@@ -156,6 +186,17 @@ pub async fn run() {
     return;
   }
 
+  // `init` writes a file from the command line and the environment, and reads
+  // no file: one that does not parse yet is no reason not to write a new one.
+  if let CliMode::Init {
+    ref service,
+    force,
+    stdout,
+  } = cli.mode
+  {
+    std::process::exit(init::run(&cli, service.as_deref(), force, stdout));
+  }
+
   // Initialize logging. Interactive terminals get human-readable output;
   // non-TTY stdout (Docker, pipes, service managers) keeps the structured
   // JSON format (pino.js style). APERIO_LOG_FORMAT=json|pretty overrides
@@ -163,7 +204,10 @@ pub async fn run() {
   // One-shot admin API calls print their JSON answer on stdout, so their logs
   // stay quiet (warnings and above) and go to stderr: a piped `api` call must
   // emit nothing but the response document.
-  let api_mode = matches!(cli.mode, CliMode::Api(_));
+  let api_mode = matches!(
+    cli.mode,
+    CliMode::Api(_) | CliMode::Login(_) | CliMode::Logout(_) | CliMode::Profile(_)
+  );
   // Logging has to be up before the config files are loaded (their own load
   // messages go through it), so the two logging keys are read from the files
   // separately and cheaply here. `RUST_LOG` still wins over everything.
@@ -209,11 +253,18 @@ pub async fn run() {
     info!("Starting Aperio Client...");
   }
 
-  // Configuration layering: CLI > ./aperio.yaml > environment > ~/.aperio.yaml.
-  let home_cfg = load_home_config();
-  let (file_cfg, config_files) = crate::config::load_file_config_tree(cli.opts.config.as_deref());
-  // At startup an unusable setting is still fatal; only a hot-reload keeps the
-  // previous configuration and carries on.
+  // Configuration layering: ~/.aperio.yaml < ./aperio.yaml < environment < CLI.
+  // At startup an unusable file or setting is fatal; only a hot-reload keeps
+  // the previous configuration and carries on.
+  let home_cfg = load_home_config().unwrap_or_else(|e| {
+    error!("CRITICAL ERROR: {}", e);
+    std::process::exit(1);
+  });
+  let (file_cfg, config_files) = crate::config::load_file_config_tree(cli.opts.config.as_deref())
+    .unwrap_or_else(|e| {
+      error!("CRITICAL ERROR: {}", e);
+      std::process::exit(1);
+    });
   let mut settings = match resolve_settings(&cli, &home_cfg, &file_cfg) {
     Ok(s) => s,
     Err(e) => {
@@ -221,16 +272,6 @@ pub async fn run() {
       std::process::exit(1);
     }
   };
-
-  // Upgrade safety: compare the version the file declares against this build
-  // and report every recorded config-format change in between. A change with
-  // security consequences stops the client here rather than letting it run
-  // under a configuration whose meaning shifted.
-  report_config_upgrade(
-    settings.config_version.as_deref(),
-    api_mode,
-    &config::config_keys(cli.opts.config.as_deref()),
-  );
 
   // Fix the server dialing family for the process. Effective at startup only;
   // a hot-reload cannot change it (mirrors other connection-level globals).
@@ -256,10 +297,17 @@ pub async fn run() {
   if let CliMode::Api(ref command) = cli.mode {
     api::run_api(&settings, &cli.opts, command).await;
   }
+  // Signing in and out of a server's admin API, and choosing among them.
+  match cli.mode {
+    CliMode::Login(ref args) => std::process::exit(api::run_login(&settings, args).await),
+    CliMode::Logout(ref profile) => std::process::exit(api::run_logout(profile.as_deref()).await),
+    CliMode::Profile(ref command) => std::process::exit(api::run_profile(command)),
+    _ => {}
+  }
 
   // Diagnostics mode reports missing config instead of exiting on it.
   if let CliMode::Check = cli.mode {
-    run_check(&settings, &resolve_sources(&cli, &home_cfg, &file_cfg)).await;
+    run_check(&settings).await;
   }
 
   // TCP bridge mode short-circuits the tunnel client entirely.
@@ -276,14 +324,14 @@ pub async fn run() {
     return;
   }
 
-  // Bind-tunnels mode: run local listeners for a peer client's declared
-  // tunnels instead of exposing anything.
-  if let CliMode::BindTunnels(ref id) = cli.mode {
+  // Bind mode: run local listeners for tunnels a peer client declares
+  // instead of exposing anything.
+  if let CliMode::Bind(ref names) = cli.mode {
     let server = settings.server.clone().unwrap_or_else(|| {
       error!("CRITICAL ERROR: the server URL is required (--server-url, APERIO_SERVER_URL, or yaml: server.url)!");
       std::process::exit(1);
     });
-    bind_tunnels::run_bind_tunnels(&settings, &server, id).await;
+    bind_tunnels::run_bind_tunnels(&settings, &server, names).await;
   }
 
   // Stable instance id base, kept across reconnects and config respawns so
@@ -291,25 +339,38 @@ pub async fn run() {
   // service derives its own id from it by index. `--client-id` (or yaml
   // client_id / APERIO_CLIENT_ID) makes it persistent across runs; it must
   // be a UUID like the generated default.
-  let client_id = match settings.client_id {
-    Some(ref explicit) => match uuid::Uuid::parse_str(explicit) {
-      Ok(u) => u.to_string(),
-      Err(_) => {
-        error!(
-          "CRITICAL ERROR: client_id '{}' is not a valid UUID (--client-id / APERIO_CLIENT_ID / yaml: client_id)",
-          explicit
-        );
-        std::process::exit(1);
-      }
-    },
-    None => uuid::Uuid::new_v4().to_string(),
+  let home = config::home_config_path().and_then(|p| p.parent().map(|d| d.to_path_buf()));
+  let client_id = match client_id::resolve(
+    settings.client_id.as_deref(),
+    settings.client_id_file.as_deref(),
+    config_files.first().map(|p| p.as_path()),
+    home.as_deref(),
+  ) {
+    Ok(id) => id,
+    Err(e) => {
+      error!("CRITICAL ERROR: {}", e);
+      std::process::exit(1);
+    }
   };
 
   // The device key is a process identity: resolved from the full layering
-  // once, before any connection announces it.
+  // once, before any connection announces it. It follows the id's rule: a
+  // client reading a config file keeps one beside its id by default, so a
+  // server enforcing token pinning recognizes this machine with nothing
+  // configured. With no config file there is nowhere sensible to keep it.
+  let default_key_file = match (config_files.first(), home.as_deref()) {
+    (Some(config), Some(home)) if settings.device_key_file.is_none() => Some(
+      client_id::default_key_file(home, config)
+        .to_string_lossy()
+        .into_owned(),
+    ),
+    _ => None,
+  };
+  let key_file_is_default = default_key_file.is_some();
   service::set_device_key_sources(
     settings.device_key.clone(),
-    settings.device_key_file.clone(),
+    settings.device_key_file.clone().or(default_key_file),
+    key_file_is_default,
   );
 
   if let Some(path) = settings.pid_file.clone() {
@@ -327,7 +388,7 @@ pub async fn run() {
     std::process::exit(1);
   }
 
-  let mut specs = match build_specs(&settings, &client_id, cli.target.is_some()) {
+  let mut specs = match build_specs(&settings, &client_id) {
     Ok(specs) => specs,
     Err(e) => {
       error!("{}", e);
@@ -541,7 +602,14 @@ pub async fn run() {
       config::parse_config_tree(std::path::Path::new(&config_path)).map(|(cfg, _)| cfg);
     match reloaded {
       Ok(new_file_cfg) => {
-        let mut s = match resolve_settings(&cli, &load_home_config(), &new_file_cfg) {
+        let home = match load_home_config() {
+          Ok(home) => home,
+          Err(e) => {
+            warn!("Config reload: {}; keeping previous", e);
+            continue;
+          }
+        };
+        let mut s = match resolve_settings(&cli, &home, &new_file_cfg) {
           Ok(s) => s,
           Err(e) => {
             warn!(
@@ -561,7 +629,7 @@ pub async fn run() {
             continue;
           }
         };
-        match build_specs(&s, &client_id, cli.target.is_some()) {
+        match build_specs(&s, &client_id) {
           Ok(new_specs) => {
             // The process-wide facilities follow the same configuration the
             // services are about to be rebuilt from, and only once it has
@@ -571,6 +639,19 @@ pub async fn run() {
               warn!("Config reload from {}: {}", config_path, e);
             }
             idle_timeout.store(s.idle_timeout.unwrap_or(0), Ordering::SeqCst);
+            // What dials the server, the process's identity, the OTel bridge
+            // and logging are set once, at startup. Saying so is the
+            // difference between a change that is pending and a change the
+            // log claims was applied.
+            let pending =
+              aperio_config::layers::restart_changes(&settings.restart_values, &s.restart_values);
+            if !pending.is_empty() {
+              warn!(
+                "Config reload from {}: `{}` changed and apply at the next start",
+                config_path,
+                pending.join("`, `")
+              );
+            }
             // Make before break (`planned_features.md` #156). The old order,
             // cancel everything, wait for it to drain, then start the new,
             // put a window with no connection at all between the two, by

@@ -40,12 +40,11 @@ export const ru: Record<string, string> = {
   'Allowed source IPs / CIDRs': 'Разрешённые исходные IP / CIDR',
   'Announced link capacity; the server paces frames to this client accordingly':
     'Заявленная пропускная способность; сервер дозирует кадры этому клиенту соответственно',
-  'Another live connection reports the same client id ({id}), bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
-    'Другое активное подключение сообщает тот же id клиента ({id}), поиск bind-tunnels и failover по этому id неоднозначен; дайте каждому клиенту свой --client-id',
+  'Another live connection reports the same client id ({id}), so failover lookups by this id are ambiguous; give each client its own --client-id':
+    'Другое активное подключение сообщает тот же id клиента ({id}), поэтому поиск failover по этому id неоднозначен; дайте каждому клиенту свой --client-id',
   'Aperio Reverse Tunneling System • Server Uptime: {uptime}':
     'Система обратных туннелей Aperio • Аптайм сервера: {uptime}',
   Appearance: 'Оформление',
-  Apply: 'Применить',
   'Audit Log': 'Журнал аудита',
   'Audit generations kept': 'Хранимые поколения аудита',
   'Audit rotation size': 'Размер ротации аудита',
@@ -71,7 +70,6 @@ export const ru: Record<string, string> = {
   Clear: 'Сбросить',
   'Click to inspect & replay': 'Нажмите для просмотра и повтора',
   'Client ID': 'ID клиента',
-  'Client down threshold (s)': 'Порог недоступности клиента (с)',
   'Client is gracefully shutting down': 'Клиент корректно завершает работу',
   'Client speaks tunnel protocol v{proto}, server differs, update the older side':
     'Клиент использует протокол туннеля v{proto}, сервер отличается, обновите более старую сторону',
@@ -80,8 +78,6 @@ export const ru: Record<string, string> = {
   Clients: 'Клиенты',
   'Clipboard unavailable': 'Буфер обмена недоступен',
   Close: 'Закрыть',
-  'Cloudflare shorthand: trust the CF-Connecting-IP header':
-    'Сокращение для Cloudflare: доверять header CF-Connecting-IP',
   'Connect a new client': 'Подключить нового клиента',
   'Connected & Active': 'Подключено и активно',
   'Connected For': 'В сети',
@@ -102,9 +98,6 @@ export const ru: Record<string, string> = {
   'Create link': 'Создать ссылку',
   'Creates a dynamic tunnel token with a restricted scope.':
     'Создаёт динамический token туннеля с ограниченной областью действия.',
-  'Current value': 'Текущее значение',
-  'Custom 503 maintenance page (HTML)': 'Своя страница 503 для обслуживания (HTML)',
-  'Custom 504 page (HTML)': 'Своя страница 504 (HTML)',
   DOWN: 'НЕДОСТУПЕН',
   'Daily traffic quota (MB, 0 = no quota, empty = keep)': 'Дневная квота трафика (МБ, 0 = без квоты, пусто = сохранить)',
   'Daily traffic quota (MB, empty = no quota)': 'Дневная квота трафика (МБ, пусто = без квоты)',
@@ -137,26 +130,19 @@ export const ru: Record<string, string> = {
     'Включение сразу предлагается подключённым клиентам; отключение действует для новых подключений',
   'End maintenance': 'Завершить обслуживание',
   'End maintenance for {host}': 'Завершить обслуживание {host}',
-  'Env vars provide the defaults; edits become live, persisted overrides. Master token, HOST/PORT, proxy trust and OIDC stay env-only.':
-    'Переменные окружения задают значения по умолчанию; правки становятся живыми, сохраняемыми переопределениями. Мастер-token, HOST/PORT, доверие к proxy и OIDC остаются только в окружении.',
-  'Environment Flags': 'Переменные окружения',
   Event: 'Событие',
   'Events (comma separated, * = all)': 'События (через запятую, * = все)',
   Expires: 'Истекает',
   'Failed to load request detail: {error}': 'Не удалось загрузить детали запроса: {error}',
   'Failover max jumps': 'Макс. переключений failover',
   'Failover non-idempotent methods': 'Failover неидемпотентных методов',
-  'Failover window (s)': 'Окно failover (с)',
   'Filter by path/method...': 'Фильтр по path/методу...',
   'First lockout duration; doubles per repeat offense': 'Длительность первой блокировки; удваивается при повторе',
   'Freeze the table while you inspect': 'Заморозить таблицу на время просмотра',
   'Gateway & Requests': 'Шлюз и запросы',
-  'Gateway timeout (s)': 'Тайм-аут шлюза (с)',
   'Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless, they cannot be listed later, they simply expire.':
     'Дайте кому-то временный доступ к защищённому сайту: ссылка несёт подписанный истекающий token, ограниченный hostname (и необязательным path). При открытии ставится cookie и происходит переход на чистый URL. Ссылки не имеют состояния, их нельзя перечислить позже, они просто истекают.',
   'Go to {page}': 'Перейти: {page}',
-  'Header consulted first for the visitor IP (behind CDN chains)':
-    'Header, проверяемый первым для IP посетителя (за цепочками CDN)',
   Hostname: 'Hostname',
   'Hostname bind (optional)': 'Привязка hostname (необязательно)',
   Hostnames: 'Hostname',
@@ -166,14 +152,11 @@ export const ru: Record<string, string> = {
     'Как запросы выбирают клиента и что происходит при его потере посреди запроса.',
   'I have a token': 'У меня есть token',
   'IP Address': 'IP-адрес',
-  'Ignore client-declared visitor passwords; the server keeps the gate':
-    'Игнорировать пароли посетителей, заявленные клиентом; контроль остаётся у сервера',
   'In-flight failover': 'Failover текущих запросов',
   'In-flight proxied requests; beyond it visitors get 429': 'Одновременные запросы; сверх лимита посетители получают 429',
   'Invalid credentials. Please try again.': 'Неверные учётные данные. Попробуйте ещё раз.',
   'It stays connected but receives no new requests; in-flight requests complete.':
     'Он остаётся подключённым, но не получает новых запросов; текущие запросы завершаются.',
-  'JSONL access log file path (empty = disabled)': 'Path к журналу доступа JSONL (пусто = отключено)',
   'Known events: {events}. Use * to subscribe to everything.':
     'Известные события: {events}. Используйте * для подписки на все.',
   'Last Ping': 'Последний пинг',
@@ -232,7 +215,6 @@ export const ru: Record<string, string> = {
   'Local target (where your service listens)': 'Локальная цель (где слушает ваш сервис)',
   'Login brute-force protection and audit log rotation.':
     'Защита входа от перебора и ротация журнала аудита.',
-  'Login lockout base (s)': 'Базовая длительность блокировки (с)',
   'Login lockout threshold': 'Порог блокировки входа',
   Maintenance: 'Обслуживание',
   'Maintenance Mode': 'Режим обслуживания',
@@ -268,21 +250,14 @@ export const ru: Record<string, string> = {
   'No matching commands': 'Нет подходящих команд',
   'No requests matching filter': 'Нет запросов по фильтру',
   'No webhooks defined': 'Webhook не заданы',
-  'Not a size, use e.g. 10 MB, 1.5 GB, or plain bytes':
-    'Не размер, используйте, например, 10 MB, 1.5 GB или байты',
-  'OIDC single sign-on (issuer, client id/secret, redirect URL, scopes)':
-    'Единый вход OIDC (issuer, id/секрет клиента, redirect URL, scopes)',
   'OK / Failed': 'OK / Ошибки',
   Offline: 'Офлайн',
   'Offline (Waiting for Client)': 'Офлайн (ожидание клиента)',
   Online: 'Онлайн',
-  'Override applied for {id}': 'Переопределение применено для {id}',
-  'Override cleared for {id}': 'Переопределение снято для {id}',
   Overview: 'Обзор',
   'POST/PATCH may reach a backend twice when enabled': 'POST/PATCH может дойти до бэкенда дважды при включении',
   Password: 'Пароль',
   Path: 'Path',
-  'Path bind': 'Привязка path',
   'Path bind (optional)': 'Привязка path (необязательно)',
   Paths: 'Path',
   Paused: 'Пауза',
@@ -292,8 +267,6 @@ export const ru: Record<string, string> = {
   'Per-visitor-IP token bucket for proxied requests.':
     'Token bucket на IP посетителя для проксируемых запросов.',
   Prefix: 'Префикс',
-  'Prometheus metrics endpoint at /aperio/metrics': 'Endpoint метрик Prometheus на /aperio/metrics',
-  Purpose: 'Назначение',
   'Queue Status': 'Состояние очереди',
   'Random subdomain pattern': 'Шаблон случайного subdomain',
   'Rate Limiting': 'Ограничение частоты',
@@ -315,13 +288,9 @@ export const ru: Record<string, string> = {
   'Requests pending reconnection': 'Запросы в ожидании переподключения',
   'Requests today': 'Запросов сегодня',
   'Requests with larger bodies are rejected up front': 'Запросы с большим телом отклоняются сразу',
-  'Require hostname bind': 'Требовать привязку hostname',
-  'Reset to env default ({value})': 'Сбросить к значению окружения ({value})',
-  'Reset {label} to default': 'Сбросить {label} к значению по умолчанию',
   'Response Body': 'Тело ответа',
   'Response Headers': 'Headers ответа',
   'Response cache': 'Кэш ответов',
-  'Response timeout (s)': 'Тайм-аут ответа (с)',
   'Resume live updates': 'Возобновить живые обновления',
   Revoke: 'Отозвать',
   'Revoke token "{name}" ({prefix}…)?': 'Отозвать token «{name}» ({prefix}…)?',
@@ -335,10 +304,6 @@ export const ru: Record<string, string> = {
   'Search clients…': 'Поиск клиентов…',
   'Search…': 'Поиск…',
   'Security & Audit': 'Безопасность и аудит',
-  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running inside a container, to change one:':
-    'Критичные для безопасности и запуска переменные остаются только в окружении, чтобы скомпрометированная сессия панели не могла их изменить. Сервер работает в контейнере, чтобы изменить:',
-  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running natively, to change one:':
-    'Критичные для безопасности и запуска переменные остаются только в окружении, чтобы скомпрометированная сессия панели не могла их изменить. Сервер работает нативно, чтобы изменить:',
   'Send this request through the tunnel again': 'Отправить этот запрос через туннель снова',
   Sent: 'Отправлено',
   'Server Settings': 'Настройки сервера',
@@ -347,15 +312,11 @@ export const ru: Record<string, string> = {
   'Service name announced by the client (services: list)':
     'Имя сервиса, заявленное клиентом (список services:)',
   Session: 'Сессия',
-  'Session cookies carry the Secure flag (HTTPS only)':
-    'Cookies сессии несут флаг Secure (только HTTPS)',
   'Session expires in {duration}': 'Сессия истекает через {duration}',
   'Settings applied and persisted.': 'Настройки применены и сохранены.',
   'Share Links': 'Ссылки доступа',
   'Showing the latest {max} of {total} matching requests.':
     'Показаны последние {max} из {total} подходящих запросов.',
-  'Shown for hostnames in maintenance mode': 'Показывается для hostname в режиме обслуживания',
-  'Shown when no client answers in time': 'Показывается, когда ни один клиент не отвечает вовремя',
   'Sign In': 'Войти',
   'Sign in to continue': 'Войдите, чтобы продолжить',
   'Sign out': 'Выйти',
@@ -372,8 +333,8 @@ export const ru: Record<string, string> = {
     'Входите без пароля с помощью YubiKey, Touch ID / Face ID или менеджера паролей.',
   'The built-in "aperio" admin signs in with the master token or dashboard password and cannot register passkeys. Create a named user instead.':
     'Встроенный администратор «aperio» входит по мастер-token или паролю панели и не может регистрировать passkey. Создайте именованного пользователя.',
-  'Passkey sign-in is not configured on this server. Set APERIO_WEBAUTHN_ORIGIN to the dashboard’s public URL to enable it.':
-    'Вход по passkey не настроен на этом сервере. Укажите APERIO_WEBAUTHN_ORIGIN, публичный URL панели.',
+  'Passkey sign-in is not configured on this server. Set dashboard.webauthn.origin to the dashboard’s public URL to enable it.':
+    'Вход по passkey не настроен на этом сервере. Укажите dashboard.webauthn.origin, публичный URL панели.',
   'This browser does not support WebAuthn.':
     'Этот браузер не поддерживает WebAuthn.',
   'No passkeys registered yet.':
@@ -463,8 +424,6 @@ export const ru: Record<string, string> = {
   Status: 'Статус',
   'Status mix': 'Распределение статусов',
   'Strategy for picking a client from the routed pool': 'Стратегия выбора клиента из пула маршрутизации',
-  'Strict multi-tenant mode: unbound clients never receive traffic':
-    'Строгий мультиарендный режим: непривязанные клиенты никогда не получают трафик',
   Success: 'Успех',
   'Sustained requests per second per IP': 'Устойчивых запросов в секунду на IP',
   'Switch to dark theme': 'Переключиться на тёмную тему',
@@ -493,7 +452,6 @@ export const ru: Record<string, string> = {
   'Token minted and embedded below. It is scoped to {scope} and will not be shown again after this dialog closes.':
     'Token выпущен и встроен ниже. Его область, {scope}; после закрытия окна он больше не будет показан.',
   'Token name is required': 'Требуется имя token',
-  'Token required to scrape the metrics endpoint': 'Token для чтения endpoint метрик',
   'Total Requests': 'Всего запросов',
   'Total memory for cached responses; entries closest to expiry are evicted first':
     'Общая память кэша ответов; записи ближе к истечению вытесняются первыми',
@@ -501,19 +459,17 @@ export const ru: Record<string, string> = {
   Traffic: 'Трафик',
   'Traffic Breakdown': 'Разбивка трафика',
   'Traffic by token & hostname': 'Трафик по token и hostname',
-  'Trust X-Forwarded-For / X-Real-IP from a fronting reverse proxy':
-    'Доверять X-Forwarded-For / X-Real-IP от фронтального обратного proxy',
-  'Trusted proxy/CDN egress IPs or CIDRs used to resolve the real visitor IP':
-    'Доверенные выходные IP/CIDR proxy/CDN для определения реального IP посетителя',
   'Tunnel Clients': 'Туннельные клиенты',
   'Tunnel compression': 'Сжатие туннеля',
   'Tunnels & Domains': 'Туннели и домены',
   'Type a command…': 'Введите команду…',
   'Unsaved changes': 'Несохранённые изменения',
   Username: 'Имя пользователя',
-  Variable: 'Переменная',
   'Visitor Experience': 'Опыт посетителя',
-  'Visitor password': 'Пароль посетителя',
+  'Default access':
+    'Доступ по умолчанию',
+  'deny, public, or a gate in front of every route nothing else declares':
+    'deny, public или дверь перед каждым маршрутом, который больше ничто не объявляет',
   'Wait for a client to (re)connect before failing a request':
     'Ждать (пере)подключения клиента, прежде чем провалить запрос',
   'Wait for a client to answer a dispatched request': 'Ждать ответа клиента на отправленный запрос',
@@ -534,23 +490,18 @@ export const ru: Record<string, string> = {
   'IP filter': 'IP-фильтр',
   'Only these visitor IPs/CIDRs may reach this service: {ips}':
     'Только эти IP/CIDR посетителей могут обращаться к этому сервису: {ips}',
-  'e.g. 10 MB, 1 GB, 65536': 'напр. 10 MB, 1 GB, 65536',
   'e.g. example.com, *.example.com or *-test.example.com, * becomes a random label; empty = disabled':
     'напр. example.com, *.example.com или *-test.example.com, * становится случайной меткой; пусто = отключено',
   'master token': 'мастер-token',
   'never expires': 'не истекает',
-  override: 'переопределено',
   public: 'публичный',
   'public ok': 'публичный разрешён',
   'expiring soon': 'скоро истекает',
-  'read-only': 'только чтение',
   'shared secret for X-Aperio-Signature': 'общий секрет для X-Aperio-Signature',
   signed: 'подписан',
   standby: 'резерв',
   token: 'token',
   'token name (e.g. staging-box)': 'имя token (напр. staging-box)',
-  'user:password gate in front of all proxied traffic; empty = disabled':
-    'шлюз user:password перед всем проксируемым трафиком; пусто = отключено',
   'valid until {date}': 'действует до {date}',
   '{count} client(s) disabled': 'Отключено клиентов: {count}',
   '{count} client(s) enabled': 'Включено клиентов: {count}',
@@ -675,18 +626,12 @@ export const ru: Record<string, string> = {
   'Requests in real time, table or console': 'Запросы в реальном времени, таблица или консоль',
   'no client': 'нет клиента',
   'offline': 'офлайн',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, dashed nodes for token-granted routes no client currently serves, and amber nodes for another machine dialing a tunnel with --bind-tunnels (identified by the address it dialed from, so several processes behind one address are one node). Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Как каждый маршрут достигает назначения: туннельные клиенты и их бэкенды (с живой частотой запросов), бесклиентная маршрутизация сервера, статические перенаправления/ответы и публичные expose-порты, и пунктирные узлы для выданных token маршрутов, которые не обслуживает ни один клиент. Зелёный = исправен, янтарный = завершает работу или проверки бэкенда не проходят, красный = неисправен, отключён, исключён или нет обслуживающего клиента. Другая машина, подключающаяся к туннелю через --bind-tunnels, показывается янтарным узлом и определяется по адресу подключения, поэтому несколько процессов за одним адресом это один узел.',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, dashed nodes for token-granted routes no client currently serves, and amber nodes for another machine dialing a tunnel with aperio-client bind (identified by the address it dialed from, so several processes behind one address are one node). Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Как каждый маршрут достигает назначения: туннельные клиенты и их бэкенды (с живой частотой запросов), бесклиентная маршрутизация сервера, статические перенаправления/ответы и публичные expose-порты, и пунктирные узлы для выданных token маршрутов, которые не обслуживает ни один клиент. Зелёный = исправен, янтарный = завершает работу или проверки бэкенда не проходят, красный = неисправен, отключён, исключён или нет обслуживающего клиента. Другая машина, подключающаяся к туннелю через aperio-client bind, показывается янтарным узлом и определяется по адресу подключения, поэтому несколько процессов за одним адресом это один узел.',
   'ejected': 'исключён',
   'draining': 'завершает работу',
   'cache off': 'кэш выкл',
-  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect, enable the server cache or drop the flag': 'Этот сервис включил кэширование (cache: true), но кэш ответов сервера отключён (APERIO_CACHE off), поэтому опция не действует, включите кэш сервера или уберите флаг.',
-  'Add hostname': 'Добавить hostname',
-  'Hostname binds': 'Привязки hostname',
-  'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
-    'Временные привязки для этого соединения: пока они заданы, сюда маршрутизируются только эти hostname. Измените нужную строку, остальные оставьте как есть; пустые строки отбрасываются, а очистка всех снимает переопределение. Ничего не сохраняется после переподключения.',
-  'declared by the client': 'объявлено клиентом',
-  'granted by the token': 'предоставлено token',
-  'random subdomain, assigned by the server': 'случайный subdomain, выданный сервером',
+  'This service opted into caching (cache.enabled) but the server response cache is disabled (cache.enabled off on the server), so the opt-in has no effect; enable the server cache or drop the setting':
+    'Этот сервис включил кеширование (cache.enabled), но кеш ответов сервера выключен (cache.enabled на сервере выключен), поэтому это ни на что не влияет; включите кеш сервера или уберите настройку',
   '{count} more hostname(s) routed here': 'ещё {count} hostname маршрутизируется сюда',
   'Configuration of {label}': 'Конфигурация {label}',
   'What this connection announces over its heartbeat, plus what the server applies on top. Settings a client never announces (its target, timeouts, header rules, health probes) cannot be shown here.':
@@ -698,9 +643,7 @@ export const ru: Record<string, string> = {
   'applied by the server': 'применено сервером',
   "Show this connection's effective configuration": 'Показать действующую конфигурацию этого соединения',
   'Config Builder': 'Конструктор конфигурации',
-  'Assemble an aperio.yaml or aperio-server.yaml from the settings this server understands, or open an existing one and edit it.': 'Соберите aperio.yaml или aperio-server.yaml из настроек, которые понимает этот сервер, либо откройте существующий файл и отредактируйте его.',
   'Which file?': 'Какой файл?',
-  'The client file configures a tunnel client and what it exposes; the server file configures the Aperio server itself.': 'Клиентский файл настраивает туннельный клиент и то, что он публикует; серверный, сам сервер Aperio.',
   'Empty fields are left out of the file entirely, so the server keeps its own default.': 'Пустые поля вообще не попадают в файл, поэтому сервер сохраняет собственное значение по умолчанию.',
   'Import YAML': 'Импорт YAML',
   'Export YAML': 'Экспорт YAML',
@@ -757,7 +700,7 @@ export const ru: Record<string, string> = {
   'Memory (RSS)': 'Память (RSS)',
   'New admin key': 'Новый админ-ключ',
   'No admin keys yet': 'Админ-ключей пока нет',
-  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have APERIO_SCALING enabled.': 'Записей автомасштабирования нет. Клиент создаёт запись, объявив блок scaling:, и на сервере должен быть включён APERIO_SCALING.',
+  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have scaling.enabled on.': 'Записей автомасштабирования нет. Клиент создаёт запись, объявив блок scaling:, и на сервере должен быть включён scaling.enabled.',
   'No cache data yet': 'Данных кэша пока нет',
   'No hostname restriction': 'Без ограничения по hostname',
   'No self-health data yet': 'Данных самодиагностики пока нет',
@@ -778,7 +721,8 @@ export const ru: Record<string, string> = {
   'Server self-health': 'Самодиагностика сервера',
   'Server-side GET cache occupancy and hit rate.': 'Заполненность и доля попаданий серверного GET-кэша.',
   'Services that ask for capacity when they need it. A request for a hostname nothing is serving triggers a cold start instead of a 504, and a saturated pool asks for one more instance. Declared by the client in its scaling: block; scaling back in is the client’s own idle_timeout.': 'Сервисы, запрашивающие мощность по мере надобности. Запрос к hostname, который никто не обслуживает, вызывает холодный старт вместо 504, а перегруженный пул просит ещё один экземпляр. Клиент объявляет это в блоке scaling:; обратное сжатие делает его собственный idle_timeout.',
-  'Set max_concurrent on the client to make utilization measurable.': 'Задайте max_concurrent на клиенте, чтобы загрузку можно было измерить.',
+  'Set limits.concurrent_requests on the client to make utilization measurable.':
+    'Задайте limits.concurrent_requests на клиенте, чтобы загрузку можно было измерить.',
   'Sign in at /aperio/oidc/login?org={id}. Leave issuer empty to clear.': 'Вход по адресу /aperio/oidc/login?org={id}. Оставьте издателя пустым, чтобы очистить.',
   'Size': 'Размер',
   'State': 'Состояние',
@@ -796,7 +740,6 @@ export const ru: Record<string, string> = {
   'not measurable': 'не измеряется',
   'scale to zero': 'масштабирование до нуля',
   '{inflight} of {capacity} concurrent slots in use; scales out above {target}%.': 'Занято {inflight} из {capacity} одновременных слотов; масштабируется выше {target}%.',
-  'Must be at least {min}': 'Не менее {min}',
   'Need more than this? ': 'Нужно больше? ',
   'Open the config builder': 'Открыть конструктор конфигурации',
   ' to set every option, add services and tunnels, and export the file.': ', задайте все параметры, добавьте сервисы и туннели и выгрузите файл.',
@@ -811,7 +754,6 @@ export const ru: Record<string, string> = {
   'configured': 'настроено',
   'This section has no fixed shape, so it is edited as YAML. Leave it empty to remove it.': 'У этого раздела нет фиксированной структуры, поэтому он правится как YAML. Оставьте пустым, чтобы удалить.',
   'Configures a tunnel client and the backends it exposes.': 'Настраивает туннельный клиент и публикуемые им бэкенды.',
-  'Configures the Aperio server itself.': 'Настраивает сам сервер Aperio.',
   'Bind': 'Привязать',
   'Client': 'Клиент',
   'Copy config': 'Скопировать конфигурацию',
@@ -826,19 +768,11 @@ export const ru: Record<string, string> = {
   'Services': 'Сервисы',
   'Each entry is one exposed backend with its own bind and tuning.': 'Каждая запись, это опубликованный бэкенд со своей привязкой и настройками.',
   'Private TCP/UDP services a peer client can bind locally, and the peers this client binds.': 'Приватные TCP/UDP-сервисы, которые другой клиент может привязать локально, и узлы, которые привязывает этот клиент.',
-  'Access control': 'Контроль доступа',
-  'Who may reach the exposed service.': 'Кто может обращаться к опубликованному сервису.',
   'Capacity & pacing': 'Ёмкость и темп',
   'How much work this client accepts and how fast the server may push to it.': 'Сколько работы принимает этот клиент и как быстро сервер может её ему передавать.',
-  'Backend health': 'Состояние бэкенда',
-  'Probing the backend so an unhealthy one leaves the routing pool without dropping the tunnel. Set here it applies to every entry under services:, and any entry may override it.': 'Проверяет бэкенд, чтобы неисправный вышел из пула маршрутизации, не разрывая туннель. Заданное здесь применяется к каждой записи в services:, и любая запись может это переопределить.',
   'Asking for capacity when it is needed, and retiring when idle.': 'Запрашивать ёмкость при необходимости и сворачиваться при простое.',
-  'Response handling': 'Обработка ответов',
-  'Caching, resilience, and the headers this client rewrites.': 'Кеширование, отказоустойчивость и headers, которые переписывает этот клиент.',
   'Logging': 'Логирование',
   'What this client writes and in which format.': 'Что пишет этот клиент и в каком формате.',
-  'Core': 'Основное',
-  'Identity, listening address, and where state lives.': 'Идентичность, адрес прослушивания и место хранения состояния.',
   'Routing & load balancing': 'Маршрутизация и балансировка',
   'How a request finds a client, and which clients are eligible.': 'Как запрос находит клиента и какие клиенты подходят.',
   'Failover & retry': 'Отказоустойчивость и повторы',
@@ -846,8 +780,16 @@ export const ru: Record<string, string> = {
   'Limits & protection': 'Ограничения и защита',
   'Ceilings on bodies, concurrency, tunnels, and per-visitor rate.': 'Пределы на тела запросов, параллелизм, туннели и частоту на посетителя.',
   'The server-side GET cache for services that opt in.': 'Серверный GET-кеш для сервисов, которые его включили.',
-  'Stream flow control': 'Управление потоком',
-  'How much of a slow visitor’s download is buffered before the client pauses.': 'Какая часть загрузки медленного посетителя буферизуется, прежде чем клиент приостановится.',
+  'Flow control & compression': 'Управление потоком и сжатие',
+  'Process': 'Процесс',
+  'Files this one includes, the pid file, and how long a reload lets requests finish.': 'Подключаемые файлы, PID-файл и сколько времени перезагрузка даёт запросам на завершение.',
+  'Telemetry bridge': 'Мост телеметрии',
+  'Carrying OpenTelemetry exports from this machine to the server’s collector over the tunnel.': 'Передача экспорта OpenTelemetry с этой машины в коллектор сервера через туннель.',
+  'Checks the server asks for': 'Проверки по запросу сервера',
+  'Whether this client answers a forward check the server’s own gate wrote, from this client’s network.': 'Отвечает ли этот клиент на проверку forward, заданную шлюзом самого сервера, из сети этого клиента.',
+  'Advanced features': 'Расширенные возможности',
+  'Features most deployments never turn on. Nothing here is off-limits: it is listed last so the settings everyone decides come first.': 'Возможности, которые большинство установок никогда не включает. Ничего не запрещено: они идут последними, чтобы сначала шли настройки, которые решает каждый.',
+  'Stream flow control and tunnel compression. The defaults suit almost every deployment.': 'Управление потоком и сжатие туннеля. Значения по умолчанию подходят почти для любой установки.',
   'Authentication & dashboard': 'Аутентификация и панель',
   'Who may log in, how, and what the dashboard offers.': 'Кто может входить, каким образом и что предлагает панель.',
   'Proxy trust': 'Доверие к proxy',
@@ -858,10 +800,11 @@ export const ru: Record<string, string> = {
   'Where the server may call out to, and honouring client scaling blocks.': 'Куда сервер может обращаться и соблюдение клиентских блоков масштабирования.',
   'Edge integration': 'Интеграция с edge',
   'Publishing the live hostnames to a reverse proxy in front of this server.': 'Публикует активные hostname на обратный proxy перед этим сервером.',
-  'Pages & headers': 'Страницы и headers',
-  'What visitors see on an error, and server-wide header rewriting.': 'Что видят посетители при ошибке и переписывание headers на уровне сервера.',
+  'Sites':
+    'Сайты',
+  'What the server does for a hostname by itself: answers, policy, fallbacks, pages and maintenance windows.':
+    'Что сервер сам делает для hostname: ответы, политики, fallback, страницы и окна обслуживания.',
   'Process & maintenance': 'Процесс и обслуживание',
-  'Startup behaviour, backups, and the public expose ports.': 'Поведение при запуске, резервные копии и публичные expose-порты.',
   'Settings': 'Настройки',
   'Configure this server, its organizations and who may sign in.': 'Настройте этот сервер, его организации и тех, кто может входить.',
   'Server, organizations and users': 'Сервер, организации и пользователи',
@@ -885,7 +828,6 @@ export const ru: Record<string, string> = {
   'Settings & Tools': 'Настройки и инструменты',
   'Noindex preview hosts': 'Hostname предпросмотра с noindex',
   'Random-subdomain services answer with X-Robots-Tag: noindex and a disallow-all robots.txt': 'Сервисы со случайным subdomain отвечают header X-Robots-Tag: noindex и robots.txt, запрещающим всё',
-  'Serve-stale window (s)': 'Окно устаревших ответов (с)',
   'How long an expired entry may still answer while a resilient service has no healthy client; 0 = off': 'Сколько ещё просроченная запись может отвечать, пока у отказоустойчивого сервиса нет здорового клиента; 0 = выключено',
   'Stream Flow Control': 'Управление потоком стримов',
   'Pause above': 'Пауза выше',
@@ -908,8 +850,8 @@ export const ru: Record<string, string> = {
   'TOTP QR code': 'QR-код TOTP',
   'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.': 'Какую часть загрузки медленного посетителя сервер буферизует, прежде чем попросить клиента приостановить её создание.',
   'Service defaults': 'Значения по умолчанию для сервисов',
-  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here, they only ever worked without a services: list, and appear only for a file that already writes them.': 'Применяются к каждой записи в services: и переопределяются в записи. Ключи, задающие один бэкенд на верхнем уровне, здесь устарели, они и работали только при отсутствии списка services:, и показываются лишь для файла, который их уже пишет.',
-  '`{keys}` name one service at the top level, and this file also has a services: list, the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` задают один сервис на верхнем уровне, а в файле есть ещё и список services:, клиент читает список и игнорирует их. Перенесите их в ту запись, к которой они относятся.',
+  'What every service gets unless its own entry says otherwise. The environment and the command line write here too.':
+    'То, что получает каждый сервис, если его собственная запись не говорит иного. Окружение и командная строка тоже пишут сюда.',
   'Every healthy client of the route takes requests in turn, evenly. The default, and what you want when the clients are interchangeable.': 'Каждый исправный клиент маршрута берёт запросы по очереди, поровну. Значение по умолчанию и то, что нужно, когда клиенты взаимозаменяемы.',
   'Only the clients on the lowest priority tier receive traffic; a higher tier takes over when every client above it is unhealthy, draining or gone, and hands back when one returns. Tiers come from each client’s priority (0 = primary).': 'Трафик получают только клиенты самого низкого приоритетного уровня; уровень выше принимает нагрузку, когда все клиенты над ним неисправны, выводятся или исчезли, и отдаёт её обратно, когда один возвращается. Уровни берутся из priority каждого клиента (0 = основной).',
   'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.': 'Посетитель остаётся на том клиенте, который обслужил его первым, пока тот исправен. Для бэкендов, хранящих состояние посетителя в памяти; пул распределяет по посетителям, а не по запросам.',
@@ -936,7 +878,8 @@ export const ru: Record<string, string> = {
   'Messages': 'Сообщения',
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'Топики, которые слушает этот клиент, и куда подключается приложение на той же машине, чтобы отправлять и получать.',
   'Cold start & scale-out records': 'Записи о холодном старте и масштабировании',
-  'Private services reachable with --bind-tunnels': 'Приватные сервисы, доступные через --bind-tunnels',
+  'Private services reachable with aperio-client bind':
+    'Приватные сервисы, доступные через aperio-client bind',
   'Display name': 'Отображаемое имя',
   'Handle': 'Идентификатор',
   'Only what it is called. The handle {handle} is what addresses it and never changes.': 'Только то, как её называют. Идентификатор {handle} адресует её и никогда не меняется.',
@@ -947,23 +890,16 @@ export const ru: Record<string, string> = {
   'Parallel connections per service (0 = server default, empty = keep)': 'Параллельные соединения на сервис (0 = значение сервера, пусто = не менять)',
   'Parallel connections per service (empty = server default)': 'Параллельные соединения на сервис (пусто = значение сервера)',
   'Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.': 'Детали недоступны: сохраняются только недавние запросы, а сервис с capture: false (или сервер с выключенным инспектором) не сохраняется вовсе.',
-  'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.': 'Этот сервис разрешает запись, но на сервере инспектор запросов выключен (APERIO_INSPECTOR=0), поэтому здесь нечего просматривать и нечего повторить.',
+  'This service allows capture but the server has the request inspector switched off (inspector.enabled: false), so nothing here can be inspected or replayed.': 'Этот сервис разрешает запись, но на сервере инспектор запросов выключен (inspector.enabled: false), поэтому здесь нечего просматривать и нечего повторить.',
   'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': 'Этот сервис не записывается для инспектора запросов (capture: false в его aperio.yaml), его запросы нельзя просмотреть или повторить. На живой трафик и статистику это не влияет.',
   'inspector off': 'инспектор выключен',
   'no capture': 'без записи',
-  '{count} setting(s) here differ from what the server started with': 'Здесь {count} настроек(и) отличаются от тех, с которыми запустился сервер',
-  'from file': 'из файла',
-  'aperio-server.yaml sets this, and the file wins. Edit it there: a change made here would be refused, because a stored override the file contradicts is exactly the invisible state this avoids.': 'Это задаёт aperio-server.yaml, и файл главнее. Меняйте там: изменение здесь будет отклонено, ведь сохранённый override, которому противоречит файл, это ровно то невидимое состояние, которого мы избегаем.',
-  '{count} setting(s) are stored overrides, not what your config file says': '{count} настроек хранятся как override, а не как то, что написано в вашем конфиге',
-  'They apply immediately and survive a restart, but they live in the server’s own store, so aperio-server.yaml still describes a different server than the one running. Put them in the file to make them the deployment’s: the file wins, and the override behind each of these keys is dropped at the next start.': 'Они действуют сразу и переживают перезапуск, но лежат в собственном хранилище сервера, поэтому aperio-server.yaml по-прежнему описывает не тот сервер, который работает. Впишите их в файл, чтобы они стали частью развёртывания: файл побеждает, и override по каждому из этих ключей отбрасывается при следующем старте.',
-  'Copy as YAML': 'Копировать как YAML',
   'A logical JSON dump, a failsafe for upgrades and migrations. Choose what travels: the configuration that rebuilds a deployment is on by default, the history is there if you want it. Sessions and the audit log are never exported.': 'Логический JSON-дамп, страховка при обновлениях и переездах. Выберите, что поедет: конфигурация, восстанавливающая развёртывание, включена по умолчанию, история, если она нужна. Сессии и журнал аудита не экспортируются никогда.',
   'An import applies whatever sections the file holds, so it is the export that decides.': 'Импорт применяет те разделы, которые есть в файле, так что решает именно экспорт.',
   'Importing replaces every section the file contains, on this server. Continue?': 'Импорт заменит на этом сервере каждый раздел, который есть в файле. Продолжить?',
   'Organizations are not selected, so only the master organization travels: {sections} belonging to a tenant are left out, its statistics with them. A row whose organization does not exist on the target server would be an orphan.': 'Организации не выбраны, поэтому поедет только master: {sections}, принадлежащие арендатору, останутся, и его статистика вместе с ними. Запись, чьей организации нет на целевом сервере, осталась бы сиротой.',
   'Access tokens': 'Token доступа',
   'Dashboard users': 'Пользователи панели',
-  'Settings overrides': 'Override настроек',
   'Statistics': 'Статистика',
   'Uptime history': 'История доступности',
   'Webhook inbox': 'Входящие webhook',
@@ -973,7 +909,6 @@ export const ru: Record<string, string> = {
   'Password hashes, TOTP secrets, passkeys': 'Хеши паролей, секреты TOTP, passkey',
   'Tenants, quotas and hostname allowlists': 'Арендаторы, квоты и списки разрешённых hostname',
   'Cold-start and scale-out records': 'Записи холодного старта и масштабирования',
-  'Server settings changed from this dashboard': 'Настройки сервера, изменённые из этой панели',
   'Lifetime counters and the daily, weekly, monthly and yearly buckets': 'Счётчики за всё время и дневные, недельные, месячные и годовые корзины',
   'Per-client and per-hostname availability by day': 'Доступность по клиентам и hostname, по дням',
   'Captured inbound webhook payloads': 'Захваченные входящие payload webhook',
@@ -981,8 +916,6 @@ export const ru: Record<string, string> = {
   'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart. Use *.example.com for every subdomain of a domain, and list the domain itself too if you want it as well.': 'Нет hostname на обслуживании. Посетители указанного hostname видят страницу 503, пока его клиенты остаются подключёнными; сбрасывается при перезапуске сервера. Для всех subdomain домена используйте *.example.com, а если нужен и сам домен, добавьте его отдельно.',
   'app.example.com, *.example.com, *-pi.example.com, or *': 'app.example.com, *.example.com, *-pi.example.com или *',
   'every subdomain': 'все subdomain',
-  'Not in the snippet: {settings}. The file has no spelling for these, its 503/504 keys take a path where this holds the HTML itself, so they stay dashboard overrides.': 'Нет в сниппете: {settings}. В файле для них нет написания: его ключи 503/504 принимают путь, а здесь хранится сам HTML, поэтому они остаются override панели.',
-  '{settings}: the file key is read at startup, so this one takes a restart rather than applying on reload.': '{settings}: ключ в файле читается при старте, поэтому нужен перезапуск, а не перечитывание конфигурации.',
   'Maintenance window': 'Окно обслуживания',
   'lifts in {duration}': 'снимется через {duration}',
   'reason, shown on the 503 page (optional)': 'причина, видна на странице 503 (необязательно)',
@@ -1062,42 +995,44 @@ export const ru: Record<string, string> = {
     '503: отметка обслуживания, поставленная {actor}, покрывает этот hostname ({reason}), снимается в unix {until}',
   'no maintenance flag covers this hostname':
     'ни одна отметка обслуживания не покрывает этот hostname',
-  'no routes: rules configured':
-    'правила routes: не настроены',
-  '{status}: a routes: rule answers this path':
-    '{status}: правило routes: отвечает на этот path',
-  '{status}: a routes: rule answers this path, to {location}':
-    '{status}: правило routes: отвечает на этот path, перенаправляя на {location}',
-  'no routes: rule matches this hostname and path':
-    'ни одно правило routes: не подходит к этому hostname и path',
+  'no sites configured':
+    'сайты не настроены',
+  '{status}: a site answers this path by itself':
+    '{status}: сайт сам отвечает на этот path',
+  '{status}: a site answers this path by itself, to {location}':
+    '{status}: сайт сам отвечает на этот path, перенаправляя на {location}',
+  'no site answers this hostname and path by itself':
+    'ни один сайт не отвечает сам на этот hostname и path',
   '200: preview_noindex answers /robots.txt itself, so this path never reaches a client':
     '200: preview_noindex сам отвечает на /robots.txt, поэтому этот path никогда не доходит до клиента',
-  'no waf: rules configured':
-    'правила waf: не настроены',
-  '403: blocked by a waf: rule ({reason})':
-    '403: заблокировано правилом waf: ({reason})',
-  'no waf: rule matches this method and path (header and body rules need a real request)':
-    'ни одно правило waf: не подходит к этому методу и path (правила для header и тела требуют настоящего запроса)',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}); this dry run does not spend from it':
-    'правило rate_limits: покрывает этот path ({rps} rps, всплеск {burst}); этот пробный прогон из него не расходует',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it':
-    'правило rate_limits: покрывает этот path ({rps} rps, всплеск {burst}, только {methods}); этот пробный прогон из него не расходует',
-  'no rate_limits: rule covers this path':
-    'ни одно правило rate_limits: не покрывает этот path',
+  'no site has waf rules':
+    'ни у одного сайта нет правил waf',
+  '403: blocked by a waf rule ({reason})':
+    '403: заблокировано правилом waf ({reason})',
+  'no waf rule matches this method and path (header and body rules need a real request)':
+    'ни одно правило waf не подходит к этому методу и path (правила для header и тела требуют настоящего запроса)',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}); this dry run does not spend from it":
+    'rate_limit сайта покрывает этот path ({rps} rps, всплеск {burst}); этот пробный прогон из него не расходует',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it":
+    'rate_limit сайта покрывает этот path ({rps} rps, всплеск {burst}, только {methods}); этот пробный прогон из него не расходует',
+  "no site's rate_limit covers this path":
+    'ни один rate_limit сайта не покрывает этот path',
   "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
     'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: обслуживающий клиент объявил собственный пароль посетителя для этого маршрута, и он важнее собственной двери сервера',
-  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
-    'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: дверь для посетителей на сервере включена и настроен OIDC',
   "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set":
     'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: на сервере задан пароль посетителя',
-  'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors':
-    'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: для посетителей настроен OIDC',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's gate asks for a single sign-on at an identity provider":
+    'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: дверь сервера требует единого входа у поставщика удостоверений',
   'this hostname is served without a visitor gate':
     'этот hostname обслуживается без двери для посетителей',
+  "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare":
+    'посетители должны войти (или иметь ссылку доступа), прежде чем это дойдёт до клиента: access сайта закрывает этот маршрут, и это важнее того, что объявляют обслуживающие клиенты',
+  "a site's access opens this route to anyone, over what the clients serving it declare":
+    'access сайта открывает этот маршрут для всех, и это важнее того, что объявляют обслуживающие клиенты',
   "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization":
     'Посетители должны войти (или принести ссылку общего доступа), прежде чем это дойдёт до клиента: этот маршрут требует входа Aperio, сессии панели, достигающей организации этого имени хоста',
-  'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
-    'ничто не объявляет этот маршрут доступным, а `default_access` установлен в `deny`, поэтому он не публикуется: посетитель без сессии Aperio получает тот же ответ, что и для незанятого имени хоста, а вошедший пользователь Aperio по-прежнему до него доходит',
+  "nothing declares this route reachable and the server's `access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it":
+    'ничто не объявляет этот маршрут доступным, а `access` сервера установлен в `deny`, поэтому он не публикуется: посетитель без сессии Aperio получает тот же ответ, что и для незанятого имени хоста, а вошедший пользователь Aperio по-прежнему до него доходит',
   '{count} client(s) would take it: {clients}':
     'запрос взяли бы {count} клиент(ов): {clients}',
   'no connected client serves this hostname and path':
@@ -1106,10 +1041,10 @@ export const ru: Record<string, string> = {
     'ни один подключённый клиент не обслуживает этот hostname и path, хотя {count} могли бы: {ineligible}',
   'an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once':
     'для этой привязки взведена запись автомасштабирования, поэтому запрос удерживали бы, пока запрашивается мощность, вместо немедленного ответа',
-  '{status}: the fallbacks: rule for this hostname redirects to {url} instead of a 504':
-    '{status}: правило fallbacks: для этого hostname перенаправляет на {url} вместо 504',
-  '504: nothing serves this route, and no fallbacks: rule covers it':
-    '504: этот маршрут никто не обслуживает, и ни одно правило fallbacks: его не покрывает',
+  "{status}: this hostname's fallback redirects to {url} instead of a 504":
+    '{status}: fallback этого hostname перенаправляет на {url} вместо 504',
+  '504: nothing serves this route, and no site gives it a fallback':
+    '504: этот маршрут никто не обслуживает, и ни один сайт не задаёт ему fallback',
   'the request reaches a tunnel client ({clients})':
     'запрос доходит до туннельного клиента ({clients})',
   'disabled from the dashboard':
@@ -1120,6 +1055,10 @@ export const ru: Record<string, string> = {
     'пропущенные heartbeat',
   'its path bind does not match':
     'его привязка path не совпадает',
+  'its access, allowed_ips or denied differs from what already serves this route':
+    'его access, allowed_ips или denied отличается от того, что уже обслуживает этот маршрут',
+  'it asked to be served from the server, and was refused':
+    'он попросил обслуживать его с сервера, и это было отклонено',
   'Static route':
     'Статический маршрут',
   'Preview noindex':
@@ -1140,16 +1079,10 @@ export const ru: Record<string, string> = {
     'Нет клиента',
   'maintenance mode':
     'режим обслуживания',
-  'auth: on the service':
-    'auth: у сервиса',
-  'server_auth / OIDC':
-    'server_auth / OIDC',
-  'default_access':
-    'default_access',
-  'server_auth':
-    'server_auth',
-  'OIDC':
-    'OIDC',
+  'access: on the service':
+    'access: у сервиса',
+  'access':
+    'access',
   'hostname/path binds':
     'привязки hostname/path',
   'Served by': 'Обслужил',
@@ -1203,14 +1136,11 @@ export const ru: Record<string, string> = {
   'Process, store and cache health': 'Состояние процесса, хранилища и кеша',
   'Routes & latency': 'Маршруты и задержка',
   'Read more': 'Подробнее',
-  'Redirect hostname': 'Перенаправить имя хоста',
-  'Redirect client {id}…': 'Перенаправить клиента {id}…',
   'A bind is the hostname or path prefix a client claims; a request matching it is routed to that client.': 'Bind — это имя хоста или префикс пути, которые заявляет клиент; подходящий запрос направляется этому клиенту.',
   'A draining client has announced it is shutting down: it gets no new requests and finishes the ones in flight.': 'Клиент в состоянии draining объявил о завершении работы: новые запросы ему не поступают, текущие он завершает.',
   'An ejected service failed too often under real traffic and is out of rotation for a while, even if its health probe is green.': 'Исключённый сервис слишком часто отказывал под реальным трафиком и на время выведен из ротации, даже если его проба здоровья зелёная.',
   'A canary token is a decoy: it serves nothing, and any attempt to use it raises an alert, so a leaked copy surfaces itself.': 'Токен-канарейка — это приманка: он ничего не обслуживает, а любая попытка им воспользоваться поднимает тревогу, так утёкшая копия выдаёт себя.',
   'An expose entry opens a raw public port on the server that relays into a tunnel a client declared, with no second client needed.': 'Запись expose открывает на сервере сырой публичный порт, который ретранслирует в туннель, объявленный клиентом, без второго клиента.',
-  'A hostname override redirects a live client to other hostnames from the dashboard; it lives in memory and a reconnect or restart reverts it.': 'Переопределение имени хоста перенаправляет работающий клиент на другие имена из панели; оно живёт в памяти, и переподключение или перезапуск его отменяет.',
   'updated just now': 'обновлено только что',
   'updated {seconds}s ago': 'обновлено {seconds} с назад',
   'waiting for data…': 'ожидание данных…',
@@ -1234,11 +1164,7 @@ export const ru: Record<string, string> = {
   'by {actor}, {when}': '{actor}, {when}',
   '{count} alert(s) since yesterday, see the audit log': '{count} оповещений со вчерашнего дня, см. журнал аудита',
   'No alerts since yesterday': 'Оповещений со вчерашнего дня нет',
-  "Read": "Чтение",
   "Disconnect": "Отключить",
-  "Delegate": "Делегировать",
-  "Public expose permissions": "Права на публичные экспозиции",
-  "These permissions control server listeners independently of the dashboard role.": "Эти права управляют слушателями сервера независимо от роли в панели.",
   "Maximum TCP connections": "Максимум TCP-соединений",
   "Open timeout (seconds)": "Тайм-аут открытия (секунды)",
   "Drain timeout (seconds)": "Время завершения сеансов (секунды)",
@@ -1298,7 +1224,6 @@ export const ru: Record<string, string> = {
   "All": "Все",
   "Public endpoint": "Публичная точка доступа",
   "Tunnel": "Туннель",
-  "Server configuration file (read-only)": "Файл конфигурации сервера (только чтение)",
   "Managed through API": "Управляется через API",
   "{count} sessions": "Сеансов: {count}",
   "Dropped": "Отброшено",
@@ -1321,10 +1246,6 @@ export const ru: Record<string, string> = {
   "Declared TCP and UDP services. Bind them locally or publish a server endpoint with an explicit expose permission.": "Объявленные службы TCP и UDP. Привяжите их локально или опубликуйте точку доступа сервера с явным разрешением на экспозицию.",
   "No tunnels declared. Add a tunnels: list in the client configuration to make a service available for binding or public exposure.": "Туннели не объявлены. Добавьте список tunnels: в конфигурацию клиента, чтобы служба стала доступна для привязки или публикации.",
   "Expose publicly": "Опубликовать",
-  "Delegated expose limits": "Делегированные лимиты экспозиции",
-  "These limits restrict this identity. Organization-owned listeners keep their lifetime when a user loses access.": "Эти лимиты ограничивают эту учётную запись. Слушатели организации сохраняются, когда пользователь теряет доступ.",
-  "Only the organization policy applies; no additional identity limit is set.": "Действует только политика организации; дополнительные лимиты для этой учётной записи не заданы.",
-  "Delegated limits must remain within your own limits.": "Делегированные лимиты не должны превышать ваши собственные.",
   "Sort by": "Сортировать по",
   "Descending": "По убыванию",
   "Visitor hostname or IP (optional)": "Имя хоста или IP для посетителей (необязательно)",
@@ -1332,4 +1253,30 @@ export const ru: Record<string, string> = {
   "Could not load expose history.": "Не удалось загрузить историю экспозиции.",
   "Add group mapping": "Добавить сопоставление группы",
   "Leave the secret empty to keep it when the issuer and client id are unchanged.": "Оставьте секрет пустым, чтобы сохранить его, если издатель и идентификатор клиента не изменились.",
+  "Assemble an aperio.yaml, or a server-init.yaml for a server’s first start, from the settings this server understands, or open an existing one and edit it.": "Соберите aperio.yaml или server-init.yaml для первого запуска сервера из настроек, которые понимает этот сервер, или откройте существующий файл и отредактируйте его.",
+  "Changing this takes Admin in every organization and a sign-in from the last ten minutes.": "Изменение требует роли Admin во всех организациях и входа не старше десяти минут.",
+  "Client down threshold": "Порог недоступности клиента",
+  "Every setting lives in the server’s database and applies when saved. Security-relevant ones take a sign-in from the last ten minutes; a few are read at startup and wait for a restart.": "Каждая настройка хранится в базе данных сервера и применяется при сохранении. Связанные с безопасностью требуют входа не старше десяти минут; некоторые читаются при запуске и ждут перезапуска.",
+  "Failover window": "Окно failover",
+  "Gateway timeout": "Таймаут шлюза",
+  "How the server shuts down, and its scheduled backups.": "Как сервер завершает работу, и его плановые резервные копии.",
+  "Login lockout base": "Базовая длительность блокировки входа",
+  "Not a duration, use e.g. 30s, 5m, 2h, 1d": "Это не длительность, используйте, например, 30s, 5m, 2h, 1d",
+  "Not a size, use e.g. 512KB, 10MB, 1GB": "Это не размер, используйте, например, 512KB, 10MB, 1GB",
+  "Not valid YAML: {error}": "Некорректный YAML: {error}",
+  "One per line": "По одному на строку",
+  "Read when the server starts: a change is stored and takes effect at the next start.": "Читается при запуске сервера: изменение сохраняется и вступает в силу при следующем запуске.",
+  "Response timeout": "Таймаут ответа",
+  "Saved, and waiting for a restart: {paths}": "Сохранено, ожидается перезапуск: {paths}",
+  "Seeds a new server’s settings on its first start, through APERIO_INIT_FILE.": "Задаёт настройки нового сервера при первом запуске через APERIO_INIT_FILE.",
+  "Serve-stale window": "Окно устаревших ответов",
+  "The client file configures a tunnel client and what it exposes; the first-start document seeds a new server’s settings.": "Клиентский файл настраивает туннельный клиент и то, что он публикует; документ первого запуска задаёт настройки нового сервера.",
+  "Undo": "Отменить",
+  "automatic": "автоматически",
+  "off": "выкл.",
+  "restart": "перезапуск",
+  "restart pending": "ожидает перезапуска",
+  "security": "безопасность",
+  "stored, type to replace": "сохранено, введите для замены",
+  "Every setting that differs from its default": "Каждая настройка, отличающаяся от значения по умолчанию",
 }

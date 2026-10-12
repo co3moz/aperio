@@ -136,7 +136,8 @@ fn every_harness_env_var_is_one_a_binary_reads() {
   );
 
   // What the product knows: every name read as a literal in the crates, plus
-  // the documented table, which project rule 17 requires a setting to reach.
+  // the documented ones: the boot environment, and the client's variables,
+  // which are derived from its schema and listed in the reference.
   let mut known = BTreeSet::new();
   for crate_dir in [
     "aperio-server/src",
@@ -145,7 +146,11 @@ fn every_harness_env_var_is_one_a_binary_reads() {
   ] {
     collect_literals(&root.join(crate_dir), &mut known);
   }
-  let documented = std::fs::read_to_string(root.join("docs/configuration.md")).unwrap_or_default();
+  let documented = ["docs/configuration.md", "docs/reference.md"]
+    .iter()
+    .map(|p| std::fs::read_to_string(root.join(p)).unwrap_or_default())
+    .collect::<Vec<_>>()
+    .join("\n");
 
   let unknown: Vec<&String> = used
     .iter()

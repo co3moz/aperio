@@ -49,8 +49,8 @@ class DiskServer extends AperioServerBase() {
     return join(this._outDir, 'server.log')
   }
 
-  _env() {
-    return { APERIO_ACCESS_LOG: join(disk!.dir, 'access.jsonl') }
+  _settings() {
+    return { logging: { access_log: join(disk!.dir, 'access.jsonl') } }
   }
 
   // The mount is torn down by the spec, not by the base class deleting a

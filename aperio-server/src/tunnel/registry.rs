@@ -34,7 +34,6 @@ pub(crate) fn name_of(decl: &TunnelDecl) -> String {
     psk: None,
     proxy_protocol: false,
     idle_timeout: decl.idle_timeout,
-    expose: decl.expose.clone(),
   })
 }
 

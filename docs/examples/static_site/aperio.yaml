@@ -5,19 +5,17 @@ server:
 # Two static sites from one client: each entry serves its own directory
 # (serve: replaces target:; the two are mutually exclusive per entry).
 services:
-  - name: site_a
-    public: true
+  site_a:
+    access: public
     serve: ./sites/a
     hostname: a.example.com
 
-  - name: site_b
-    public: true
+  site_b:
+    access: public
     serve: ./sites/b
     hostname: b.example.com
 
   # Static and proxied services mix freely in one client:
-  # - name: api
+  # api:
   #   target: http://localhost:4000
   #   hostname: api.example.com
-
-version: 0.12.0

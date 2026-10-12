@@ -1,6 +1,6 @@
 //! UDP tunneling for declared `protocol: udp` tunnels: the declaring side
 //! relays datagrams between the tunnel and its local UDP target, and the
-//! consumer side (`--bind-tunnels`) exposes a local UDP socket whose peers
+//! consumer side (`aperio-client bind`) exposes a local UDP socket whose peers
 //! each get their own relay stream through the server.
 //!
 //! Everything here is best-effort, matching UDP semantics: when a hop is
@@ -59,8 +59,6 @@ pub(crate) async fn handle_udp_open(
   mut abort_rx: mpsc::Receiver<()>,
   idle_timeout: Duration,
   activity: crate::service::ActivityClock,
-  // The tunnel protocol the server announced; v7 takes datagrams raw.
-  protocol: u32,
 ) {
   info!("Opening UDP relay {} to {}", stream_id, target_addr);
   let close_stream = |reason: &'static str| {
@@ -98,48 +96,47 @@ pub(crate) async fn handle_udp_open(
   let mut buf = vec![0u8; UDP_MAX_DATAGRAM];
   loop {
     tokio::select! {
-      _ = abort_rx.recv() => break,
-      _ = tokio::time::sleep(idle_timeout) => {
-        debug!("UDP relay {} idle; expiring", stream_id);
-        break;
-      }
-      out = datagram_rx.recv() => match out {
-        Some(bytes) => {
-          // Live traffic in either direction keeps `idle_timeout` at bay.
-          activity.stamp();
-          // send() may fail transiently (e.g. ICMP unreachable); UDP is
-          // lossy by contract, so log and carry on.
-          if let Err(e) = socket.send(&bytes).await {
-            debug!("UDP send to {} failed: {}", target_addr, e);
-          }
-        }
-        None => break,
-      },
-      recv = socket.recv(&mut buf) => match recv {
-        Ok(n) => {
-          activity.stamp();
-          let Some(frame) = crate::protocol::relay_frame(
-            protocol,
-            crate::protocol::FRAME_UDP_DATAGRAM,
-            &stream_id,
-            &buf[..n],
-            |data| TunnelMessage::UdpDatagram {
-              stream_id: stream_id.clone(),
-              data,
-            },
-          ) else {
-            continue;
-          };
-          // Best-effort: drop the datagram when the tunnel is congested.
-          if let Err(mpsc::error::TrySendError::Closed(_)) = tunnel_tx.try_send(frame) {
+          _ = abort_rx.recv() => break,
+          _ = tokio::time::sleep(idle_timeout) => {
+            debug!("UDP relay {} idle; expiring", stream_id);
             break;
           }
+          out = datagram_rx.recv() => match out {
+            Some(bytes) => {
+              // Live traffic in either direction keeps `idle_timeout` at bay.
+              activity.stamp();
+              // send() may fail transiently (e.g. ICMP unreachable); UDP is
+              // lossy by contract, so log and carry on.
+              if let Err(e) = socket.send(&bytes).await {
+                debug!("UDP send to {} failed: {}", target_addr, e);
+              }
+            }
+            None => break,
+          },
+          recv = socket.recv(&mut buf) => match recv {
+            Ok(n) => {
+              activity.stamp();
+              let Some(frame) = crate::protocol::relay_frame(
+    crate::protocol::FRAME_UDP_DATAGRAM,
+                &stream_id,
+                &buf[..n],
+                |data| TunnelMessage::UdpDatagram {
+                  stream_id: stream_id.clone(),
+                  data,
+                },
+              ) else {
+                continue;
+              };
+              // Best-effort: drop the datagram when the tunnel is congested.
+              if let Err(mpsc::error::TrySendError::Closed(_)) = tunnel_tx.try_send(frame) {
+                break;
+              }
+            }
+            Err(e) => {
+              debug!("UDP recv error for stream {}: {}", stream_id, e);
+            }
+          },
         }
-        Err(e) => {
-          debug!("UDP recv error for stream {}: {}", stream_id, e);
-        }
-      },
-    }
   }
 
   active_streams.lock().await.remove(&stream_id);
@@ -240,13 +237,17 @@ async fn bridge_udp_session(
   // connection honours the configured `ip_family` and falls back across every
   // resolved address; `connect_async` picks an address itself and does
   // neither, which stranded UDP binds on hosts where only one family works.
-  let (ws, _) = match crate::dial::connect_ws(req, None).await {
+  let (ws, response) = match crate::dial::connect_ws(req, None).await {
     Ok(x) => x,
     Err(e) => {
       warn!("UDP bridge failed to reach server: {:?}", e);
       return;
     }
   };
+  if let Some(refused) = crate::dial::unpaired_server(&response) {
+    error!("UDP bridge refused the server: {}", refused);
+    return;
+  }
   let (mut ws_tx, mut ws_rx) = ws.split();
 
   loop {

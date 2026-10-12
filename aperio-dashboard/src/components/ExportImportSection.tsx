@@ -27,7 +27,7 @@ const SECTIONS: {
   { key: 'users', label: 'Dashboard users', hint: 'Password hashes, TOTP secrets, passkeys', defaultOn: true, orgScoped: true },
   { key: 'organizations', label: 'Organizations', hint: 'Tenants, quotas and hostname allowlists', defaultOn: true, orgScoped: false },
   { key: 'scaling', label: 'Autoscaling', hint: 'Cold-start and scale-out records', defaultOn: true, orgScoped: true },
-  { key: 'settings_overrides', label: 'Settings overrides', hint: 'Server settings changed from this dashboard', defaultOn: true, orgScoped: false },
+  { key: 'settings', label: 'Server Settings', hint: 'Every setting that differs from its default', defaultOn: true, orgScoped: false },
   { key: 'statistics', label: 'Statistics', hint: 'Lifetime counters and the daily, weekly, monthly and yearly buckets', defaultOn: false, orgScoped: true },
   { key: 'uptime', label: 'Uptime history', hint: 'Per-client and per-hostname availability by day', defaultOn: false, orgScoped: true },
   { key: 'inbox', label: 'Webhook inbox', hint: 'Captured inbound webhook payloads', defaultOn: false, orgScoped: true },
@@ -38,7 +38,7 @@ const SECTIONS: {
  * The whole server as one JSON document, and back again.
  *
  * Its own pane rather than a section of the settings form: it is not a
- * setting, it moves every token, webhook, user and override at once, and
+ * setting, it moves every token, webhook, user and setting at once, and
  * importing overwrites all of them. Filed under the form it can replace, it
  * read as one more knob.
  */

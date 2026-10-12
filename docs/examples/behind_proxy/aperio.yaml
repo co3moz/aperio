@@ -3,7 +3,7 @@ server:
   token: apr_behind_proxy_change_me
 
 services:
-  - target: http://localhost:3000
-    public: true
-
-version: 0.12.0
+  web:
+    target: http://localhost:3000
+    hostname: "*"               # every hostname no other service claims
+    access: public

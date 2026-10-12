@@ -118,6 +118,11 @@ pub(crate) fn reach(message: &TunnelMessage) -> (Reach, Direction, &'static str)
       ToClient,
       "the random subdomain the server picked, for logging",
     ),
+    TunnelMessage::Notice { .. } => (
+      MayIgnore,
+      ToClient,
+      "a sentence about the client's own configuration, for its log",
+    ),
     TunnelMessage::Draining { .. } => (
       MayIgnore,
       ToClient,

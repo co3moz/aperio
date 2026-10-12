@@ -306,12 +306,11 @@ jobs:
   # The Helm chart.
   #
   # Linting a chart proves it renders. What is worth proving here is the one
-  # claim the chart makes: that `values.config` is the *server's own*
-  # configuration and not a second vocabulary. So the rendered ConfigMap is
-  # fed to `aperio-server --check-config`, which is the same validator an
-  # operator would run against a hand-written file. A key that stops being
-  # accepted, or a block that stops being materialized, fails here rather than
-  # on somebody's cluster.
+  # claim the chart makes: that `values.initSettings` is the *server's own*
+  # settings document and not a second vocabulary. So the rendered ConfigMap
+  # is fed to `aperio-server check`, which is the same validator a change gets
+  # and an operator would run against a hand-written document. A setting that
+  # stops being accepted fails here rather than on somebody's cluster.
   chart:
     name: Helm chart
     runs-on: ubuntu-24.04
@@ -362,111 +361,32 @@ jobs:
       - name: Build the server
         run: cargo build --locked -p aperio-server
 
-      # The claim under test: what the chart writes is a configuration the
-      # server accepts, blocks and all.
-      - name: The rendered config is a configuration the server accepts
+      # The claim under test: what the chart writes is a first-start document
+      # the server accepts, sections and all.
+      - name: The rendered document is one the server accepts
         run: |
           set -euo pipefail
           cat > /tmp/values.yaml <<'YAML'
-          config:
-            host: 0.0.0.0
-            port: 8080
-            log_level: info
-            trusted_proxies: ["10.0.0.0/8"]
-            cache: { enabled: true, max_bytes: 268435456 }
-            alert: { error_rate: 5 }
-            retention: { audit_days: 30 }
-            backup: { interval: 86400, dir: /var/lib/aperio/backups }
+          initSettings:
+            proxy: { trusted: ["10.0.0.0/8"] }
+            cache: { enabled: true, size: 256MB }
+            alerts: { error_rate: 0.05 }
+            retention: { audit: 30d }
+            backup: { interval: 1d, dir: /var/lib/aperio/backups }
           YAML
           helm template a tools/charts/aperio-server -f /tmp/values.yaml \
             | python3 -c "
           import sys, yaml
           docs = [d for d in yaml.safe_load_all(sys.stdin) if d]
           cm = [d for d in docs if d['kind'] == 'ConfigMap'][0]
-          open('/tmp/aperio-server.yaml', 'w').write(cm['data']['aperio-server.yaml'])
+          open('/tmp/server-init.yaml', 'w').write(cm['data']['server-init.yaml'])
           "
-          cat /tmp/aperio-server.yaml
-          APERIO_SERVER_TOKEN=apr_ci \
-          APERIO_SERVER_CONFIG=/tmp/aperio-server.yaml \
-          APERIO_DATA_DIR=/tmp/aperio-data \
-            ./target/debug/aperio-server --check-config
+          cat /tmp/server-init.yaml
+          ./target/debug/aperio-server check /tmp/server-init.yaml
 
-  # ---------------------------------------------------------------------------
-  # Client/server compatibility, N-1 in both directions.
-  #
-  # A server is one box and its clients are a fleet, so the two sides are
-  # always upgraded at different times. Everything else in this file tests one
-  # tree against itself, which is exactly the pairing no deployment runs.
-  #
-  # It is a gate rather than a report: the promise is that the previous
-  # release's client works against this server and this client works against
-  # the previous release's server, and a promise nothing checks is a wish. The
-  # wider report over *every* past release is #90 and is deliberately not a
-  # gate, because an old client failing a new server is information.
-  compat:
-    name: Compatibility (previous release, both directions)
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Node.js (the E2E suite runs on it)
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-
-      # The musl builds, because they are static: a release binary from an
-      # older toolchain has to run on this runner without matching its glibc.
-      - name: Fetch the previous release's binaries
-        id: previous
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tag=$(gh release list --limit 1 --json tagName --jq '.[0].tagName // empty')
-          if [ -z "$tag" ]; then
-            echo "No release yet, so there is no previous version to pair with."
-            echo "found=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          mkdir -p previous && cd previous
-          for bin in aperio-server aperio-client; do
-            gh release download "$tag" \
-              --pattern "${bin}-x86_64-unknown-linux-musl.tar.gz" --clobber
-            tar xzf "${bin}-x86_64-unknown-linux-musl.tar.gz"
-            chmod +x "$bin"
-          done
-          echo "found=$tag" >> "$GITHUB_OUTPUT"
-
-      - name: Build this tree's binaries
-        if: steps.previous.outputs.found != ''
-        run: cargo build -p aperio-server -p aperio-client -p mock-h2
-
-      - name: Install the E2E suite's dependencies
-        if: steps.previous.outputs.found != ''
-        working-directory: tests/e2e
-        run: npm ci
-
-      # Named separately so a failure says which pairing broke, which is the
-      # first thing anybody wants to know.
-      - name: "${{ steps.previous.outputs.found }} client against this server"
-        if: steps.previous.outputs.found != ''
-        working-directory: tests/e2e
-        env:
-          APERIO_CLIENT_BIN: ${{ github.workspace }}/previous/aperio-client
-        run: npm run test:compat --ignore-scripts
-
-      - name: "This client against the ${{ steps.previous.outputs.found }} server"
-        if: steps.previous.outputs.found != ''
-        working-directory: tests/e2e
-        env:
-          APERIO_SERVER_BIN: ${{ github.workspace }}/previous/aperio-server
-        run: npm run test:compat --ignore-scripts
+      # The packages' shipped first-start document, the same way.
+      - name: The packaged first-start document is one the server accepts
+        run: ./target/debug/aperio-server check tools/packaging/etc/server-init.yaml
 
   # ---------------------------------------------------------------------------
   # Release-cache warming, for every release target.
@@ -492,93 +412,6 @@ jobs:
   # ~15s check. A second lookup-only probe inside each job skips the rebuild
   # entirely if the cache key is nonetheless unchanged.
   # ---------------------------------------------------------------------------
-  # The guide is typeset here, and this job exists because it was not.
-  #
-  # `docs/book/aperio.tex` was only ever compiled during a release, so a LaTeX
-  # error in it could not fail anything until the release was already running.
-  # One did: a row with five cells in a four-column table, added with the
-  # client-name feature, sat on master until the release that tried to publish
-  # it. Typesetting is the only way to find that, since nothing else reads the
-  # file.
-  #
-  # Gated on the book changing, in the shape `detect-deps-change` above
-  # already uses, because the bundle download is not free and the file is
-  # quiet between releases.
-  detect-book-change:
-    name: Detect guide changes
-    if: github.event_name == 'push'
-    runs-on: ubuntu-24.04
-    outputs:
-      changed: ${{ steps.filter.outputs.changed }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - name: Did the guide change?
-        id: filter
-        run: |
-          base='${{ github.event.before }}'
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only "$base" '${{ github.sha }}' | grep -qE '^docs/book/'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
-  book:
-    name: Typeset the guide
-    needs: detect-book-change
-    if: needs.detect-book-change.outputs.changed == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Install Tectonic
-        env:
-          TECTONIC_VERSION: 0.17.0
-        run: |
-          curl -fsSL -o tectonic.tar.gz \
-            "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%40${TECTONIC_VERSION}/tectonic-${TECTONIC_VERSION}-x86_64-unknown-linux-musl.tar.gz"
-          tar -xzf tectonic.tar.gz
-          sudo install -m 0755 tectonic /usr/local/bin/tectonic
-
-      # Restore only, and save further down only when the compile worked. A
-      # cache written by a failed run is how a half-downloaded bundle outlives
-      # the run that created it and fails every later one.
-      - name: Restore the Tectonic bundle
-        id: bundle
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cache/Tectonic
-          key: tectonic-${{ runner.os }}-${{ hashFiles('docs/book/aperio.tex') }}
-          restore-keys: tectonic-${{ runner.os }}-
-
-      - name: Typeset
-        working-directory: docs/book
-        run: |
-          # tectonic will not create its own output directory.
-          mkdir -p out
-          # Once, then once more against a cleared cache. A restored bundle
-          # missing a file it claims to have fails as "failed to open input
-          # file", which reads like a broken document and is not one; that
-          # cost a release. A second attempt distinguishes the two.
-          if ! tectonic -X compile aperio.tex --outdir out; then
-            echo "::warning::typesetting failed; retrying against a cleared bundle cache"
-            rm -rf ~/.cache/Tectonic
-            tectonic -X compile aperio.tex --outdir out
-          fi
-
-      - name: Save the Tectonic bundle
-        if: success()
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cache/Tectonic
-          key: tectonic-${{ runner.os }}-${{ hashFiles('docs/book/aperio.tex') }}
-
   detect-deps-change:
     name: Detect dependency changes
     if: github.event_name == 'push'

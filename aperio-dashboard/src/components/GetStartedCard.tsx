@@ -5,8 +5,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useHasRole } from '@/lib/session'
 import { useI18n } from '@/i18n'
 
-/** Where the articles live; the page header links here too. */
-export const DOCS_BASE = 'https://github.com/co3moz/aperio/blob/master/docs/'
+/** Where the articles live, at the release this dashboard was built into, so
+ *  a page renamed later does not break the links of a server already running.
+ *  The page header links here too. */
+export const DOCS_BASE = `https://github.com/co3moz/aperio/blob/${
+  __APERIO_VERSION__ ? `v${__APERIO_VERSION__}` : 'master'
+}/docs/`
 
 /**
  * What an empty server tells a newcomer (planned_features #160). Six zero

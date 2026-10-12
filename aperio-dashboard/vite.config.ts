@@ -1,13 +1,30 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
+// The release this dashboard is built into, so its help links open the
+// documentation of that release rather than master's, where a page may since
+// have moved. build.rs passes it; a build without it reads the server crate's
+// manifest when it is there, and the dev server, like a build with neither
+// (the from-source Dockerfile's Node stage), links to master.
+function aperioVersion(command: string): string | null {
+  if (command === 'serve') return null
+  if (process.env.APERIO_VERSION) return process.env.APERIO_VERSION
+  const manifest = fileURLToPath(new URL('../aperio-server/Cargo.toml', import.meta.url))
+  if (!existsSync(manifest)) return null
+  return /^version\s*=\s*"([^"]+)"/m.exec(readFileSync(manifest, 'utf8'))?.[1] ?? null
+}
+
 // Built output is embedded into the aperio-server binary and served under the
 // /aperio/ prefix. The build is tuned to produce as few files as possible:
 // one CSS bundle, no preload polyfill, and small assets inlined as data URIs.
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [react(), tailwindcss()],
+  define: {
+    __APERIO_VERSION__: JSON.stringify(aperioVersion(command)),
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -41,4 +58,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))

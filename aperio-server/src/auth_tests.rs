@@ -93,6 +93,7 @@ pub(super) async fn seed_custom(
       selected_org,
       bound_org,
       login_host: None,
+      sso_issuer: None,
     },
   );
   token
@@ -511,7 +512,7 @@ pub(super) async fn login_totp_recovery_code_consumed() {
 #[tokio::test]
 pub(super) async fn login_server_visitor_password_global() {
   let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("visitor:pass");
+  cfg.visitor_auth = crate::test_support::basic_gate("visitor:pass");
   let state = Arc::new(test_state_with(cfg));
   // No client override on this route -> the server password unlocks it.
   let res = call_login(
@@ -530,7 +531,7 @@ pub(super) async fn login_server_visitor_password_global() {
 pub(super) async fn login_visitor_credentials_host_scoped() {
   let state = test_state();
   // A connected client bound to `site.test` sets a per-service visitor password.
-  let mut client = mock_client(Some("site.test"), None, None, None);
+  let mut client = mock_client(Some("site.test"), None);
   client.sole_mut().visitor_auth = Some("guest:letmein".to_string());
   state.clients.write().await.insert("c1".to_string(), client);
   let state = Arc::new(state);
@@ -554,7 +555,7 @@ pub(super) async fn login_admits_any_user_a_clients_policy_names() {
   // the policy listed was refused at this form, on a route the gate had sent
   // the visitor to. The gate was unopenable by anyone it was written for.
   let state = test_state();
-  let mut client = mock_client(Some("site.test"), None, None, None);
+  let mut client = mock_client(Some("site.test"), None);
   client.sole_mut().visitor_auth_policy = Some(crate::visitor_auth::Policy::compile(
     &serde_yaml::from_str("{method: basic, users: [\"alice:one\", \"bob:two\"]}").unwrap(),
   ));
@@ -918,8 +919,8 @@ async fn under_the_fence_a_tenants_hostname_admits_the_tenant_and_binds_the_sess
   let state = Arc::new(state);
   let on = |creds: &str, host: &str| basic_headers(creds, Some(host));
 
-  // Acme's hostname: Carol and master's Viewer in, Dave out with the
-  // wrong-password answer.
+  // Acme's hostname: Carol in; master's Viewer and Dave out with the
+  // wrong-password answer, acme's hostname being neither's.
   let res = call_login(
     state.clone(),
     on("carol:password1", "www.acme.test"),
@@ -943,9 +944,8 @@ async fn under_the_fence_a_tenants_hostname_admits_the_tenant_and_binds_the_sess
       login_query(Some("/"))
     )
     .await
-    .unwrap()
-    .status(),
-    StatusCode::OK
+    .err(),
+    Some(StatusCode::UNAUTHORIZED)
   );
   assert_eq!(
     call_login(
@@ -991,4 +991,44 @@ async fn under_the_fence_a_tenants_hostname_admits_the_tenant_and_binds_the_sess
   assert!(!validate_session(&state, &on_beta).await);
   assert!(resolve_caller(&state, &on_beta).await.is_none());
   assert_eq!(dashboard_role(&state, &on_beta).await, None);
+}
+
+#[tokio::test]
+async fn a_sites_gate_signs_its_visitors_in_for_its_hostname_over_a_clients() {
+  let mut cfg = test_config();
+  cfg.sites = crate::test_support::sites(
+    "- hostname: site.test\n  access: {method: basic, users: 'ops:sitepw'}\n",
+  );
+  let state = test_state_with(cfg);
+  // A client on the same hostname with a password of its own: the site's
+  // word is the last one, so it is the site's credential the form takes.
+  let mut client = mock_client(Some("site.test"), None);
+  client.sole_mut().visitor_auth = Some("guest:letmein".to_string());
+  state.clients.write().await.insert("c1".to_string(), client);
+  let state = Arc::new(state);
+
+  let err = call_login(
+    state.clone(),
+    basic_headers("guest:letmein", Some("site.test")),
+    login_query(Some("/app")),
+  )
+  .await
+  .unwrap_err();
+  assert_eq!(
+    err,
+    StatusCode::UNAUTHORIZED,
+    "the client's password is not the gate here"
+  );
+
+  let res = call_login(
+    state.clone(),
+    basic_headers("ops:sitepw", Some("site.test")),
+    login_query(Some("/app?x=1")),
+  )
+  .await
+  .unwrap();
+  assert_eq!(res.status(), StatusCode::OK);
+  let (_, info) = state.sessions.lock().await.entries().pop().unwrap();
+  assert_eq!(info.scope_host.as_deref(), Some("site.test"));
+  assert_eq!(info.plane, crate::store::sessions::Plane::Visitor);
 }

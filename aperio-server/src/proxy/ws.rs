@@ -324,12 +324,8 @@ pub(crate) async fn handle_ws_proxy(
   // The read loop feeds a pump rather than this channel, so a visitor that
   // stops reading cannot stall the other streams on the same tunnel; past
   // the byte watermark the client is asked to pause producing this stream.
-  let flow = crate::state::StreamFlow::new(
-    stream_id.clone(),
-    client_tx.clone(),
-    state.client_supports_pause(&chosen_client_id).await,
-    state.stream_limits(),
-  );
+  let flow =
+    crate::state::StreamFlow::new(stream_id.clone(), client_tx.clone(), state.stream_limits());
   let relay_tx =
     crate::state::spawn_consumer_pump(relay_tx, state.config().gateway_response_timeout, flow);
   state.ws_streams.lock().await.insert(
@@ -482,7 +478,6 @@ pub(crate) async fn handle_ws_proxy(
         let _ws_slot = ws_slot;
         relay_ws_stream(
           state_clone,
-          chosen_client_id,
           stream_id_clone,
           public_ws,
           relay_rx,
@@ -524,7 +519,6 @@ pub(crate) async fn handle_ws_proxy(
 #[allow(clippy::too_many_arguments)]
 async fn relay_ws_stream(
   state: Arc<AppState>,
-  client_id: String,
   stream_id: String,
   public_ws: WebSocket,
   mut relay_rx: mpsc::Receiver<WsStreamMessage>,
@@ -537,19 +531,15 @@ async fn relay_ws_stream(
 
   let stream_id_clone = stream_id.clone();
   let tunnel_tx_clone = tunnel_tx.clone();
-  // Read once per stream: which shape this client's binary frames travel in.
-  let protocol = state.client_protocol(&client_id).await;
 
   // Task: read from public WS → send WsData through tunnel
   let ws_to_tunnel = tokio::spawn(async move {
     while let Some(result) = ws_receiver.next().await {
       match result {
         Ok(msg) => {
-          // v7 takes a binary frame raw; text frames were never encoded, so
-          // they keep the JSON shape whatever the peer speaks.
+          // A binary frame travels raw; text frames keep the JSON shape.
           if let Message::Binary(data) = &msg {
             let Some(frame) = crate::protocol::relay_frame(
-              protocol,
               crate::protocol::FRAME_WS_DATA_BIN,
               &stream_id_clone,
               data,

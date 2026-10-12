@@ -52,6 +52,7 @@ Parse and discard, or do not parse at all.
 | `ResponseEnd` | client to server | the end of one |
 | `ResponseAbort` | both ways | a streamed response given up on; a device that does not stream neither sends nor receives it |
 | `HostnameAssigned` | server to client | the random subdomain the server picked, for logging |
+| `Notice` | server to client | a sentence about the client's own configuration the server acted on, for its log |
 | `Draining` | server to client | the server is going away; reconnecting on close covers it |
 | `ServerShutdown` | server to client | the same, at the end; the socket closing says it too |
 | `CompressionStart` | server to client | an offer, and a device that never answers it is never compressed to |
@@ -99,13 +100,12 @@ matters if you are deciding what to leave unimplemented.
 Turning this into a **negotiated capability**, where the device announces the
 profile in its handshake and the server undertakes to stay inside it for that
 connection (no compression offered, a declared chunk ceiling,
-`max_concurrent: 1`, no relay message types) is **not on the backlog**: the
-idea was withdrawn in `planned_features.md` as `#116` because it was
-enforcement with nothing on the other side of it, no device client exists yet
-to announce anything. If one appears, the gate is small additive work and can
-be opened under a new id, together with the reference C client and the
-conformance answer it would need: a device client that silently mishandles one
-message type is an outage nobody can debug from the device end.
+`limits.concurrent_requests: 1`, no relay message types) is **not planned**: it
+would be enforcement with nothing on the other side of it, since no device
+client exists yet to announce anything. If one appears, the gate is small
+additive work, together with the reference C client and the conformance answer
+it would need: a device client that silently mishandles one message type is an
+outage nobody can debug from the device end.
 
 ## Why the WebSocket stays
 

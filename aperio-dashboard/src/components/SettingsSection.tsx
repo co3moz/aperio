@@ -1,8 +1,9 @@
 import { RotateCcwIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
+import YAML from 'yaml'
 import { useUnsavedChanges } from '@/lib/unsaved'
 import { usePaneFocus } from '@/lib/paneFocus'
-import { CopyButton, SectionHeader } from './shared'
+import { AdvancedFeaturesHeading, SectionHeader } from './shared'
 import {
   Accordion,
   AccordionContent,
@@ -24,221 +25,250 @@ import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import {
-  api,
-  ApiError,
-  type EnvironmentReport,
-  type SettingsOverrides,
-  type SettingsPayload,
-} from '@/lib/api'
-import { formatBytes, parseByteSize } from '@/lib/format'
+import { api, ApiError, pathIn, type ServerSettings, type SettingsPayload } from '@/lib/api'
+import { getAt, setAt, type JsonSchema } from '@/lib/configSchema'
+import { SERVER_GROUPS } from '@/lib/configGroups'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/format'
 import { useI18n } from '@/i18n'
-import {
-  GROUPS,
-  settingAnchor,
-  type FieldSpec,
-} from '@/lib/settingsCatalog'
+import { catalogEntry, settingAnchor } from '@/lib/settingsCatalog'
 
+/** What a stored credential reads as; writing it back keeps the credential. */
+const MASK = '********'
 
-/** Renders `bytes` as an editable human string when it maps cleanly to a
- *  unit ("10 MB"), otherwise as the raw number. */
-function bytesToInput(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return ''
-  if (bytes === 0) return '0'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  for (let i = units.length - 1; i >= 0; i--) {
-    const size = 1024 ** i
-    if (bytes % size === 0 && bytes >= size) return `${bytes / size} ${units[i]}`
+/** How a setting's value is entered. */
+type Editor =
+  | 'boolean'
+  /** An `Option<bool>`: on, off, or the server's own choice. */
+  | 'maybe'
+  | 'select'
+  | 'number'
+  | 'duration'
+  | 'size'
+  | 'text'
+  /** A list of plain values, one per line. */
+  | 'lines'
+  /** Anything with structure of its own: a rule list, a gate, a map. */
+  | 'yaml'
+  /** A block of settings of its own (`limits.ip_rate`). */
+  | 'group'
+
+interface Setting {
+  path: string
+  key: string
+  editor: Editor
+  description?: string
+  options?: string[]
+  example?: string
+  /** A `lines` list of numbers rather than of words. */
+  numeric?: boolean
+  children?: Setting[]
+}
+
+/** The forms a duration and a size are written in, as the server parses them. */
+const DURATION = /^\s*[0-9]+\s*(ms|s|sec|secs|m|min|h|d|w)?\s*$/i
+const SIZE = /^\s*[0-9]+\s*([kmg](i?b)?|b)?\s*$/i
+
+/** Settings whose value is structured even where the schema has a shape for
+ *  it: a gate is a credential, a method block or a list of them. Easier to
+ *  read and to write as yaml. */
+const YAML_PATHS = new Set(['access'])
+
+function deref(node: JsonSchema, root: JsonSchema): JsonSchema {
+  if (!node.$ref) return node
+  return root.$defs?.[node.$ref.split('/').pop() ?? ''] ?? node
+}
+
+/** The branches of a union, flattened, without `null`. */
+function branches(node: JsonSchema, root: JsonSchema): JsonSchema[] {
+  const resolved = deref(node, root)
+  const list = resolved.anyOf ?? resolved.oneOf
+  if (!list) return resolved.type === 'null' ? [] : [resolved]
+  return list.flatMap((b) => branches(b, root))
+}
+
+function types(node: JsonSchema): string[] {
+  return Array.isArray(node.type) ? node.type : node.type ? [node.type] : []
+}
+
+/** Reads one property of the settings schema into how it is edited. */
+function settingOf(key: string, path: string, raw: JsonSchema, root: JsonSchema): Setting {
+  const outer = deref(raw, root)
+  const description = raw.description ?? outer.description
+  const example = (raw.examples ?? outer.examples)?.map((e) =>
+    typeof e === 'string' ? e : JSON.stringify(e),
+  )[0]
+  const base = { key, path, description, example }
+  if (YAML_PATHS.has(path)) return { ...base, editor: 'yaml' }
+  const all = branches(raw, root)
+  const patterns = all.map((b) => b.pattern ?? '')
+  if (patterns.some((p) => p.includes('ms|s'))) return { ...base, editor: 'duration' }
+  if (patterns.some((p) => p.includes('[kKmMgG]'))) return { ...base, editor: 'size' }
+  if (patterns.some((p) => p.length > 0) && all.some((b) => b.const === 'auto' || b.enum)) {
+    return { ...base, editor: 'duration' }
   }
-  return String(bytes)
+  const nullable =
+    types(outer).includes('null') ||
+    (outer.anyOf ?? outer.oneOf ?? []).some((b) => deref(b, root).type === 'null')
+  const enumBranch = all.find((b) => b.enum?.length)
+  if (enumBranch) return { ...base, editor: 'select', options: enumBranch.enum!.map(String) }
+  const kinds = all.flatMap(types)
+  if (kinds.includes('boolean')) return { ...base, editor: nullable ? 'maybe' : 'boolean' }
+  if (kinds.includes('integer') || kinds.includes('number')) return { ...base, editor: 'number' }
+  if (kinds.includes('array')) {
+    const item = branches(all.find((b) => types(b).includes('array'))?.items ?? {}, root)
+    const scalar = item.every(
+      (b) =>
+        (types(b).includes('string') || types(b).includes('integer')) && !b.properties,
+    )
+    const numeric = item.every((b) => types(b).every((k) => k === 'integer' || k === 'number'))
+    return { ...base, editor: scalar ? 'lines' : 'yaml', numeric }
+  }
+  const object = all.find((b) => b.properties)
+  if (object && all.length === 1) {
+    return {
+      ...base,
+      editor: 'group',
+      children: Object.entries(object.properties!).map(([k, v]) =>
+        settingOf(k, `${path}.${k}`, v, root),
+      ),
+    }
+  }
+  if (kinds.includes('string') && all.length === 1) return { ...base, editor: 'text' }
+  return { ...base, editor: 'yaml' }
+}
+
+/** Every section of the schema, as settings: a section's fields, or the
+ *  section itself where it is a list. */
+function sectionsOf(schema: JsonSchema): Map<string, Setting[]> {
+  const out = new Map<string, Setting[]>()
+  for (const [key, raw] of Object.entries(schema.properties ?? {})) {
+    const resolved = deref(raw, schema)
+    if (resolved.properties && !YAML_PATHS.has(key)) {
+      out.set(
+        key,
+        Object.entries(resolved.properties).map(([field, node]) =>
+          settingOf(field, `${key}.${field}`, node, schema),
+        ),
+      )
+    } else {
+      out.set(key, [settingOf(key, key, raw, schema)])
+    }
+  }
+  return out
+}
+
+/** Every leaf path under `setting`, what a search and a change marker read. */
+function leaves(setting: Setting): string[] {
+  return setting.editor === 'group'
+    ? (setting.children ?? []).flatMap(leaves)
+    : [setting.path]
+}
+
+/** `snake_case` as words, for a setting the catalogue has no label for. */
+function humanize(key: string): string {
+  const words = key.replaceAll('_', ' ')
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/** A yaml rendering of a structured value, empty for an empty one. */
+function asYaml(value: unknown): string {
+  if (value === undefined || value === null) return ''
+  if (Array.isArray(value) && value.length === 0) return ''
+  if (typeof value === 'object' && Object.keys(value as object).length === 0) return ''
+  return YAML.stringify(value).trimEnd()
 }
 
 /**
- * Byte-size input: accepts "10mb", "1.5 GB", "512K" or plain bytes, shows the
- * parsed size underneath, and only propagates valid values.
+ * A structured value edited as yaml. The text is kept as typed, and the
+ * document only takes it when it parses, so a half-typed list does not wipe
+ * the setting it is replacing.
  */
-function BytesInput({
+function YamlInput({
   value,
   onChange,
-  min,
+  onValidity,
 }: {
-  value: number
-  onChange: (bytes: number) => void
-  min?: number
+  value: unknown
+  onChange: (value: unknown) => void
+  onValidity: (error: string | null) => void
 }) {
   const { t } = useI18n()
-  const [text, setText] = useState(() => bytesToInput(value))
-  const [lastValue, setLastValue] = useState(value)
-  // Re-derive the text when the value changes from the outside (reset button,
-  // reload) rather than from our own onChange.
-  if (value !== lastValue) {
-    setLastValue(value)
-    if (parseByteSize(text) !== value) setText(bytesToInput(value))
-  }
-  const parsed = parseByteSize(text)
-  // Below the server's floor is as invalid as unparseable: the three stream
-  // watermarks reject 0, while `audit_max_size: 0` legitimately means "never
-  // rotate", so the floor is per field rather than global.
-  const tooSmall = min !== undefined && parsed !== null && parsed < min
-  const invalid = text.trim() !== '' && (parsed === null || tooSmall)
+  const [text, setText] = useState(() => asYaml(value))
+  const [error, setError] = useState<string | null>(null)
   return (
     <div className="flex flex-col gap-1">
-      <Input
+      <Textarea
         value={text}
-        placeholder={t('e.g. 10 MB, 1 GB, 65536')}
-        aria-invalid={invalid || undefined}
+        rows={Math.min(14, Math.max(3, text.split('\n').length + 1))}
+        className="w-full font-mono text-xs"
+        aria-invalid={error ? true : undefined}
         onChange={(e) => {
-          setText(e.target.value)
-          const bytes = parseByteSize(e.target.value)
-          if (bytes !== null && !(min !== undefined && bytes < min)) {
-            setLastValue(bytes)
-            onChange(bytes)
+          const next = e.target.value
+          setText(next)
+          try {
+            const parsed: unknown = next.trim() === '' ? null : YAML.parse(next)
+            setError(null)
+            onValidity(null)
+            onChange(parsed)
+          } catch (err) {
+            const message = err instanceof Error ? err.message.split('\n')[0] : String(err)
+            setError(message)
+            onValidity(message)
           }
         }}
       />
-      <span className="text-xs text-muted-foreground">
-        {tooSmall
-          ? t('Must be at least {min}', { min: formatBytes(min ?? 0) })
-          : invalid
-            ? t('Not a size, use e.g. 10 MB, 1.5 GB, or plain bytes')
-            : `= ${formatBytes(parsed ?? value)} (${(parsed ?? value).toLocaleString()} bytes)`}
-      </span>
-    </div>
-  )
-}
-
-// What each env-only flag does, shown in the read-only reference table.
-const ENV_FLAG_DESCRIPTIONS: Record<string, string> = {
-  APERIO_TRUST_PROXY: 'Trust X-Forwarded-For / X-Real-IP from a fronting reverse proxy',
-  APERIO_TRUSTED_PROXIES: 'Trusted proxy/CDN egress IPs or CIDRs used to resolve the real visitor IP',
-  APERIO_TRUST_CF_HEADER: 'Cloudflare shorthand: trust the CF-Connecting-IP header',
-  APERIO_REAL_IP_HEADER: 'Header consulted first for the visitor IP (behind CDN chains)',
-  APERIO_SECURE_COOKIES: 'Session cookies carry the Secure flag (HTTPS only)',
-  APERIO_IGNORE_CLIENT_AUTH: 'Ignore client-declared visitor passwords; the server keeps the gate',
-  'APERIO_OIDC_*': 'OIDC single sign-on (issuer, client id/secret, redirect URL, scopes)',
-  APERIO_METRICS: 'Prometheus metrics endpoint at /aperio/metrics',
-  APERIO_METRICS_TOKEN: 'Token required to scrape the metrics endpoint',
-  APERIO_ACCESS_LOG: 'JSONL access log file path (empty = disabled)',
-}
-
-/**
- * Read-only reference of env-only flags: their current values and, based on
- * whether the server runs in Docker, how to change them.
- */
-function EnvReference({ environment }: { environment?: EnvironmentReport }) {
-  const { t } = useI18n()
-  if (!environment) return null
-  const docker = environment.runtime === 'docker'
-  return (
-    <div className="flex flex-col gap-4">
-      <p className="text-xs text-muted-foreground">
-          {docker
-            ? t('Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running inside a container, to change one:')
-            : t('Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running natively, to change one:')}
-      </p>
-        <pre className="overflow-x-auto rounded-2xl border bg-muted/50 p-3 font-mono text-xs leading-relaxed">
-          {docker
-            ? `# docker run: add the flag and recreate the container
-docker run -e APERIO_TRUST_PROXY=1 ... ghcr.io/co3moz/aperio-server
-
-# docker compose: add it under environment: and run
-#   docker compose up -d
-services:
-  aperio-server:
-    environment:
-      - APERIO_TRUST_PROXY=1`
-            : `# shell: export before starting the server
-export APERIO_TRUST_PROXY=1
-aperio-server
-
-# systemd: add to the unit and restart
-[Service]
-Environment=APERIO_TRUST_PROXY=1`}
-        </pre>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('Variable')}</TableHead>
-              <TableHead>{t('Current value')}</TableHead>
-              <TableHead>{t('Purpose')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {environment.flags.map((f) => (
-              <TableRow key={f.key}>
-                <TableCell>
-                  <code className="font-mono text-xs">{f.key}</code>
-                </TableCell>
-                <TableCell>
-                  <code className="break-all font-mono text-xs text-muted-foreground">
-                    {f.value}
-                  </code>
-                </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  {t(ENV_FLAG_DESCRIPTIONS[f.key] ?? '')}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+      {error && (
+        <span className="text-xs text-red-700 dark:text-red-400">
+          {t('Not valid YAML: {error}', { error })}
+        </span>
+      )}
     </div>
   )
 }
 
 /**
- * The overrides as the `aperio-server.yaml` that would make them permanent.
+ * The server's settings, as one document edited in place.
  *
- * `yamlKeys` comes from the server, which owns the mapping: a setting and its
- * yaml key are different names more often than not (`gateway_timeout_secs` is
- * `gateway_timeout:`, `cache_enabled` is `cache:`, `auth_credentials` is
- * `server_auth:`), and a snippet spelled the dashboard's way would look right,
- * materialize an environment variable nobody reads, and change nothing.
- */
-function overridesAsYaml(
-  overrides: SettingsOverrides,
-  yamlKeys: Record<string, string>,
-): string {
-  const quote = (value: unknown): string => {
-    if (typeof value === 'boolean' || typeof value === 'number') return String(value)
-    const text = String(value ?? '')
-    // Quote anything yaml would read as something other than a string, and
-    // anything empty, so a pasted line means what it shows.
-    return /^[A-Za-z0-9_./*@:-]+$/.test(text) && text !== '' ? text : JSON.stringify(text)
-  }
-  return Object.entries(overrides)
-    .filter(([key, value]) => value !== undefined && value !== null && yamlKeys[key])
-    .map(([key, value]) => [yamlKeys[key], value] as const)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${key}: ${quote(value)}`)
-    .join('\n')
-}
-
-/**
- * Dashboard-editable server settings. Environment variables provide the
- * defaults; edits become overrides that apply live and persist in
- * `<data_dir>/settings.json`. The master token, HOST/PORT, proxy trust and
- * OIDC remain env-only.
+ * The form is built from the settings schema the server serves, so a setting
+ * added to the server appears here without a dashboard change; the catalogue
+ * adds translated labels, hints and option explanations to the common ones.
+ * Save sends the whole document. A credential reads as the mask and is sent
+ * back as the mask, which the server reads as "keep the stored one".
  */
 export function SettingsSection() {
   const { t } = useI18n()
-  const [data, setData] = useState<SettingsPayload | null>(null)
-  const [overrides, setOverrides] = useState<SettingsOverrides>({})
+  const [payload, setPayload] = useState<SettingsPayload | null>(null)
+  const [schema, setSchema] = useState<JsonSchema | null>(null)
+  const [doc, setDoc] = useState<ServerSettings>({})
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [invalid, setInvalid] = useState<Record<string, string>>({})
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
+  // A remount of the yaml editors after a load, so they show the stored text
+  // rather than what was typed before the save.
+  const [generation, setGeneration] = useState(0)
   // Nothing here is applied until Save, and the dialog around this form can be
   // dismissed (or the page reloaded) in one keystroke.
   useUnsavedChanges(dirty)
+
+  const load = () => {
+    Promise.all([api.settings(), api.configSchema('server')])
+      .then(([settings, served]) => {
+        setPayload(settings)
+        setSchema(served)
+        setDoc(settings.settings)
+        setDirty(false)
+        setInvalid({})
+        setGeneration((g) => g + 1)
+      })
+      .catch((e) => {
+        setMessage({ ok: false, text: e instanceof ApiError ? e.message : String(e) })
+      })
+  }
+  useEffect(load, [])
+
+  const sections = useMemo(() => (schema ? sectionsOf(schema) : new Map<string, Setting[]>()), [schema])
 
   // Which groups are expanded. Controlled rather than left to the accordion,
   // because arriving from a search means opening the one group that holds the
@@ -246,54 +276,37 @@ export function SettingsSection() {
   const [openGroups, setOpenGroups] = useState<string[]>([])
   const focus = usePaneFocus()
   useEffect(() => {
-    const key = focus?.target.startsWith('setting:') ? focus.target.slice('setting:'.length) : null
-    if (!key) return
-    const index = GROUPS.findIndex((g) => g.fields.some((f) => f.key === key))
+    const path = focus?.target.startsWith('setting:') ? focus.target.slice('setting:'.length) : null
+    if (!path || sections.size === 0) return
+    const section = path.split('.')[0]
+    const index = SERVER_GROUPS.findIndex((g) => g.keys.includes(section))
     if (index < 0) return
     setOpenGroups((open) => (open.includes(String(index)) ? open : [...open, String(index)]))
     // After the panel has been laid out, not before: a collapsed group has no
     // position to scroll to. Marked rather than only scrolled, since landing
-    // in the middle of sixty inputs says nothing about which one was meant.
+    // in the middle of a hundred inputs says nothing about which one was meant.
     const timer = setTimeout(() => {
-      const el = document.getElementById(settingAnchor(key))
+      const el = document.getElementById(settingAnchor(path))
       if (!el) return
       el.scrollIntoView({ block: 'center', behavior: 'smooth' })
       el.dataset.found = 'true'
       setTimeout(() => delete el.dataset.found, 2000)
     }, 150)
     return () => clearTimeout(timer)
-  }, [focus])
+  }, [focus, sections])
 
-  const load = () => {
-    api
-      .settings()
-      .then((payload) => {
-        setData(payload)
-        setOverrides({ ...payload.overrides })
-        setDirty(false)
-      })
-      .catch((e) => {
-        // `if (!data) return null` below means a failed load renders an empty
-        // pane. Saying so is the difference between "there is nothing here"
-        // and "this did not load".
-        setMessage({ ok: false, text: e instanceof ApiError ? e.message : String(e) })
-      })
-  }
-  useEffect(load, [])
-
-  const setField = (key: string, value: string | number | boolean) => {
-    setOverrides((o) => ({ ...o, [key]: value }))
+  const setField = (path: string, value: unknown) => {
+    setDoc((d) => setAt(d, path, value))
     setDirty(true)
     setMessage(null)
   }
-  const resetField = (key: string) => {
-    setOverrides((o) => {
-      const next = { ...o }
-      delete next[key]
+  const markValidity = (path: string, error: string | null) => {
+    setInvalid((v) => {
+      const next = { ...v }
+      if (error) next[path] = error
+      else delete next[path]
       return next
     })
-    setDirty(true)
-    setMessage(null)
   }
 
   // Ctrl+S / Cmd+S saves pending changes instead of the browser's save-page
@@ -302,34 +315,37 @@ export function SettingsSection() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault()
-        if (dirty && !busy) void save()
+        if (dirty && !busy && Object.keys(invalid).length === 0) void save()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, busy, overrides])
+  }, [dirty, busy, doc, invalid])
 
   const save = async () => {
     setBusy(true)
     setMessage(null)
     try {
-      await api.updateSettings(overrides)
+      await api.updateSettings(doc)
       setMessage({ ok: true, text: t('Settings applied and persisted.') })
       load()
     } catch (e) {
+      // The server names the setting it refused, or says that a
+      // security-relevant change needs a fresh sign-in; either way the
+      // sentence is the useful part.
       setMessage({ ok: false, text: e instanceof ApiError ? e.message : String(e) })
     } finally {
       setBusy(false)
     }
   }
 
-  // Who changed an overridden setting, and when: the audit log knows, the
-  // settings document does not. Hooks run even while the settings document
-  // is loading so their order stays the same on every render.
+  // Who changed a setting, and when: the audit log knows, the settings
+  // document does not. Hooks run even while the document is loading so their
+  // order stays the same on every render.
   const [lastChange, setLastChange] = useState<Record<string, { actor: string; timestamp: string }>>({})
   useEffect(() => {
-    if (!data) return
+    if (!payload) return
     let live = true
     api
       .audit({ event: 'settings_updated', limit: 100 })
@@ -337,8 +353,8 @@ export function SettingsSection() {
         if (!live) return
         const seen: Record<string, { actor: string; timestamp: string }> = {}
         for (const row of rows) {
-          for (const key of row.details.split(',').map((k) => k.trim())) {
-            if (key && !seen[key]) seen[key] = { actor: row.actor, timestamp: row.timestamp }
+          for (const path of row.details.split(',').map((k) => k.trim())) {
+            if (path && !seen[path]) seen[path] = { actor: row.actor, timestamp: row.timestamp }
           }
         }
         setLastChange(seen)
@@ -347,28 +363,118 @@ export function SettingsSection() {
     return () => {
       live = false
     }
-  }, [data])
+  }, [payload])
 
-  if (!data) return null
+  if (!payload || !schema) {
+    return message ? (
+      <p className="rounded-3xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+        {message.text}
+      </p>
+    ) : null
+  }
 
-  const valueOf = (key: string) => overrides[key] ?? data.defaults[key]
+  const security = (path: string) => pathIn(path, payload.security_paths)
+  const restart = (path: string) => pathIn(path, payload.restart_paths)
+  const secret = (path: string) => pathIn(path, payload.secret_paths)
+  const pending = (path: string) =>
+    payload.restart_pending.some((p) => p === path || p.startsWith(`${path}.`))
+  const changedFromStored = (path: string) =>
+    JSON.stringify(getAt(doc, path) ?? null) !== JSON.stringify(getAt(payload.settings, path) ?? null)
 
-  const control = (f: FieldSpec) => {
-    const value = valueOf(f.key)
-    switch (f.kind) {
+  const markers = (s: Setting) => {
+    const change = lastChange[s.path]
+    return (
+      <span className="inline-flex flex-wrap items-center gap-1">
+        {security(s.path) && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span>
+                  <TintBadge tint="red">{t('security')}</TintBadge>
+                </span>
+              }
+            />
+            <TooltipContent>
+              {t('Changing this takes Admin in every organization and a sign-in from the last ten minutes.')}
+            </TooltipContent>
+          </Tooltip>
+        )}
+        {restart(s.path) && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span>
+                  <TintBadge tint={pending(s.path) ? 'amber' : 'gray'}>
+                    {pending(s.path) ? t('restart pending') : t('restart')}
+                  </TintBadge>
+                </span>
+              }
+            />
+            <TooltipContent>
+              {t('Read when the server starts: a change is stored and takes effect at the next start.')}
+            </TooltipContent>
+          </Tooltip>
+        )}
+        {change && (
+          <span className="text-xs text-muted-foreground" title={change.timestamp}>
+            {t('by {actor}, {when}', { actor: change.actor, when: formatRelativeTime(change.timestamp, t) })}
+          </span>
+        )}
+        {changedFromStored(s.path) && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  onClick={() => setField(s.path, getAt(payload.settings, s.path))}
+                  aria-label={t('Undo')}
+                />
+              }
+            >
+              <RotateCcwIcon />
+            </TooltipTrigger>
+            <TooltipContent>{t('Undo')}</TooltipContent>
+          </Tooltip>
+        )}
+      </span>
+    )
+  }
+
+  const control = (s: Setting) => {
+    const value = getAt(doc, s.path)
+    switch (s.editor) {
       case 'boolean':
-        return <Switch checked={Boolean(value)} onCheckedChange={(v) => setField(f.key, v)} />
+        return <Switch checked={Boolean(value)} onCheckedChange={(v) => setField(s.path, v)} />
+      case 'maybe': {
+        const chosen = value === true ? 'on' : value === false ? 'off' : 'auto'
+        return (
+          <Select
+            value={chosen}
+            onValueChange={(v) => setField(s.path, v === 'on' ? true : v === 'off' ? false : null)}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">{t('automatic')}</SelectItem>
+              <SelectItem value="on">{t('on')}</SelectItem>
+              <SelectItem value="off">{t('off')}</SelectItem>
+            </SelectContent>
+          </Select>
+        )
+      }
       case 'select': {
         const chosen = String(value ?? '')
-        const explain = f.optionHints?.[chosen]
+        const explain = catalogEntry(s.path)?.optionHints?.[chosen]
         return (
           <div className="flex flex-col gap-1.5">
-            <Select value={chosen} onValueChange={(v) => setField(f.key, v as string)}>
+            <Select value={chosen} onValueChange={(v) => setField(s.path, v as string)}>
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(f.options ?? []).map((o) => (
+                {(s.options ?? []).map((o) => (
                   <SelectItem key={o} value={o}>
                     {o}
                   </SelectItem>
@@ -390,180 +496,185 @@ export function SettingsSection() {
         return (
           <Input
             type="number"
-            value={String(value ?? '')}
+            value={value === undefined || value === null ? '' : String(value)}
+            placeholder={s.example}
             onChange={(e) => {
-              // Clearing the box means "no override", not zero. `Number('')`
-              // is 0, so an emptied field used to save a real 0 for the
-              // setting instead of falling back to the server's default.
+              // Clearing the box means "the default", not zero.
               const raw = e.target.value.trim()
               if (raw === '') {
-                resetField(f.key)
+                setField(s.path, null)
                 return
               }
               const n = Number(raw)
-              if (Number.isFinite(n)) setField(f.key, n)
+              if (Number.isFinite(n)) setField(s.path, n)
             }}
           />
         )
-      case 'bytes':
+      case 'duration':
+      case 'size': {
+        const text = value === undefined || value === null ? '' : String(value)
+        const pattern = s.editor === 'duration' ? DURATION : SIZE
+        const bad = text.trim() !== '' && text !== 'auto' && !pattern.test(text)
         return (
-          <BytesInput
-            value={Number(value ?? 0)}
-            min={f.min}
-            onChange={(bytes) => setField(f.key, bytes)}
-          />
+          <div className="flex flex-col gap-1">
+            <Input
+              value={text}
+              placeholder={s.example}
+              aria-invalid={bad || undefined}
+              onChange={(e) => {
+                const next = e.target.value
+                setField(s.path, next.trim() === '' ? null : next.trim())
+                const wrong = next.trim() !== '' && next.trim() !== 'auto' && !pattern.test(next)
+                markValidity(
+                  s.path,
+                  wrong
+                    ? s.editor === 'duration'
+                      ? t('Not a duration, use e.g. 30s, 5m, 2h, 1d')
+                      : t('Not a size, use e.g. 512KB, 10MB, 1GB')
+                    : null,
+                )
+              }}
+            />
+            {bad && (
+              <span className="text-xs text-red-700 dark:text-red-400">{invalid[s.path]}</span>
+            )}
+          </div>
         )
-
-      case 'text':
-        return (
-          <Input value={String(value ?? '')} onChange={(e) => setField(f.key, e.target.value)} />
-        )
-      case 'textarea':
-        return (
+      }
+      case 'text': {
+        if (secret(s.path)) {
+          const stored = value === MASK
+          return (
+            <div className="flex items-center gap-2">
+              <Input
+                type="password"
+                autoComplete="new-password"
+                value={stored ? '' : String(value ?? '')}
+                placeholder={stored ? t('stored, type to replace') : s.example}
+                onChange={(e) => setField(s.path, e.target.value === '' ? (stored ? MASK : null) : e.target.value)}
+              />
+              {value !== undefined && value !== null && (
+                <Button variant="outline" size="sm" onClick={() => setField(s.path, null)}>
+                  {t('Clear')}
+                </Button>
+              )}
+            </div>
+          )
+        }
+        const long = typeof value === 'string' && (value.length > 80 || value.includes('\n'))
+        return long || s.path.startsWith('pages.') ? (
           <Textarea
             value={String(value ?? '')}
-            onChange={(e) => setField(f.key, e.target.value)}
-            rows={3}
+            rows={4}
             className="w-full font-mono text-xs"
+            onChange={(e) => setField(s.path, e.target.value === '' ? null : e.target.value)}
+          />
+        ) : (
+          <Input
+            value={String(value ?? '')}
+            placeholder={s.example}
+            onChange={(e) => setField(s.path, e.target.value === '' ? null : e.target.value)}
           />
         )
+      }
+      case 'lines':
+        return (
+          <Textarea
+            value={Array.isArray(value) ? value.map(String).join('\n') : ''}
+            rows={Math.max(2, Array.isArray(value) ? value.length + 1 : 2)}
+            placeholder={t('One per line')}
+            className="w-full font-mono text-xs"
+            onChange={(e) =>
+              setField(
+                s.path,
+                e.target.value
+                  .split('\n')
+                  .map((l) => l.trim())
+                  .filter(Boolean)
+                  .map((l) => (s.numeric && /^-?\d+$/.test(l) ? Number(l) : l)),
+              )
+            }
+          />
+        )
+      case 'yaml':
+        return (
+          <YamlInput
+            key={`${s.path}-${generation}`}
+            value={value}
+            onChange={(v) => setField(s.path, v)}
+            onValidity={(error) => markValidity(s.path, error)}
+          />
+        )
+      case 'group':
+        return null
     }
   }
 
-  /** True when this setting carries a stored override rather than the value
-   *  the server started with. */
-  const isOverridden = (key: string) => overrides[key] !== undefined && overrides[key] !== null
-
-  /** True when aperio-server.yaml sets this key. The file wins, so the field
-   *  is shown rather than offered: typing here would be refused on save. */
-  const fromFile = (key: string) => (data?.file_keys ?? []).includes(key)
-
-  // Override marker + one-click reset to the env default, shown next to the
-  // field label so the state of every setting is visible at a glance.
-  const overrideControls = (f: FieldSpec) => {
-    const overridden = isOverridden(f.key)
-    if (!overridden) return null
-    const change = lastChange[f.key]
-    return (
-      <span className="inline-flex items-center gap-1">
-        <TintBadge tint="amber">{t('override')}</TintBadge>
-        {change && (
-          <span className="text-xs text-muted-foreground" title={change.timestamp}>
-            {t('by {actor}, {when}', { actor: change.actor, when: formatRelativeTime(change.timestamp, t) })}
+  const field = (s: Setting): React.ReactNode => {
+    const entry = catalogEntry(s.path)
+    const label = entry ? t(entry.label) : humanize(s.key)
+    const hint = entry?.hint ? t(entry.hint) : s.description
+    if (s.editor === 'group') {
+      return (
+        <div key={s.path} className="flex flex-col gap-3 rounded-3xl border px-4 py-3 @2xl:col-span-2">
+          <span className="flex items-center gap-2 text-sm font-medium">
+            {label} <code className="text-xs text-muted-foreground">{s.path}</code> {markers(s)}
           </span>
-        )}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                onClick={() => resetField(f.key)}
-                aria-label={t('Reset {label} to default', { label: t(f.label) })}
-              />
-            }
-          >
-            <RotateCcwIcon />
-          </TooltipTrigger>
-          <TooltipContent>
-            {t('Reset to env default ({value})', { value: JSON.stringify(data.defaults[f.key]) })}
-          </TooltipContent>
-        </Tooltip>
-      </span>
-    )
-  }
-
-  // The keys carrying a stored override, and the yaml that would make them
-  // permanent. Derived from the fields rather than from `overrides` directly,
-  // so a key the catalog does not know about cannot be offered as yaml.
-  const overriddenKeys = GROUPS.flatMap((g) => g.fields)
-    .map((f) => f.key)
-    .filter((key) => isOverridden(key))
-  const yamlKeys = data?.yaml_keys ?? {}
-  const yamlSnippet = overridesAsYaml(
-    Object.fromEntries(overriddenKeys.map((key) => [key, overrides[key]])),
-    yamlKeys,
-  )
-  // Two things the snippet cannot carry, named rather than dropped: a setting
-  // the file has no spelling for, and one whose key the server only reads at
-  // startup.
-  const labelOf = (key: string) => {
-    const field = GROUPS.flatMap((g) => g.fields).find((f) => f.key === key)
-    return field ? t(field.label) : key
-  }
-  const notInYaml = overriddenKeys
-    .filter((key) => !yamlKeys[key])
-    .map(labelOf)
-  const needsRestart = overriddenKeys
-    .filter((key) => (data?.yaml_keys_needing_restart ?? []).includes(key))
-    .map(labelOf)
-
-  /** Marker for a setting aperio-server.yaml owns. */
-  const fileMarker = (f: FieldSpec) =>
-    fromFile(f.key) ? (
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <span>
-              <TintBadge tint="blue">{t('from file')}</TintBadge>
-            </span>
-          }
-        />
-        <TooltipContent>
-          {t(
-            'aperio-server.yaml sets this, and the file wins. Edit it there: a change made here would be refused, because a stored override the file contradicts is exactly the invisible state this avoids.',
-          )}
-        </TooltipContent>
-      </Tooltip>
-    ) : null
-
-  const field = (f: FieldSpec) => {
-    if (f.kind === 'boolean') {
+          {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
+          <div className="grid grid-cols-1 gap-4 @2xl:grid-cols-2">{(s.children ?? []).map(field)}</div>
+        </div>
+      )
+    }
+    if (s.editor === 'boolean') {
       // Booleans read best as a bordered row with the switch on the right.
       return (
         <div
-          key={f.key}
-          id={settingAnchor(f.key)}
+          key={s.path}
+          id={settingAnchor(s.path)}
           className="flex items-center justify-between gap-3 rounded-3xl border px-4 py-3 outline-2 outline-offset-4 outline-transparent transition-[outline-color] data-[found=true]:outline-primary"
         >
           <div className="flex flex-col gap-0.5">
-            <span className="flex items-center gap-2 text-sm font-medium">
-              {t(f.label)} {overrideControls(f)} {fileMarker(f)}
+            <span className="flex flex-wrap items-center gap-2 text-sm font-medium">
+              {label} <code className="text-xs font-normal text-muted-foreground">{s.path}</code> {markers(s)}
             </span>
-            {f.hint && <span className="text-xs text-muted-foreground">{t(f.hint)}</span>}
+            {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
           </div>
-          {control(f)}
+          {control(s)}
         </div>
       )
     }
     return (
       <div
-        key={f.key}
-        id={settingAnchor(f.key)}
+        key={s.path}
+        id={settingAnchor(s.path)}
         className={cn(
           'flex flex-col gap-1.5 rounded-3xl transition-[outline-color] outline-2 outline-offset-8 outline-transparent data-[found=true]:outline-primary',
-          f.kind === 'textarea' && '@2xl:col-span-2',
+          (s.editor === 'yaml' || s.editor === 'lines' || s.path.startsWith('pages.')) &&
+            '@2xl:col-span-2',
         )}
       >
-        <Label className="flex items-center gap-2">
-          {t(f.label)} {overrideControls(f)} {fileMarker(f)}
+        <Label className="flex flex-wrap items-center gap-2">
+          {label} <code className="text-xs font-normal text-muted-foreground">{s.path}</code> {markers(s)}
         </Label>
-        {f.hint && <span className="text-xs text-muted-foreground">{t(f.hint)}</span>}
-        {control(f)}
+        {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
+        {control(s)}
       </div>
     )
   }
 
+  const blocked = Object.keys(invalid).length > 0
   return (
     <section className="flex flex-col gap-4">
       <SectionHeader
         title={t('Server Settings')}
-        description={t('Env vars provide the defaults; edits become live, persisted overrides. Master token, HOST/PORT, proxy trust and OIDC stay env-only.')}
+        description={t(
+          'Every setting lives in the server’s database and applies when saved. Security-relevant ones take a sign-in from the last ten minutes; a few are read at startup and wait for a restart.',
+        )}
       >
         {dirty && (
           <span className="text-xs text-amber-600 dark:text-amber-400">{t('Unsaved changes')}</span>
         )}
-        <Button onClick={save} disabled={!dirty || busy} title={t('Save & apply (Ctrl+S)')}>
+        <Button onClick={save} disabled={!dirty || busy || blocked} title={t('Save & apply (Ctrl+S)')}>
           {busy && <Spinner />} {t('Save & apply')}
         </Button>
       </SectionHeader>
@@ -579,45 +690,12 @@ export function SettingsSection() {
           {message.text}
         </p>
       )}
-      {/* What a stored override actually is, shown only when there is one:
-          the change is live and it survives a restart, but it lives in the
-          server's own store rather than in the file an operator reads, so
-          nothing about aperio-server.yaml reveals it. The yaml equivalent is
-          right here because that is the next thing you want. */}
-      {overriddenKeys.length > 0 && (
-        <div className="flex flex-col gap-2 rounded-3xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
-          <p className="font-medium text-amber-800 dark:text-amber-300">
-            {t('{count} setting(s) are stored overrides, not what your config file says', {
-              count: overriddenKeys.length,
-            })}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {t(
-              'They apply immediately and survive a restart, but they live in the server\u2019s own store, so aperio-server.yaml still describes a different server than the one running. Put them in the file to make them the deployment\u2019s: the file wins, and the override behind each of these keys is dropped at the next start.',
-            )}
-          </p>
-          <pre className="overflow-x-auto rounded-2xl bg-background/60 px-3 py-2 font-mono text-xs">
-            {yamlSnippet}
-          </pre>
-          {notInYaml.length > 0 && (
-            <p className="text-xs text-muted-foreground">
-              {t(
-                'Not in the snippet: {settings}. The file has no spelling for these, its 503/504 keys take a path where this holds the HTML itself, so they stay dashboard overrides.',
-                { settings: notInYaml.join(', ') },
-              )}
-            </p>
-          )}
-          {needsRestart.length > 0 && (
-            <p className="text-xs text-muted-foreground">
-              {t('{settings}: the file key is read at startup, so this one takes a restart rather than applying on reload.', {
-                settings: needsRestart.join(', '),
-              })}
-            </p>
-          )}
-          <div>
-            <CopyButton value={yamlSnippet} label={t('Copy as YAML')} />
-          </div>
-        </div>
+      {payload.restart_pending.length > 0 && (
+        <p className="rounded-3xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
+          {t('Saved, and waiting for a restart: {paths}', {
+            paths: payload.restart_pending.join(', '),
+          })}
+        </p>
       )}
       {/* One column of collapsed groups rather than two columns of open
           cards: side by side, two unrelated groups of switches read as one
@@ -628,67 +706,49 @@ export function SettingsSection() {
         value={openGroups}
         onValueChange={(v) => setOpenGroups(v as string[])}
       >
-        {GROUPS.map((group, i) => {
-          // How many of this group's settings are not what the server started
-          // with. On the header rather than inside, because the reason to
-          // want this number is to find the group you did not think to open:
-          // a setting changed once from the dashboard is invisible until
-          // something it does surprises you.
-          const changed = group.fields.filter((f) => isOverridden(f.key)).length
+        {SERVER_GROUPS.map((group, i) => {
+          const settings = group.keys.flatMap((key) => sections.get(key) ?? [])
+          // How many of this group's settings are edited and not yet saved.
+          // On the header rather than inside, because the reason to want the
+          // number is to find the group you did not think to open.
+          const edited = settings.flatMap(leaves).filter(changedFromStored).length
           return (
-          <AccordionItem key={group.title} value={String(i)}>
-            <AccordionTrigger>
-              <span className="flex-1 text-left">{t(group.title)}</span>
-              {changed > 0 && (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <span>
-                        <TintBadge tint="amber">{changed}</TintBadge>
-                      </span>
-                    }
-                  />
-                  <TooltipContent>
-                    {t('{count} setting(s) here differ from what the server started with', {
-                      count: changed,
-                    })}
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </AccordionTrigger>
-            <AccordionContent>
-              <p className="mb-4 text-xs text-muted-foreground">{t(group.description)}</p>
-              {/* Container query, not `sm:`: these live in a dialog whose
-                  width does not follow the viewport's, so asking the screen
-                  how much room there is gave two columns in a 620px pane and
-                  wrapped every label onto three lines. */}
-              <div className="@container">
-                <div className="grid grid-cols-1 gap-4 @2xl:grid-cols-2">
-                  {group.fields.map(field)}
+            <Fragment key={group.title}>
+            {group.advanced && !SERVER_GROUPS[i - 1]?.advanced && <AdvancedFeaturesHeading />}
+            <AccordionItem value={String(i)}>
+              <AccordionTrigger>
+                <span className="flex-1 text-left">{t(group.title)}</span>
+                {edited > 0 && <TintBadge tint="amber">{edited}</TintBadge>}
+              </AccordionTrigger>
+              <AccordionContent>
+                <p className="mb-4 text-xs text-muted-foreground">{t(group.description)}</p>
+                {/* Container query, not `sm:`: these live in a dialog whose
+                    width does not follow the viewport's, so asking the screen
+                    how much room there is gave two columns in a 620px pane. */}
+                <div className="@container flex flex-col gap-6">
+                  {group.keys.map((key) => {
+                    const list = sections.get(key)
+                    if (!list) return null
+                    const own = schema.properties?.[key]
+                    return (
+                      <div key={key} className="flex flex-col gap-3">
+                        <div className="flex flex-col gap-0.5">
+                          <code className="text-xs font-medium">{key}</code>
+                          {own?.description && list.length > 1 && (
+                            <span className="text-xs text-muted-foreground">{own.description}</span>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 gap-4 @2xl:grid-cols-2">{list.map(field)}</div>
+                      </div>
+                    )
+                  })}
                 </div>
-              </div>
-            </AccordionContent>
-          </AccordionItem>
+              </AccordionContent>
+            </AccordionItem>
+            </Fragment>
           )
         })}
-        {data.environment && (
-          <AccordionItem value="environment">
-            <AccordionTrigger>
-              <span className="flex flex-1 items-center gap-2 text-left">
-                {t('Environment Flags')} <TintBadge tint="gray">{t('read-only')}</TintBadge>
-              </span>
-            </AccordionTrigger>
-            <AccordionContent>
-              <EnvReference environment={data.environment} />
-            </AccordionContent>
-          </AccordionItem>
-        )}
       </Accordion>
     </section>
   )
 }
-
-/**
- * Dump export/import: download a logical JSON dump of tokens, webhooks,
- * users and settings overrides, or apply one (replacing the stores).
- */

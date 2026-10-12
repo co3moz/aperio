@@ -148,21 +148,6 @@ pub(crate) fn build_call(
       format!("/aperio/api/clients/{}/enabled", id),
       json!({ "enabled": false }),
     ),
-    ApiCommand::Client(ClientCmd::Override(a)) => {
-      // Each field fully replaces its override; an empty string clears it.
-      let (hostname, path) = if a.clear {
-        (Some(String::new()), Some(String::new()))
-      } else {
-        (scope.hostname(), scope.path())
-      };
-      let mut body = Map::new();
-      put_opt(&mut body, "hostname_bind", hostname);
-      put_opt(&mut body, "path_bind", path);
-      Call::post(
-        format!("/aperio/api/clients/{}/override", a.id),
-        Value::Object(body),
-      )
-    }
     ApiCommand::Client(ClientCmd::Config { id }) => {
       Call::get(format!("/aperio/api/clients/{}/config", id))
     }
@@ -304,9 +289,6 @@ pub(crate) fn build_call(
       let mut body = Map::new();
       body.insert("name".into(), Value::String(a.name.clone()));
       body.insert("role".into(), Value::String(a.role.clone()));
-      if !a.expose.is_empty() {
-        body.insert("expose".into(), json!(a.expose));
-      }
       put_opt(&mut body, "org_id", a.org_id.clone());
       put_opt(&mut body, "ttl_seconds", ttl_field(&a.expire, true)?);
       Call::post("/aperio/api/admin-keys", Value::Object(body))
@@ -408,31 +390,18 @@ fn parse_grants(raw: &[String]) -> Result<Vec<Value>, String> {
       if org.trim().is_empty() || role.trim().is_empty() {
         return Err(format!("--grant takes <org>:<role>, got {entry:?}"));
       }
-      let mut parts = role.trim().split('+');
-      let role = parts.next().unwrap_or_default();
+      let role = role.trim();
+      if role.contains('+') {
+        return Err(format!(
+          "--grant {entry:?}: expose capabilities are part of the role since 0.13.0 (a viewer            reads public listeners, an operator also enables, disables and disconnects them,            an admin manages them); write {}:{}",
+          org.trim(),
+          role.split('+').next().unwrap_or_default()
+        ));
+      }
       if !matches!(role, "viewer" | "operator" | "admin") {
         return Err(format!("unknown grant role {role:?}"));
       }
-      let mut actions = Vec::new();
-      for part in parts {
-        let action = part
-          .strip_prefix("expose.")
-          .ok_or_else(|| format!("unknown grant capability {part:?}"))?;
-        if !aperio_config::expose::ExposeAction::ALL
-          .iter()
-          .any(|a| a.as_str() == action)
-        {
-          return Err(format!("unknown expose capability {action:?}"));
-        }
-        if !actions.contains(&action) {
-          actions.push(action);
-        }
-      }
-      let mut grant = json!({ "org": org.trim(), "role": role });
-      if !actions.is_empty() {
-        grant["expose"] = json!(actions);
-      }
-      Ok(grant)
+      Ok(json!({ "org": org.trim(), "role": role }))
     })
     .collect()
 }

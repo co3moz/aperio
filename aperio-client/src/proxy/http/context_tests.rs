@@ -54,6 +54,7 @@ fn test_same_site() {
 
 #[tokio::test]
 async fn test_redirects_followed_same_host() {
+  let (tunnel_tx, mut tunnel_rx) = mpsc::channel::<Message>(64);
   // Target redirects to a second local server on the same host (127.0.0.1);
   // the client must follow it transparently and return the final 200.
   let final_port = mock_server(
@@ -73,22 +74,23 @@ async fn test_redirects_followed_same_host() {
       .unwrap(),
     ..test_ctx(
       &format!("http://127.0.0.1:{}", first_port),
-      test_tunnel_tx(),
+      tunnel_tx.clone(),
     )
   };
-  let result = handle_incoming_request(
-    &ctx,
-    ForwardRequest {
-      id: "req-redir-1".to_string(),
-      method: "GET".to_string(),
-      uri: "/".to_string(),
-      headers: vec![],
-      body: None,
-      raw_body: None,
-    },
-    None,
-    false,
-    false,
+  let result = answered(
+    &mut tunnel_rx,
+    handle_incoming_request(
+      &ctx,
+      ForwardRequest {
+        id: "req-redir-1".to_string(),
+        method: "GET".to_string(),
+        uri: "/".to_string(),
+        headers: vec![],
+        body: None,
+        raw_body: None,
+      },
+      None,
+    ),
   )
   .await
   .expect("expected buffered response");
@@ -104,6 +106,7 @@ async fn test_redirects_followed_same_host() {
 
 #[tokio::test]
 async fn test_redirects_passed_through_cross_site() {
+  let (tunnel_tx, mut tunnel_rx) = mpsc::channel::<Message>(64);
   // A redirect to an unrelated domain must NOT be followed: the 301 goes
   // back through the tunnel untouched.
   let first_port = mock_server(
@@ -119,22 +122,23 @@ async fn test_redirects_passed_through_cross_site() {
       .unwrap(),
     ..test_ctx(
       &format!("http://127.0.0.1:{}", first_port),
-      test_tunnel_tx(),
+      tunnel_tx.clone(),
     )
   };
-  let result = handle_incoming_request(
-    &ctx,
-    ForwardRequest {
-      id: "req-redir-2".to_string(),
-      method: "GET".to_string(),
-      uri: "/".to_string(),
-      headers: vec![],
-      body: None,
-      raw_body: None,
-    },
-    None,
-    false,
-    false,
+  let result = answered(
+    &mut tunnel_rx,
+    handle_incoming_request(
+      &ctx,
+      ForwardRequest {
+        id: "req-redir-2".to_string(),
+        method: "GET".to_string(),
+        uri: "/".to_string(),
+        headers: vec![],
+        body: None,
+        raw_body: None,
+      },
+      None,
+    ),
   )
   .await
   .expect("expected buffered response");
@@ -156,6 +160,7 @@ async fn test_redirects_passed_through_cross_site() {
 
 #[tokio::test]
 async fn test_pass_hostname_sends_exactly_one_host_header() {
+  let (tunnel_tx, mut tunnel_rx) = mpsc::channel::<Message>(64);
   use tokio::io::{AsyncReadExt, AsyncWriteExt};
   use tokio::net::TcpListener;
 
@@ -185,22 +190,23 @@ async fn test_pass_hostname_sends_exactly_one_host_header() {
     }
   });
 
-  let mut ctx = test_ctx(&target_url, test_tunnel_tx());
+  let mut ctx = test_ctx(&target_url, tunnel_tx.clone());
   ctx.pass_hostname = true;
 
-  let result = handle_incoming_request(
-    &ctx,
-    ForwardRequest {
-      id: "req-host".to_string(),
-      method: "GET".to_string(),
-      uri: "/".to_string(),
-      headers: vec![("host".to_string(), "app.example.com".to_string())],
-      body: None,
-      raw_body: None,
-    },
-    None,
-    false,
-    false,
+  let result = answered(
+    &mut tunnel_rx,
+    handle_incoming_request(
+      &ctx,
+      ForwardRequest {
+        id: "req-host".to_string(),
+        method: "GET".to_string(),
+        uri: "/".to_string(),
+        headers: vec![("host".to_string(), "app.example.com".to_string())],
+        body: None,
+        raw_body: None,
+      },
+      None,
+    ),
   )
   .await
   .expect("expected buffered response");
@@ -215,6 +221,7 @@ async fn test_pass_hostname_sends_exactly_one_host_header() {
 
 #[tokio::test]
 async fn test_handle_incoming_request_header_rules() {
+  let (tunnel_tx, mut tunnel_rx) = mpsc::channel::<Message>(64);
   use tokio::io::{AsyncReadExt, AsyncWriteExt};
   use tokio::net::TcpListener;
 
@@ -236,7 +243,7 @@ async fn test_handle_incoming_request_header_rules() {
     }
   });
 
-  let mut ctx = test_ctx(&target_url, test_tunnel_tx());
+  let mut ctx = test_ctx(&target_url, tunnel_tx.clone());
   ctx.request_headers = HeaderTransform::compile(Some(&aperio_config::HeaderDirectives {
     add: [("X-Env".to_string(), "staging".to_string())]
       .into_iter()
@@ -250,19 +257,20 @@ async fn test_handle_incoming_request_header_rules() {
     remove: vec!["Server".to_string()],
   }));
 
-  let result = handle_incoming_request(
-    &ctx,
-    ForwardRequest {
-      id: "req-headers".to_string(),
-      method: "GET".to_string(),
-      uri: "/".to_string(),
-      headers: vec![("x-secret".to_string(), "leak-me-not".to_string())],
-      body: None,
-      raw_body: None,
-    },
-    None,
-    false,
-    false,
+  let result = answered(
+    &mut tunnel_rx,
+    handle_incoming_request(
+      &ctx,
+      ForwardRequest {
+        id: "req-headers".to_string(),
+        method: "GET".to_string(),
+        uri: "/".to_string(),
+        headers: vec![("x-secret".to_string(), "leak-me-not".to_string())],
+        body: None,
+        raw_body: None,
+      },
+      None,
+    ),
   )
   .await
   .expect("expected buffered response");
@@ -291,6 +299,7 @@ async fn test_handle_incoming_request_header_rules() {
 
 #[tokio::test]
 async fn test_handle_incoming_request_trim_bind() {
+  let (tunnel_tx, mut tunnel_rx) = mpsc::channel::<Message>(64);
   use tokio::io::{AsyncReadExt, AsyncWriteExt};
   use tokio::net::TcpListener;
   use tokio::sync::oneshot;
@@ -320,21 +329,22 @@ async fn test_handle_incoming_request_trim_bind() {
   let ctx = ForwardContext {
     path_bind: Some("/api".to_string()),
     trim_bind: true,
-    ..test_ctx(&target_url, test_tunnel_tx())
+    ..test_ctx(&target_url, tunnel_tx.clone())
   };
-  let result = handle_incoming_request(
-    &ctx,
-    ForwardRequest {
-      id: "req-trim-1".to_string(),
-      method: "GET".to_string(),
-      uri: "/api/hello".to_string(),
-      headers: vec![],
-      body: None,
-      raw_body: None,
-    },
-    None,
-    false,
-    false,
+  let result = answered(
+    &mut tunnel_rx,
+    handle_incoming_request(
+      &ctx,
+      ForwardRequest {
+        id: "req-trim-1".to_string(),
+        method: "GET".to_string(),
+        uri: "/api/hello".to_string(),
+        headers: vec![],
+        body: None,
+        raw_body: None,
+      },
+      None,
+    ),
   )
   .await
   .expect("expected buffered response");
@@ -412,8 +422,6 @@ async fn test_handle_incoming_request_trim_bind_disabled() {
       raw_body: None,
     },
     None,
-    false,
-    false,
   )
   .await;
 
@@ -427,6 +435,7 @@ async fn test_handle_incoming_request_trim_bind_disabled() {
 
 #[tokio::test]
 async fn test_redirect_stops_after_max_hops() {
+  let (tunnel_tx, mut tunnel_rx) = mpsc::channel::<Message>(64);
   // A→B→C chain with max_hops=1: the second hop exceeds the limit, so the
   // redirect is passed through instead of followed (attempt.stop()).
   let c_port =
@@ -448,21 +457,22 @@ async fn test_redirect_stops_after_max_hops() {
       .redirect(redirect_policy(1))
       .build()
       .unwrap(),
-    ..test_ctx(&format!("http://127.0.0.1:{}", a_port), test_tunnel_tx())
+    ..test_ctx(&format!("http://127.0.0.1:{}", a_port), tunnel_tx.clone())
   };
-  let result = handle_incoming_request(
-    &ctx,
-    ForwardRequest {
-      id: "req-hops".to_string(),
-      method: "GET".to_string(),
-      uri: "/".to_string(),
-      headers: vec![],
-      body: None,
-      raw_body: None,
-    },
-    None,
-    false,
-    false,
+  let result = answered(
+    &mut tunnel_rx,
+    handle_incoming_request(
+      &ctx,
+      ForwardRequest {
+        id: "req-hops".to_string(),
+        method: "GET".to_string(),
+        uri: "/".to_string(),
+        headers: vec![],
+        body: None,
+        raw_body: None,
+      },
+      None,
+    ),
   )
   .await
   .expect("expected buffered response");

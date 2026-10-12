@@ -65,7 +65,7 @@ export const SETTINGS_PANES: PaneSpec<SettingsPage>[] = [
 export function SettingsDialog({
   page,
   role,
-  masterAdmin,
+  serverAdmin,
   focus,
   onNavigate,
   onClose,
@@ -73,7 +73,7 @@ export function SettingsDialog({
   page: SettingsPage
   role: Role
   /** The built-in super-admin, the only one who sees the master-only panes. */
-  masterAdmin: boolean
+  serverAdmin: boolean
   focus?: PaneFocus | null
   onNavigate: (page: SettingsPage) => void
   onClose: () => void
@@ -84,7 +84,7 @@ export function SettingsDialog({
       page={page}
       panes={SETTINGS_PANES}
       role={role}
-      masterAdmin={masterAdmin}
+      serverAdmin={serverAdmin}
       focus={focus}
       title={t('Settings')}
       description={t('Configure this server, its organizations and who may sign in.')}

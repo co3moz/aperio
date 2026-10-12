@@ -1,9 +1,12 @@
 import { Test } from 'nole'
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { AperioServerBase } from '../../lib/server.js'
 import { StandardBackendBase } from '../../lib/backend.js'
 import { ClientFor } from '../../lib/client.js'
-import { api, apiWithoutKey } from '../../lib/cli.js'
+import { api, apiWithoutKey, client } from '../../lib/cli.js'
 import { waitFor } from '../../lib/env.js'
 
 const HOST = 'app.e2e.local'
@@ -38,9 +41,11 @@ export class ApiCliSpec extends Test({
   _key = ''
 
   async before() {
+    // `*` Admin: the CLI walks the server-wide surfaces too, which are the
+    // server admin's, and master's Admin is only master's.
     const minted = await this.server._api<{ key: string }>('/aperio/api/admin-keys', {
       method: 'POST',
-      body: JSON.stringify({ name: 'e2e-cli', role: 'admin' }),
+      body: JSON.stringify({ name: 'e2e-cli', role: 'admin', org_id: '*' }),
     })
     this._key = minted.key
   }
@@ -162,5 +167,48 @@ export class ApiCliSpec extends Test({
     const res = await apiWithoutKey(this.server._url, ['stats'])
     // Fails, rather than succeeding with the login page as its "answer".
     assert.equal(res.ok, false)
+  }
+
+  async signingInOnceKeepsAKeyForAdminCalls() {
+    // A home of its own: the profile file is the thing under test, and the
+    // machine's own must be neither read nor written.
+    const home = mkdtempSync(join(tmpdir(), 'aperio-login-'))
+    const env = {
+      APERIO_SERVER_URL: this.server._url,
+      APERIO_SERVER_API_KEY: '',
+      APERIO_SERVER_TOKEN: '',
+      HOME: home,
+      USERPROFILE: home,
+    }
+    try {
+      // The built-in account, whose password is the master token.
+      const login = await client(['login'], { ...env, APERIO_SERVER_TOKEN: this.server._token })
+      assert.ok(login.ok, `login failed: ${login.stderr}`)
+
+      // No key anywhere on the command line or in the environment: the
+      // profile carries it, and `admin` is `api`.
+      const tokens = await client(['admin', 'token', 'list'], env)
+      assert.ok(tokens.ok, `admin token list failed: ${tokens.stderr}`)
+      const keys = await client(['admin', 'admin-key', 'list'], env)
+      assert.ok(keys.ok, keys.stderr)
+      const minted = (JSON.parse(keys.stdout) as { name: string }[]).filter((k) =>
+        k.name.startsWith('login '),
+      )
+      assert.equal(minted.length, 1, 'login minted one key for this machine')
+
+      const profiles = await client(['profile', 'list'], env)
+      assert.match(profiles.stdout, /^\* /m, 'the new profile is in use')
+
+      // Signing out revokes what signing in minted.
+      const logout = await client(['logout'], env)
+      assert.ok(logout.ok, logout.stderr)
+      assert.match(logout.stderr, /revoked/)
+      const after = await client(['admin', 'token', 'list'], env)
+      assert.equal(after.ok, false, 'signed out, the call has no credential')
+      const left = await this._json<{ name: string }[]>('admin-key', 'list')
+      assert.ok(!left.some((k) => k.name.startsWith('login ')), 'the key is gone on the server too')
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
   }
 }

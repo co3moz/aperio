@@ -46,14 +46,10 @@ pub(crate) async fn self_health_handler(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
 ) -> Response {
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
-  let data_dir = state
-    .settings_path
-    .parent()
-    .map(|p| p.to_path_buf())
-    .unwrap_or_else(|| std::path::PathBuf::from("."));
+  let data_dir = std::path::PathBuf::from(&state.data_dir);
   let cache = state.response_cache.lock().await.stats();
   let clients = state.clients.read().await.len();
   Json(serde_json::json!({

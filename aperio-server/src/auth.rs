@@ -22,6 +22,7 @@ pub(crate) mod ip;
 pub(crate) mod oidc_flow;
 pub(crate) mod scope;
 pub(crate) mod session;
+pub(crate) mod sso_flow;
 pub(crate) mod token;
 
 pub(crate) use caller::*;
@@ -217,7 +218,19 @@ pub(crate) async fn auth_login_handler(
     .get("redirect")
     .map(|r| safe_redirect_path(r).to_string())
     .unwrap_or_else(|| "/".to_string());
-  let custom_creds = if redirect_path.starts_with("/aperio") {
+  // A site's gate covering the route is the one this form opens, over any
+  // client's: the operator's word on a hostname is the last one, here as at
+  // the gate. It mints a session for that hostname, like a client's does.
+  let site_policy = if redirect_path.starts_with("/aperio") {
+    None
+  } else {
+    let route = redirect_path.split('?').next().unwrap_or("/");
+    match state.config().sites.access_for(host.as_deref(), route) {
+      Some(crate::sites::SiteAccess::Gate(policy)) => Some(policy.clone()),
+      _ => None,
+    }
+  };
+  let custom_creds = if redirect_path.starts_with("/aperio") || site_policy.is_some() {
     None
   } else {
     crate::routing::route_visitor_auth(&state, &redirect_path, host.as_deref()).await
@@ -230,6 +243,8 @@ pub(crate) async fn auth_login_handler(
   // written to admit.
   let custom_policy = if redirect_path.starts_with("/aperio") {
     None
+  } else if site_policy.is_some() {
+    site_policy
   } else {
     crate::routing::route_visitor_policy(&state, &redirect_path, host.as_deref()).await
   };
@@ -451,6 +466,7 @@ pub(crate) async fn auth_login_handler(
       selected_org: None,
       bound_org: None,
       login_host: admin_host,
+      sso_issuer: None,
     },
   );
 

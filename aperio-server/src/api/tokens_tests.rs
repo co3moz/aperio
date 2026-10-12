@@ -569,7 +569,7 @@ async fn revoke_success_and_disconnects_clients() {
   let id = seed_token(&state, "victim", None).await;
 
   // Register a live client bound to this token so the disconnect branch runs.
-  let mut handle = mock_client(None, None, None, None);
+  let mut handle = mock_client(None, None);
   handle.perms.token_id = Some(id.clone());
   state
     .clients

@@ -18,7 +18,7 @@ use tokio::sync::mpsc;
 /// returned alongside that receiver which the caller must keep in scope.
 fn live_client() -> (ClientHandle, mpsc::Receiver<Message>) {
   let (tx, rx) = mpsc::channel::<Message>(4);
-  let mut client = mock_client(None, None, None, None);
+  let mut client = mock_client(None, None);
   client.tx = tx;
   (client, rx)
 }
@@ -209,7 +209,7 @@ async fn refire_with_client_reaches_dispatch() {
     .clients
     .write()
     .await
-    .insert("c1".to_string(), mock_client(None, None, None, None));
+    .insert("c1".to_string(), mock_client(None, None));
   let headers = admin_headers(&state).await;
   let resp = inbox_refire_handler(
     State(state.clone()),

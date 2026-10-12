@@ -382,55 +382,6 @@ export class ClientControlSpec extends Test({
     return res.status
   }
 
-  async anOverrideIsValidatedAppliedAndCleared() {
-    const id = await this._clientId()
-    assert.equal(
-      await this._status(`/aperio/api/clients/${id}/override`, 'POST', {
-        hostname_bind: 'bad host',
-      }),
-      400,
-    )
-    assert.equal(
-      await this._status('/aperio/api/clients/no-such-client/override', 'POST', {
-        path_bind: '/x',
-      }),
-      404,
-    )
-
-    assert.equal(
-      await this._status(`/aperio/api/clients/${id}/override`, 'POST', { path_bind: '/ov' }),
-      200,
-    )
-    let stats = await this.server._api<{ active_clients: Record<string, unknown>[] }>(
-      '/aperio/api/stats',
-    )
-    assert.equal(stats.active_clients[0].override_path_bind, '/ov')
-
-    // The list form moves one bind at a time, the dashboard's overrule dialog.
-    assert.equal(
-      await this._status(`/aperio/api/clients/${id}/override`, 'POST', {
-        hostname_binds: ['moved.example.com', 'kept.example.com'],
-      }),
-      200,
-    )
-    stats = await this.server._api<{ active_clients: Record<string, unknown>[] }>(
-      '/aperio/api/stats',
-    )
-    assert.deepEqual(stats.active_clients[0].override_hostname_binds, [
-      'moved.example.com',
-      'kept.example.com',
-    ])
-
-    assert.equal(
-      await this._status(`/aperio/api/clients/${id}/override`, 'POST', {
-        path_bind: '',
-        hostname_bind: '',
-        hostname_binds: [],
-      }),
-      200,
-    )
-  }
-
   async theConfigViewDescribesTheConnection() {
     const id = await this._clientId()
     const view = await this.server._api<{ yaml: string }>(`/aperio/api/clients/${id}/config`)

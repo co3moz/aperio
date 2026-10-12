@@ -82,7 +82,6 @@ pub(crate) async fn run_service(
 ) {
   let startup::Prepared {
     spec,
-    multiplexed,
     label,
     probe_tasks,
   } = match startup::prepare(&services, &shared, run_probe, connection_index, &ceiling).await {
@@ -101,6 +100,15 @@ pub(crate) async fn run_service(
   // transient refusal, retried at a steady short pace rather than doubling
   // towards the ceiling (`planned_features.md` #156).
   let mut server_full = false;
+  // A connection an elastic pool opened past its floor exists because the pool
+  // had load to spread and assumed the server had room. When the server says
+  // it has none (`503`: its tunnel limit, or the organization's client quota)
+  // this one gives the slot back by not waiting for it: it stands down rather
+  // than queueing, and the pool asks again later if the load stays. A floor
+  // connection, or one of a fixed pool, is one the file asked for and keeps
+  // retrying as before.
+  let yields_when_full =
+    spec.connections_min < spec.connections && connection_index > spec.connections_min;
   // Index into `spec.ws_urls` for cross-server failover: advanced after each
   // failed/dropped connection so the client rotates across the server fleet.
   let mut server_idx = 0usize;
@@ -142,15 +150,6 @@ pub(crate) async fn run_service(
             if let Ok(g) = HeaderValue::from_str(&spec.instance_group) {
               req.headers_mut().insert("x-aperio-instance", g);
             }
-            // The release this binary is, so the server can refuse a pairing
-            // it does not support at connect time rather than letting the
-            // connection come up and misbehave somewhere deeper (#113).
-            // Non-secret, and a server too old to read it simply ignores it.
-            if let Ok(v) = HeaderValue::from_str(env!("CARGO_PKG_VERSION")) {
-              req
-                .headers_mut()
-                .insert(aperio_config::pairing::CLIENT_RELEASE_HEADER, v);
-            }
             Ok(req)
           }
           Err(e) => Err(format!("Invalid token header format: {:?}", e)),
@@ -185,80 +184,12 @@ pub(crate) async fn run_service(
           // as the network allows, forever, with an error line per attempt.
           Ok((ws_stream, response)) => 'connection: {
             info!("[{}] Successfully connected to Aperio Server!", label);
-            // The half of the window only this side can judge (#113). A server
-            // cannot know it is too old for something a future client wants,
-            // so the client compares what the server announced against its own
-            // floor. Held back rather than served: a service that comes up
-            // against a server it does not support is the connection that
-            // establishes and then misbehaves, which is what the gate exists
-            // to prevent. A server that announces nothing is admitted, since
-            // silence predates the header.
-            if let Some(refused) = aperio_config::pairing::check(
-              response
-                .headers()
-                .get(aperio_config::pairing::SERVER_RELEASE_HEADER)
-                .and_then(|v| v.to_str().ok()),
-              aperio_config::pairing::MIN_SUPPORTED_SERVER,
-              aperio_config::pairing::Side::Server,
-            ) {
-              error!("[{}] Refusing to serve: {}", label, refused.message());
-              break 'outer;
-            }
-            // Multiplexing is negotiated, not assumed. A server too old to
-            // serve a list of services would read the Ping's singular fields
-            // instead, bring up the first service and silently drop the rest:
-            // a connection that establishes and then serves less than it was
-            // told to, which is the failure the connect-time gate exists to
-            // prevent. So the services are held back until a server that says
-            // it can carry them answers, and the log line says which side has
-            // to move.
-            //
-            // Absent means old. The header was added with the ability, so a
-            // server that does not send it cannot have it, and reading silence
-            // as consent is the one mistake that produces the quiet half-serve.
-            if multiplexed {
-              let announced = response
-                .headers()
-                .get(crate::protocol::PROTOCOL_HEADER)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.trim().parse::<u32>().ok());
-              if announced.is_none_or(|p| p < MIN_MULTIPLEX_PROTOCOL) {
-                error!(
-                  "[{}] This server speaks tunnel protocol {}, and carrying {} services on one connection (multiplex: true) needs {}. Not serving these {} service(s): upgrade the server to 0.10.0 or newer, or set multiplex: false to give each its own connection. Retrying.",
-                  label,
-                  announced
-                    .map(|p| p.to_string())
-                    .unwrap_or_else(|| "an older version".to_string()),
-                  services.len(),
-                  MIN_MULTIPLEX_PROTOCOL,
-                  services.len()
-                );
-                break 'connection;
-              }
-            }
-            // The same question for `server_side:`, and the answer matters
-            // more. A server that cannot honour it does not say so: it
-            // ignores the field and relays, and a client asks for this
-            // precisely when it cannot reach the target itself, so serving on
-            // would mean connection errors from a backend nobody can see.
-            let asks_server_side = services.iter().any(|s| s.spec.server_side_target.is_some());
-            if asks_server_side {
-              let announced = response
-                .headers()
-                .get(crate::protocol::PROTOCOL_HEADER)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.trim().parse::<u32>().ok());
-              if announced.is_none_or(|p| p < MIN_SERVER_SIDE_PROTOCOL) {
-                error!(
-                  "[{}] This server speaks tunnel protocol {}, and serving a service from the server (server_side: true) needs {}. Not serving: an older server would relay these requests through this client instead, silently, and a service that asked for this usually cannot reach its target from here. Upgrade the server, or remove server_side: to serve it over the tunnel deliberately. Retrying.",
-                  label,
-                  announced
-                    .map(|p| p.to_string())
-                    .unwrap_or_else(|| "an older version".to_string()),
-                  MIN_SERVER_SIDE_PROTOCOL
-                );
-                break 'connection;
-              }
+            // The same rule from this end: a server on another minor is not
+            // served. Retried rather than given up, so the service comes back
+            // by itself once the server is upgraded.
+            if let Some(refused) = crate::dial::unpaired_server(&response) {
+              error!("[{}] Refusing to serve: {}", label, refused);
+              break 'connection;
             }
             // The server announces what this token may open for one service.
             // Published for the siblings waiting on it above; refreshed on
@@ -332,19 +263,6 @@ pub(crate) async fn run_service(
                       accepted.join(", ")
                     );
                   }
-                  withheld.push(i);
-                  None
-                }
-                GateNegotiation::TooOldForPolicy { wanted } => {
-                  // Same refusal, different reason: the server is old enough
-                  // that it never says what it accepts, and a gate of this shape
-                  // can only be sent in a field it does not read. It would
-                  // ignore that field, see no gate, and serve the route open.
-                  error!(
-                    "[{}] This server is too old to be told an `auth:` of this shape (`{}`): it can only be given a single `user:password`. Not serving this service: upgrade the server, or write the gate as one credential.",
-                    service_label,
-                    wanted.join(", ")
-                  );
                   withheld.push(i);
                   None
                 }
@@ -536,6 +454,9 @@ pub(crate) async fn run_service(
                   path_bind: s.path.clone(),
                   hostname_bind: s.hostnames.first().cloned(),
                   hostname_binds: s.hostnames.clone(),
+                  // A web target, so the server can say so when nothing
+                  // routes to it; a carrier or a raw TCP service has none.
+                  http: !s.target.is_empty() && s.tcp_target.is_none(),
                   // Patched per heartbeat from this service's adaptive
                   // controller; the configured number is what it starts at.
                   max_concurrent: s.max_concurrent,
@@ -629,18 +550,8 @@ pub(crate) async fn run_service(
                 // that reads it treats it as authoritative and a one-entry list
                 // says nothing the singular fields do not: what it would
                 // change is which servers can read the Ping at all.
-                let first = &decls[0];
                 TunnelMessage::Ping {
-                  // Also sent for a single service when it asks to be served
-                  // from the server, because that ask exists only in the list:
-                  // the singular fields are the shim an older server reads and
-                  // they deliberately do not carry it. Without this the feature
-                  // worked only on a multiplexed connection, which is not
-                  // where most services live, and it failed by relaying
-                  // silently. Found by the e2e phase, which is what it is for.
-                  services: (decls.len() > 1
-                    || decls.iter().any(|d| d.server_side_target.is_some()))
-                  .then(|| decls.clone()),
+                  services: decls.clone(),
                   cpu_percent: self_health_ping.cpu_percent(),
                   rss_bytes: crate::health_report::rss_bytes(),
                   rtt_ms,
@@ -652,45 +563,10 @@ pub(crate) async fn run_service(
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs(),
-                  path_bind: first.path_bind.clone(),
-                  hostname_bind: first.hostname_bind.clone(),
-                  hostname_binds: first.hostname_binds.clone(),
-                  max_concurrent: first.max_concurrent,
-                  tcp: first.tcp,
                   version: Some(env!("CARGO_PKG_VERSION").to_string()),
                   protocol: Some(PROTOCOL_VERSION),
-                  backend_healthy: first.backend_healthy,
-                  backend_probed: first.backend_probed,
-                  priority: first.priority,
-                  bandwidth_bps: first.bandwidth_bps,
-                  service: first.service.clone(),
-                  service_custom_name: first.service_custom_name.clone(),
-                  // No `server_side_target` here on purpose. These singular
-                  // fields are the shim an older server reads, and an older
-                  // server cannot honour this: it would relay instead, which
-                  // is the silent fallback the feature exists to avoid. The
-                  // ask travels only in the `services` list, where a server
-                  // that understands it will find it.
-                  public: first.public,
-                  visitor_auth: first.visitor_auth.clone(),
-                  visitor_auth_methods: first.visitor_auth_methods.clone(),
-                  allowed_ips: first.allowed_ips.clone(),
-                  tunnels: first.tunnels.clone(),
-                  cache: first.cache,
-                  resilience: first.resilience,
-                  no_capture: first.no_capture,
-                  max_request_body: first.max_request_body,
-                  response_timeout: first.response_timeout,
                   client_key: client_key_ping.clone(),
-                  webhook_inbox: first.webhook_inbox,
-                  denied: first.denied.clone(),
-                  scaling: first.scaling.clone(),
-                  connections: first.connections,
-                  connections_min: first.connections_min,
-                  connections_max: first.connections_max,
-                  metrics_labels: first.metrics_labels.clone(),
                   drain_secs: drain_secs_ping,
-                  config_notes: first.config_notes.clone(),
                 }
               };
               // The first Ping goes out immediately: it announces the binds,
@@ -812,10 +688,6 @@ pub(crate) async fn run_service(
               .map(|s| Arc::new(forward_context(&s.spec, &tx_write, &stream_pauses)))
               .collect();
 
-            // Protocol version the server announced via Pong; v2 enables
-            // binary chunk frames and streamed request bodies.
-            let server_protocol = Arc::new(std::sync::atomic::AtomicU32::new(1));
-
             // Streamed request bodies in flight: request id → chunk feeder.
             let active_request_streams: Arc<Mutex<HashMap<String, RequestBodyFeeder>>> =
               Arc::new(Mutex::new(HashMap::new()));
@@ -832,7 +704,6 @@ pub(crate) async fn run_service(
               health_report: &health_report,
               tx_write: tx_write.clone(),
               last_pong_time: last_pong_time.clone(),
-              server_protocol: server_protocol.clone(),
               compress_out: compress_out.clone(),
               stream_pauses: stream_pauses.clone(),
               max_message_size: spec.max_message_size,
@@ -902,6 +773,13 @@ pub(crate) async fn run_service(
                   "[{}] Authentication failed (HTTP {}): the server rejected the tunnel token. Check --server-token / APERIO_SERVER_TOKEN / yaml server.token, it may be wrong, expired, or revoked.",
                   label, code
                 );
+              } else if code == 503 && yields_when_full {
+                warn!(
+                  "[{}] The server has no room for another connection (HTTP 503); this one \
+                   stands down, and the pool asks again later if the load stays.",
+                  label
+                );
+                break 'outer;
               } else if code == 503 {
                 // The server is full, which is a transient refusal and not
                 // the connection failing: the slot frees when a sibling's old
@@ -914,10 +792,10 @@ pub(crate) async fn run_service(
                   label
                 );
               } else if code == 426 {
-                // The pairing gate (#113). Its whole value is the sentence in
-                // the body, which names both versions and which side to
-                // upgrade, so reporting the bare status would throw away the
-                // answer and leave a retry loop with no visible cause.
+                // The pairing gate. Its whole value is the sentence in the
+                // body, which names both releases and which side to upgrade,
+                // so reporting the bare status would throw away the answer and
+                // leave a retry loop with no visible cause.
                 let detail = resp
                   .body()
                   .as_ref()

@@ -1,0 +1,17 @@
+# First-start settings for this example, read once into an empty data
+# directory. Start the server with:
+#
+#   APERIO_SERVER_TOKEN=apr_share_change_me APERIO_INIT_FILE=server-init.yaml aperio-server
+#
+# After the first start the settings live in the database: change them from
+# the dashboard (Settings), with `PUT /aperio/api/settings`, or export them
+# with `GET /aperio/api/export?include=settings`.
+
+settings:
+  # Share links grant temporary, gate-free access to a site that is otherwise
+  # gated. Put a visitor login in front of every route nothing else declares,
+  # so there is a gate to bypass with a link (`{method: aperio}` works the
+  # same way, with this server's own sign-in).
+  access:
+    method: basic
+    users: viewer:a-visitor-password

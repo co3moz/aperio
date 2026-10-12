@@ -6,32 +6,96 @@ use super::*;
 use crate::store::grants::GrantOrg;
 
 #[test]
-fn expose_capabilities_survive_key_store_reload() {
-  use crate::store::grants::ExposeAction;
+fn a_key_keeps_its_role_and_scope_across_a_reload() {
   let dir = temp_dir();
   let mut store = AdminKeyStore::load(&dir);
-  let actions = [ExposeAction::Create, ExposeAction::Disable]
-    .into_iter()
-    .collect();
   let (_, secret) = store
-    .create_with_expose(
+    .create(
       "publisher".into(),
-      Role::Viewer,
+      Role::Operator,
       GrantOrg::Child("acme".into()),
       None,
-      actions,
     )
     .unwrap();
   drop(store);
-  let store = AdminKeyStore::load(&dir);
+  let mut store = AdminKeyStore::load(&dir);
   let record = store.verify(&secret).unwrap();
-  assert_eq!(
-    record.expose,
-    [ExposeAction::Create, ExposeAction::Disable]
-      .into_iter()
-      .collect()
-  );
+  assert_eq!(record.role, Role::Operator);
   assert_eq!(record.scope(), GrantOrg::Child("acme".into()));
+}
+
+#[test]
+fn a_key_written_with_expose_capabilities_before_0_13_still_reads() {
+  let row = serde_json::json!({
+    "id": "k1",
+    "name": "old",
+    "key_hash": "00",
+    "key_prefix": "apk_",
+    "role": "viewer",
+    "expose": ["read", "create", "delegate"],
+    "expose_bounds": null,
+    "scope": "acme",
+    "created_at": 1,
+  });
+  let key: AdminKey = serde_json::from_value(row).unwrap();
+  assert_eq!(key.role, Role::Viewer);
+  assert_eq!(key.scope(), GrantOrg::Child("acme".into()));
+  assert!(!serde_json::to_string(&key).unwrap().contains("expose"));
+}
+
+#[test]
+fn a_key_another_process_mints_or_revokes_is_seen_and_kept() {
+  let dir = temp_dir();
+  let mut server = AdminKeyStore::load(&dir);
+  let (_, own_secret) = server
+    .create("own".into(), Role::Admin, GrantOrg::All, None)
+    .unwrap();
+  // `aperio-server admin create-key`, against the same data directory.
+  let mut cli = AdminKeyStore::load(&dir);
+  let (minted, secret) = cli
+    .create("ci".into(), Role::Operator, GrantOrg::Master, None)
+    .unwrap();
+  server.reread();
+  assert_eq!(
+    server.verify(&secret).map(|k| k.id.clone()),
+    Some(minted.id.clone())
+  );
+  let adopted = server.take_adopted();
+  assert_eq!(adopted.len(), 1);
+  assert_eq!(adopted[0].id, minted.id);
+  assert!(server.take_adopted().is_empty(), "taken once");
+  // The server's next write keeps it, rather than replacing the table with
+  // the copy it held before.
+  server
+    .create("other".into(), Role::Viewer, GrantOrg::Master, None)
+    .unwrap();
+  assert!(
+    AdminKeyStore::load(&dir)
+      .list()
+      .iter()
+      .any(|k| k.id == minted.id)
+  );
+  // Revoked from the command line: gone at the next read, and only it.
+  cli.revoke(&minted.id).unwrap();
+  server.reread();
+  assert!(server.verify(&secret).is_none());
+  assert!(server.verify(&own_secret).is_some());
+  let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn verify_reads_the_table_again_once_its_copy_is_a_second_old() {
+  let dir = temp_dir();
+  let mut server = AdminKeyStore::load(&dir);
+  server.reread();
+  let (_, secret) = AdminKeyStore::load(&dir)
+    .create("ci".into(), Role::Admin, GrantOrg::All, None)
+    .unwrap();
+  // Read a moment ago: the new key is not seen yet, and nothing is read.
+  assert!(server.verify(&secret).is_none());
+  std::thread::sleep(REREAD_EVERY + std::time::Duration::from_millis(100));
+  assert!(server.verify(&secret).is_some());
+  let _ = std::fs::remove_dir_all(&dir);
 }
 
 fn temp_dir() -> String {
@@ -63,7 +127,7 @@ fn test_create_verify_revoke_scope_persist() {
   assert!(store.verify("apk_wrong").is_none());
 
   // Persisted across reloads.
-  let store2 = AdminKeyStore::load(&dir);
+  let mut store2 = AdminKeyStore::load(&dir);
   assert_eq!(store2.verify(&secret).unwrap().name, "ci");
 
   // Revoked keys stop verifying.

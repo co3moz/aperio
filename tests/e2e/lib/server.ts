@@ -22,16 +22,45 @@ import { send, sendRaw, type Fetched, type Options } from './http.js'
  * tests, including a class reached only as a dependency, so an unprefixed
  * `get()` here would be reported as a passing test named `CacheServer.get()`.
  */
+/** A part of the server's settings document, nested by section as the
+ *  server reads it: `{ cache: { enabled: true } }`. */
+export type Settings = Record<string, unknown>
+
+/** What every fixture runs with unless a spec says otherwise: short enough
+ *  timeouts and ticks that a test does not wait on production pacing. */
+const FIXTURE_SETTINGS: Settings = {
+  routing: { random_subdomain: '*.e2e.local' },
+  gateway: { timeout: '3s' },
+  uptime: { tick: '1s' },
+  webhooks: { retry_schedule: ['0s'] },
+}
+
+/** `over` merged into `base`, section by section; a list or a scalar in
+ *  `over` replaces the one in `base` whole. */
+export function mergeSettings(base: Settings, over: Settings): Settings {
+  const out: Settings = { ...base }
+  for (const [key, value] of Object.entries(over)) {
+    const prev = out[key]
+    const isObject = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v)
+    out[key] = isObject(prev) && isObject(value)
+      ? mergeSettings(prev as Settings, value as Settings)
+      : value
+  }
+  return out
+}
+
 /** What `AperioServerBase` takes on top of nole's own class options. */
 export interface ServerOptions {
-  /** Environment for the process, for the usual case where it is a constant.
-   *
-   *  A server whose environment names something only the running instance
-   *  knows, the port it was given, the data directory it was handed, cannot
-   *  be written here and overrides `_env()` instead. That is two of the
-   *  twenty-one, and both are the cases where the bash suite had to hardcode
-   *  port 18100 to say the same thing. */
+  /** Environment for the process: only what the server reads before its
+   *  database opens, and the odd process-level knob a spec needs. */
   env?: Record<string, string>
+  /** Settings the server starts with, merged over the fixture's own and
+   *  applied through `APERIO_INIT_FILE` on the first start.
+   *
+   *  A server whose settings name something only the running instance knows,
+   *  the port it was given, the data directory it was handed, cannot be
+   *  written here and overrides `_settings()` instead. */
+  settings?: Settings
 }
 
 export function AperioServerBase(options: Parameters<typeof Test>[0] & ServerOptions = {}) {
@@ -53,20 +82,39 @@ export function AperioServerBase(options: Parameters<typeof Test>[0] & ServerOpt
       return options.env ?? {}
     }
 
-    /** A server-side yaml file, written before the process starts and passed
-     *  as `APERIO_SERVER_CONFIG`. Rewriting it is how the hot-reload tests
-     *  work, which is why the path is stable for the life of the instance. */
-    _configFile(): string | null {
-      return null
+    /** The settings this server starts with, on top of the fixture's own.
+     *
+     *  Returns what `AperioServerBase({ settings })` was given. A subclass
+     *  overrides it only when a value cannot be known before the instance
+     *  exists, and may still reach the constant through `super._settings()`. */
+    _settings(): Settings {
+      return options.settings ?? {}
     }
 
-    async _writeConfig(yaml: string): Promise<void> {
-      const path = this._configPath()
-      await writeFile(path, yaml)
+    /** Other sections of the first-start document (`tokens`, `users`, …),
+     *  for a spec that needs a store seeded before the first request. */
+    _document(): Record<string, unknown> {
+      return {}
     }
 
-    _configPath(): string {
-      return join(this._dataDir, 'aperio-server.yaml')
+    /** Where the first-start document is written. In the data directory, so
+     *  it goes with the instance; the server reads it once, into an empty
+     *  database, and a restart does not read it again. */
+    _initPath(): string {
+      return join(this._dataDir, 'server-init.json')
+    }
+
+    /** Changes settings on the running server, the way the dashboard does:
+     *  reads the document, merges `changes` into it, and writes it back.
+     *  Answers the server's response, so a spec can assert a refusal. */
+    async _putSettings(changes: Settings): Promise<Fetched> {
+      const current = await this._api<{ settings: Settings }>('/aperio/api/settings')
+      const cookie = await this._login()
+      return this._fetch('/aperio/api/settings', {
+        method: 'PUT',
+        headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify(mergeSettings(current.settings, changes)),
+      })
     }
 
     /** How often this fixture looks while waiting for the server. A hundred
@@ -98,8 +146,6 @@ export function AperioServerBase(options: Parameters<typeof Test>[0] & ServerOpt
     async hookStartServer() {
       this._token = `e2e-master-${randomUUID()}`
       this._dataDir = await this._makeDataDir()
-      const yaml = this._configFile()
-      if (yaml !== null) await this._writeConfig(yaml)
       await this._spawnOnAFreePort()
     }
 
@@ -159,6 +205,15 @@ export function AperioServerBase(options: Parameters<typeof Test>[0] & ServerOpt
     }
 
     async _spawn(): Promise<void> {
+      // Written on every start, since `_settings()` may name the port, which
+      // a lost bind race changes. Only the first start reads it.
+      await writeFile(
+        this._initPath(),
+        JSON.stringify({
+          settings: mergeSettings(FIXTURE_SETTINGS, this._settings()),
+          ...this._document(),
+        }),
+      )
       const log = createWriteStream(this._logPath(), { flags: 'a' })
       this._proc = spawn(SERVER_BIN, {
         env: {
@@ -169,11 +224,7 @@ export function AperioServerBase(options: Parameters<typeof Test>[0] & ServerOpt
           PORT: String(this._port),
           APERIO_SERVER_TOKEN: this._token,
           APERIO_DATA_DIR: this._dataDir,
-          APERIO_RANDOM_SUBDOMAIN: '*.e2e.local',
-          APERIO_GATEWAY_TIMEOUT: '3',
-          APERIO_UPTIME_TICK_SECS: '1',
-          APERIO_WEBHOOK_RETRY_SCHEDULE: '0',
-          ...(this._configFile() !== null ? { APERIO_SERVER_CONFIG: this._configPath() } : {}),
+          APERIO_INIT_FILE: this._initPath(),
           ...this._env(),
         },
         stdio: ['ignore', 'pipe', 'pipe'],

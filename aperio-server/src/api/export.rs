@@ -6,9 +6,12 @@
 //! unknown fields are dropped, missing ones take their defaults.
 //!
 //! **The caller chooses what travels.** `?include=` names the sections;
-//! omitted, it means the configuration that rebuilds a deployment (tokens,
-//! webhooks, users, organizations, autoscaling, settings overrides), which
-//! is what this endpoint always dumped. The rest of what the store holds,
+//! omitted, it means the configuration that rebuilds a deployment (the
+//! settings, tokens, webhooks, users, organizations, autoscaling, exposes).
+//!
+//! **The same document is what `aperio-server apply` and `APERIO_INIT_FILE`
+//! take**, in yaml or json, so a deployment kept in a repository is an export
+//! with the sections it wants to own. The rest of what the store holds,
 //! the statistics, the uptime history, the recent activity rings, the webhook
 //! inbox and the admin keys,
 //! is there for the asking: it is a migration's history, and refusing to
@@ -37,7 +40,6 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::routing::extract_client_ip;
-use crate::settings::SettingsOverrides;
 use crate::state::AppState;
 use crate::store::orgs::Organization;
 use crate::store::tokens::ApiToken;
@@ -56,7 +58,7 @@ pub(crate) enum Section {
   Users,
   Organizations,
   Scaling,
-  SettingsOverrides,
+  Settings,
   Statistics,
   Uptime,
   Inbox,
@@ -73,7 +75,7 @@ impl Section {
       Section::Users => "users",
       Section::Organizations => "organizations",
       Section::Scaling => "scaling",
-      Section::SettingsOverrides => "settings_overrides",
+      Section::Settings => "settings",
       Section::Statistics => "statistics",
       Section::Uptime => "uptime",
       Section::Inbox => "inbox",
@@ -104,7 +106,7 @@ pub(crate) const ALL_SECTIONS: [Section; 12] = [
   Section::Users,
   Section::Organizations,
   Section::Scaling,
-  Section::SettingsOverrides,
+  Section::Settings,
   Section::Statistics,
   Section::Uptime,
   Section::Inbox,
@@ -148,7 +150,7 @@ fn requested(include: Option<&str>) -> (Vec<Section>, Vec<String>) {
 
 /// Returns the selected sections of the dump as a downloadable JSON document.
 #[utoipa::path(get, path = "/aperio/api/export", tag = "dashboard",
-  description = "Downloads a logical dump. ?include= names the sections (tokens, webhooks, users, organizations, scaling, settings_overrides, statistics, uptime, activity, inbox, admin_keys, exposes); omitted, the configuration sections including API-owned exposes and policies. Admin only.",
+  description = "Downloads a logical dump. ?include= names the sections (tokens, webhooks, users, organizations, scaling, settings, statistics, uptime, activity, inbox, admin_keys, exposes); omitted, the configuration sections: settings, tokens, webhooks, users, organizations, scaling and API-owned exposes. Admin only.",
   params(("include" = Option<String>, Query, description = "Comma-separated section names; omitted = the configuration sections")),
   responses((status = 200, description = "The dump document", body = serde_json::Value), (status = 400, description = "Unknown section name")))]
 pub(crate) async fn export_handler(
@@ -328,12 +330,8 @@ pub(crate) async fn export_handler(
       serde_json::to_value(rows).unwrap_or_default(),
     );
   }
-  if wants(Section::SettingsOverrides) {
-    let overrides = state.settings_overrides.lock().await.clone();
-    put(
-      Section::SettingsOverrides,
-      serde_json::to_value(overrides).unwrap_or_default(),
-    );
+  if wants(Section::Settings) {
+    put(Section::Settings, crate::live::current().minimal());
   }
   if wants(Section::Statistics) {
     let mut stats = state.persistent_stats.lock().await.export();
@@ -440,65 +438,85 @@ pub(crate) async fn export_handler(
     .into_response()
 }
 
-/// A dump document accepted by the import endpoint. Sections are optional:
-/// a missing section leaves that store untouched.
-#[derive(Deserialize, utoipa::ToSchema)]
+/// A dump document accepted by the import endpoint, `aperio-server apply`
+/// and `APERIO_INIT_FILE`. Sections are optional: a missing section leaves
+/// that store untouched. An unknown section is an error, so a misspelled one
+/// is never a part of the document that silently did nothing.
+#[derive(Deserialize, Default, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct ImportDump {
-  format_version: u32,
+  /// The document format; `1`, the only one there is, when left out.
+  #[serde(default = "format_version")]
+  pub(crate) format_version: u32,
+  /// What an export says about itself: when it was taken, by which version,
+  /// with which sections. Read and ignored, so an export imports back as it
+  /// was written.
+  #[serde(default, rename = "exported_at")]
+  pub(crate) _exported_at: Option<String>,
+  #[serde(default, rename = "server_version")]
+  pub(crate) _server_version: Option<String>,
+  #[serde(default, rename = "sections")]
+  pub(crate) _sections: Option<Vec<String>>,
+  /// The server's settings, as `GET /aperio/api/settings` returns them.
+  #[schema(value_type = Option<serde_json::Value>)]
+  pub(crate) settings: Option<aperio_config::server_settings::ServerSettings>,
   /// API-owned desired rules and port policies; transient sessions are excluded.
   #[schema(value_type = Option<serde_json::Value>)]
-  exposes: Option<crate::store::exposes::ExposeDocument>,
-  tokens: Option<Vec<ApiToken>>,
-  webhooks: Option<Vec<Webhook>>,
+  pub(crate) exposes: Option<crate::store::exposes::ExposeDocument>,
+  pub(crate) tokens: Option<Vec<ApiToken>>,
+  pub(crate) webhooks: Option<Vec<Webhook>>,
   /// Dashboard user records; the full stored shape (hashes, TOTP, passkeys).
   #[schema(value_type = Option<Vec<serde_json::Value>>)]
-  users: Option<Vec<User>>,
-  settings_overrides: Option<SettingsOverrides>,
-  organizations: Option<Vec<Organization>>,
+  pub(crate) users: Option<Vec<User>>,
+  pub(crate) organizations: Option<Vec<Organization>>,
   /// Autoscaling records, keyed by the bind they protect.
-  scaling: Option<Vec<crate::store::scaling::ScalingRecord>>,
+  pub(crate) scaling: Option<Vec<crate::store::scaling::ScalingRecord>>,
   /// Counters and per-period buckets, global plus one slice per organization.
   #[schema(value_type = Option<serde_json::Value>)]
-  statistics: Option<crate::store::stats::PersistedStats>,
+  pub(crate) statistics: Option<crate::store::stats::PersistedStats>,
   /// Availability history, keyed by the entity it tracks.
   #[schema(value_type = Option<serde_json::Value>)]
-  uptime: Option<std::collections::HashMap<String, crate::store::uptime::EntityUptime>>,
+  pub(crate) uptime: Option<std::collections::HashMap<String, crate::store::uptime::EntityUptime>>,
   /// The coarse activity rings, the two-hour and one-day request volume.
   #[schema(value_type = Option<serde_json::Value>)]
-  activity: Option<crate::state::PersistedActivity>,
+  pub(crate) activity: Option<crate::state::PersistedActivity>,
   /// Captured inbound webhooks.
   #[schema(value_type = Option<Vec<serde_json::Value>>)]
-  inbox: Option<Vec<crate::store::inbox::InboxEntry>>,
+  pub(crate) inbox: Option<Vec<crate::store::inbox::InboxEntry>>,
   /// Programmatic admin keys (hashes only, like every credential here).
   #[schema(value_type = Option<Vec<serde_json::Value>>)]
-  admin_keys: Option<Vec<crate::store::admin_keys::AdminKey>>,
+  pub(crate) admin_keys: Option<Vec<crate::store::admin_keys::AdminKey>>,
 }
 
-/// The gate on a whole-server dump, either direction: `*` Admin, not merely
-/// Admin in master.
-///
-/// Since 0.12.0 a named master Admin runs the server without reaching the
-/// child organizations, and may not grant `*`. A dump reads every
-/// organization's tokens, users and keys, and an import writes them back,
-/// grants included, so with master Admin as the gate an import was a way to
-/// hand oneself `*` and an export a way to read tenants one may not open.
+fn format_version() -> u32 {
+  FORMAT_VERSION
+}
+
+/// Why a document was not applied, as the response the API answers with.
+pub(crate) struct ApplyFailure {
+  pub(crate) status: StatusCode,
+  pub(crate) body: serde_json::Value,
+}
+
+impl std::fmt::Display for ApplyFailure {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self.body.get("error").and_then(|e| e.as_str()) {
+      Some(e) => write!(f, "{e}"),
+      None => write!(f, "{}", self.body),
+    }
+  }
+}
+
+fn failure(status: StatusCode, body: serde_json::Value) -> ApplyFailure {
+  ApplyFailure { status, body }
+}
+
+/// A dump reads every organization's tokens, users and keys, and an import
+/// writes them back, grants included, so both are the server admin's alone:
+/// anyone less could read tenants they may not open, or hand themselves `*`.
 #[allow(clippy::result_large_err)] // see api/tokens.rs
 async fn require_every_organization(state: &AppState, headers: &HeaderMap) -> Result<(), Response> {
-  crate::auth::require_master_admin(state, headers).await?;
-  let holds_all = crate::auth::resolve_caller(state, headers)
-    .await
-    .is_some_and(|c| c.holds_all_admin());
-  if !holds_all {
-    return Err(
-      (
-        StatusCode::FORBIDDEN,
-        "a whole-server dump reads and replaces every organization, which takes Admin in every \
-         organization (*)",
-      )
-        .into_response(),
-    );
-  }
-  Ok(())
+  crate::auth::require_server_admin(state, headers).await
 }
 
 /// Applies a dump: each present section *replaces* the corresponding store.
@@ -525,6 +543,15 @@ pub(crate) async fn import_handler(
       ),
     )
       .into_response();
+  }
+  // The settings it carries are a settings change like any other, and a
+  // security-relevant one takes the same recent sign-in here as it does on
+  // the settings endpoint, or the import would be the way around it.
+  if let Some(settings) = &dump.settings {
+    let changed = crate::live::current().changed_paths(settings);
+    if let Err(resp) = super::settings::authorize_change(&state, &headers, &changed).await {
+      return resp;
+    }
   }
   // Charged here rather than at the top of the handler: this rewrites every
   // table in the store, so it is priced well above a page view, and a request
@@ -555,6 +582,48 @@ pub(crate) async fn import_handler(
   // identity from the credential that was authorized to start the import.
   let actor = state.session_actor(&headers).await;
 
+  let counts = match apply_document(&state, dump).await {
+    Ok(counts) => counts,
+    Err(failure) => return (failure.status, Json(failure.body)).into_response(),
+  };
+
+  let summary = counts
+    .iter()
+    .map(|(k, v)| format!("{}={}", k, v))
+    .collect::<Vec<_>>()
+    .join(" ");
+  info!("Dump imported ({})", summary);
+  state
+    .audit("import_applied", &actor, &actor_ip, &summary)
+    .await;
+  state
+    .emit_event("import_applied", serde_json::Value::Object(counts.clone()))
+    .await;
+
+  (
+    StatusCode::OK,
+    Json(serde_json::json!({"imported": counts})),
+  )
+    .into_response()
+}
+
+/// Applies a document to the server: every section present replaces its
+/// store, the settings first so a document they refuse changes nothing.
+/// What the API import, `APERIO_INIT_FILE` and `aperio-server apply` share;
+/// the callers do their own authorization.
+pub(crate) async fn apply_document(
+  state: &Arc<AppState>,
+  dump: ImportDump,
+) -> Result<serde_json::Map<String, serde_json::Value>, ApplyFailure> {
+  if dump.format_version != FORMAT_VERSION {
+    return Err(failure(
+      StatusCode::BAD_REQUEST,
+      serde_json::json!({"error": format!(
+        "Unsupported format_version {} (this server reads version {})",
+        dump.format_version, FORMAT_VERSION
+      )}),
+    ));
+  }
   // Preflight expose sockets before changing any other section. The final
   // apply rechecks them: this is an availability probe, not a reservation
   // across the independent store transactions used by the existing dump API.
@@ -580,42 +649,43 @@ pub(crate) async fn import_handler(
         .iter()
         .any(|p| p.org_id != "master" && !known.contains(&p.org_id))
     {
-      return (
+      return Err(failure(
         StatusCode::BAD_REQUEST,
-        "Expose backup references an organization absent from the destination dump",
-      )
-        .into_response();
+        serde_json::json!({"error": "Expose backup references an organization absent from the destination dump"}),
+      ));
     }
     let manager = state.exposes.lock().await;
     if manager.store.load_error.is_some() {
-      return (
+      return Err(failure(
         StatusCode::CONFLICT,
-        "Expose store requires recovery before importing",
-      )
-        .into_response();
+        serde_json::json!({"error": "Expose store requires recovery before importing"}),
+      ));
     }
     if let Err(error) = manager.preview(document) {
-      return (
+      return Err(failure(
         StatusCode::CONFLICT,
-        Json(serde_json::json!({"failed_section":"exposes", "error":error, "imported":{}})),
-      )
-        .into_response();
+        serde_json::json!({"failed_section":"exposes", "error":error, "imported":{}}),
+      ));
     }
-  }
-
-  // Settings first: they can fail validation, and a rejected import should
-  // change nothing at all.
-  if let Some(overrides) = dump.settings_overrides
-    && let Err(msg) = super::settings::apply_overrides_validated(&state, overrides).await
-  {
-    return (
-      StatusCode::BAD_REQUEST,
-      format!("settings_overrides rejected: {}", msg),
-    )
-      .into_response();
   }
 
   let mut counts = serde_json::Map::new();
+  // Settings first: they can fail validation, and a rejected document
+  // should change nothing at all. Their count is the settings that moved.
+  if let Some(settings) = dump.settings {
+    match super::settings::apply_settings(state, settings).await {
+      Ok(applied) => {
+        counts.insert("settings".into(), applied.changed.len().into());
+      }
+      Err(msg) => {
+        return Err(failure(
+          StatusCode::BAD_REQUEST,
+          serde_json::json!({"failed_section": "settings", "error": msg, "imported": {}}),
+        ));
+      }
+    }
+  }
+
   // Imports persist one section at a time. Report the failed section and any
   // sections already applied instead of claiming the whole dump succeeded.
   macro_rules! imported {
@@ -623,14 +693,14 @@ pub(crate) async fn import_handler(
       match $result {
         Ok(value) => value,
         Err(_) => {
-          return (
+          return Err(failure(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
+            serde_json::json!({
               "error": format!("Failed to persist imported {}", $section),
               "failed_section": $section,
               "imported": counts,
-            })),
-          ).into_response();
+            }),
+          ));
         }
       }
     };
@@ -678,14 +748,13 @@ pub(crate) async fn import_handler(
       .exposes
       .lock()
       .await
-      .replace(&state, document, false)
+      .replace(state, document, false)
       .await
     {
-      return (
+      return Err(failure(
         StatusCode::CONFLICT,
-        Json(serde_json::json!({"failed_section":"exposes", "error":error, "imported":counts})),
-      )
-        .into_response();
+        serde_json::json!({"failed_section":"exposes", "error":error, "imported":counts}),
+      ));
     }
     counts.insert("exposes".into(), n.into());
   }
@@ -718,24 +787,7 @@ pub(crate) async fn import_handler(
     counts.insert("admin_keys".into(), n.into());
   }
 
-  let summary = counts
-    .iter()
-    .map(|(k, v)| format!("{}={}", k, v))
-    .collect::<Vec<_>>()
-    .join(" ");
-  info!("Dump imported ({})", summary);
-  state
-    .audit("import_applied", &actor, &actor_ip, &summary)
-    .await;
-  state
-    .emit_event("import_applied", serde_json::Value::Object(counts.clone()))
-    .await;
-
-  (
-    StatusCode::OK,
-    Json(serde_json::json!({"imported": counts})),
-  )
-    .into_response()
+  Ok(counts)
 }
 
 #[cfg(test)]

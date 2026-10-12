@@ -40,12 +40,11 @@ export const de: Record<string, string> = {
   'Allowed source IPs / CIDRs': 'Erlaubte Quell-IPs / CIDRs',
   'Announced link capacity; the server paces frames to this client accordingly':
     'Gemeldete Leitungskapazität; der Server taktet Frames an diesen Client entsprechend',
-  'Another live connection reports the same client id ({id}), bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
-    'Eine andere aktive Verbindung meldet dieselbe Client-ID ({id}), bind-tunnels- und Failover-Abfragen über diese ID sind mehrdeutig; geben Sie jedem Client eine eigene --client-id',
+  'Another live connection reports the same client id ({id}), so failover lookups by this id are ambiguous; give each client its own --client-id':
+    'Eine andere aktive Verbindung meldet dieselbe Client-ID ({id}), daher sind Failover-Abfragen über diese ID mehrdeutig; geben Sie jedem Client eine eigene --client-id',
   'Aperio Reverse Tunneling System • Server Uptime: {uptime}':
     'Aperio Reverse-Tunneling-System • Server-Laufzeit: {uptime}',
   Appearance: 'Darstellung',
-  Apply: 'Anwenden',
   'Audit Log': 'Audit-Log',
   'Audit generations kept': 'Aufbewahrte Audit-Generationen',
   'Audit rotation size': 'Audit-Rotationsgröße',
@@ -71,7 +70,6 @@ export const de: Record<string, string> = {
   Clear: 'Zurücksetzen',
   'Click to inspect & replay': 'Klicken zum Inspizieren & Wiederholen',
   'Client ID': 'Client-ID',
-  'Client down threshold (s)': 'Client-Ausfallschwelle (s)',
   'Client is gracefully shutting down': 'Client fährt kontrolliert herunter',
   'Client speaks tunnel protocol v{proto}, server differs, update the older side':
     'Client spricht Tunnelprotokoll v{proto}, der Server weicht ab, aktualisieren Sie die ältere Seite',
@@ -80,8 +78,6 @@ export const de: Record<string, string> = {
   Clients: 'Clients',
   'Clipboard unavailable': 'Zwischenablage nicht verfügbar',
   Close: 'Schließen',
-  'Cloudflare shorthand: trust the CF-Connecting-IP header':
-    'Cloudflare-Kurzform: dem CF-Connecting-IP-Header vertrauen',
   'Connect a new client': 'Neuen Client verbinden',
   'Connected & Active': 'Verbunden & aktiv',
   'Connected For': 'Verbunden seit',
@@ -102,9 +98,6 @@ export const de: Record<string, string> = {
   'Create link': 'Link erstellen',
   'Creates a dynamic tunnel token with a restricted scope.':
     'Erstellt einen dynamischen Tunnel-Token mit eingeschränktem Umfang.',
-  'Current value': 'Aktueller Wert',
-  'Custom 503 maintenance page (HTML)': 'Eigene 503-Wartungsseite (HTML)',
-  'Custom 504 page (HTML)': 'Eigene 504-Seite (HTML)',
   DOWN: 'AUSGEFALLEN',
   'Daily traffic quota (MB, 0 = no quota, empty = keep)': 'Tägliches Traffic-Kontingent (MB, 0 = keins, leer = behalten)',
   'Daily traffic quota (MB, empty = no quota)': 'Tägliches Traffic-Kontingent (MB, leer = keins)',
@@ -137,26 +130,19 @@ export const de: Record<string, string> = {
     'Aktivierung wird verbundenen Clients sofort angeboten; Deaktivierung gilt für neue Verbindungen',
   'End maintenance': 'Wartung beenden',
   'End maintenance for {host}': 'Wartung für {host} beenden',
-  'Env vars provide the defaults; edits become live, persisted overrides. Master token, HOST/PORT, proxy trust and OIDC stay env-only.':
-    'Umgebungsvariablen liefern die Standardwerte; Änderungen werden zu sofort wirksamen, persistierten Overrides. Master-Token, HOST/PORT, Proxy-Vertrauen und OIDC bleiben env-only.',
-  'Environment Flags': 'Umgebungsvariablen',
   Event: 'Ereignis',
   'Events (comma separated, * = all)': 'Ereignisse (kommagetrennt, * = alle)',
   Expires: 'Ablauf',
   'Failed to load request detail: {error}': 'Anfragedetails konnten nicht geladen werden: {error}',
   'Failover max jumps': 'Failover: max. Sprünge',
   'Failover non-idempotent methods': 'Failover für nicht-idempotente Methoden',
-  'Failover window (s)': 'Failover-Fenster (s)',
   'Filter by path/method...': 'Nach Path/Methode filtern...',
   'First lockout duration; doubles per repeat offense': 'Erste Sperrdauer; verdoppelt sich je Wiederholung',
   'Freeze the table while you inspect': 'Tabelle zum Inspizieren einfrieren',
   'Gateway & Requests': 'Gateway & Anfragen',
-  'Gateway timeout (s)': 'Gateway-Timeout (s)',
   'Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless, they cannot be listed later, they simply expire.':
     'Gewähren Sie jemandem befristeten Zugriff auf eine geschützte Seite: Der Link trägt einen signierten, ablaufenden Token, gebunden an den Hostname (und optionalen Path). Beim Öffnen wird ein Cookie gesetzt und zur sauberen URL weitergeleitet. Links sind zustandslos, sie können später nicht aufgelistet werden, sie laufen einfach ab.',
   'Go to {page}': 'Zu {page} wechseln',
-  'Header consulted first for the visitor IP (behind CDN chains)':
-    'Header, der zuerst für die Besucher-IP herangezogen wird (hinter CDN-Ketten)',
   Hostname: 'Hostname',
   'Hostname bind (optional)': 'Hostname-Binding (optional)',
   Hostnames: 'Hostnames',
@@ -166,15 +152,12 @@ export const de: Record<string, string> = {
     'Wie Anfragen einen Client wählen und was passiert, wenn er mitten in der Anfrage verloren geht.',
   'I have a token': 'Ich habe einen Token',
   'IP Address': 'IP-Adresse',
-  'Ignore client-declared visitor passwords; the server keeps the gate':
-    'Vom Client deklarierte Besucher-Passwörter ignorieren; der Server behält die Kontrolle',
   'In-flight failover': 'Failover laufender Anfragen',
   'In-flight proxied requests; beyond it visitors get 429':
     'Gleichzeitig laufende Proxy-Anfragen; darüber erhalten Besucher 429',
   'Invalid credentials. Please try again.': 'Ungültige Zugangsdaten. Bitte erneut versuchen.',
   'It stays connected but receives no new requests; in-flight requests complete.':
     'Er bleibt verbunden, erhält aber keine neuen Anfragen; laufende Anfragen werden abgeschlossen.',
-  'JSONL access log file path (empty = disabled)': 'Path der JSONL-Zugriffslogdatei (leer = deaktiviert)',
   'Known events: {events}. Use * to subscribe to everything.':
     'Bekannte Ereignisse: {events}. Mit * alles abonnieren.',
   'Last Ping': 'Letzter Ping',
@@ -233,7 +216,6 @@ export const de: Record<string, string> = {
   'Local target (where your service listens)': 'Lokales Ziel (wo Ihr Dienst lauscht)',
   'Login brute-force protection and audit log rotation.':
     'Login-Brute-Force-Schutz und Audit-Log-Rotation.',
-  'Login lockout base (s)': 'Login-Sperre: Basisdauer (s)',
   'Login lockout threshold': 'Login-Sperrschwelle',
   Maintenance: 'Wartung',
   'Maintenance Mode': 'Wartungsmodus',
@@ -269,21 +251,14 @@ export const de: Record<string, string> = {
   'No matching commands': 'Keine passenden Befehle',
   'No requests matching filter': 'Keine Anfragen entsprechen dem Filter',
   'No webhooks defined': 'Keine Webhooks definiert',
-  'Not a size, use e.g. 10 MB, 1.5 GB, or plain bytes':
-    'Keine gültige Größe, z. B. 10 MB, 1.5 GB oder Bytes verwenden',
-  'OIDC single sign-on (issuer, client id/secret, redirect URL, scopes)':
-    'OIDC-Single-Sign-on (Issuer, Client-ID/Secret, Redirect-URL, Scopes)',
   'OK / Failed': 'OK / Fehler',
   Offline: 'Offline',
   'Offline (Waiting for Client)': 'Offline (warte auf Client)',
   Online: 'Online',
-  'Override applied for {id}': 'Override für {id} angewendet',
-  'Override cleared for {id}': 'Override für {id} entfernt',
   Overview: 'Übersicht',
   'POST/PATCH may reach a backend twice when enabled': 'POST/PATCH kann ein Backend bei Aktivierung doppelt erreichen',
   Password: 'Passwort',
   Path: 'Path',
-  'Path bind': 'Path-Binding',
   'Path bind (optional)': 'Path-Binding (optional)',
   Paths: 'Paths',
   Paused: 'Pausiert',
@@ -293,8 +268,6 @@ export const de: Record<string, string> = {
   'Per-visitor-IP token bucket for proxied requests.':
     'Token-Bucket pro Besucher-IP für Proxy-Anfragen.',
   Prefix: 'Präfix',
-  'Prometheus metrics endpoint at /aperio/metrics': 'Prometheus-Metrik-Endpoint unter /aperio/metrics',
-  Purpose: 'Zweck',
   'Queue Status': 'Warteschlange',
   'Random subdomain pattern': 'Zufälliges Subdomain-Muster',
   'Rate Limiting': 'Ratenbegrenzung',
@@ -317,13 +290,9 @@ export const de: Record<string, string> = {
   'Requests pending reconnection': 'Anfragen warten auf Wiederverbindung',
   'Requests today': 'Anfragen heute',
   'Requests with larger bodies are rejected up front': 'Anfragen mit größeren Bodies werden sofort abgelehnt',
-  'Require hostname bind': 'Hostname-Binding erforderlich',
-  'Reset to env default ({value})': 'Auf Umgebungsstandard zurücksetzen ({value})',
-  'Reset {label} to default': '{label} auf Standard zurücksetzen',
   'Response Body': 'Antwort-Body',
   'Response Headers': 'Antwort-Header',
   'Response cache': 'Antwort-Cache',
-  'Response timeout (s)': 'Antwort-Timeout (s)',
   'Resume live updates': 'Live-Updates fortsetzen',
   Revoke: 'Widerrufen',
   'Revoke token "{name}" ({prefix}…)?': 'Token „{name}“ ({prefix}…) widerrufen?',
@@ -337,10 +306,6 @@ export const de: Record<string, string> = {
   'Search clients…': 'Clients suchen…',
   'Search…': 'Suchen…',
   'Security & Audit': 'Sicherheit & Audit',
-  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running inside a container, to change one:':
-    'Sicherheits- und startkritische Variablen bleiben env-only, damit eine kompromittierte Dashboard-Sitzung sie nicht ändern kann. Der Server läuft in einem Container, zum Ändern:',
-  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running natively, to change one:':
-    'Sicherheits- und startkritische Variablen bleiben env-only, damit eine kompromittierte Dashboard-Sitzung sie nicht ändern kann. Der Server läuft nativ, zum Ändern:',
   'Send this request through the tunnel again': 'Diese Anfrage erneut durch den Tunnel senden',
   Sent: 'Gesendet',
   'Server Settings': 'Servereinstellungen',
@@ -349,15 +314,11 @@ export const de: Record<string, string> = {
   'Service name announced by the client (services: list)':
     'Vom Client gemeldeter Dienstname (services:-Liste)',
   Session: 'Sitzung',
-  'Session cookies carry the Secure flag (HTTPS only)':
-    'Sitzungscookies tragen das Secure-Flag (nur HTTPS)',
   'Session expires in {duration}': 'Sitzung läuft in {duration} ab',
   'Settings applied and persisted.': 'Einstellungen angewendet und gespeichert.',
   'Share Links': 'Freigabe-Links',
   'Showing the latest {max} of {total} matching requests.':
     'Zeige die letzten {max} von {total} passenden Anfragen.',
-  'Shown for hostnames in maintenance mode': 'Wird für Hostnames im Wartungsmodus angezeigt',
-  'Shown when no client answers in time': 'Wird angezeigt, wenn kein Client rechtzeitig antwortet',
   'Sign In': 'Anmelden',
   'Sign in to continue': 'Zum Fortfahren anmelden',
   'Sign out': 'Abmelden',
@@ -374,8 +335,8 @@ export const de: Record<string, string> = {
     'Melde dich ohne Passwort an, mit YubiKeys, Touch ID / Face ID oder deinem Passwort-Manager.',
   'The built-in "aperio" admin signs in with the master token or dashboard password and cannot register passkeys. Create a named user instead.':
     'Der eingebaute Admin „aperio“ meldet sich mit dem Master-Token oder Dashboard-Passwort an und kann keine Passkeys registrieren. Lege stattdessen einen benannten Benutzer an.',
-  'Passkey sign-in is not configured on this server. Set APERIO_WEBAUTHN_ORIGIN to the dashboard’s public URL to enable it.':
-    'Passkey-Anmeldung ist auf diesem Server nicht konfiguriert. Setze APERIO_WEBAUTHN_ORIGIN auf die öffentliche URL des Dashboards.',
+  'Passkey sign-in is not configured on this server. Set dashboard.webauthn.origin to the dashboard’s public URL to enable it.':
+    'Passkey-Anmeldung ist auf diesem Server nicht konfiguriert. Setze dashboard.webauthn.origin auf die öffentliche URL des Dashboards.',
   'This browser does not support WebAuthn.':
     'Dieser Browser unterstützt WebAuthn nicht.',
   'No passkeys registered yet.':
@@ -465,8 +426,6 @@ export const de: Record<string, string> = {
   Status: 'Status',
   'Status mix': 'Statusverteilung',
   'Strategy for picking a client from the routed pool': 'Strategie zur Client-Auswahl aus dem Pool',
-  'Strict multi-tenant mode: unbound clients never receive traffic':
-    'Strikter Mandantenmodus: ungebundene Clients erhalten nie Traffic',
   Success: 'Erfolg',
   'Sustained requests per second per IP': 'Dauerhafte Anfragen pro Sekunde und IP',
   'Switch to dark theme': 'Zum dunklen Design wechseln',
@@ -495,7 +454,6 @@ export const de: Record<string, string> = {
   'Token minted and embedded below. It is scoped to {scope} and will not be shown again after this dialog closes.':
     'Token geprägt und unten eingebettet. Er ist auf {scope} beschränkt und wird nach dem Schließen dieses Dialogs nicht mehr angezeigt.',
   'Token name is required': 'Token-Name ist erforderlich',
-  'Token required to scrape the metrics endpoint': 'Token zum Abrufen des Metrik-Endpoints erforderlich',
   'Total Requests': 'Gesamtanfragen',
   'Total memory for cached responses; entries closest to expiry are evicted first':
     'Gesamtspeicher für gecachte Antworten; Einträge kurz vor Ablauf werden zuerst verdrängt',
@@ -503,19 +461,17 @@ export const de: Record<string, string> = {
   Traffic: 'Traffic',
   'Traffic Breakdown': 'Traffic-Aufschlüsselung',
   'Traffic by token & hostname': 'Traffic nach Token & Hostname',
-  'Trust X-Forwarded-For / X-Real-IP from a fronting reverse proxy':
-    'X-Forwarded-For / X-Real-IP eines vorgelagerten Reverse-Proxys vertrauen',
-  'Trusted proxy/CDN egress IPs or CIDRs used to resolve the real visitor IP':
-    'Vertrauenswürdige Proxy-/CDN-Ausgangs-IPs oder CIDRs zur Ermittlung der echten Besucher-IP',
   'Tunnel Clients': 'Tunnel-Clients',
   'Tunnel compression': 'Tunnel-Kompression',
   'Tunnels & Domains': 'Tunnel & Domains',
   'Type a command…': 'Befehl eingeben…',
   'Unsaved changes': 'Ungespeicherte Änderungen',
   Username: 'Benutzername',
-  Variable: 'Variable',
   'Visitor Experience': 'Besuchererlebnis',
-  'Visitor password': 'Besucher-Passwort',
+  'Default access':
+    'Standardzugriff',
+  'deny, public, or a gate in front of every route nothing else declares':
+    'deny, public oder ein Tor vor jeder Route, die nichts anderes erklärt',
   'Wait for a client to (re)connect before failing a request':
     'Auf (Neu-)Verbindung eines Clients warten, bevor eine Anfrage fehlschlägt',
   'Wait for a client to answer a dispatched request': 'Auf die Antwort eines Clients auf eine zugestellte Anfrage warten',
@@ -536,23 +492,18 @@ export const de: Record<string, string> = {
   'IP filter': 'IP-Filter',
   'Only these visitor IPs/CIDRs may reach this service: {ips}':
     'Nur diese Besucher-IPs/CIDRs erreichen diesen Dienst: {ips}',
-  'e.g. 10 MB, 1 GB, 65536': 'z. B. 10 MB, 1 GB, 65536',
   'e.g. example.com, *.example.com or *-test.example.com, * becomes a random label; empty = disabled':
     'z. B. example.com, *.example.com oder *-test.example.com, * wird ein zufälliges Label; leer = deaktiviert',
   'master token': 'Master-Token',
   'never expires': 'läuft nie ab',
-  override: 'Override',
   public: 'öffentlich',
   'public ok': 'öffentlich erlaubt',
   'expiring soon': 'läuft bald ab',
-  'read-only': 'schreibgeschützt',
   'shared secret for X-Aperio-Signature': 'gemeinsames Secret für X-Aperio-Signature',
   signed: 'signiert',
   standby: 'Standby',
   token: 'Token',
   'token name (e.g. staging-box)': 'Token-Name (z. B. staging-box)',
-  'user:password gate in front of all proxied traffic; empty = disabled':
-    'user:password-Schranke vor dem gesamten Proxy-Traffic; leer = deaktiviert',
   'valid until {date}': 'gültig bis {date}',
   '{count} client(s) disabled': '{count} Client(s) deaktiviert',
   '{count} client(s) enabled': '{count} Client(s) aktiviert',
@@ -677,18 +628,12 @@ export const de: Record<string, string> = {
   'Requests in real time, table or console': 'Anfragen in Echtzeit – Tabelle oder Konsole',
   'no client': 'kein Client',
   'offline': 'offline',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, dashed nodes for token-granted routes no client currently serves, and amber nodes for another machine dialing a tunnel with --bind-tunnels (identified by the address it dialed from, so several processes behind one address are one node). Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Wie jede Route ihr Ziel erreicht: Tunnel-Clients und ihre Backends (mit Live-Anfrageraten), das clientlose Routing des Servers – statische Weiterleitungen/Antworten und öffentliche Expose-Ports – sowie gestrichelte Knoten für token-gewährte Routen, die kein Client bedient. Grün = gesund, Bernstein = wird geleert oder Backend-Prüfungen schlagen fehl, Rot = fehlerhaft, deaktiviert, ausgeschlossen oder kein Client bedient. Eine andere Maschine, die einen Tunnel mit --bind-tunnels anwählt, erscheint als bernsteinfarbener Knoten, identifiziert anhand der Adresse, von der aus sie gewählt hat, mehrere Prozesse hinter einer Adresse sind also ein Knoten.',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, dashed nodes for token-granted routes no client currently serves, and amber nodes for another machine dialing a tunnel with aperio-client bind (identified by the address it dialed from, so several processes behind one address are one node). Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Wie jede Route ihr Ziel erreicht: Tunnel-Clients und ihre Backends (mit Live-Anfrageraten), das clientlose Routing des Servers – statische Weiterleitungen/Antworten und öffentliche Expose-Ports – sowie gestrichelte Knoten für token-gewährte Routen, die kein Client bedient. Grün = gesund, Bernstein = wird geleert oder Backend-Prüfungen schlagen fehl, Rot = fehlerhaft, deaktiviert, ausgeschlossen oder kein Client bedient. Eine andere Maschine, die einen Tunnel mit aperio-client bind anwählt, erscheint als bernsteinfarbener Knoten, identifiziert anhand der Adresse, von der aus sie gewählt hat, mehrere Prozesse hinter einer Adresse sind also ein Knoten.',
   'ejected': 'ausgeschlossen',
   'draining': 'wird geleert',
   'cache off': 'Cache aus',
-  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect, enable the server cache or drop the flag': 'Dieser Dienst hat Caching aktiviert (cache: true), aber der Server-Antwort-Cache ist deaktiviert (APERIO_CACHE aus) – die Aktivierung hat keine Wirkung; aktivieren Sie den Server-Cache oder entfernen Sie das Flag.',
-  'Add hostname': 'Hostname hinzufügen',
-  'Hostname binds': 'Hostname-Bindings',
-  'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
-    'Temporäre Bindings für diese Verbindung: solange gesetzt, werden nur diese Hostnames hierher geroutet. Bearbeiten Sie die Zeile, die Sie verschieben wollen, und lassen Sie die übrigen unverändert; leere Zeilen entfallen, das Leeren aller Zeilen hebt den Override auf. Nichts wird über Reconnects hinweg gespeichert.',
-  'declared by the client': 'vom Client deklariert',
-  'granted by the token': 'vom Token gewährt',
-  'random subdomain, assigned by the server': 'zufällige Subdomain, vom Server vergeben',
+  'This service opted into caching (cache.enabled) but the server response cache is disabled (cache.enabled off on the server), so the opt-in has no effect; enable the server cache or drop the setting':
+    'Dieser Dienst hat Caching aktiviert (cache.enabled), aber der Antwort-Cache des Servers ist deaktiviert (cache.enabled auf dem Server aus), daher hat das keine Wirkung; aktivieren Sie den Server-Cache oder entfernen Sie die Einstellung',
   '{count} more hostname(s) routed here': '{count} weitere Hostname(s) hierher geroutet',
   'Configuration of {label}': 'Konfiguration von {label}',
   'What this connection announces over its heartbeat, plus what the server applies on top. Settings a client never announces (its target, timeouts, header rules, health probes) cannot be shown here.':
@@ -700,9 +645,7 @@ export const de: Record<string, string> = {
   'applied by the server': 'vom Server angewendet',
   "Show this connection's effective configuration": 'Effektive Konfiguration dieser Verbindung anzeigen',
   'Config Builder': 'Konfigurations-Builder',
-  'Assemble an aperio.yaml or aperio-server.yaml from the settings this server understands, or open an existing one and edit it.': 'Stellen Sie aus den Einstellungen, die dieser Server versteht, eine aperio.yaml oder aperio-server.yaml zusammen, oder öffnen und bearbeiten Sie eine vorhandene.',
   'Which file?': 'Welche Datei?',
-  'The client file configures a tunnel client and what it exposes; the server file configures the Aperio server itself.': 'Die Client-Datei konfiguriert einen Tunnel-Client und was er veröffentlicht; die Server-Datei den Aperio-Server selbst.',
   'Empty fields are left out of the file entirely, so the server keeps its own default.': 'Leere Felder werden gar nicht erst in die Datei geschrieben, der Server behält also seinen eigenen Standardwert.',
   'Import YAML': 'YAML importieren',
   'Export YAML': 'YAML exportieren',
@@ -759,7 +702,7 @@ export const de: Record<string, string> = {
   'Memory (RSS)': 'Speicher (RSS)',
   'New admin key': 'Neuer Admin-Schlüssel',
   'No admin keys yet': 'Noch keine Admin-Schlüssel',
-  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have APERIO_SCALING enabled.': 'Keine Autoscaling-Einträge. Ein Client legt einen an, indem er einen scaling:-Block deklariert, und der Server muss APERIO_SCALING aktiviert haben.',
+  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have scaling.enabled on.': 'Keine Autoscaling-Einträge. Ein Client legt einen an, indem er einen scaling:-Block deklariert, und der Server muss scaling.enabled aktiviert haben.',
   'No cache data yet': 'Noch keine Cache-Daten',
   'No hostname restriction': 'Keine Hostname-Einschränkung',
   'No self-health data yet': 'Noch keine Selbstdiagnose-Daten',
@@ -780,7 +723,8 @@ export const de: Record<string, string> = {
   'Server self-health': 'Server-Selbstdiagnose',
   'Server-side GET cache occupancy and hit rate.': 'Belegung und Trefferquote des serverseitigen GET-Caches.',
   'Services that ask for capacity when they need it. A request for a hostname nothing is serving triggers a cold start instead of a 504, and a saturated pool asks for one more instance. Declared by the client in its scaling: block; scaling back in is the client’s own idle_timeout.': 'Dienste, die Kapazität anfordern, wenn sie sie brauchen. Eine Anfrage an einen Hostname, den niemand bedient, löst einen Kaltstart statt eines 504 aus, und ein ausgelasteter Pool fordert eine weitere Instanz an. Der Client deklariert das in seinem scaling:-Block; das Herunterskalieren übernimmt sein eigenes idle_timeout.',
-  'Set max_concurrent on the client to make utilization measurable.': 'Setzen Sie max_concurrent im Client, damit die Auslastung messbar wird.',
+  'Set limits.concurrent_requests on the client to make utilization measurable.':
+    'Setzen Sie limits.concurrent_requests im Client, damit die Auslastung messbar wird.',
   'Sign in at /aperio/oidc/login?org={id}. Leave issuer empty to clear.': 'Anmeldung unter /aperio/oidc/login?org={id}. Issuer leer lassen, um zu löschen.',
   'Size': 'Größe',
   'State': 'Zustand',
@@ -798,7 +742,6 @@ export const de: Record<string, string> = {
   'not measurable': 'nicht messbar',
   'scale to zero': 'auf null skalieren',
   '{inflight} of {capacity} concurrent slots in use; scales out above {target}%.': '{inflight} von {capacity} gleichzeitigen Slots belegt; skaliert oberhalb von {target}% hoch.',
-  'Must be at least {min}': 'Mindestens {min}',
   'Need more than this? ': 'Brauchen Sie mehr? ',
   'Open the config builder': 'Konfigurations-Builder öffnen',
   ' to set every option, add services and tunnels, and export the file.': ', dort setzen Sie jede Option, fügen Dienste und Tunnel hinzu und exportieren die Datei.',
@@ -813,7 +756,6 @@ export const de: Record<string, string> = {
   'configured': 'konfiguriert',
   'This section has no fixed shape, so it is edited as YAML. Leave it empty to remove it.': 'Dieser Abschnitt hat keine feste Form und wird daher als YAML bearbeitet. Leer lassen, um ihn zu entfernen.',
   'Configures a tunnel client and the backends it exposes.': 'Konfiguriert einen Tunnel-Client und die Backends, die er veröffentlicht.',
-  'Configures the Aperio server itself.': 'Konfiguriert den Aperio-Server selbst.',
   'Bind': 'Binden',
   'Client': 'Client',
   'Copy config': 'Konfiguration kopieren',
@@ -828,19 +770,11 @@ export const de: Record<string, string> = {
   'Services': 'Dienste',
   'Each entry is one exposed backend with its own bind and tuning.': 'Jeder Eintrag ist ein veröffentlichtes Backend mit eigener Bindung und Feinabstimmung.',
   'Private TCP/UDP services a peer client can bind locally, and the peers this client binds.': 'Private TCP/UDP-Dienste, die ein anderer Client lokal binden kann, und die Gegenstellen, die dieser Client bindet.',
-  'Access control': 'Zugriffskontrolle',
-  'Who may reach the exposed service.': 'Wer den veröffentlichten Dienst erreichen darf.',
   'Capacity & pacing': 'Kapazität & Takt',
   'How much work this client accepts and how fast the server may push to it.': 'Wie viel Arbeit dieser Client annimmt und wie schnell der Server an ihn liefern darf.',
-  'Backend health': 'Backend-Zustand',
-  'Probing the backend so an unhealthy one leaves the routing pool without dropping the tunnel. Set here it applies to every entry under services:, and any entry may override it.': 'Prüft das Backend, damit ein ungesundes den Routing-Pool verlässt, ohne den Tunnel zu trennen. Hier gesetzt gilt es für jeden Eintrag unter services:, und jeder Eintrag darf es überschreiben.',
   'Asking for capacity when it is needed, and retiring when idle.': 'Kapazität anfordern, wenn sie gebraucht wird, und im Leerlauf abbauen.',
-  'Response handling': 'Antwortverarbeitung',
-  'Caching, resilience, and the headers this client rewrites.': 'Caching, Ausfallsicherheit und die Header, die dieser Client umschreibt.',
   'Logging': 'Protokollierung',
   'What this client writes and in which format.': 'Was dieser Client schreibt und in welchem Format.',
-  'Core': 'Kern',
-  'Identity, listening address, and where state lives.': 'Identität, Lauschadresse und wo der Zustand liegt.',
   'Routing & load balancing': 'Routing & Lastverteilung',
   'How a request finds a client, and which clients are eligible.': 'Wie eine Anfrage einen Client findet und welche Clients infrage kommen.',
   'Failover & retry': 'Failover & Wiederholung',
@@ -848,8 +782,16 @@ export const de: Record<string, string> = {
   'Limits & protection': 'Grenzen & Schutz',
   'Ceilings on bodies, concurrency, tunnels, and per-visitor rate.': 'Obergrenzen für Rumpfgrößen, Parallelität, Tunnel und Rate je Besucher.',
   'The server-side GET cache for services that opt in.': 'Der serverseitige GET-Cache für Dienste, die ihn aktivieren.',
-  'Stream flow control': 'Stream-Flusskontrolle',
-  'How much of a slow visitor’s download is buffered before the client pauses.': 'Wie viel des Downloads eines langsamen Besuchers gepuffert wird, bevor der Client pausiert.',
+  'Flow control & compression': 'Flusskontrolle & Kompression',
+  'Process': 'Prozess',
+  'Files this one includes, the pid file, and how long a reload lets requests finish.': 'Eingebundene Dateien, die PID-Datei und wie lange ein Neuladen laufende Anfragen beenden lässt.',
+  'Telemetry bridge': 'Telemetrie-Brücke',
+  'Carrying OpenTelemetry exports from this machine to the server’s collector over the tunnel.': 'OpenTelemetry-Exporte von diesem Rechner über den Tunnel zum Collector des Servers bringen.',
+  'Checks the server asks for': 'Prüfungen, die der Server anfordert',
+  'Whether this client answers a forward check the server’s own gate wrote, from this client’s network.': 'Ob dieser Client eine Forward-Prüfung beantwortet, die das Gate des Servers selbst festgelegt hat, aus dem Netz dieses Clients.',
+  'Advanced features': 'Erweiterte Funktionen',
+  'Features most deployments never turn on. Nothing here is off-limits: it is listed last so the settings everyone decides come first.': 'Funktionen, die die meisten Installationen nie einschalten. Nichts davon ist gesperrt: Sie stehen zuletzt, damit die Einstellungen, die jeder festlegt, zuerst kommen.',
+  'Stream flow control and tunnel compression. The defaults suit almost every deployment.': 'Stream-Flusskontrolle und Tunnel-Kompression. Die Standardwerte passen für fast jede Installation.',
   'Authentication & dashboard': 'Authentifizierung & Dashboard',
   'Who may log in, how, and what the dashboard offers.': 'Wer sich anmelden darf, wie, und was das Dashboard bietet.',
   'Proxy trust': 'Proxy-Vertrauen',
@@ -860,10 +802,11 @@ export const de: Record<string, string> = {
   'Where the server may call out to, and honouring client scaling blocks.': 'Wohin der Server hinausrufen darf, und das Beachten der Skalierungsblöcke der Clients.',
   'Edge integration': 'Edge-Integration',
   'Publishing the live hostnames to a reverse proxy in front of this server.': 'Veröffentlicht die aktiven Hostnames an einen Reverse-Proxy vor diesem Server.',
-  'Pages & headers': 'Seiten & Header',
-  'What visitors see on an error, and server-wide header rewriting.': 'Was Besucher bei einem Fehler sehen, und serverweites Umschreiben von Headern.',
+  'Sites':
+    'Sites',
+  'What the server does for a hostname by itself: answers, policy, fallbacks, pages and maintenance windows.':
+    'Was der Server für einen hostname selbst tut: Antworten, Richtlinien, Fallbacks, Seiten und Wartungsfenster.',
   'Process & maintenance': 'Prozess & Wartung',
-  'Startup behaviour, backups, and the public expose ports.': 'Startverhalten, Sicherungen und die öffentlichen Expose-Ports.',
   'Settings': 'Einstellungen',
   'Configure this server, its organizations and who may sign in.': 'Diesen Server, seine Organisationen und die Anmeldeberechtigten konfigurieren.',
   'Server, organizations and users': 'Server, Organisationen und Benutzer',
@@ -887,7 +830,6 @@ export const de: Record<string, string> = {
   'Settings & Tools': 'Einstellungen & Werkzeuge',
   'Noindex preview hosts': 'Vorschau-Hosts auf noindex',
   'Random-subdomain services answer with X-Robots-Tag: noindex and a disallow-all robots.txt': 'Dienste mit zufälliger Subdomain antworten mit X-Robots-Tag: noindex und einer robots.txt, die alles verbietet',
-  'Serve-stale window (s)': 'Fenster für veraltete Antworten (s)',
   'How long an expired entry may still answer while a resilient service has no healthy client; 0 = off': 'Wie lange ein abgelaufener Eintrag noch antworten darf, während ein ausfallsicherer Dienst keinen gesunden Client hat; 0 = aus',
   'Stream Flow Control': 'Stream-Flusskontrolle',
   'Pause above': 'Pausieren ab',
@@ -910,8 +852,8 @@ export const de: Record<string, string> = {
   'TOTP QR code': 'TOTP-QR-Code',
   'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.': 'Wie viel vom Download eines langsamen Besuchers der Server puffert, bevor er den Client bittet, die Erzeugung zu pausieren.',
   'Service defaults': 'Service-Standards',
-  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here, they only ever worked without a services: list, and appear only for a file that already writes them.': 'Gilt für jeden Eintrag unter services: und ist pro Eintrag überschreibbar. Die Schlüssel, die ein einzelnes Backend auf oberster Ebene benennen, sind hier veraltet, sie wirkten immer nur ohne services:-Liste, und erscheinen nur für eine Datei, die sie bereits schreibt.',
-  '`{keys}` name one service at the top level, and this file also has a services: list, the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` benennen einen einzelnen Dienst auf oberster Ebene, und diese Datei hat zusätzlich eine services:-Liste, der Client liest die Liste und ignoriert sie. Verschiebe sie in den Eintrag, zu dem sie gehören.',
+  'What every service gets unless its own entry says otherwise. The environment and the command line write here too.':
+    'Was jeder Dienst erhält, sofern sein eigener Eintrag nichts anderes sagt. Die Umgebung und die Kommandozeile schreiben ebenfalls hierher.',
   'Every healthy client of the route takes requests in turn, evenly. The default, and what you want when the clients are interchangeable.': 'Jeder gesunde Client der Route nimmt reihum gleich viele Anfragen. Der Standard, und das Richtige, wenn die Clients austauschbar sind.',
   'Only the clients on the lowest priority tier receive traffic; a higher tier takes over when every client above it is unhealthy, draining or gone, and hands back when one returns. Tiers come from each client’s priority (0 = primary).': 'Nur die Clients der niedrigsten Prioritätsstufe erhalten Verkehr; eine höhere Stufe übernimmt, sobald jeder Client darüber ungesund, im Drain oder weg ist, und gibt zurück, sobald einer wiederkommt. Die Stufen kommen aus der priority jedes Clients (0 = primär).',
   'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.': 'Ein Besucher behält den Client, der ihn zuerst bedient hat, solange dieser gesund bleibt. Für Backends, die Zustand pro Besucher im Speicher halten; der Pool verteilt nach Besucher statt nach Anfrage.',
@@ -938,7 +880,8 @@ export const de: Record<string, string> = {
   'Messages': 'Nachrichten',
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'Topics, auf die dieser Client hört, und wo eine Anwendung auf derselben Maschine andockt, um zu senden und zu empfangen.',
   'Cold start & scale-out records': 'Kaltstart- und Scale-out-Einträge',
-  'Private services reachable with --bind-tunnels': 'Private Dienste, erreichbar mit --bind-tunnels',
+  'Private services reachable with aperio-client bind':
+    'Private Dienste, erreichbar mit aperio-client bind',
   'Display name': 'Anzeigename',
   'Handle': 'Kennung',
   'Only what it is called. The handle {handle} is what addresses it and never changes.': 'Nur wie sie heißt. Die Kennung {handle} adressiert sie und ändert sich nie.',
@@ -949,23 +892,16 @@ export const de: Record<string, string> = {
   'Parallel connections per service (0 = server default, empty = keep)': 'Parallele Verbindungen pro Dienst (0 = Server-Standard, leer = beibehalten)',
   'Parallel connections per service (empty = server default)': 'Parallele Verbindungen pro Dienst (leer = Server-Standard)',
   'Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.': 'Detail nicht verfügbar: nur aktuelle Anfragen werden aufgezeichnet, und ein Dienst mit capture: false (oder ein Server mit abgeschaltetem Inspector) wird gar nicht aufgezeichnet.',
-  'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.': 'Dieser Dienst erlaubt die Aufzeichnung, aber der Server hat den Request-Inspector abgeschaltet (APERIO_INSPECTOR=0), daher kann hier nichts inspiziert oder wiederholt werden.',
+  'This service allows capture but the server has the request inspector switched off (inspector.enabled: false), so nothing here can be inspected or replayed.': 'Dieser Dienst erlaubt die Aufzeichnung, aber der Server hat den Request-Inspector abgeschaltet (inspector.enabled: false), daher kann hier nichts inspiziert oder wiederholt werden.',
   'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': 'Dieser Dienst wird nicht für den Request-Inspector aufgezeichnet (capture: false in seiner aperio.yaml), seine Anfragen lassen sich weder inspizieren noch wiederholen. Live-Traffic und Statistiken sind nicht betroffen.',
   'inspector off': 'Inspector aus',
   'no capture': 'keine Aufzeichnung',
-  '{count} setting(s) here differ from what the server started with': '{count} Einstellung(en) hier weichen davon ab, womit der Server gestartet ist',
-  'from file': 'aus Datei',
-  'aperio-server.yaml sets this, and the file wins. Edit it there: a change made here would be refused, because a stored override the file contradicts is exactly the invisible state this avoids.': 'aperio-server.yaml setzt das, und die Datei gewinnt. Ändern Sie es dort: eine Änderung hier würde abgelehnt, denn ein gespeicherter Override, dem die Datei widerspricht, ist genau der unsichtbare Zustand, den das vermeidet.',
-  '{count} setting(s) are stored overrides, not what your config file says': '{count} Einstellung(en) sind gespeicherte Overrides, nicht das, was Ihre Konfigurationsdatei sagt',
-  'They apply immediately and survive a restart, but they live in the server’s own store, so aperio-server.yaml still describes a different server than the one running. Put them in the file to make them the deployment’s: the file wins, and the override behind each of these keys is dropped at the next start.': 'Sie gelten sofort und überstehen einen Neustart, liegen aber im eigenen Speicher des Servers, sodass aperio-server.yaml weiterhin einen anderen Server beschreibt als den laufenden. Schreiben Sie sie in die Datei, damit sie zum Deployment gehören: die Datei gewinnt, und das Override hinter jedem dieser Schlüssel wird beim nächsten Start verworfen.',
-  'Copy as YAML': 'Als YAML kopieren',
   'A logical JSON dump, a failsafe for upgrades and migrations. Choose what travels: the configuration that rebuilds a deployment is on by default, the history is there if you want it. Sessions and the audit log are never exported.': 'Ein logischer JSON-Dump, eine Absicherung für Upgrades und Migrationen. Wählen Sie, was mitkommt: die Konfiguration, die ein Deployment wiederherstellt, ist standardmäßig an, die Historie gibt es auf Wunsch. Sitzungen und das Audit-Log werden nie exportiert.',
   'An import applies whatever sections the file holds, so it is the export that decides.': 'Ein Import wendet genau die Abschnitte an, die die Datei enthält, entschieden wird also beim Export.',
   'Importing replaces every section the file contains, on this server. Continue?': 'Der Import ersetzt auf diesem Server jeden Abschnitt, den die Datei enthält. Fortfahren?',
   'Organizations are not selected, so only the master organization travels: {sections} belonging to a tenant are left out, its statistics with them. A row whose organization does not exist on the target server would be an orphan.': 'Organisationen sind nicht ausgewählt, also kommt nur die Master-Organisation mit: {sections} eines Mandanten bleiben zurück, seine Statistiken ebenso. Ein Datensatz, dessen Organisation auf dem Zielserver nicht existiert, wäre verwaist.',
   'Access tokens': 'Zugriffs-Token',
   'Dashboard users': 'Dashboard-Benutzer',
-  'Settings overrides': 'Einstellungs-Overrides',
   'Statistics': 'Statistiken',
   'Uptime history': 'Uptime-Historie',
   'Webhook inbox': 'Webhook-Posteingang',
@@ -975,7 +911,6 @@ export const de: Record<string, string> = {
   'Password hashes, TOTP secrets, passkeys': 'Passwort-Hashes, TOTP-Geheimnisse, Passkeys',
   'Tenants, quotas and hostname allowlists': 'Mandanten, Kontingente und Hostname-Allowlists',
   'Cold-start and scale-out records': 'Cold-Start- und Scale-out-Einträge',
-  'Server settings changed from this dashboard': 'Servereinstellungen, die hier geändert wurden',
   'Lifetime counters and the daily, weekly, monthly and yearly buckets': 'Gesamtzähler sowie Tages-, Wochen-, Monats- und Jahres-Buckets',
   'Per-client and per-hostname availability by day': 'Verfügbarkeit pro Client und Hostname, tageweise',
   'Captured inbound webhook payloads': 'Erfasste eingehende Webhook-Payloads',
@@ -983,8 +918,6 @@ export const de: Record<string, string> = {
   'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart. Use *.example.com for every subdomain of a domain, and list the domain itself too if you want it as well.': 'Keine Hostnames in Wartung. Besucher eines gelisteten Hostnames sehen die 503-Seite, während dessen Clients verbunden bleiben; wird beim Server-Neustart geleert. *.example.com deckt jede Subdomain einer Domain ab; wollen Sie die Domain selbst auch, listen Sie sie zusätzlich.',
   'app.example.com, *.example.com, *-pi.example.com, or *': 'app.example.com, *.example.com, *-pi.example.com oder *',
   'every subdomain': 'jede Subdomain',
-  'Not in the snippet: {settings}. The file has no spelling for these, its 503/504 keys take a path where this holds the HTML itself, so they stay dashboard overrides.': 'Nicht im Snippet: {settings}. Die Datei hat dafür keine Schreibweise, ihre 503/504-Schlüssel nehmen einen Pfad, hier steht das HTML selbst; sie bleiben also Dashboard-Overrides.',
-  '{settings}: the file key is read at startup, so this one takes a restart rather than applying on reload.': '{settings}: der Schlüssel in der Datei wird beim Start gelesen, das wirkt also erst nach einem Neustart, nicht beim Reload.',
   'Maintenance window': 'Wartungsfenster',
   'lifts in {duration}': 'endet in {duration}',
   'reason, shown on the 503 page (optional)': 'Grund, auf der 503-Seite sichtbar (optional)',
@@ -1064,42 +997,44 @@ export const de: Record<string, string> = {
     '503: Ein von {actor} gesetztes Wartungskennzeichen deckt diesen hostname ab ({reason}), endet um unix {until}',
   'no maintenance flag covers this hostname':
     'kein Wartungskennzeichen deckt diesen hostname ab',
-  'no routes: rules configured':
-    'keine routes:-Regeln konfiguriert',
-  '{status}: a routes: rule answers this path':
-    '{status}: eine routes:-Regel beantwortet diesen path',
-  '{status}: a routes: rule answers this path, to {location}':
-    '{status}: eine routes:-Regel beantwortet diesen path, nach {location}',
-  'no routes: rule matches this hostname and path':
-    'keine routes:-Regel passt zu diesem hostname und path',
+  'no sites configured':
+    'keine Sites konfiguriert',
+  '{status}: a site answers this path by itself':
+    '{status}: eine Site beantwortet diesen path selbst',
+  '{status}: a site answers this path by itself, to {location}':
+    '{status}: eine Site beantwortet diesen path selbst, nach {location}',
+  'no site answers this hostname and path by itself':
+    'keine Site beantwortet diesen hostname und path selbst',
   '200: preview_noindex answers /robots.txt itself, so this path never reaches a client':
     '200: preview_noindex beantwortet /robots.txt selbst, dieser path erreicht also nie einen Client',
-  'no waf: rules configured':
-    'keine waf:-Regeln konfiguriert',
-  '403: blocked by a waf: rule ({reason})':
-    '403: von einer waf:-Regel blockiert ({reason})',
-  'no waf: rule matches this method and path (header and body rules need a real request)':
-    'keine waf:-Regel passt zu dieser Methode und diesem path (header- und Body-Regeln brauchen eine echte Anfrage)',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}); this dry run does not spend from it':
-    'eine rate_limits:-Regel deckt diesen path ab ({rps} rps, Burst {burst}); dieser Probelauf verbraucht nichts davon',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it':
-    'eine rate_limits:-Regel deckt diesen path ab ({rps} rps, Burst {burst}, nur {methods}); dieser Probelauf verbraucht nichts davon',
-  'no rate_limits: rule covers this path':
-    'keine rate_limits:-Regel deckt diesen path ab',
+  'no site has waf rules':
+    'keine Site hat waf-Regeln',
+  '403: blocked by a waf rule ({reason})':
+    '403: von einer waf-Regel blockiert ({reason})',
+  'no waf rule matches this method and path (header and body rules need a real request)':
+    'keine waf-Regel passt zu dieser Methode und diesem path (header- und Body-Regeln brauchen eine echte Anfrage)',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}); this dry run does not spend from it":
+    'das rate_limit einer Site deckt diesen path ab ({rps} rps, Burst {burst}); dieser Probelauf verbraucht nichts davon',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it":
+    'das rate_limit einer Site deckt diesen path ab ({rps} rps, Burst {burst}, nur {methods}); dieser Probelauf verbraucht nichts davon',
+  "no site's rate_limit covers this path":
+    'kein rate_limit einer Site deckt diesen path ab',
   "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
     'Besucher müssen sich anmelden (oder einen Freigabelink mitbringen), bevor dies einen Client erreicht: der ausliefernde Client hat für diese Route ein eigenes Besucherpasswort erklärt, das dem Tor des Servers vorgeht',
-  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
-    'Besucher müssen sich anmelden (oder einen Freigabelink mitbringen), bevor dies einen Client erreicht: das Besuchertor des Servers ist an und OIDC ist konfiguriert',
   "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set":
     'Besucher müssen sich anmelden (oder einen Freigabelink mitbringen), bevor dies einen Client erreicht: das Besucherpasswort des Servers ist gesetzt',
-  'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors':
-    'Besucher müssen sich anmelden (oder einen Freigabelink mitbringen), bevor dies einen Client erreicht: OIDC ist für Besucher konfiguriert',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's gate asks for a single sign-on at an identity provider":
+    'Besucher müssen sich anmelden (oder einen Freigabelink mitbringen), bevor dies einen Client erreicht: das Tor des Servers verlangt eine einmalige Anmeldung bei einem Identitätsanbieter',
   'this hostname is served without a visitor gate':
     'dieser hostname wird ohne Besuchertor ausgeliefert',
+  "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare":
+    'Besucher müssen sich anmelden (oder einen Freigabelink mitbringen), bevor dies einen Client erreicht: das access einer Site schützt diese Route, vor dem, was die ausliefernden Clients erklären',
+  "a site's access opens this route to anyone, over what the clients serving it declare":
+    'das access einer Site öffnet diese Route für alle, vor dem, was die ausliefernden Clients erklären',
   "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization":
     'Besucher müssen sich anmelden (oder einen Freigabelink mitbringen), bevor dies einen Client erreicht: diese Route verlangt eine Aperio-Anmeldung, eine Dashboard-Sitzung, die die Organisation dieses Hostnamens erreicht',
-  'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
-    'nichts erklärt diese Route als erreichbar und `default_access` steht auf `deny`, sie wird also nicht veröffentlicht: ein Besucher ohne Aperio-Sitzung erhält dieselbe Antwort wie bei einem nicht beanspruchten Hostnamen, ein angemeldeter Aperio-Benutzer erreicht sie weiterhin',
+  "nothing declares this route reachable and the server's `access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it":
+    'nichts erklärt diese Route als erreichbar und das `access` des Servers steht auf `deny`, sie wird also nicht veröffentlicht: ein Besucher ohne Aperio-Sitzung erhält dieselbe Antwort wie bei einem nicht beanspruchten Hostnamen, ein angemeldeter Aperio-Benutzer erreicht sie weiterhin',
   '{count} client(s) would take it: {clients}':
     '{count} Client(s) würden sie annehmen: {clients}',
   'no connected client serves this hostname and path':
@@ -1108,10 +1043,10 @@ export const de: Record<string, string> = {
     'kein verbundener Client bedient diesen hostname und path, obwohl {count} es könnten: {ineligible}',
   'an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once':
     'für diese Bindung ist ein Autoscaling-Eintrag scharf, die Anfrage würde also gehalten, während Kapazität angefordert wird, statt sofort beantwortet zu werden',
-  '{status}: the fallbacks: rule for this hostname redirects to {url} instead of a 504':
-    '{status}: die fallbacks:-Regel für diesen hostname leitet auf {url} um statt auf einen 504',
-  '504: nothing serves this route, and no fallbacks: rule covers it':
-    '504: nichts bedient diese Route, und keine fallbacks:-Regel deckt sie ab',
+  "{status}: this hostname's fallback redirects to {url} instead of a 504":
+    '{status}: der fallback dieses hostname leitet auf {url} um statt auf einen 504',
+  '504: nothing serves this route, and no site gives it a fallback':
+    '504: nichts bedient diese Route, und keine Site gibt ihr einen fallback',
   'the request reaches a tunnel client ({clients})':
     'die Anfrage erreicht einen Tunnel-Client ({clients})',
   'disabled from the dashboard':
@@ -1122,6 +1057,10 @@ export const de: Record<string, string> = {
     'verpasste Heartbeats',
   'its path bind does not match':
     'seine path-Bindung passt nicht',
+  'its access, allowed_ips or denied differs from what already serves this route':
+    'sein access, allowed_ips oder denied weicht von dem ab, was diese Route schon bedient',
+  'it asked to be served from the server, and was refused':
+    'es wollte vom Server aus bedient werden, und das wurde abgelehnt',
   'Static route':
     'Statische Route',
   'Preview noindex':
@@ -1142,16 +1081,10 @@ export const de: Record<string, string> = {
     'Kein Client',
   'maintenance mode':
     'Wartungsmodus',
-  'auth: on the service':
-    'auth: am Dienst',
-  'server_auth / OIDC':
-    'server_auth / OIDC',
-  'default_access':
-    'default_access',
-  'server_auth':
-    'server_auth',
-  'OIDC':
-    'OIDC',
+  'access: on the service':
+    'access: am Dienst',
+  'access':
+    'access',
   'hostname/path binds':
     'hostname/path-Bindungen',
   'Served by': 'Bedient von',
@@ -1205,14 +1138,11 @@ export const de: Record<string, string> = {
   'Process, store and cache health': 'Zustand von Prozess, Speicher und Cache',
   'Routes & latency': 'Routen & Latenz',
   'Read more': 'Mehr lesen',
-  'Redirect hostname': 'Hostname umleiten',
-  'Redirect client {id}…': 'Client {id}… umleiten',
   'A bind is the hostname or path prefix a client claims; a request matching it is routed to that client.': 'Ein Bind ist der Hostname oder Pfadpräfix, den ein Client beansprucht; eine passende Anfrage wird an diesen Client geleitet.',
   'A draining client has announced it is shutting down: it gets no new requests and finishes the ones in flight.': 'Ein Client im Draining hat sein Herunterfahren angekündigt: er bekommt keine neuen Anfragen und beendet die laufenden.',
   'An ejected service failed too often under real traffic and is out of rotation for a while, even if its health probe is green.': 'Ein ausgeworfener Dienst hat unter echtem Verkehr zu oft versagt und ist eine Weile aus der Rotation, auch wenn seine Health-Probe grün ist.',
   'A canary token is a decoy: it serves nothing, and any attempt to use it raises an alert, so a leaked copy surfaces itself.': 'Ein Canary-Token ist ein Köder: er bedient nichts, und jeder Versuch, ihn zu benutzen, löst einen Alarm aus, so verrät sich eine geleakte Kopie selbst.',
   'An expose entry opens a raw public port on the server that relays into a tunnel a client declared, with no second client needed.': 'Ein Expose-Eintrag öffnet einen rohen öffentlichen Port auf dem Server, der in einen von einem Client deklarierten Tunnel weiterleitet, ohne zweiten Client.',
-  'A hostname override redirects a live client to other hostnames from the dashboard; it lives in memory and a reconnect or restart reverts it.': 'Eine Hostname-Überschreibung leitet einen laufenden Client vom Dashboard aus auf andere Hostnamen um; sie lebt im Speicher, ein Reconnect oder Neustart setzt sie zurück.',
   'updated just now': 'gerade aktualisiert',
   'updated {seconds}s ago': 'vor {seconds} s aktualisiert',
   'waiting for data…': 'warte auf Daten…',
@@ -1236,11 +1166,7 @@ export const de: Record<string, string> = {
   'by {actor}, {when}': 'von {actor}, {when}',
   '{count} alert(s) since yesterday, see the audit log': '{count} Alarm(e) seit gestern, siehe Audit-Log',
   'No alerts since yesterday': 'Keine Alarme seit gestern',
-  "Read": "Lesen",
   "Disconnect": "Trennen",
-  "Delegate": "Berechtigungen delegieren",
-  "Public expose permissions": "Berechtigungen für öffentliche Freigaben",
-  "These permissions control server listeners independently of the dashboard role.": "Diese Berechtigungen steuern Server-Listener unabhängig von der Dashboard-Rolle.",
   "Maximum TCP connections": "Maximale TCP-Verbindungen",
   "Open timeout (seconds)": "Zeitlimit beim Öffnen (Sekunden)",
   "Drain timeout (seconds)": "Drain-Zeitlimit (Sekunden)",
@@ -1300,7 +1226,6 @@ export const de: Record<string, string> = {
   "All": "Alle",
   "Public endpoint": "Öffentlicher Endpunkt",
   "Tunnel": "Tunnel",
-  "Server configuration file (read-only)": "Server-Konfigurationsdatei (schreibgeschützt)",
   "Managed through API": "Über API verwaltet",
   "{count} sessions": "{count} Sitzungen",
   "Dropped": "Verworfen",
@@ -1323,10 +1248,6 @@ export const de: Record<string, string> = {
   "Declared TCP and UDP services. Bind them locally or publish a server endpoint with an explicit expose permission.": "Deklarierte TCP- und UDP-Dienste. Lokal binden oder mit ausdrücklicher Freigabeberechtigung einen Server-Endpunkt veröffentlichen.",
   "No tunnels declared. Add a tunnels: list in the client configuration to make a service available for binding or public exposure.": "Keine Tunnel deklariert. Fügen Sie der Client-Konfiguration eine tunnels:-Liste hinzu, um einen Dienst zum Binden oder zur öffentlichen Freigabe bereitzustellen.",
   "Expose publicly": "Öffentlich freigeben",
-  "Delegated expose limits": "Delegierte Freigabegrenzen",
-  "These limits restrict this identity. Organization-owned listeners keep their lifetime when a user loses access.": "Diese Grenzen beschränken diese Identität. Listener der Organisation bleiben bestehen, wenn ein Benutzer seinen Zugriff verliert.",
-  "Only the organization policy applies; no additional identity limit is set.": "Es gilt nur die Organisationsrichtlinie; keine zusätzliche Identitätsgrenze ist festgelegt.",
-  "Delegated limits must remain within your own limits.": "Delegierte Grenzen dürfen Ihre eigenen Grenzen nicht überschreiten.",
   "Sort by": "Sortieren nach",
   "Descending": "Absteigend",
   "Visitor hostname or IP (optional)": "Besucher-Hostname oder IP (optional)",
@@ -1334,4 +1255,30 @@ export const de: Record<string, string> = {
   "Could not load expose history.": "Freigabeverlauf konnte nicht geladen werden.",
   "Add group mapping": "Gruppenzuordnung hinzufügen",
   "Leave the secret empty to keep it when the issuer and client id are unchanged.": "Lassen Sie das Geheimnis leer, um es bei unverändertem Aussteller und unveränderter Client-ID beizubehalten.",
+  "Assemble an aperio.yaml, or a server-init.yaml for a server’s first start, from the settings this server understands, or open an existing one and edit it.": "Stelle eine aperio.yaml oder eine server-init.yaml für den ersten Start eines Servers aus den Einstellungen zusammen, die dieser Server versteht, oder öffne eine vorhandene Datei und bearbeite sie.",
+  "Changing this takes Admin in every organization and a sign-in from the last ten minutes.": "Eine Änderung erfordert Admin in jeder Organisation und eine Anmeldung aus den letzten zehn Minuten.",
+  "Client down threshold": "Schwelle für ausgefallene Clients",
+  "Every setting lives in the server’s database and applies when saved. Security-relevant ones take a sign-in from the last ten minutes; a few are read at startup and wait for a restart.": "Jede Einstellung liegt in der Datenbank des Servers und gilt, sobald sie gespeichert ist. Sicherheitsrelevante erfordern eine Anmeldung aus den letzten zehn Minuten; einige werden beim Start gelesen und warten auf einen Neustart.",
+  "Failover window": "Failover-Zeitfenster",
+  "Gateway timeout": "Gateway-Timeout",
+  "How the server shuts down, and its scheduled backups.": "Wie der Server herunterfährt, und seine geplanten Backups.",
+  "Login lockout base": "Basisdauer der Login-Sperre",
+  "Not a duration, use e.g. 30s, 5m, 2h, 1d": "Keine Dauer, verwende z. B. 30s, 5m, 2h, 1d",
+  "Not a size, use e.g. 512KB, 10MB, 1GB": "Keine Größe, verwende z. B. 512KB, 10MB, 1GB",
+  "Not valid YAML: {error}": "Kein gültiges YAML: {error}",
+  "One per line": "Ein Eintrag pro Zeile",
+  "Read when the server starts: a change is stored and takes effect at the next start.": "Wird beim Start des Servers gelesen: eine Änderung wird gespeichert und gilt ab dem nächsten Start.",
+  "Response timeout": "Antwort-Timeout",
+  "Saved, and waiting for a restart: {paths}": "Gespeichert, wartet auf einen Neustart: {paths}",
+  "Seeds a new server’s settings on its first start, through APERIO_INIT_FILE.": "Legt die Einstellungen eines neuen Servers bei seinem ersten Start fest, über APERIO_INIT_FILE.",
+  "Serve-stale window": "Stale-Auslieferungsfenster",
+  "The client file configures a tunnel client and what it exposes; the first-start document seeds a new server’s settings.": "Die Client-Datei konfiguriert einen Tunnel-Client und was er bereitstellt; das Erststart-Dokument legt die Einstellungen eines neuen Servers fest.",
+  "Undo": "Rückgängig",
+  "automatic": "automatisch",
+  "off": "aus",
+  "restart": "Neustart",
+  "restart pending": "Neustart ausstehend",
+  "security": "Sicherheit",
+  "stored, type to replace": "gespeichert, zum Ersetzen tippen",
+  "Every setting that differs from its default": "Jede Einstellung, die vom Standard abweicht",
 }

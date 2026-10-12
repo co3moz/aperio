@@ -32,7 +32,6 @@ fn test_openapi_document_is_complete_and_serializable() {
     "/aperio/api/stream",
     "/aperio/api/session",
     "/aperio/api/clients/{id}/config",
-    "/aperio/api/clients/{id}/override",
     "/aperio/api/clients/{id}/enabled",
     "/aperio/api/tokens",
     "/aperio/api/tokens/{id}",
@@ -109,6 +108,14 @@ const NOT_AN_API: &[(&str, &str)] = &[
   (
     "/aperio/oidc/callback",
     "the provider's redirect back, consumed by the browser that started it",
+  ),
+  (
+    "/aperio/sso/login",
+    "a visitor's browser redirect into their identity provider, not a call anything makes",
+  ),
+  (
+    "/aperio/sso/callback",
+    "the provider's redirect back to the visitor's hostname, consumed by the browser that started it",
   ),
   (
     "/aperio/ws",
@@ -249,13 +256,13 @@ fn every_openapi_exemption_is_for_a_route_that_exists() {
   }
 }
 
-/// `docs/configuration.md` lists every endpoint, and a list kept by hand is
+/// `docs/reference.md` lists every endpoint, and a list kept by hand is
 /// right on the day it is written. Checked from the side whose change breaks
-/// it (CLAUDE.md rule 25): every annotated route has to appear there, spelled
-/// `METHOD /aperio/...` with `:name` path parameters.
+/// it (AGENTS.md rule 25): every annotated route has to appear there, spelled
+/// `METHOD /aperio/...`.
 #[test]
-fn every_annotated_endpoint_is_in_the_configuration_docs() {
-  let doc = std::fs::read_to_string("../docs/configuration.md").expect("docs/configuration.md");
+fn every_annotated_endpoint_is_in_the_reference() {
+  let doc = std::fs::read_to_string("../docs/reference.md").expect("docs/reference.md");
   let openapi = ApiDoc::openapi();
   let mut missing = Vec::new();
   for (path, item) in &openapi.paths.paths {
@@ -278,7 +285,7 @@ fn every_annotated_endpoint_is_in_the_configuration_docs() {
   }
   assert!(
     missing.is_empty(),
-    "endpoints not listed in docs/configuration.md (add a row to the HTTP endpoints table):\n  {}",
+    "endpoints not listed in docs/reference.md (add a row to the HTTP endpoints table):\n  {}",
     missing.join("\n  ")
   );
 }

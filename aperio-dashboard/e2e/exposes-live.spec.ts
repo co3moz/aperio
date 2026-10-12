@@ -75,7 +75,6 @@ test('live delegated TCP/UDP UI journey, isolation, persistence and revocation',
   const backendPort = (backend.address() as { port: number }).port
   const datagrams = createSocket('udp4'); datagrams.on('message', (bytes, peer) => datagrams.send(bytes, peer.port, peer.address))
   datagrams.bind(backendPort, '127.0.0.1'); await once(datagrams, 'listening')
-  const serverConfig = join(dir, 'server.yaml'); await writeFile(serverConfig, '{}\n')
   const processes: ChildProcess[] = []; let server: ChildProcess | undefined
   const run = (name: string, args: string[], env: Record<string, string>) => {
     const log = createWriteStream(join(dir, `${name}.log`), { flags: 'a' })
@@ -83,8 +82,8 @@ test('live delegated TCP/UDP UI journey, isolation, persistence and revocation',
     proc.stdout?.pipe(log, { end: false }); proc.stderr?.pipe(log, { end: false }); proc.once('exit', () => log.end())
     processes.push(proc); return proc
   }
-  const startServer = () => server = run('aperio-server', [], { PORT: String(serverPort), APERIO_HOST: '127.0.0.1',
-    APERIO_SERVER_TOKEN: token, APERIO_SERVER_CONFIG: serverConfig, APERIO_DATA_DIR: join(dir, 'data'), APERIO_DASHBOARD: 'true' })
+  const startServer = () => server = run('aperio-server', [], { PORT: String(serverPort), HOST: '127.0.0.1',
+    APERIO_SERVER_TOKEN: token, APERIO_DATA_DIR: join(dir, 'data') })
   const admin = await browser.newContext(); const publisher = await browser.newContext(); const plain = await browser.newContext()
   const waitServer = async () => expect.poll(async () => {
     try { return (await admin.request.get(`${url}/aperio/health`, { timeout: 500 })).status() } catch { return 0 }
@@ -105,7 +104,7 @@ test('live delegated TCP/UDP UI journey, isolation, persistence and revocation',
     await json(admin.request, `${url}/aperio/api/users`, 'POST', { username: 'plain', password, role: 'viewer' })
     const tunnelToken = await json(admin.request, `${url}/aperio/api/tokens`, 'POST', { name: 'declaring-client' })
     const config = join(dir, 'client.yaml')
-    await writeFile(config, `server:\n  url: ${url}\n  token: ${tunnelToken.token}\nconnections: 1\ntunnels:\n  - name: echo\n    target: 127.0.0.1:${backendPort}\n    protocol: tcp/udp\n`)
+    await writeFile(config, `server:\n  url: ${url}\n  token: ${tunnelToken.token}\ntunnels:\n  echo:\n    target: 127.0.0.1:${backendPort}\n    protocol: tcp/udp\n`)
     run('aperio-client', ['--config', config], { APERIO_CONNECTIONS: '1' })
     await login(publisher, url, 'publisher', password); await login(plain, url, 'plain', password)
     const page = await publisher.newPage(); await page.goto(`${url}/aperio/?tab=tunnels`)

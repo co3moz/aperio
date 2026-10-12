@@ -20,7 +20,7 @@ pub(crate) enum Limit {
   Ip,
   /// The server's own in-flight ceiling, across every service.
   ServerConcurrency,
-  /// A `rate_limits:` rule matching this hostname and path prefix.
+  /// A site's `rate_limit` matching this hostname and path prefix.
   Route,
   /// The chosen client announced a `max_concurrent` and nothing freed up
   /// before the gateway timeout.
@@ -55,14 +55,14 @@ impl Limit {
   /// property of that token rather than of the file.
   pub(crate) fn setting(self) -> &'static str {
     match self {
-      Limit::Ip => "ip_limit_max",
-      Limit::ServerConcurrency => "max_concurrent_requests",
-      Limit::Route => "rate_limits",
+      Limit::Ip => "limits.ip_rate",
+      Limit::ServerConcurrency => "limits.concurrent_requests",
+      Limit::Route => "sites",
       Limit::ClientConcurrency => "max_concurrent",
       Limit::TokenRate => "token.max_rps",
       Limit::TokenQuota => "token.daily_max_bytes",
       Limit::OrgQuota => "organization.monthly_max_bytes",
-      Limit::StreamsPerIp => "max_streams_per_ip",
+      Limit::StreamsPerIp => "limits.streams_per_ip",
     }
   }
 
@@ -70,15 +70,13 @@ impl Limit {
   /// because a body is what a browser shows and a header is not.
   pub(crate) fn explain(self) -> &'static str {
     match self {
-      Limit::Ip => {
-        "per-visitor IP rate limit (ip_limit_max / ip_limit_refill, env APERIO_IP_LIMIT_MAX / APERIO_IP_LIMIT_REFILL)"
-      }
+      Limit::Ip => "per-visitor IP rate limit (limits.ip_rate in the server settings)",
       Limit::ServerConcurrency => {
-        "server-wide in-flight request limit (max_concurrent_requests, env APERIO_MAX_CONCURRENT_REQUESTS)"
+        "server-wide in-flight request limit (limits.concurrent_requests in the server settings)"
       }
-      Limit::Route => "per-route rate limit (a rate_limits: rule matched this hostname and path)",
+      Limit::Route => "per-site rate limit (a site's rate_limit matched this hostname and path)",
       Limit::StreamsPerIp => {
-        "the per-visitor limit on concurrently open streamed responses (max_streams_per_ip, env APERIO_MAX_STREAMS_PER_IP)"
+        "the per-visitor limit on concurrently open streamed responses (limits.streams_per_ip in the server settings)"
       }
       Limit::ClientConcurrency => {
         "the serving client's own concurrency limit (max_concurrent in its aperio.yaml); no slot freed before the gateway timeout"

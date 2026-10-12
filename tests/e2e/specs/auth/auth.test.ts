@@ -10,27 +10,20 @@ import { createServer } from 'node:http'
 const HOST = 'app.e2e.local'
 
 export class AuthServer extends AperioServerBase({
-  env: { APERIO_SERVER_AUTH: 'demo:secret123' },
+  settings: { access: { method: 'basic', users: 'demo:secret123' } },
 }) {}
 
 /** A server whose gate is written as a list: a login for people, a key for
  *  scripts. The case the grammar exists for. */
 export class BearerServer extends AperioServerBase({
-  env: { APERIO_VISITOR_IDENTITY_HEADERS: '1' },
-}) {
-  _configFile() {
-    return [
-      'server:',
-      '  auth:',
-      '    - method: basic',
-      '      users: "demo:secret123"',
-      '    - method: bearer',
-      '      secret: "0123456789abcdef-e2e-secret"',
-      '      query: true',
-      '',
-    ].join('\n')
-  }
-}
+  settings: {
+    identity_headers: { visitor: true },
+    access: [
+      { method: 'basic', users: 'demo:secret123' },
+      { method: 'bearer', secret: '0123456789abcdef-e2e-secret', query: true },
+    ],
+  },
+}) {}
 
 export class BearerBackend extends StandardBackendBase() {}
 
@@ -73,7 +66,7 @@ export class PublicClient extends AuthClient {
     return false
   }
   _env() {
-    return { APERIO_HOSTNAME: 'pub.e2e.local', APERIO_PUBLIC: '1' }
+    return { APERIO_HOSTNAME: 'pub.e2e.local', APERIO_ACCESS: 'public' }
   }
 }
 
@@ -87,7 +80,7 @@ export class UnpermittedPublicClient extends AuthClient {
     return this._token
   }
   _env() {
-    return { APERIO_HOSTNAME: 'priv.e2e.local', APERIO_PUBLIC: '1' }
+    return { APERIO_HOSTNAME: 'priv.e2e.local', APERIO_ACCESS: 'public' }
   }
 }
 
@@ -266,14 +259,14 @@ export class MethodGrammarClient extends AuthClient {
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
       'services:',
-      '  - name: gated_by_block',
+      '  gated_by_block:',
       `    target: ${this._backendUrl()}`,
       '    hostname: block.e2e.local',
-      '    auth: { method: basic, users: "block:blockpw" }',
-      '  - name: open_by_method',
+      '    access: { method: basic, users: "block:blockpw" }',
+      '  open_by_method:',
       `    target: ${this._backendUrl()}`,
       '    hostname: open.e2e.local',
-      '    auth: { method: none }',
+      '    access: { method: none }',
       '',
     ].join('\n')
   }
@@ -290,10 +283,10 @@ export class UnknownMethodClient extends AuthClient {
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
       'services:',
-      '  - name: unknown_method',
+      '  unknown_method:',
       `    target: ${this._backendUrl()}`,
       '    hostname: unknown.e2e.local',
-      '    auth: { method: ldap }',
+      '    access: { method: ldap }',
       '',
     ].join('\n')
   }
@@ -312,7 +305,7 @@ export class AuthMethodGrammarSpec extends Test({
   async before() {
     await this.grammar._start()
     // Waiting on the open service answering is the routability wait for both:
-    // they are two connections of one process and come up together. The gated
+    // they share one connection and come up together. The gated
     // one cannot be waited on the same way, since its 302 is also what an
     // unrouted hostname produces while the server's own gate is configured.
     await waitFor(
@@ -462,7 +455,7 @@ export class BearerMethodSpec extends Test({
 
 /** A server that serves what is declared reachable, and nothing else. */
 export class ClosedServer extends AperioServerBase({
-  env: { APERIO_DEFAULT_ACCESS: 'deny' },
+  settings: { access: 'deny' },
 }) {}
 
 export class ClosedBackend extends StandardBackendBase() {}
@@ -491,7 +484,7 @@ export class DeclaredOpenClient extends ClientFor(() => ClosedServer, () => Clos
     return '/hello'
   }
   _env() {
-    return { APERIO_HOSTNAME: 'declared.e2e.local', APERIO_PUBLIC: '1' }
+    return { APERIO_HOSTNAME: 'declared.e2e.local', APERIO_ACCESS: 'public' }
   }
 }
 
@@ -534,21 +527,19 @@ function signHs256(claims: Record<string, unknown>): string {
 }
 
 export class JwtServer extends AperioServerBase({
-  env: { APERIO_VISITOR_IDENTITY_HEADERS: '1' },
-}) {
-  _configFile() {
-    return [
-      'server:',
-      '  auth:',
-      '    - method: jwt',
-      `      hmac_secret: "${JWT_SECRET}"`,
-      '      issuer: https://accounts.e2e.local',
-      '      audience: aperio',
-      '      claims: { groups: engineering }',
-      '',
-    ].join('\n')
-  }
-}
+  settings: {
+    identity_headers: { visitor: true },
+    access: [
+      {
+        method: 'jwt',
+        hmac_secret: JWT_SECRET,
+        issuer: 'https://accounts.e2e.local',
+        audience: 'aperio',
+        claims: { groups: 'engineering' },
+      },
+    ],
+  },
+}) {}
 
 export class JwtBackend extends StandardBackendBase() {}
 
@@ -672,20 +663,22 @@ export class AuthCheckEndpoint extends Test({ timeout: 30_000 }) {
 }
 
 export class ForwardServer extends AperioServerBase({
-  env: { APERIO_VISITOR_IDENTITY_HEADERS: '1' },
+  settings: { identity_headers: { visitor: true } },
   dependencies: { endpoint: () => AuthCheckEndpoint },
 }) {
   declare endpoint: AuthCheckEndpoint
-  _configFile() {
-    return [
-      'server:',
-      '  auth:',
-      '    - method: forward',
-      `      url: http://127.0.0.1:${this.endpoint._port}/_authcheck`,
-      '      request_headers: [x-e2e-user]',
-      '      response_headers: [x-auth-user]',
-      '',
-    ].join('\n')
+  _settings() {
+    return {
+      ...super._settings(),
+      access: [
+        {
+          method: 'forward',
+          url: `http://127.0.0.1:${this.endpoint._port}/_authcheck`,
+          request_headers: ['x-e2e-user'],
+          response_headers: ['x-auth-user'],
+        },
+      ],
+    }
   }
 }
 
@@ -754,7 +747,7 @@ const DECLARED_HOST = 'declared-gate.e2e.local'
 /** Its own server: the polling below would otherwise drain the shared one's
  *  per-IP bucket and fail whatever test ran next. */
 export class DeclaredGateServer extends AperioServerBase({
-  env: { APERIO_SERVER_AUTH: 'demo:secret123' },
+  settings: { access: { method: 'basic', users: 'demo:secret123' } },
 }) {}
 
 export class DeclaredGateBackend extends StandardBackendBase() {}
@@ -778,10 +771,10 @@ export class RichGateClient extends DeclaredGateClient {
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
       'services:',
-      '  - name: declared_bearer',
+      '  declared_bearer:',
       `    target: ${this._backendUrl()}`,
       `    hostname: ${DECLARED_HOST}`,
-      '    auth:',
+      '    access:',
       '      method: bearer',
       `      secret: "${DECLARED_SECRET}"`,
       '',
@@ -805,10 +798,10 @@ export class ForwardDeclaringClient extends DeclaredGateClient {
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
       'services:',
-      '  - name: declared_forward',
+      '  declared_forward:',
       `    target: ${this._backendUrl()}`,
       '    hostname: declared-forward.e2e.local',
-      '    auth:',
+      '    access:',
       '      method: forward',
       '      url: http://127.0.0.1:9/_authcheck',
       '',

@@ -172,17 +172,26 @@ async function main() {
   })
   await new Promise((r) => backend.listen(backendPort, '127.0.0.1', r))
 
+  // The per-visitor limiter would otherwise be the thing under test. Written
+  // as a settings document the server checks on its first start, so a name
+  // it does not read refuses the start instead of being ignored, which is how
+  // an `APERIO_RATE_LIMIT` that was never a setting once measured memory with
+  // the limiter on.
+  const init = join(dataDir, 'server-init.json')
+  await writeFile(
+    init,
+    JSON.stringify({
+      settings: {
+        dashboard: { enabled: false },
+        limits: { ip_rate: { burst: 1000000, per_second: 100000 } },
+      },
+    }),
+  )
   const server = start('server', binary('aperio-server'), [], {
     PORT: String(serverPort),
     APERIO_SERVER_TOKEN: token,
     APERIO_DATA_DIR: dataDir,
-    APERIO_DASHBOARD: '0',
-    // The per-visitor limiter would otherwise be the thing under test. These
-    // are the names the server actually reads: `APERIO_RATE_LIMIT` was written
-    // here and is not a setting, so this run measured memory with the limiter
-    // on for as long as the line has existed.
-    APERIO_IP_LIMIT_MAX: '1000000',
-    APERIO_IP_LIMIT_REFILL: '100000',
+    APERIO_INIT_FILE: init,
   })
   await waitFor(async () => (await get(serverPort, '/aperio/health')) === 200, 'aperio-server')
 
@@ -195,7 +204,7 @@ async function main() {
     // visitor gate, and the server has been closed by default since 0.10.0:
     // a route that declares nothing is refused, and the soak then fails as a
     // tunnel that never became routable.
-    APERIO_PUBLIC: '1',
+    APERIO_ACCESS: 'public',
     APERIO_CONNECTIONS: '1',
   })
   await routable(serverPort, host)

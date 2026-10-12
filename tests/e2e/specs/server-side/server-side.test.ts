@@ -16,9 +16,9 @@ import { AperioClientBase } from '../../lib/client.js'
  * unconfigured server refuses everything.
  */
 export class ServerSideServer extends AperioServerBase({
-  env: {
-    APERIO_RANDOM_SUBDOMAIN: '',
-    APERIO_SERVER_SIDE_TARGETS: '127.0.0.1,10.0.0.0/8',
+  settings: {
+    routing: { random_subdomain: null },
+    security: { server_side_targets: ['127.0.0.1', '10.0.0.0/8'] },
   },
 }) {}
 
@@ -53,11 +53,11 @@ export class DirectClient extends AperioClientBase({
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
       'services:',
-      '  - name: ss_web',
+      '  ss_web:',
       `    target: ${this.web._url}`,
       '    hostname: ss-web.e2e.local',
       '    server_side: true',
-      '  - name: ss_ws',
+      '  ss_ws:',
       `    target: ${this.ws._url}`,
       '    hostname: ss-ws.e2e.local',
       '    server_side: true',
@@ -156,7 +156,7 @@ export class RefusedTargetClient extends AperioClientBase({
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
       'services:',
-      '  - name: ss_refused',
+      '  ss_refused:',
       // Syntactically fine, on no entry of the configured list, and nothing
       // here ever connects to it: the declaration is refused before it could.
       '    target: http://192.168.44.44:9000',
@@ -214,7 +214,7 @@ export class UnpermittedClient extends AperioClientBase({
       `  url: ${this.server._url}`,
       `  token: ${this._token}`,
       'services:',
-      '  - name: ss_unpermitted',
+      '  ss_unpermitted:',
       `    target: ${this.server._url}`,
       '    hostname: ss-unpermitted.e2e.local',
       '    server_side: true',

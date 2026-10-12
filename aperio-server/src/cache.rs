@@ -1,11 +1,11 @@
-//! Server-side response cache for GET requests (opt-in, `APERIO_CACHE=1`).
+//! Server-side response cache for GET requests (opt-in, `cache.enabled`).
 //!
 //! A client that announces `cache: true` for its service lets the server
 //! satisfy repeated GETs from memory instead of a tunnel round-trip. The
 //! cache is strictly `Cache-Control`-driven: only responses that explicitly
 //! allow shared caching (`max-age`/`s-maxage` without `no-store`/`no-cache`/
 //! `private`) are stored, for exactly the advertised lifetime. Total memory
-//! is bounded by `APERIO_CACHE_MAX_BYTES`; inserting past the budget evicts
+//! is bounded by `cache.size`; inserting past the budget evicts
 //! the entries closest to expiry.
 
 use std::collections::HashMap;
@@ -406,21 +406,6 @@ pub(crate) fn response_uncacheable(headers: &[(String, String)]) -> bool {
     }
   }
   false
-}
-
-/// Short negative-cache TTL for 404/410 responses
-/// (`APERIO_CACHE_NEGATIVE_TTL`, seconds; 0/unset = negative caching off).
-pub(crate) fn negative_cache_ttl() -> Duration {
-  use std::sync::OnceLock;
-  static TTL: OnceLock<Duration> = OnceLock::new();
-  *TTL.get_or_init(|| {
-    Duration::from_secs(
-      std::env::var("APERIO_CACHE_NEGATIVE_TTL")
-        .ok()
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .unwrap_or(0),
-    )
-  })
 }
 
 /// Extracts the shared-cache lifetime a response advertises via

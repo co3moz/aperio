@@ -20,38 +20,9 @@ impl ConnCtx {
       client_id: cid,
       name: declared_name,
       timestamp,
-      visitor_auth_methods,
-      path_bind,
-      hostname_bind,
-      hostname_binds,
-      max_concurrent,
-      tcp,
       version,
       protocol,
-      backend_healthy,
-      backend_probed,
-      priority,
-      bandwidth_bps,
-      service,
-      service_custom_name,
-      public,
-      visitor_auth,
-      allowed_ips,
-      tunnels,
-      cache,
-      resilience,
-      no_capture,
-      max_request_body,
-      response_timeout,
       client_key,
-      webhook_inbox,
-      denied,
-      scaling,
-      connections,
-      connections_min,
-      connections_max,
-      config_notes,
-      metrics_labels,
       drain_secs,
       cpu_percent,
       rss_bytes,
@@ -92,7 +63,7 @@ impl ConnCtx {
     // and treating it as "no list" would silently keep serving what it just
     // retired.
     let declared_services = match services {
-      Some(list) if list.is_empty() => {
+      list if list.is_empty() => {
         warn!(
           "Client {} declared an empty service list; refusing rather than going on serving \
            what it just said it no longer offers",
@@ -111,7 +82,7 @@ impl ConnCtx {
       // lock through a quadratic pass over them, blocking every other client
       // and every dashboard request, and then ask for the memory. A tunnel
       // token is not supposed to be able to take the front door down.
-      Some(list) if list.len() > MAX_DECLARED_SERVICES => {
+      list if list.len() > MAX_DECLARED_SERVICES => {
         warn!(
           "Client {} declared {} services on one connection; the ceiling is {}. Refusing the \
            connection rather than serving part of what it asked for.",
@@ -121,8 +92,7 @@ impl ConnCtx {
         );
         return false;
       }
-      Some(list) => list,
-      None => Vec::new(),
+      list => list,
     };
     // The names, taken before the list is consumed below: they are what says
     // which existing service each declaration is about.
@@ -150,44 +120,7 @@ impl ConnCtx {
     // singular fields, so it becomes one entry here. That is what lets the
     // rest of this function talk about *a declaration* without caring which
     // spelling it arrived in, and what lets it eventually talk about several.
-    let declarations: Vec<crate::protocol::ServiceDecl> = if declared_services.is_empty() {
-      vec![crate::protocol::ServiceDecl {
-        service,
-        service_custom_name,
-        // The singular-field compatibility path: a client old enough to send
-        // no service list is old enough not to know about this at all.
-        server_side_target: None,
-        path_bind,
-        hostname_bind,
-        hostname_binds,
-        max_concurrent,
-        tcp,
-        backend_healthy,
-        backend_probed,
-        priority,
-        bandwidth_bps,
-        public,
-        visitor_auth,
-        visitor_auth_methods,
-        allowed_ips,
-        tunnels,
-        cache,
-        resilience,
-        no_capture,
-        max_request_body,
-        response_timeout,
-        webhook_inbox,
-        denied,
-        scaling,
-        connections,
-        connections_min,
-        connections_max,
-        config_notes,
-        metrics_labels,
-      }]
-    } else {
-      declared_services
-    };
+    let declarations: Vec<crate::protocol::ServiceDecl> = declared_services;
 
     // Update client's reported binds and heartbeat time. Only the
     // server-assigned connection ID is trusted for state updates;
@@ -379,6 +312,11 @@ impl ConnCtx {
         over_ceiling =
           service_connection_over_ceiling(&clients, client_id, group.as_deref(), &cid, ceiling);
       }
+      // One route, one policy: settled after every declaration is in, so a
+      // service is compared with what its neighbours say now.
+      for refusal in super::agree::settle(state, &mut clients, client_id) {
+        self.notify(refusal.service.as_deref(), refusal.message);
+      }
     }
 
     // A route exists from this line, not from the upgrade. The connect
@@ -413,13 +351,13 @@ impl ConnCtx {
         ceiling,
         match perms.max_connections {
           Some(_) => "the token's own, at or below the server's",
-          None => "the server's max_connections_per_service",
+          None => "the server's limits.connections_per_service",
         }
       );
       return false;
     }
 
-    // Trust-on-first-use token pinning (APERIO_TOKEN_PINNING): pin the
+    // Trust-on-first-use token pinning (security.token_pinning): pin the
     // first device key seen for a dynamic token and reject a later
     // connection that presents a different (or missing) key. Done
     // outside the clients lock so we never hold two store locks.
@@ -432,7 +370,7 @@ impl ConnCtx {
           Some(key) => store.pin_key(&token_id, key),
           // No key announced while pinning is required: reject (fail
           // closed). A key-less client can never satisfy pinning, so
-          // enabling APERIO_TOKEN_PINNING requires every client to
+          // enabling security.token_pinning requires every client to
           // carry a device key (APERIO_DEVICE_KEY[_FILE]).
           None => Ok(crate::store::tokens::PinOutcome::Mismatch),
         }
@@ -498,6 +436,27 @@ impl ConnCtx {
     // it back off the first entry, as this did, silently armed nothing when a
     // *later* service was the one that asked for scaling: the context was
     // set, the declaration was not, and the tuple pattern simply failed.
+    // A scaling block this server does not honour arms nothing, and the
+    // client's author is the one who has to hear it: they wrote a block
+    // that is waiting on a cold start which will never be asked for.
+    if !state.config().scaling_enabled
+      && let Some((.., scaling_service)) = &deferred.scaling
+    {
+      let mut clients = state.clients.write().await;
+      if let Some(handle) = clients.get_mut(client_id)
+        && *scaling_service < handle.services.len()
+      {
+        let name = handle.services[*scaling_service].service_name.clone();
+        self.notify_once(
+          handle,
+          *scaling_service,
+          name.as_deref(),
+          "`scaling:` is not applied: this server does not honour client scaling blocks \
+           (`scaling.enabled`), so nothing is started or retired for this service"
+            .to_string(),
+        );
+      }
+    }
     if let (true, Some((decl, hostnames, path, org, token_id, scaling_service))) =
       (state.config().scaling_enabled, deferred.scaling)
     {
@@ -525,15 +484,19 @@ impl ConnCtx {
                 Some(service) => {
                   let already = service.scaling_invalid_warned;
                   service.scaling_invalid_warned = true;
-                  already
+                  (already, service.service_name.clone())
                 }
-                None => true,
+                None => (true, None),
               }
             };
-            if !warned {
+            if !warned.0 {
               warn!(
                 "Client {} declared an invalid scaling block: {}",
                 client_id, e
+              );
+              self.notify(
+                warned.1.as_deref(),
+                format!("`scaling:` is not applied: {e}"),
               );
             }
             break;

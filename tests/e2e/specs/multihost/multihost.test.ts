@@ -10,7 +10,7 @@ import { waitFor } from '../../lib/env.js'
 
 /** Random subdomains off, so an unclaimed hostname really is unclaimed. */
 export class MultihostServer extends AperioServerBase({
-  env: { APERIO_RANDOM_SUBDOMAIN: '' },
+  settings: { routing: { random_subdomain: null } },
 }) {}
 
 export class MultihostBackend extends StandardBackendBase() {}
@@ -41,10 +41,10 @@ export class ServingClient extends ClientOf(() => MultihostServer) {
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
       'services:',
-      '  - name: site_a',
+      '  site_a:',
       `    serve: ${join(this._root, 'site_a')}`,
       '    hostname: site-a.e2e.local',
-      '  - name: site_b',
+      '  site_b:',
       `    serve: ${join(this._root, 'site_b')}`,
       '    hostname: site-b.e2e.local',
       '',

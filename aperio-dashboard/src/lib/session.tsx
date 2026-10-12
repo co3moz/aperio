@@ -14,10 +14,9 @@ interface SessionValue {
    * showing one needs it to say *whose* users or tokens these are.
    */
   selectedOrg: string
-  /** Admin of the master organization, the session allowed to list organizations. */
-  masterAdmin: boolean
-  /** Holds `*` Admin: may grant `*` to somebody else. */
-  allOrgs: boolean
+  /** The server admin (`*` Admin): lists organizations, runs the
+   *  server-global screens, and may grant `*` to somebody else. */
+  serverAdmin: boolean
   /** Every organization a grant reaches, with the role held there. */
   orgs: ReachableOrg[]
 }
@@ -26,8 +25,7 @@ const SessionContext = createContext<SessionValue>({
   username: 'aperio',
   role: 'admin',
   selectedOrg: 'master',
-  masterAdmin: false,
-  allOrgs: false,
+  serverAdmin: false,
   orgs: [],
 })
 
@@ -35,21 +33,19 @@ export function SessionProvider({
   username,
   role,
   selectedOrg,
-  masterAdmin,
-  allOrgs,
+  serverAdmin,
   orgs,
   children,
 }: {
   username: string
   role: Role
   selectedOrg: string
-  masterAdmin: boolean
-  allOrgs: boolean
+  serverAdmin: boolean
   orgs: ReachableOrg[]
   children: ReactNode
 }) {
   return (
-    <SessionContext.Provider value={{ username, role, selectedOrg, masterAdmin, allOrgs, orgs }}>
+    <SessionContext.Provider value={{ username, role, selectedOrg, serverAdmin, orgs }}>
       {children}
     </SessionContext.Provider>
   )
@@ -63,21 +59,22 @@ export function useSession(): SessionValue {
  * A readable name for the organization this session is looking at.
  *
  * The session carries the name of every organization a grant reaches, so
- * that is read first; the organization listing is asked only by a master
+ * that is read first; the organization listing is asked only by the server
  * admin, for whom it is not a guaranteed 403, and only for a name the
  * session did not carry. The implicit master org has no record either way.
  */
 export function useOrgName(): string {
   const { t } = useI18n()
-  const { selectedOrg, masterAdmin, orgs } = useSession()
+  const { selectedOrg, serverAdmin, orgs } = useSession()
   const [name, setName] = useState<string | null>(null)
   const known = orgs.find((o) => o.id === selectedOrg)
 
   useEffect(() => {
-    // Never issue the request as a non-master-admin: it is a guaranteed 403.
+    // Never issue the request as anyone but the server admin: it is a
+    // guaranteed 403.
     // Fetched once rather than polled, an org is renamed about as often as it
     // is created, and switching into one reloads the dashboard anyway.
-    if (!masterAdmin || selectedOrg === 'master' || known) return
+    if (!serverAdmin || selectedOrg === 'master' || known) return
     let live = true
     api
       .orgs()
@@ -88,7 +85,7 @@ export function useOrgName(): string {
     return () => {
       live = false
     }
-  }, [masterAdmin, selectedOrg, known])
+  }, [serverAdmin, selectedOrg, known])
 
   if (selectedOrg === 'master') return t('master')
   return known?.custom_name || known?.name || name || selectedOrg

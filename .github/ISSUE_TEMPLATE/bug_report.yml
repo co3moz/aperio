@@ -25,7 +25,7 @@ body:
     attributes:
       label: Configuration
       description: >
-        The `aperio.yaml` / `aperio-server.yaml` (or the flags and environment)
+        The `aperio.yaml` and the server's settings (`aperio-server settings show`, or the flags and environment)
         that reproduces it, trimmed to the part that matters. Redact tokens and
         hostnames, but keep the shape: which keys are set is usually the answer.
       render: yaml

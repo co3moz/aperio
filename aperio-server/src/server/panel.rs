@@ -15,7 +15,7 @@
 //!
 //! A panel hostname serves the panel and nothing else: a bind on it is
 //! refused everywhere a bind is checked, and a login on an organization's
-//! panel admits that organization's identities and the master super-admin,
+//! panel admits that organization's identities and the server admin,
 //! nobody else, which is #151's rule with the question simplified to "whose
 //! panel is this".
 

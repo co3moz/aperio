@@ -90,26 +90,26 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
   {
     label: 'Overview',
     pages: [
-      { id: 'overview', label: 'Overview', icon: LayoutDashboardIcon, hint: 'Stats & live activity', docs: 'dashboard.md#live-overview' },
-      { id: 'clients', label: 'Clients', icon: ServerIcon, hint: 'Active tunnel connections', docs: 'dashboard.md#clients-table' },
-      { id: 'tunnels', label: 'Tunnels', icon: CableIcon, hint: 'Private services reachable with --bind-tunnels', docs: 'emergency-tunnels.md' },
+      { id: 'overview', label: 'Overview', icon: LayoutDashboardIcon, hint: 'Stats & live activity', docs: 'operations.md#live-overview' },
+      { id: 'clients', label: 'Clients', icon: ServerIcon, hint: 'Active tunnel connections', docs: 'operations.md#clients' },
+      { id: 'tunnels', label: 'Tunnels', icon: CableIcon, hint: 'Private services reachable with aperio-client bind', docs: 'tunnels.md' },
     ],
   },
   {
     label: 'Traffic',
     pages: [
-      { id: 'traffic', label: 'Live Traffic', icon: ActivityIcon, hint: 'Requests in real time, table or console', docs: 'dashboard.md#live-traffic-table' },
-      { id: 'breakdown', label: 'Breakdown', icon: ChartPieIcon, hint: 'Traffic by token & hostname', docs: 'observability.md#persistent-statistics' },
-      { id: 'topology', label: 'Topology', icon: WaypointsIcon, hint: 'Routes, clients & backends as a live map', docs: 'dashboard.md#topology' },
+      { id: 'traffic', label: 'Live Traffic', icon: ActivityIcon, hint: 'Requests in real time, table or console', docs: 'operations.md#live-traffic' },
+      { id: 'breakdown', label: 'Breakdown', icon: ChartPieIcon, hint: 'Traffic by token & hostname', docs: 'operations.md#breakdown' },
+      { id: 'topology', label: 'Topology', icon: WaypointsIcon, hint: 'Routes, clients & backends as a live map', docs: 'operations.md#topology' },
     ],
   },
   {
     label: 'Access',
     pages: [
-      { id: 'tokens', label: 'API Tokens', icon: KeyRoundIcon, hint: 'Scoped tunnel credentials', docs: 'tokens-and-auth.md#dynamic-tokens' },
-      { id: 'share', label: 'Share Links', icon: Link2Icon, hint: 'Temporary visitor access', docs: 'share-links.md' },
-      { id: 'maintenance', label: 'Maintenance', icon: ConstructionIcon, hint: 'Per-hostname 503 switch', docs: 'dashboard.md#maintenance-mode' },
-      { id: 'scaling', label: 'Autoscaling', icon: GaugeIcon, hint: 'Cold start & scale-out records', docs: 'autoscaling.md' },
+      { id: 'tokens', label: 'API Tokens', icon: KeyRoundIcon, hint: 'Scoped tunnel credentials', docs: 'tokens-and-organizations.md#tunnel-tokens' },
+      { id: 'share', label: 'Share Links', icon: Link2Icon, hint: 'Temporary visitor access', docs: 'access.md#share-links' },
+      { id: 'maintenance', label: 'Maintenance', icon: ConstructionIcon, hint: 'Per-hostname 503 switch', docs: 'operations.md#maintenance' },
+      { id: 'scaling', label: 'Autoscaling', icon: GaugeIcon, hint: 'Cold start & scale-out records', docs: 'integrations.md#autoscaling' },
     ],
   },
   {
@@ -119,12 +119,12 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
       // than as a full-screen page, so the sidebar should not read as if they
       // were eight destinations. The pages themselves still exist, which is
       // what keeps their links working.
-      { id: 'settings', label: 'Settings', icon: Settings2Icon, hint: 'Server, organizations and users', docs: 'dashboard.md#settings-dialog', minRole: 'admin' },
-      { id: 'audit', label: 'Tools', icon: WrenchIcon, hint: 'Audit log, API explorer and config builder', docs: 'dashboard.md#tools' },
+      { id: 'settings', label: 'Settings', icon: Settings2Icon, hint: 'Server, organizations and users', docs: 'operations.md#settings', minRole: 'admin' },
+      { id: 'audit', label: 'Tools', icon: WrenchIcon, hint: 'Audit log, API explorer and config builder', docs: 'operations.md#tools' },
       // The server itself, as distinct from the traffic through it: the
       // process, its store and its cache, which used to sit at the bottom
       // of the Breakdown page where nobody looking for the server looked.
-      { id: 'server', label: 'Server Health', icon: HeartPulseIcon, hint: 'Process, store and cache health', docs: 'observability.md#server-self-health', minRole: 'admin', masterOnly: true },
+      { id: 'server', label: 'Server Health', icon: HeartPulseIcon, hint: 'Process, store and cache health', docs: 'operations.md#breakdown', minRole: 'admin', masterOnly: true },
     ],
   },
 ]
@@ -135,9 +135,9 @@ export const ROLE_ORDER: Record<Role, number> = { viewer: 0, operator: 1, admin:
 
 /** Pages the given role may access. Master-only pages (organization
  *  management) are visible solely to the built-in `aperio` super-admin. */
-export function pagesForRole(role: Role, masterAdmin = false): PageSpec[] {
+export function pagesForRole(role: Role, serverAdmin = false): PageSpec[] {
   return PAGES.filter(
-    (p) => ROLE_ORDER[role] >= ROLE_ORDER[p.minRole ?? 'viewer'] && (!p.masterOnly || masterAdmin),
+    (p) => ROLE_ORDER[role] >= ROLE_ORDER[p.minRole ?? 'viewer'] && (!p.masterOnly || serverAdmin),
   )
 }
 
@@ -151,7 +151,7 @@ export function AppSidebar({
   sessionSeconds,
   version,
   role,
-  masterAdmin,
+  serverAdmin,
   selectedOrg,
   reachableOrgs,
   onSignOut,
@@ -171,7 +171,7 @@ export function AppSidebar({
   sessionSeconds: number | null
   version: string | null
   role: Role
-  masterAdmin: boolean
+  serverAdmin: boolean
   selectedOrg: string
   /** How many organizations a grant reaches; the picker appears past one. */
   reachableOrgs: number
@@ -206,12 +206,12 @@ export function AppSidebar({
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-        {(masterAdmin || reachableOrgs > 1) && <OrgSwitcher selectedOrg={selectedOrg} />}
+        {(serverAdmin || reachableOrgs > 1) && <OrgSwitcher selectedOrg={selectedOrg} />}
       </SidebarHeader>
       <SidebarContent>
         {PAGE_GROUPS.map((group) => {
           const pages = group.pages.filter(
-            (p) => order >= ROLE_ORDER[p.minRole ?? 'viewer'] && (!p.masterOnly || masterAdmin),
+            (p) => order >= ROLE_ORDER[p.minRole ?? 'viewer'] && (!p.masterOnly || serverAdmin),
           )
           if (pages.length === 0) return null
           return (

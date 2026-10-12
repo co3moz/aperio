@@ -44,14 +44,14 @@ export class CheckCommandSpec extends Test({
     assert.ok(res.ok, res.stdout + res.stderr)
     assert.match(res.stdout, /All checks passed/)
     assert.match(res.stdout, /WS handshake/, 'the token round-trip is reported')
-    assert.match(res.stdout, /\(from CLI argument\)/)
-    assert.match(res.stdout, /\(from environment\)/)
+    assert.match(res.stdout, /\(from the command line\)/)
+    assert.match(res.stdout, /\(from the environment\)/)
   }
 
   async itFlagsAnUnreachableServerAndTargetAndExitsNonZero() {
     const res = await client(
       ['check', '--server-url', 'http://127.0.0.1:19191', '--server-token', 'bogus'],
-      { APERIO_TARGET: 'http://127.0.0.1:19191', APERIO_TARGET_HEALTH: '/health' },
+      { APERIO_TARGET: 'http://127.0.0.1:19191', APERIO_HEALTH_ENDPOINT: '/health' },
     )
     const out = res.stdout + res.stderr
     assert.match(out, /FAIL {2}server health/)
@@ -287,14 +287,14 @@ export class HomeConfigSpec extends Test({
         'server:',
         `  url: ${this.server._url}`,
         `  token: ${this.server._token}`,
-        // The cadence is a genuine default every service inherits, so it
-        // belongs in a user-level file. The endpoint is not: it names one
-        // backend, and a config file has not described a service at the top
-        // level since 0.9.0, so it comes from the environment below.
-        'health:',
-        '  interval: 1',
-        '  timeout: 1',
-        '  threshold: 2',
+        // The cadence is a default every service inherits, so it belongs in a
+        // user-level file; the endpoint comes from the environment, which
+        // writes the same `defaults:` block one layer up.
+        'defaults:',
+        '  health:',
+        '    interval: 1s',
+        '    timeout: 1s',
+        '    threshold: 2',
         '',
       ].join('\n'),
     )

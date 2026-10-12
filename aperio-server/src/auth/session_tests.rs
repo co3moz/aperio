@@ -242,12 +242,11 @@ async fn session_handler_reports_named_user_and_totp() {
   assert_eq!(body["username"], "sess");
   // The role is read from the user's grants, not from what the session
   // recorded at login: `totp_user` creates an Admin of master, whatever the
-  // seeded session says. Admin of master, not `*`: only a row from before
-  // grants existed widens to every organization.
+  // seeded session says. Admin of master, not `*`, so not the server admin:
+  // only a row from before grants existed widens to every organization.
   assert_eq!(body["role"], "admin");
   assert_eq!(body["totp"], true);
-  assert_eq!(body["master_admin"], true);
-  assert_eq!(body["all_orgs"], false);
+  assert_eq!(body["server_admin"], false);
   assert_eq!(body["orgs"][0]["id"], "master");
   assert_eq!(body["orgs"][0]["role"], "admin");
 }
@@ -262,13 +261,13 @@ async fn session_handler_defaults_without_cookie() {
 }
 
 #[tokio::test]
-async fn session_handler_master_admin_selected_org() {
+async fn session_handler_server_admin_selected_org() {
   let state = test_state();
   let token = seed_session(&state, Role::Admin, None, Some("org-9".to_string())).await;
   let state = Arc::new(state);
   let resp = auth_session_handler(State(state), cookie_headers(&token)).await;
   let body = json_body(resp).await;
-  assert_eq!(body["master_admin"], true);
+  assert_eq!(body["server_admin"], true);
   assert_eq!(body["selected_org"], "org-9");
 }
 

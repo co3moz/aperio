@@ -18,8 +18,7 @@ WORKDIR /app
 ARG TARGETARCH
 COPY --chmod=0755 dist-docker/aperio-client-${TARGETARCH} /app/aperio-client
 
-ENV APERIO_SERVER_URL=http://localhost:8080
-ENV APERIO_TARGET=http://127.0.0.1:8000
-ENV APERIO_PASS_HOSTNAME=0
+# No setting is baked into the image: the environment beats a mounted
+# aperio.yaml, so a default here would override the file it is run with.
 
 CMD ["/app/aperio-client"]

@@ -22,7 +22,7 @@ export class ProbedClient extends HealthClient {
   _env() {
     return {
       APERIO_HOSTNAME: 'health.e2e.local',
-      APERIO_TARGET_HEALTH: '/health',
+      APERIO_HEALTH_ENDPOINT: '/health',
       APERIO_HEALTH_INTERVAL: '1',
       APERIO_HEALTH_TIMEOUT: '1',
       APERIO_HEALTH_THRESHOLD: '2',
@@ -39,7 +39,7 @@ export class DeadBackendClient extends HealthClient {
   _env() {
     return {
       APERIO_HOSTNAME: 'dead.e2e.local',
-      APERIO_TARGET_HEALTH: '/health',
+      APERIO_HEALTH_ENDPOINT: '/health',
       APERIO_HEALTH_INTERVAL: '5',
       APERIO_HEALTH_TIMEOUT: '1',
       APERIO_HEALTH_THRESHOLD: '1',
@@ -56,7 +56,7 @@ export class SlowIntervalClient extends HealthClient {
   _env() {
     return {
       APERIO_HOSTNAME: 'slow.e2e.local',
-      APERIO_TARGET_HEALTH: '/health',
+      APERIO_HEALTH_ENDPOINT: '/health',
       APERIO_HEALTH_INTERVAL: '30',
       APERIO_HEALTH_TIMEOUT: '1',
       APERIO_HEALTH_THRESHOLD: '1',
@@ -69,7 +69,7 @@ export class WaitForBackendClient extends ClientFor(() => HealthServer, () => Ga
     return false
   }
   _env() {
-    return { APERIO_HOSTNAME: 'waitgate.e2e.local', APERIO_WAIT_FOR_BACKEND: '1' }
+    return { APERIO_HOSTNAME: 'waitgate.e2e.local', APERIO_HEALTH_WAIT_FOR_BACKEND: '1' }
   }
 }
 

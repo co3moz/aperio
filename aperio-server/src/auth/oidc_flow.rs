@@ -61,6 +61,10 @@ pub(crate) async fn resolve_org_oidc(
     .iter()
     .filter_map(|entry| {
       let (group, role) = entry.split_once('=')?;
+      // A row saved before 0.13.0 may still carry `+expose.<action>`
+      // suffixes; the role alone is what they mean now, and dropping the
+      // whole entry would take the role away at the next login.
+      let role = role.split('+').next().unwrap_or_default();
       let grant = crate::store::grants::Grant::parse_in_org(org_id, role).ok()?;
       Some((group.trim().to_string(), grant))
     })
@@ -194,6 +198,123 @@ pub(crate) async fn oidc_login_handler(
   }
 }
 
+/// Redeems an authorization code at the provider and reads back who signed
+/// in: the userinfo document, and the ID token beside it when the provider
+/// sends one. Shared by the dashboard's OIDC login and a visitor's `sso`
+/// sign-in, so both talk to a provider the same way, through the same fence.
+// The refusal is the response itself, as everywhere a handler says "stop, and
+// send this"; see api/tokens.rs for why it is not boxed.
+#[allow(clippy::result_large_err)]
+pub(crate) async fn redeem_code(
+  state: &AppState,
+  rt: &crate::oidc::OidcRuntime,
+  code: &str,
+  redirect_uri: &str,
+) -> Result<(serde_json::Value, Option<String>), Response> {
+  // Both endpoints come out of the issuer's own discovery document, which is
+  // to say they are chosen by something outside this deployment, so they go
+  // through the outbound fence before the server calls them. Checked here
+  // rather than once at build time because a runtime is cached and reused,
+  // and a fence tightened afterwards should cover it.
+  for endpoint in [&rt.token_endpoint, &rt.userinfo_endpoint] {
+    if let Err(why) = state.config().outbound_policy.check(endpoint).await {
+      error!("Refusing to call the OIDC endpoint {endpoint}: {why}");
+      return Err((StatusCode::BAD_GATEWAY, "OIDC endpoint refused").into_response());
+    }
+  }
+  // Exchange the authorization code for an access token.
+  let http = match crate::outbound::client_builder()
+    .timeout(Duration::from_secs(15))
+    // Not followed, for the reason the check above exists: an endpoint that
+    // passes the fence must not be able to answer with a `Location` pointing
+    // behind it, and this is the request that carries the client secret.
+    .redirect(reqwest::redirect::Policy::none())
+    .build()
+  {
+    Ok(c) => c,
+    Err(e) => {
+      // Falling back to a default client would drop the 15s timeout, letting
+      // the token/userinfo calls hang indefinitely, fail cleanly instead.
+      error!("Failed to build the OIDC HTTP client: {}", e);
+      return Err((StatusCode::INTERNAL_SERVER_ERROR, "OIDC client init failed").into_response());
+    }
+  };
+  let token_res = http
+    .post(&rt.token_endpoint)
+    .form(&[
+      ("grant_type", "authorization_code"),
+      ("code", code),
+      ("redirect_uri", redirect_uri),
+      ("client_id", rt.client_id.as_str()),
+      ("client_secret", rt.client_secret.as_str()),
+    ])
+    .send()
+    .await;
+  #[derive(Deserialize)]
+  struct TokenResponse {
+    access_token: String,
+    /// The ID token, when the provider sends one: read for the groups claim
+    /// when userinfo does not carry it. It came from the token endpoint over
+    /// TLS, the same trust the userinfo answer gets, so its payload is read
+    /// without a signature check, and nothing in it decides who this is.
+    #[serde(default)]
+    id_token: Option<String>,
+  }
+  let (access_token, id_token) = match token_res {
+    // Bounded while it is read, like every other answer the server takes from
+    // somewhere it does not run: an endpoint that decides how much memory a
+    // login costs is an endpoint that can end the process.
+    Ok(res) if res.status().is_success() => {
+      match crate::outbound::read_bounded(res, OIDC_MAX_ANSWER_BYTES)
+        .await
+        .and_then(|body| serde_json::from_str::<TokenResponse>(&body).ok())
+      {
+        Some(t) => (t.access_token, t.id_token),
+        None => {
+          error!("OIDC token response was unreadable, oversized, or not a token response");
+          return Err((StatusCode::BAD_GATEWAY, "OIDC token exchange failed").into_response());
+        }
+      }
+    }
+    Ok(res) => {
+      warn!("OIDC token endpoint returned {}", res.status());
+      return Err((StatusCode::UNAUTHORIZED, "OIDC token exchange rejected").into_response());
+    }
+    Err(e) => {
+      error!("OIDC token exchange failed: {}", e);
+      return Err((StatusCode::BAD_GATEWAY, "OIDC token exchange failed").into_response());
+    }
+  };
+
+  // Fetch the verified identity from the issuer (trusted via TLS). Read as
+  // a document rather than a fixed shape, because the groups claim is named
+  // by configuration.
+  let userinfo = http
+    .get(&rt.userinfo_endpoint)
+    .bearer_auth(&access_token)
+    .send()
+    .await;
+  let info: serde_json::Value = match userinfo {
+    Ok(res) if res.status().is_success() => {
+      match crate::outbound::read_bounded(res, OIDC_MAX_ANSWER_BYTES)
+        .await
+        .and_then(|body| serde_json::from_str::<serde_json::Value>(&body).ok())
+        .filter(|v| v.is_object())
+      {
+        Some(v) => v,
+        None => {
+          error!("OIDC userinfo was unreadable, oversized, or not a userinfo document");
+          return Err((StatusCode::BAD_GATEWAY, "OIDC userinfo failed").into_response());
+        }
+      }
+    }
+    _ => {
+      return Err((StatusCode::BAD_GATEWAY, "OIDC userinfo failed").into_response());
+    }
+  };
+  Ok((info, id_token))
+}
+
 /// OIDC callback: validates the CSRF state, exchanges the code for tokens,
 /// fetches the userinfo email, checks it against the allowlist, and creates
 /// a session identical to the password login.
@@ -246,106 +367,9 @@ pub(crate) async fn oidc_callback_handler(
   // match the one the authorization request carried, and this request's `Host`
   // is not something to settle that with.
 
-  // Both endpoints come out of the issuer's own discovery document, which is
-  // to say they are chosen by something outside this deployment, so they go
-  // through the outbound fence before the server calls them. Checked here
-  // rather than once at build time because a runtime is cached and reused,
-  // and a fence tightened afterwards should cover it.
-  for endpoint in [&rt.token_endpoint, &rt.userinfo_endpoint] {
-    if let Err(why) = state.config().outbound_policy.check(endpoint).await {
-      error!("Refusing to call the OIDC endpoint {endpoint}: {why}");
-      return (StatusCode::BAD_GATEWAY, "OIDC endpoint refused").into_response();
-    }
-  }
-  // Exchange the authorization code for an access token.
-  let http = match crate::outbound::client_builder()
-    .timeout(Duration::from_secs(15))
-    // Not followed, for the reason the check above exists: an endpoint that
-    // passes the fence must not be able to answer with a `Location` pointing
-    // behind it, and this is the request that carries the client secret.
-    .redirect(reqwest::redirect::Policy::none())
-    .build()
-  {
-    Ok(c) => c,
-    Err(e) => {
-      // Falling back to a default client would drop the 15s timeout, letting
-      // the token/userinfo calls hang indefinitely, fail cleanly instead.
-      error!("Failed to build the OIDC HTTP client: {}", e);
-      return (StatusCode::INTERNAL_SERVER_ERROR, "OIDC client init failed").into_response();
-    }
-  };
-  let token_res = http
-    .post(&rt.token_endpoint)
-    .form(&[
-      ("grant_type", "authorization_code"),
-      ("code", code.as_str()),
-      ("redirect_uri", redirect_uri.as_str()),
-      ("client_id", rt.client_id.as_str()),
-      ("client_secret", rt.client_secret.as_str()),
-    ])
-    .send()
-    .await;
-  #[derive(Deserialize)]
-  struct TokenResponse {
-    access_token: String,
-    /// The ID token, when the provider sends one: read for the groups claim
-    /// when userinfo does not carry it. It came from the token endpoint over
-    /// TLS, the same trust the userinfo answer gets, so its payload is read
-    /// without a signature check, and nothing in it decides who this is.
-    #[serde(default)]
-    id_token: Option<String>,
-  }
-  let (access_token, id_token) = match token_res {
-    // Bounded while it is read, like every other answer the server takes from
-    // somewhere it does not run: an endpoint that decides how much memory a
-    // login costs is an endpoint that can end the process.
-    Ok(res) if res.status().is_success() => {
-      match crate::outbound::read_bounded(res, OIDC_MAX_ANSWER_BYTES)
-        .await
-        .and_then(|body| serde_json::from_str::<TokenResponse>(&body).ok())
-      {
-        Some(t) => (t.access_token, t.id_token),
-        None => {
-          error!("OIDC token response was unreadable, oversized, or not a token response");
-          return (StatusCode::BAD_GATEWAY, "OIDC token exchange failed").into_response();
-        }
-      }
-    }
-    Ok(res) => {
-      warn!("OIDC token endpoint returned {}", res.status());
-      return (StatusCode::UNAUTHORIZED, "OIDC token exchange rejected").into_response();
-    }
-    Err(e) => {
-      error!("OIDC token exchange failed: {}", e);
-      return (StatusCode::BAD_GATEWAY, "OIDC token exchange failed").into_response();
-    }
-  };
-
-  // Fetch the verified identity from the issuer (trusted via TLS). Read as
-  // a document rather than a fixed shape, because the groups claim is named
-  // by configuration.
-  let userinfo = http
-    .get(&rt.userinfo_endpoint)
-    .bearer_auth(&access_token)
-    .send()
-    .await;
-  let info: serde_json::Value = match userinfo {
-    Ok(res) if res.status().is_success() => {
-      match crate::outbound::read_bounded(res, OIDC_MAX_ANSWER_BYTES)
-        .await
-        .and_then(|body| serde_json::from_str::<serde_json::Value>(&body).ok())
-        .filter(|v| v.is_object())
-      {
-        Some(v) => v,
-        None => {
-          error!("OIDC userinfo was unreadable, oversized, or not a userinfo document");
-          return (StatusCode::BAD_GATEWAY, "OIDC userinfo failed").into_response();
-        }
-      }
-    }
-    _ => {
-      return (StatusCode::BAD_GATEWAY, "OIDC userinfo failed").into_response();
-    }
+  let (info, id_token) = match redeem_code(&state, &rt, code, &redirect_uri).await {
+    Ok(found) => found,
+    Err(resp) => return resp,
   };
   let email = info
     .get("email")
@@ -478,6 +502,7 @@ pub(crate) async fn oidc_callback_handler(
       // elsewhere; a global OIDC login is what its record says.
       bound_org: bound_org.clone(),
       login_host: panel_host.clone(),
+      sso_issuer: None,
     },
   );
   let cookie = session_set_cookie(state.config().secure_cookies, &session_token);

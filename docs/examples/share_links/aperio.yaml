@@ -3,9 +3,8 @@ server:
   token: apr_share_change_me
 
 services:
-  # The gated site visitors reach with a share link. No `public: true` here on
-  # purpose: the server's own auth: is what a share link is allowed past.
-  - target: http://localhost:3000
+  # The gated site visitors reach with a share link. No `access: public` here on
+  # purpose: the server's own visitor gate is what a share link is allowed past.
+  app:
+    target: http://localhost:3000
     hostname: app.example.com
-
-version: 0.12.0

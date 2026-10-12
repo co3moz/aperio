@@ -1,0 +1,60 @@
+# First-start settings for this example, read once into an empty data
+# directory. Start the server with:
+#
+#   APERIO_SERVER_TOKEN=apr_traffic_rules_change_me APERIO_INIT_FILE=server-init.yaml aperio-server
+#
+# After the first start the settings live in the database: change them from
+# the dashboard (Settings), with `PUT /aperio/api/settings`, or export them
+# with `GET /aperio/api/export?include=settings`.
+
+settings:
+  # Everything the server does for a hostname by itself lives on its site.
+  # A request takes each setting from the most specific site that writes it;
+  # `waf` rules, header edits and maintenance windows add up instead.
+  sites:
+    # Every hostname: scanner probes and scanner user-agents stop at the edge,
+    # answered 403. A hostname with rules of its own still gets these.
+    - hostname: "*"
+      waf:
+        # Nobody serves WordPress here.
+        - path: ^/wp-admin
+        - header:
+            name: user-agent
+            regex: (?i)sqlmap|nikto
+
+    # The API host shares one ceiling across ALL its visitors, independent of
+    # the per-visitor IP limit: one visitor under the IP limit times a
+    # thousand visitors is still a thousand times the load on one backend.
+    - hostname: api.example.com
+      rate_limit:
+        rps: 200
+
+    # The login endpoint takes 5 requests a second, with a short burst. The
+    # narrower site wins over the one above. A refused request answers 429
+    # and names the limit that fired in its `x-aperio-limit` header.
+    - hostname: api.example.com
+      path: /api/login
+      rate_limit:
+        rps: 5
+        burst: 10
+
+    # Uploads are capped at 1 MB, answered 413 above it.
+    - hostname: api.example.com
+      path: /upload
+      waf:
+        - methods: [POST, PUT]
+          max_body: 1MB
+
+    # When nothing serves the app, its visitors go to the status page,
+    # keeping the path they asked for, rather than getting a gateway error.
+    # Its own 503 page fills in a maintenance flag's `{reason}` and `{until}`.
+    - hostname: app.example.com
+      fallback:
+        url: https://status.example.com
+        preserve_path: true
+      pages:
+        maintenance: |
+          <!doctype html>
+          <title>App is under maintenance</title>
+          <h1>503, planned maintenance</h1>
+          <p>{reason}. Back at {until}.</p>

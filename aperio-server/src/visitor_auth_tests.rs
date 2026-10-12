@@ -10,42 +10,35 @@ fn policy(yaml: &str) -> Policy {
 }
 
 #[test]
-fn the_scalar_spelling_compiles_to_exactly_what_it_always_meant() {
-  // Every file written before the grammar existed goes through this path, so
-  // it is the one equivalence that cannot drift.
-  let from_scalar = Policy::from_credentials("admin:s3cret");
-  let from_yaml = policy("\"admin:s3cret\"");
-  assert_eq!(from_scalar, from_yaml);
+fn the_scalar_spelling_compiles_to_one_basic_login() {
+  let from_scalar = policy("\"admin:s3cret\"");
+  let from_block = policy("{method: basic, users: \"admin:s3cret\"}");
+  assert_eq!(from_scalar, from_block);
   assert!(from_scalar.gates());
   assert!(from_scalar.admits_credential("admin:s3cret"));
   assert!(!from_scalar.admits_credential("admin:wrong"));
-  assert_eq!(from_scalar.as_single_credential(), Some("admin:s3cret"));
 }
 
 #[test]
 fn a_credential_nobody_could_present_still_gates() {
-  // The environment variable and the dashboard field are free text, and this
-  // is the direction a mistake in them has to fail. `APERIO_SERVER_AUTH=secret`
-  // has always produced a gate nobody can open; reading it as "no gate" would
-  // turn one typo into every route on the server going public.
-  let typo = Policy::from_credentials("nocolon");
+  // This is the direction a mistake has to fail: a value that no login could
+  // ever match still gates, admitting nobody, rather than reading as "no
+  // gate" and turning one typo into every route on the server going public.
+  let typo = policy("\"nocolon\"");
   assert!(typo.gates(), "a present credential always gates");
   assert!(
     !typo.admits_credential("user:password"),
     "no ordinary login opens it"
   );
   // What *does* open it is the literal itself, which a browser cannot send
-  // (it always writes a colon) but curl can. That is what this value has
-  // always meant, and it is why the file refuses to write one: the point here
-  // is only that the mistake fails closed rather than open.
+  // (it always writes a colon) but curl can. The settings check refuses to
+  // store one; the point here is only that the mistake fails closed.
   assert!(typo.admits_credential("nocolon"));
 
   // Only saying nothing means nothing.
-  for raw in ["", "   "] {
-    let p = Policy::from_credentials(raw);
-    assert!(!p.gates(), "{raw:?} should configure no gate");
-    assert!(p.admits_everyone());
-  }
+  let absent = Policy::default();
+  assert!(!absent.gates());
+  assert!(absent.admits_everyone());
 }
 
 #[test]
@@ -67,8 +60,6 @@ fn several_credentials_are_alternatives_on_one_gate() {
   assert!(p.admits_credential("alice:one"));
   assert!(p.admits_credential("bob:two"));
   assert!(!p.admits_credential("carol:three"));
-  // Not expressible as the one scalar the old surfaces carry, and it says so.
-  assert_eq!(p.as_single_credential(), None);
 }
 
 #[test]
@@ -104,7 +95,6 @@ fn the_open_gate_admits_without_a_credential_and_carries_none() {
   let p = policy("{method: none}");
   assert!(!p.gates());
   assert!(p.admits_everyone());
-  assert_eq!(p.as_single_credential(), None);
   assert!(!p.admits_credential("anything:atall"));
 }
 
@@ -115,9 +105,8 @@ fn a_bearer_secret_opens_its_gate_and_nothing_else_does() {
   assert!(p.admits_bearer("0123456789abcdef-secret", false));
   assert!(!p.admits_bearer("something-else-entirely", false));
   // A bearer gate has no `user:password` half, so the login form cannot open
-  // it and the scalar surfaces cannot describe it.
+  // it.
   assert!(!p.admits_credential("0123456789abcdef-secret"));
-  assert_eq!(p.as_single_credential(), None);
   assert_eq!(p.method_names(), vec!["bearer"]);
 }
 
@@ -173,49 +162,34 @@ fn a_gate_answers_in_the_shape_its_caller_can_act_on() {
   assert_eq!(both.method_names(), vec!["basic", "bearer"]);
 }
 
-/// A gate written in `aperio-server.yaml` is read from it.
+/// A gate written in the settings is the gate in force, and one the server
+/// cannot honour is refused with its setting named.
 ///
-/// This function's own doc says what it is here to prevent: "an operator who
-/// wrote a gate and got no gate". A mutation run replaced it wholesale with
-/// `None`, which is that failure exactly, and nothing went red. A server that
-/// answers as if no gate were configured, while the file says one is, is the
-/// worst shape this can take, because the operator's evidence that the route
-/// is protected is the file they wrote.
-///
-/// Both spellings are checked: `server: {auth: ...}` and the flat
-/// `server_auth:`, since the fallback between them is the other thing that
-/// could quietly stop working.
+/// The failure this is here to prevent is an operator who wrote a gate and
+/// got no gate: a server that answers as if nothing were configured, while
+/// the settings say otherwise, is the worst shape this can take, because the
+/// operator's evidence that the route is protected is what they wrote.
 #[test]
-fn a_gate_written_in_the_file_is_read_from_it() {
-  let _lock = crate::test_support::config_lock();
-  struct Cleanup;
-  impl Drop for Cleanup {
-    fn drop(&mut self) {
-      let _ = std::fs::remove_file("aperio-server.yaml");
-    }
-  }
-  let with = |yaml: &str| -> Option<AuthSetting> {
-    let _cleanup = Cleanup;
-    std::fs::write("aperio-server.yaml", yaml).unwrap();
-    crate::config_file::reload().unwrap();
-    block_from_config_file()
+fn a_gate_in_the_settings_is_the_gate_in_force() {
+  let dir = crate::test_support::test_temp_root().join(format!("gate-{}", uuid::Uuid::new_v4()));
+  std::fs::create_dir_all(&dir).unwrap();
+  let dir = dir.to_string_lossy().into_owned();
+  let build = |yaml: &str| {
+    let settings = aperio_config::server_settings::ServerSettings::from_yaml(yaml).unwrap();
+    crate::server::state_build::config::build_config(&settings, "tok", &dir)
   };
 
-  assert!(
-    with("host: 0.0.0.0\n").is_none(),
-    "a file with no gate declares no gate"
-  );
+  let none = build("{}").unwrap();
+  assert!(!none.visitor_auth.gates(), "no gate written, no gate");
 
-  let grouped = with("server:\n  auth:\n    method: basic\n    users: 'dan:hunter2'\n")
-    .expect("`server: {auth:}` is a gate and must be read as one");
-  assert!(
-    matches!(grouped, AuthSetting::One(_) | AuthSetting::Any(_)),
-    "the block parses into a policy rather than being dropped"
-  );
+  let gated = build("access:\n  method: basic\n  users: 'dan:hunter2'\n").unwrap();
+  assert!(gated.visitor_auth.gates());
+  assert!(gated.visitor_auth.admits_credential("dan:hunter2"));
 
-  let flat = with("server_auth:\n  method: basic\n  users: 'dan:hunter2'\n")
-    .expect("the flat `server_auth:` spelling is a gate too");
-  assert!(matches!(flat, AuthSetting::One(_) | AuthSetting::Any(_)));
+  let err = build("access:\n  method: ldap\n")
+    .err()
+    .expect("a method that does not exist is refused, not dropped");
+  assert!(err.starts_with("access"), "{err}");
 }
 
 #[test]

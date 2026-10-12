@@ -9,11 +9,6 @@ use crate::test_support::*;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-/// The retention env vars are process-global, so tests that touch them must
-/// not run concurrently. This lock serializes them and the guard clears every
-/// known var on drop so nothing leaks between tests.
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 /// `DISK_WARNED` is process-global too (one guard loop per process), so the
 /// disk-guard tests, each of which seeds it and asserts what a cycle did to
 /// it, corrupt each other when they interleave: one test's cycle stores
@@ -24,50 +19,28 @@ static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 ///
 /// **Every test that can drive a cycle takes it, which is more than the tests
 /// with `disk_guard` in the name** (`planned_features.md` #112). A `spawn`
-/// test that sets `APERIO_DB_MAX_BYTES` starts the real pruner, whose first
+/// test that sets `retention.db_max_size` starts the real pruner, whose first
 /// tick fires immediately and calls the same `disk_guard_cycle` against the
 /// same global, on its own runtime, on another thread, in parallel with
-/// whatever else `cargo test` is running. Those two were holding only
-/// `ENV_LOCK`, so a guard cycle on an almost-empty directory could store
+/// whatever else `cargo test` is running. Those two were once holding only
+/// an environment lock, so a guard cycle on an almost-empty directory could store
 /// `false` in the middle of the warn test and fail it about one full run in
 /// twenty: rare enough to read as noise, which is what makes it worth
 /// naming rather than rerunning.
 static DISK_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-const ALL_VARS: [&str; 5] = [
-  "APERIO_RETENTION_CAPTURES",
-  "APERIO_RETENTION_ACCESS_LOG",
-  "APERIO_RETENTION_AUDIT",
-  "APERIO_RETENTION_STATS",
-  "APERIO_DB_MAX_BYTES",
-];
-
-/// Holds the global env lock and sets the requested retention vars, restoring
-/// a clean environment on drop.
-struct EnvGuard {
-  _lock: std::sync::MutexGuard<'static, ()>,
-}
-
-impl EnvGuard {
-  fn new(pairs: &[(&str, &str)]) -> Self {
-    let lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    // Start from a known-clean slate regardless of any prior leakage.
-    for k in ALL_VARS {
-      unsafe { std::env::remove_var(k) };
-    }
-    for (k, v) in pairs {
-      unsafe { std::env::set_var(k, v) };
-    }
-    EnvGuard { _lock: lock }
+/// Puts a `retention` section in force on this thread, as `(field, value)`
+/// pairs; none at all is the defaults.
+fn retention(pairs: &[(&str, &str)]) {
+  if pairs.is_empty() {
+    crate::live::reset();
+    return;
   }
-}
-
-impl Drop for EnvGuard {
-  fn drop(&mut self) {
-    for k in ALL_VARS {
-      unsafe { std::env::remove_var(k) };
-    }
+  let mut yaml = String::from("retention:\n");
+  for (field, value) in pairs {
+    yaml.push_str(&format!("  {field}: {value}\n"));
   }
+  crate::live::set_yaml(&yaml);
 }
 
 fn now() -> u64 {
@@ -143,19 +116,19 @@ fn delivery_with(id: &str, created_at: u64) -> crate::store::webhooks::Delivery 
 // --- Pure helpers -----------------------------------------------------------
 
 #[test]
-fn retention_days_parses_and_filters() {
-  let _g = EnvGuard::new(&[]);
+fn a_retention_setting_counts_whole_days() {
   // Unset.
-  assert_eq!(retention_days("APERIO_RETENTION_CAPTURES"), None);
-  // Zero is treated as "keep forever".
-  unsafe { std::env::set_var("APERIO_RETENTION_CAPTURES", "0") };
-  assert_eq!(retention_days("APERIO_RETENTION_CAPTURES"), None);
-  // Unparsable.
-  unsafe { std::env::set_var("APERIO_RETENTION_CAPTURES", "abc") };
-  assert_eq!(retention_days("APERIO_RETENTION_CAPTURES"), None);
-  // A positive value, with surrounding whitespace.
-  unsafe { std::env::set_var("APERIO_RETENTION_CAPTURES", "  7 ") };
-  assert_eq!(retention_days("APERIO_RETENTION_CAPTURES"), Some(7));
+  retention(&[]);
+  assert_eq!(Surface::Captures.days(), None);
+  // Zero, and anything under a day, is "keep forever".
+  retention(&[("captures", "0s")]);
+  assert_eq!(Surface::Captures.days(), None);
+  retention(&[("captures", "12h")]);
+  assert_eq!(Surface::Captures.days(), None);
+  retention(&[("captures", "7d"), ("stats", "36h")]);
+  assert_eq!(Surface::Captures.days(), Some(7));
+  assert_eq!(Surface::Stats.days(), Some(1), "a part day rounds down");
+  assert_eq!(Surface::Audit.days(), None, "each surface is its own");
 }
 
 #[test]
@@ -185,7 +158,7 @@ fn report_total_sums_every_surface() {
 
 #[tokio::test]
 async fn run_cycle_is_a_noop_when_unconfigured() {
-  let _g = EnvGuard::new(&[]);
+  retention(&[]);
   let state = std::sync::Arc::new(test_state());
   state
     .captured_requests
@@ -202,7 +175,7 @@ async fn run_cycle_is_a_noop_when_unconfigured() {
 
 #[tokio::test]
 async fn run_cycle_prunes_captures_and_inbox() {
-  let _g = EnvGuard::new(&[("APERIO_RETENTION_CAPTURES", "1")]);
+  retention(&[("captures", "1d")]);
   let state = std::sync::Arc::new(test_state());
   {
     let mut caps = state.captured_requests.lock().await;
@@ -227,7 +200,7 @@ async fn run_cycle_prunes_captures_and_inbox() {
 
 #[tokio::test]
 async fn run_cycle_prunes_access_log() {
-  let _g = EnvGuard::new(&[("APERIO_RETENTION_ACCESS_LOG", "1")]);
+  retention(&[("access_log", "1d")]);
   let dir =
     crate::test_support::test_temp_root().join(format!("accesslog-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
@@ -261,7 +234,7 @@ async fn run_cycle_prunes_access_log() {
 
 #[tokio::test]
 async fn run_cycle_access_log_keeps_everything_when_recent() {
-  let _g = EnvGuard::new(&[("APERIO_RETENTION_ACCESS_LOG", "1")]);
+  retention(&[("access_log", "1d")]);
   let dir =
     crate::test_support::test_temp_root().join(format!("accesslog2-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
@@ -309,7 +282,7 @@ async fn prune_access_log_returns_zero_without_a_configured_file() {
 
 #[tokio::test]
 async fn run_cycle_prunes_audit() {
-  let _g = EnvGuard::new(&[("APERIO_RETENTION_AUDIT", "1")]);
+  retention(&[("audit", "1d")]);
   let dir = crate::test_support::test_temp_root().join(format!("audit-{}", uuid::Uuid::new_v4()));
   std::fs::create_dir_all(&dir).unwrap();
   let n = now();
@@ -346,7 +319,7 @@ async fn run_cycle_prunes_audit() {
 
 #[tokio::test]
 async fn run_cycle_stats_line_runs_and_keeps_current_bucket() {
-  let _g = EnvGuard::new(&[("APERIO_RETENTION_STATS", "1")]);
+  retention(&[("stats", "1d")]);
   let state = std::sync::Arc::new(test_state());
   // Record a request so a current-day bucket exists; a 1-day TTL keeps it.
   state
@@ -362,13 +335,15 @@ async fn run_cycle_stats_line_runs_and_keeps_current_bucket() {
 // --- Disk-usage guard helpers ----------------------------------------------
 
 #[test]
-fn db_max_bytes_parses_and_filters() {
-  let _g = EnvGuard::new(&[]);
+fn db_max_bytes_reads_the_cap_and_zero_is_none() {
+  retention(&[]);
   assert_eq!(db_max_bytes(), None);
-  unsafe { std::env::set_var("APERIO_DB_MAX_BYTES", "0") };
+  retention(&[("db_max_size", "0")]);
   assert_eq!(db_max_bytes(), None);
-  unsafe { std::env::set_var("APERIO_DB_MAX_BYTES", " 4096 ") };
+  retention(&[("db_max_size", "4096")]);
   assert_eq!(db_max_bytes(), Some(4096));
+  retention(&[("db_max_size", "1GB")]);
+  assert_eq!(db_max_bytes(), Some(1024 * 1024 * 1024));
 }
 
 #[test]
@@ -485,10 +460,10 @@ async fn disk_guard_prunes_over_the_cap() {
 
 #[tokio::test]
 async fn spawn_is_inert_when_nothing_is_configured() {
-  let _g = EnvGuard::new(&[]);
+  retention(&[]);
   let state = std::sync::Arc::new(test_state());
-  // Returns immediately without spawning a task; nothing to observe beyond
-  // it not panicking.
+  // The pruner runs, so retention can be configured later without a
+  // restart, but a cycle with nothing configured removes nothing.
   spawn(state.clone());
   state
     .captured_requests
@@ -496,7 +471,7 @@ async fn spawn_is_inert_when_nothing_is_configured() {
     .await
     .push_back(capture_with("c", ts_old()));
   tokio::time::sleep(Duration::from_millis(30)).await;
-  // No pruner running, so the capture is untouched.
+  // Nothing configured, so the capture is untouched.
   assert_eq!(state.captured_requests.lock().await.len(), 1);
 }
 
@@ -505,10 +480,7 @@ async fn spawn_runs_one_cycle_and_audits_the_prune() {
   // Sets a disk cap, so the pruner it starts runs a guard cycle against the
   // process-global `DISK_WARNED` on its first (immediate) tick.
   let _serial = DISK_LOCK.lock().await;
-  let _g = EnvGuard::new(&[
-    ("APERIO_RETENTION_CAPTURES", "1"),
-    ("APERIO_DB_MAX_BYTES", "1000000000"),
-  ]);
+  retention(&[("captures", "1d"), ("db_max_size", "1000000000")]);
   let state = std::sync::Arc::new(test_state());
   {
     let mut caps = state.captured_requests.lock().await;
@@ -531,10 +503,9 @@ async fn spawn_enabled_by_disk_cap_alone() {
   // The disk cap is the whole point of this one, so it certainly runs a
   // guard cycle: same global, same lock.
   let _serial = DISK_LOCK.lock().await;
-  let _g = EnvGuard::new(&[("APERIO_DB_MAX_BYTES", "1000000000")]);
+  retention(&[("db_max_size", "1000000000")]);
   let state = std::sync::Arc::new(test_state());
-  // Only the disk cap is set (no retention TTLs): covers the branch where
-  // `configured` is empty but the pruner still starts.
+  // Only the disk cap is set (no retention TTLs).
   spawn(state.clone());
   tokio::time::sleep(Duration::from_millis(30)).await;
   // Nothing to assert beyond it starting cleanly; the db is empty/tiny.

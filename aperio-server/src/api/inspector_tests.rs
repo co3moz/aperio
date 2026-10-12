@@ -16,7 +16,7 @@ use tokio::sync::mpsc;
 /// A mock client whose receiver stays alive (so a dispatch `send` succeeds).
 fn live_client() -> (ClientHandle, mpsc::Receiver<Message>) {
   let (tx, rx) = mpsc::channel::<Message>(4);
-  let mut client = mock_client(None, None, None, None);
+  let mut client = mock_client(None, None);
   client.tx = tx;
   (client, rx)
 }
@@ -168,7 +168,7 @@ async fn replay_with_client_reaches_dispatch() {
     .clients
     .write()
     .await
-    .insert("c1".to_string(), mock_client(None, None, None, None));
+    .insert("c1".to_string(), mock_client(None, None));
   let headers = admin_headers(&state).await;
   let resp = request_replay_handler(
     State(state.clone()),
@@ -189,10 +189,11 @@ async fn replay_routes_by_host_header() {
   c.req_headers
     .push(("host".to_string(), "svc.example.com:443".to_string()));
   seed(&state, c).await;
-  state.clients.write().await.insert(
-    "c1".to_string(),
-    mock_client(Some("svc.example.com"), None, None, None),
-  );
+  state
+    .clients
+    .write()
+    .await
+    .insert("c1".to_string(), mock_client(Some("svc.example.com"), None));
   let headers = admin_headers(&state).await;
   let resp = request_replay_handler(
     State(state.clone()),

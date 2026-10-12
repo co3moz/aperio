@@ -8,6 +8,23 @@ import { ABOUT_FOLD_CHARS, aboutClosed, rememberAbout } from '@/lib/about'
 import { highlight } from '@/lib/highlight'
 import { cn } from '@/lib/utils'
 
+/** The line, in a list of setting groups, between the settings everyone
+ *  decides and the features most deployments never turn on. Drawn before
+ *  the first group marked `advanced`. */
+export function AdvancedFeaturesHeading() {
+  const { t } = useI18n()
+  return (
+    <div className="mt-6 mb-1 border-t pt-4">
+      <p className="text-sm font-medium">{t('Advanced features')}</p>
+      <p className="text-xs text-muted-foreground">
+        {t(
+          'Features most deployments never turn on. Nothing here is off-limits: it is listed last so the settings everyone decides come first.',
+        )}
+      </p>
+    </div>
+  )
+}
+
 /** Centered empty-state row for tables. */
 export function EmptyRow({
   colSpan,

@@ -13,16 +13,24 @@
 //!
 //! - **A specific entry beats `*`.** `{*: viewer, acme: operator}` reads the
 //!   way it looks.
+//! - **`*` Admin is the server admin, and nothing else is.** Master is an
+//!   ordinary organization: its Admin administers master's tokens, exposes
+//!   and sites, not the server's settings, organizations or users. One
+//!   holder of server-wide authority, instead of a master Admin who was the
+//!   server admin for most things and not for handing out `*`.
 //! - **A grant is bounded by the granter's.** Giving a role in an
 //!   organization takes Admin there; giving `*` takes `*` Admin. Without this
 //!   an organization's admin grants themselves a second organization.
+//! - **What a role may do with public listeners is part of the role.** A
+//!   Viewer reads them, an Operator also enables, disables and disconnects,
+//!   an Admin manages them; all within the ports the server admin allocated
+//!   to the organization, which is the one bound.
 //! - **The old shape converts without a migration.** A row with no `grants`
 //!   is one grant in its home organization, except the master Admin, who
 //!   becomes `*` Admin, because that is exactly what the row could do before
 //!   and narrowing it on an upgrade would lock out whoever runs the server.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 
 pub use aperio_config::expose::ExposeAction;
 
@@ -98,16 +106,14 @@ impl<'de> Deserialize<'de> for GrantOrg {
 }
 
 /// One `(organization, role)` pair.
+///
+/// A row written before 0.13.0 may still carry `expose` and `expose_bounds`;
+/// they are ignored on read, since what a role may do with public listeners
+/// is the role's now, and dropped at the next write.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Grant {
   pub org: GrantOrg,
   pub role: Role,
-  /// Explicit public-listener capabilities in this organization. Old tenant
-  /// roles have none; holding Admin there does not grant server sockets.
-  #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-  pub expose: BTreeSet<ExposeAction>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub expose_bounds: Option<aperio_config::expose_policy::ExposePolicy>,
   /// Where this grant came from when it was not written by hand: the group
   /// claim value an OIDC login mapped it from (`planned_features.md` #154).
   /// A mapped grant is the directory's to take back at the next login; a
@@ -129,8 +135,6 @@ impl Grant {
     Grant {
       org,
       role,
-      expose: BTreeSet::new(),
-      expose_bounds: None,
       source: None,
       source_org: None,
     }
@@ -141,8 +145,6 @@ impl Grant {
     Grant {
       org,
       role,
-      expose: BTreeSet::new(),
-      expose_bounds: None,
       source: Some(group.to_string()),
       source_org: None,
     }
@@ -150,16 +152,11 @@ impl Grant {
 
   /// `acme:operator`, the spelling audit records and the CLI use.
   pub fn label(&self) -> String {
-    let mut label = format!("{}:{}", self.org.as_str(), self.role.as_str());
-    for action in &self.expose {
-      label.push_str("+expose.");
-      label.push_str(action.as_str());
-    }
-    label
+    format!("{}:{}", self.org.as_str(), self.role.as_str())
   }
 
-  /// Role/capability spelling used by a tenant's OIDC mapping. The tenant
-  /// comes from the authenticated management path, never from the IdP text.
+  /// Role spelling used by a tenant's OIDC mapping. The tenant comes from the
+  /// authenticated management path, never from the IdP text.
   pub fn parse_in_org(org: &str, raw: &str) -> Result<Grant, String> {
     let grant = Self::parse(&format!("{org}:{}", raw.trim()))?;
     if grant.org != GrantOrg::parse(org) {
@@ -176,8 +173,16 @@ impl Grant {
     let Some((org, role)) = raw.trim().rsplit_once(':') else {
       return Err(format!("a grant is written <org>:<role>, got {raw:?}"));
     };
-    let mut parts = role.split('+');
-    let Some(role) = Role::parse(parts.next().unwrap_or_default()) else {
+    if let Some((role, _)) = role.split_once('+') {
+      return Err(format!(
+        "{raw:?}: expose capabilities are part of the role since 0.13.0 (a viewer \
+         reads public listeners, an operator also enables, disables and disconnects \
+         them, an admin manages them); write {}:{}",
+        org.trim(),
+        role.trim()
+      ));
+    }
+    let Some(role) = Role::parse(role) else {
       return Err(format!(
         "unknown role {role:?} in {raw:?}: viewer, operator, or admin"
       ));
@@ -185,17 +190,7 @@ impl Grant {
     if org.trim().is_empty() {
       return Err(format!("a grant is written <org>:<role>, got {raw:?}"));
     }
-    let mut grant = Grant::new(GrantOrg::parse(org), role);
-    for part in parts {
-      let action = part
-        .strip_prefix("expose.")
-        .and_then(|name| ExposeAction::ALL.into_iter().find(|a| a.as_str() == name));
-      let Some(action) = action else {
-        return Err(format!("unknown grant capability {part:?}"));
-      };
-      grant.expose.insert(action);
-    }
-    Ok(grant)
+    Ok(Grant::new(GrantOrg::parse(org), role))
   }
 }
 
@@ -263,9 +258,9 @@ pub fn apply_group_map(
       m
     })
     .collect();
-  // Rebuild from this login's groups, then diff the effective grants. In
-  // particular, two groups contributing different expose actions must not
-  // accumulate revoked actions or generate changes on every identical login.
+  // Rebuild from this login's groups, then diff the effective grants, so an
+  // identical login changes nothing. Two groups naming one organization give
+  // the higher of their roles.
   let mut next: Vec<Grant> = current
     .iter()
     .filter(|g| !owned(g) && !mapped.iter().any(|m| m.org == g.org))
@@ -274,16 +269,9 @@ pub fn apply_group_map(
   for m in mapped {
     match next.iter_mut().find(|g| g.org == m.org) {
       Some(have) => {
-        let combined = have.expose.union(&m.expose).copied().collect();
-        let bounds = match (&have.expose_bounds, &m.expose_bounds) {
-          (Some(a), Some(b)) => Some(a.intersection(b)),
-          (a, b) => a.clone().or_else(|| b.clone()),
-        };
         if m.role > have.role {
           *have = m;
         }
-        have.expose = combined;
-        have.expose_bounds = bounds;
       }
       None => next.push(m),
     }
@@ -314,9 +302,10 @@ pub fn role_in(grants: &[Grant], org: Option<&str>) -> Option<Role> {
     .map(|g| g.role)
 }
 
-/// True when the list holds `*` at Admin: the only holder that may hand `*`
-/// to somebody else.
-pub fn holds_all_admin(grants: &[Grant]) -> bool {
+/// True when the list holds `*` at Admin: the server admin, the one holder
+/// of server-wide authority (settings, organizations, users, admin keys,
+/// port allocations) and the only one who may hand `*` to somebody else.
+pub fn is_server_admin(grants: &[Grant]) -> bool {
   grants
     .iter()
     .any(|g| g.org == GrantOrg::All && g.role == Role::Admin)
@@ -324,67 +313,35 @@ pub fn holds_all_admin(grants: &[Grant]) -> bool {
 
 /// Whether a holder of `granter` may give (or take away) `grant`.
 ///
-/// `*` is given only by `*` Admin. Anything else takes Admin in that
+/// `*` is given only by the server admin. Anything else takes Admin in that
 /// organization, which the granter may hold directly or through `*`.
 pub fn may_grant(granter: &[Grant], grant: &Grant) -> bool {
-  let role_allowed = match &grant.org {
-    GrantOrg::All => holds_all_admin(granter),
+  match &grant.org {
+    GrantOrg::All => is_server_admin(granter),
     GrantOrg::Master => role_in(granter, None) == Some(Role::Admin),
     GrantOrg::Child(id) => role_in(granter, Some(id)) == Some(Role::Admin),
-  };
-  if !role_allowed || grant.expose.is_empty() {
-    return role_allowed;
   }
-  // Master admins already administer global server resources. A tenant
-  // admin needs explicit delegation and every capability they hand out.
-  if role_in(granter, None) == Some(Role::Admin) {
-    return true;
-  }
-  let org = match &grant.org {
-    GrantOrg::Child(id) => Some(id.as_str()),
-    GrantOrg::Master => None,
-    GrantOrg::All => return false,
-  };
-  let bounded = match (expose_bounds(granter, org), &grant.expose_bounds) {
-    (None, _) => true,
-    (Some(parent), Some(child)) => parent.contains(child),
-    (Some(_), None) => false,
-  };
-  bounded
-    && may_expose(granter, org, ExposeAction::Delegate)
-    && grant
-      .expose
-      .iter()
-      .all(|action| may_expose(granter, org, *action))
 }
 
-pub fn expose_bounds(
-  grants: &[Grant],
-  org: Option<&str>,
-) -> Option<aperio_config::expose_policy::ExposePolicy> {
-  if role_in(grants, None) == Some(Role::Admin) {
-    return None;
+/// What `role` may do with an organization's public listeners. Reading is
+/// every role's; switching one on or off and cutting its sessions is the
+/// day-to-day work an Operator does; creating, changing and deleting one is
+/// administering the organization.
+pub fn role_may_expose(role: Role, action: ExposeAction) -> bool {
+  match action {
+    ExposeAction::Read => true,
+    ExposeAction::Enable | ExposeAction::Disable | ExposeAction::Disconnect => {
+      role >= Role::Operator
+    }
+    ExposeAction::Create | ExposeAction::Update | ExposeAction::Delete => role == Role::Admin,
   }
-  grants
-    .iter()
-    .find(|g| g.org != GrantOrg::All && g.org.covers(org))
-    .or_else(|| grants.iter().find(|g| g.org == GrantOrg::All))
-    .and_then(|g| g.expose_bounds.clone())
 }
 
-/// The exact organization's capability set replaces the wildcard's, even
-/// when empty. Master Admin retains its existing server-global authority.
+/// Whether the role a grant list gives in `org` (`None` = master) permits
+/// `action` on its public listeners. Where a listener may be, and how many,
+/// is the organization's port allocation, which the caller checks.
 pub fn may_expose(grants: &[Grant], org: Option<&str>, action: ExposeAction) -> bool {
-  if role_in(grants, None) == Some(Role::Admin) {
-    return true;
-  }
-  let grant = grants
-    .iter()
-    .find(|g| g.org != GrantOrg::All && g.org.covers(org))
-    .or_else(|| grants.iter().find(|g| g.org == GrantOrg::All));
-  grant.is_some_and(|g| {
-    g.expose.contains(&action) || (action == ExposeAction::Read && !g.expose.is_empty())
-  })
+  role_in(grants, org).is_some_and(|role| role_may_expose(role, action))
 }
 
 /// The grants a record written before this field existed stands for: one
@@ -406,13 +363,6 @@ pub fn legacy_grants(role: Role, org_id: Option<&str>) -> (Vec<Grant>, bool) {
 pub fn normalize(grants: Vec<Grant>) -> Result<Vec<Grant>, String> {
   let mut out: Vec<Grant> = Vec::new();
   for g in grants {
-    if let Some(bounds) = &g.expose_bounds
-      && (matches!(g.org, GrantOrg::All)
-        || bounds.org_id != g.org.as_str()
-        || !bounds.validate().is_empty())
-    {
-      return Err("expose bounds must be valid and name the grant's concrete organization".into());
-    }
     out.retain(|have| have.org != g.org);
     out.push(g);
   }

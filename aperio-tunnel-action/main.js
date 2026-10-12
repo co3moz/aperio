@@ -86,7 +86,10 @@ async function main() {
     '--network', 'host',
     '--env', `APERIO_SERVER_URL=${serverUrl}`,
     '--env', `APERIO_SERVER_TOKEN=${tunnel.token}`,
-    '--env', `APERIO_CLIENT_TARGET=${target}`,
+    '--env', `APERIO_TARGET=${target}`,
+    // The ephemeral token is minted with allow_public, and a run's preview is
+    // meant to be fetched: routes are closed unless a service says otherwise.
+    '--env', 'APERIO_ACCESS=public',
     image,
   ])
 

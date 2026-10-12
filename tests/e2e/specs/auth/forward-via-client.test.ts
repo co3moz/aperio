@@ -22,7 +22,7 @@ const HOST = 'via-client.e2e.local'
 /** Its own server: the pre-auth asks spend from the visitor's IP bucket, and
  *  the shared one's would be drained for whatever test ran next. */
 export class ViaClientServer extends AperioServerBase({
-  env: { APERIO_VISITOR_IDENTITY_HEADERS: '1' },
+  settings: { identity_headers: { visitor: true } },
 }) {}
 
 export class ViaClientBackend extends StandardBackendBase() {}
@@ -43,10 +43,10 @@ export class ViaClientClient extends ClientFor(() => ViaClientServer, () => ViaC
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
       'services:',
-      '  - name: own_gate',
+      '  own_gate:',
       `    target: ${this._backendUrl()}`,
       `    hostname: ${HOST}`,
-      '    auth:',
+      '    access:',
       '      method: forward',
       `      url: http://127.0.0.1:${this.endpoint._port}/_authcheck`,
       '      via: client',

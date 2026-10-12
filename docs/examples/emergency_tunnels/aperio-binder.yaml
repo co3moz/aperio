@@ -1,5 +1,5 @@
 # Binder side, run anywhere you need access, then:
-#   aperio-client --bind-tunnels --config aperio-binder.yaml
+#   aperio-client bind --config aperio-binder.yaml
 server:
   url: https://tunnel.example.com
   # Any token in the declaring client's organization that carries allow_bind,
@@ -7,10 +7,8 @@ server:
   token: apr_binder_change_me
 
 # What to bind and where. A bare number is the local port; `aperio-client
-# --bind-tunnels` with no section at all binds everything the token may reach.
-bind-tunnels:
+# bind` with no section at all binds everything the token may reach.
+binds:
   mongo: 15000                  # listen on 127.0.0.1:15000 instead of 27017
   ssh: 2022
   dns: 5300                     # 53 is privileged, so name a port you can bind
-
-version: 0.12.0

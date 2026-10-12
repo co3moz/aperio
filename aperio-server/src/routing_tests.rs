@@ -40,6 +40,11 @@ pub(super) fn base_handle() -> ClientHandle {
     subscriptions: Vec::new(),
     services: vec![crate::state::ServiceState {
       server_side_refused: None,
+      policy_conflict: None,
+      // Serves every hostname until a test gives it one of its own.
+      catch_all: true,
+      serves_http: false,
+      route_noticed: false,
       server_side_target: None,
       service_custom_name: None,
       request_count: Arc::new(AtomicU64::new(0)),
@@ -49,8 +54,6 @@ pub(super) fn base_handle() -> ClientHandle {
       declared_hostnames: Vec::new(),
       assigned_hostnames: Vec::new(),
       random_hostname: None,
-      override_path_bind: None,
-      override_hostname_binds: Vec::new(),
       capture: true,
       connections: None,
       connections_min: None,
@@ -79,6 +82,7 @@ pub(super) fn base_handle() -> ClientHandle {
       tunnels: Vec::new(),
       cache: false,
       cache_ignored_warned: false,
+      notices_sent: Default::default(),
       resilience: false,
       max_request_body: None,
       response_timeout: None,

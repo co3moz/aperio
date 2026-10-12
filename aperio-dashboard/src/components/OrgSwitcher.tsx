@@ -25,12 +25,12 @@ import { useSession } from '@/lib/session'
  *  every section re-fetches the newly-scoped clients, tokens, and users. */
 export function OrgSwitcher({ selectedOrg }: { selectedOrg: string }) {
   const { t } = useI18n()
-  const { orgs: reachable, masterAdmin } = useSession()
+  const { orgs: reachable, serverAdmin } = useSession()
   // The listing carries the member counts, and only a master admin may ask
   // for it; everyone else has exactly the organizations the session carries.
   const { data: listed, refresh } = useStream(
-    masterAdmin ? 'orgs' : null,
-    () => (masterAdmin ? api.orgs() : Promise.resolve(null)),
+    serverAdmin ? 'orgs' : null,
+    () => (serverAdmin ? api.orgs() : Promise.resolve(null)),
     30_000,
   )
   useAppEvent('orgs-changed', refresh)

@@ -49,7 +49,7 @@ async fn visitor_gate_allows_without_auth() {
 #[tokio::test]
 async fn visitor_gate_denies_when_auth_configured() {
   let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  cfg.visitor_auth = crate::test_support::basic_gate("user:secret");
   let state = Arc::new(test_state_with(cfg));
   let uri: axum::http::Uri = "/private".parse().unwrap();
   let gate = check_visitor_gate(
@@ -74,7 +74,7 @@ async fn visitor_gate_denies_when_auth_configured() {
 #[tokio::test]
 async fn visitor_gate_traversal_requires_session() {
   let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  cfg.visitor_auth = crate::test_support::basic_gate("user:secret");
   let state = Arc::new(test_state_with(cfg));
   let uri: axum::http::Uri = "/a/../b".parse().unwrap();
   let gate = check_visitor_gate(
@@ -93,7 +93,7 @@ async fn visitor_gate_per_route_visitor_auth() {
   // A client declaring a per-service visitor password supersedes the server
   // gate: without a host session (and no share), the visitor is denied.
   let state = Arc::new(test_state_with(test_config()));
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.sole_mut().visitor_auth = Some("pw".to_string());
   state.clients.write().await.insert("c1".to_string(), c);
   let uri: axum::http::Uri = "/svc".parse().unwrap();
@@ -331,7 +331,7 @@ async fn closed_by_default_still_serves_what_declares_itself_open() {
   let mut cfg = test_config();
   cfg.default_access = crate::settings::DefaultAccess::Deny;
   let state = Arc::new(test_state_with(cfg));
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.sole_mut().public = true;
   state.clients.write().await.insert("c1".to_string(), c);
 
@@ -353,7 +353,7 @@ async fn closed_by_default_leaves_a_configured_gate_exactly_as_it_was() {
   // has stated something, so nothing about it changes.
   let mut cfg = test_config();
   cfg.default_access = crate::settings::DefaultAccess::Deny;
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  cfg.visitor_auth = crate::test_support::basic_gate("user:secret");
   let state = Arc::new(test_state_with(cfg));
   let uri: axum::http::Uri = "/private".parse().unwrap();
   let gate = check_visitor_gate(
@@ -382,7 +382,7 @@ async fn a_session_from_one_organization_does_not_open_another_ones_gated_site()
   // read-only one, therefore walked past the gate on every hostname on the
   // server, including hostnames served for other tenants.
   let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  cfg.visitor_auth = crate::test_support::basic_gate("user:secret");
   let state = Arc::new(test_state_with(cfg));
   let org = state
     .org_store
@@ -410,6 +410,7 @@ async fn a_session_from_one_organization_does_not_open_another_ones_gated_site()
         selected_org: None,
         bound_org: Some(org.id.clone()),
         login_host: None,
+        sso_issuer: None,
       },
     );
   }
@@ -448,7 +449,7 @@ async fn a_master_session_still_reaches_every_gated_site() {
   // dashboard login behaves exactly as it did, which is what keeps this a fix
   // for the cross-tenant case rather than a change for everyone.
   let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  cfg.visitor_auth = crate::test_support::basic_gate("user:secret");
   let state = Arc::new(test_state_with(cfg));
   let token =
     crate::test_support::seed_session(&state, crate::store::users::Role::Admin, None, None).await;
@@ -467,7 +468,7 @@ async fn a_fenced_session_without_a_host_header_is_refused() {
   // A fenced organization has no claim on a request that names no hostname,
   // and admitting it would be the same hole wearing a missing header.
   let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  cfg.visitor_auth = crate::test_support::basic_gate("user:secret");
   let state = Arc::new(test_state_with(cfg));
   let org = state
     .org_store
@@ -492,6 +493,7 @@ async fn a_fenced_session_without_a_host_header_is_refused() {
         selected_org: None,
         bound_org: Some(org.id.clone()),
         login_host: None,
+        sso_issuer: None,
       },
     );
   }
@@ -528,7 +530,7 @@ async fn the_gate_says_who_it_let_in() {
 
   // A session carries the name behind it, which is the answer worth having.
   let mut cfg = test_config();
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("user:secret");
+  cfg.visitor_auth = crate::test_support::basic_gate("user:secret");
   let state = Arc::new(test_state_with(cfg));
   let token = crate::test_support::seed_session(
     &state,
@@ -600,7 +602,7 @@ async fn a_route_nothing_is_connected_to_is_undeclared_rather_than_refused() {
 
   // And a client that *is* connected and declares itself open is served, so
   // the posture is not simply deferring everything.
-  let mut c = mock_client(Some("awake.e2e.local"), None, None, None);
+  let mut c = mock_client(Some("awake.e2e.local"), None);
   c.sole_mut().public = true;
   state.clients.write().await.insert("c1".to_string(), c);
   let gate = check_visitor_gate(
@@ -855,7 +857,7 @@ async fn one_written_policy_behaves_the_same_whichever_side_wrote_it() {
 
   // Written on a client that serves the route.
   let client_side = Arc::new(test_state_with(test_config()));
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.sole_mut().visitor_auth_policy = Some(crate::visitor_auth::Policy::compile(
     &serde_yaml::from_str(yaml).unwrap(),
   ));
@@ -942,7 +944,7 @@ pub(crate) async fn visitor_gate_traversal_sees_a_policy_the_scalar_cannot_hold(
     assert!(policy.gates(), "{spelling} is a gate");
 
     let state = Arc::new(test_state_with(test_config()));
-    let mut c = mock_client(None, None, None, None);
+    let mut c = mock_client(None, None);
     c.sole_mut().visitor_auth = None; // exactly the shape the bug turned on
     c.sole_mut().visitor_auth_policy = Some(policy);
     state.clients.write().await.insert("c1".to_string(), c);
@@ -974,14 +976,14 @@ pub(crate) async fn a_query_token_cookie_is_scoped_to_the_route_that_admitted_it
   // by the operator's own password.
   let mut cfg = test_config();
   // The server's own gate covers everything this client does not.
-  cfg.visitor_auth = crate::visitor_auth::Policy::from_credentials("admin:server-password");
+  cfg.visitor_auth = crate::test_support::basic_gate("admin:server-password");
   let state = Arc::new(test_state_with(cfg));
 
   let setting = serde_yaml::from_str::<aperio_config::AuthSetting>(
     "{method: bearer, secret: a-long-route-secret, query: true}",
   )
   .expect("a valid auth: value");
-  let mut c = mock_client(Some("app.e2e.local"), Some("/metrics"), None, None);
+  let mut c = mock_client(Some("app.e2e.local"), Some("/metrics"));
   c.sole_mut().visitor_auth_policy = Some(crate::visitor_auth::Policy::compile(&setting));
   state.clients.write().await.insert("c1".to_string(), c);
 
@@ -1332,6 +1334,7 @@ async fn the_aperio_gate_admits_a_dashboard_session_and_not_the_site_password() 
       selected_org: None,
       bound_org: None,
       login_host: None,
+      sso_issuer: None,
     },
   );
   let gate = check_visitor_gate(
@@ -1438,7 +1441,7 @@ async fn beside_a_bearer_the_aperio_gate_keeps_the_wider_reading() {
 async fn a_client_declared_forward_is_asked_of_the_client_over_the_tunnel() {
   let state = Arc::new(test_state_with(test_config()));
   let (tx, mut rx) = tokio::sync::mpsc::channel::<axum::extract::ws::Message>(8);
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.tx = tx;
   let setting: aperio_config::AuthSetting = serde_yaml::from_str(
     "{method: forward, url: 'http://127.0.0.1:7070/check', via: client, response_headers: [x-auth-user], cache: 0, timeout: 1}",
@@ -1508,4 +1511,158 @@ async fn a_client_declared_forward_is_asked_of_the_client_over_the_tunnel() {
   )
   .await;
   assert!(matches!(gate, VisitorGate::Deny(_)));
+}
+
+// --- a site's access ------------------------------------------------------------
+
+/// A state with one client serving `app.example.com` and declaring `public`,
+/// under the given sites.
+fn site_state(sites: &str) -> Arc<AppState> {
+  let mut cfg = test_config();
+  cfg.sites = crate::test_support::sites(sites);
+  let state = Arc::new(test_state_with(cfg));
+  let mut c = mock_client(Some("app.example.com"), None);
+  c.sole_mut().public = true;
+  state
+    .clients
+    .try_write()
+    .expect("a fresh state is unlocked")
+    .insert("c1".to_string(), c);
+  state
+}
+
+async fn gate_for(state: &Arc<AppState>, path: &str, host: &str) -> VisitorGate {
+  let uri: axum::http::Uri = path.parse().unwrap();
+  check_visitor_gate(
+    state,
+    &axum::http::Method::GET,
+    &HeaderMap::new(),
+    &uri,
+    Some(host),
+  )
+  .await
+}
+
+#[tokio::test]
+async fn a_sites_gate_wins_over_a_client_that_declares_itself_public() {
+  let state =
+    site_state("- hostname: app.example.com\n  access: {method: basic, users: 'ops:pw'}\n");
+  assert!(
+    matches!(
+      gate_for(&state, "/", "app.example.com").await,
+      VisitorGate::Deny(_)
+    ),
+    "the operator's word on the hostname is the last one"
+  );
+  // Another hostname is the client's to declare.
+  let state =
+    site_state("- hostname: other.example.com\n  access: {method: basic, users: 'ops:pw'}\n");
+  assert!(matches!(
+    gate_for(&state, "/", "app.example.com").await,
+    VisitorGate::Allow(_)
+  ));
+}
+
+#[tokio::test]
+async fn a_public_site_opens_a_route_a_client_gates() {
+  let mut cfg = test_config();
+  cfg.sites = crate::test_support::sites("- hostname: app.example.com\n  access: public\n");
+  let state = Arc::new(test_state_with(cfg));
+  let mut c = mock_client(Some("app.example.com"), None);
+  c.sole_mut().visitor_auth = Some("client:pw".to_string());
+  state.clients.write().await.insert("c1".to_string(), c);
+  assert!(matches!(
+    gate_for(&state, "/", "app.example.com").await,
+    VisitorGate::Allow(None)
+  ));
+}
+
+#[tokio::test]
+async fn a_sites_access_on_a_path_covers_that_path_only() {
+  let state =
+    site_state("- hostname: app.example.com\n  path: /admin\n  access: {method: aperio}\n");
+  assert!(matches!(
+    gate_for(&state, "/admin/x", "app.example.com").await,
+    VisitorGate::Deny(_)
+  ));
+  assert!(matches!(
+    gate_for(&state, "/", "app.example.com").await,
+    VisitorGate::Allow(_)
+  ));
+}
+
+#[tokio::test]
+async fn a_traversal_path_cannot_step_around_a_sites_gate() {
+  // `/admin/..` matches no `/admin` scope, so the path cannot be trusted to
+  // be outside it either: a gate anywhere on the hostname asks for a session.
+  let state =
+    site_state("- hostname: app.example.com\n  path: /admin\n  access: {method: aperio}\n");
+  assert!(matches!(
+    gate_for(&state, "/public/../admin", "app.example.com").await,
+    VisitorGate::Deny(_)
+  ));
+}
+
+#[tokio::test]
+async fn a_sites_gate_admits_what_it_names() {
+  let state = site_state(
+    "- hostname: app.example.com\n  access: {method: bearer, secret: a-long-enough-secret}\n",
+  );
+  let mut headers = HeaderMap::new();
+  headers.insert(
+    "authorization",
+    HeaderValue::from_static("Bearer a-long-enough-secret"),
+  );
+  let uri: axum::http::Uri = "/".parse().unwrap();
+  let gate = check_visitor_gate(
+    &state,
+    &axum::http::Method::GET,
+    &headers,
+    &uri,
+    Some("app.example.com"),
+  )
+  .await;
+  assert!(matches!(gate, VisitorGate::Allow(Some(_))));
+}
+
+#[tokio::test]
+async fn a_session_signed_in_at_a_sites_gate_opens_that_site_and_no_other() {
+  let mut cfg = test_config();
+  cfg.sites = crate::test_support::sites(
+    "- hostname: a.example.com\n  access: {method: basic, users: 'ops:pw'}\n\
+     - hostname: b.example.com\n  access: {method: basic, users: 'ops:pw'}\n",
+  );
+  let state = Arc::new(test_state_with(cfg));
+  let token = uuid::Uuid::new_v4().to_string();
+  state.sessions.lock().await.insert(
+    &token,
+    crate::store::sessions::SessionInfo {
+      expires_at: crate::store::sessions::now_secs() + 600,
+      created_at: crate::store::sessions::now_secs(),
+      ip: None,
+      user_agent: None,
+      plane: crate::store::sessions::Plane::Visitor,
+      scope_host: Some("a.example.com".to_string()),
+      username: None,
+      role: crate::store::users::Role::Viewer,
+      selected_org: None,
+      bound_org: None,
+      login_host: None,
+      sso_issuer: None,
+    },
+  );
+  let mut headers = HeaderMap::new();
+  headers.insert(
+    "cookie",
+    HeaderValue::from_str(&format!("aperio_session={token}")).unwrap(),
+  );
+  let uri: axum::http::Uri = "/".parse().unwrap();
+  let on = |host: &'static str| {
+    let state = state.clone();
+    let headers = headers.clone();
+    let uri = uri.clone();
+    async move { check_visitor_gate(&state, &axum::http::Method::GET, &headers, &uri, Some(host)).await }
+  };
+  assert!(matches!(on("a.example.com").await, VisitorGate::Allow(_)));
+  assert!(matches!(on("b.example.com").await, VisitorGate::Deny(_)));
 }

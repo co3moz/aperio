@@ -7,7 +7,9 @@ Wants=network-online.target
 [Service]
 Type=exec
 ExecStart=/usr/bin/aperio-server
-Environment=APERIO_SERVER_CONFIG=/etc/aperio/aperio-server.yaml
+# The boot settings: the master token, the listener, the first start's
+# settings document. Everything else is in the database under /var/lib/aperio.
+EnvironmentFile=/etc/aperio/aperio-server.env
 Restart=on-failure
 RestartSec=2s
 
@@ -15,8 +17,8 @@ RestartSec=2s
 # port, a data directory, and nothing else on the machine, so it is given
 # nothing else.
 #
-# A static account rather than DynamicUser, and the reason is the config file.
-# The master token lives in /etc/aperio/aperio-server.yaml, which is therefore
+# A static account rather than DynamicUser, and the reason is the token.
+# The master token lives in /etc/aperio/aperio-server.env, which is therefore
 # not world-readable, and a file that is not world-readable has to be readable
 # by *someone* nameable. A dynamic user has a different uid and gid on every
 # start, so no mode on that file can admit it and nothing else. The account is
@@ -52,7 +54,7 @@ SystemCallErrorNumber=EPERM
 RestrictAddressFamilies=AF_INET AF_INET6
 
 # ProtectSystem=strict makes everything read-only, so the one writable path has
-# to be named. Point the config's data directory somewhere else and this line
+# to be named. Point the data directory somewhere else and this line
 # is the one that has to follow it:
 #   systemctl edit aperio-server
 #   [Service]

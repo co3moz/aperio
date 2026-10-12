@@ -1,31 +1,41 @@
 //! Which services end up sharing a connection, and what that costs them: the
-//! grouping itself, the name each member has to have, and the pool and
-//! bandwidth a multiplexed service does not get to keep.
+//! grouping itself, what the default makes of a service that says nothing, and
+//! the pool and bandwidth a multiplexed service does not get to keep. Also
+//! where `depends_on` and `server_side` may be written.
 
 use super::*;
-use crate::service::ServiceSpec;
+use crate::service::{Multiplex, ServiceSpec};
 use crate::tests::*;
-use aperio_config::ServiceEntry;
 
-/// below. `n` entries, each named and pointed at its own port.
-/// A `services:` list whose entries all opt into multiplexing, for the tests
-/// below. `n` entries, each named and pointed at its own port.
-pub(crate) fn multiplexed_services(n: usize) -> Vec<ServiceEntry> {
-  (0..n)
-    .map(|i| ServiceEntry {
-      name: Some(format!("svc{i}")),
-      target: Some(format!("http://localhost:{}", 3000 + i)),
-      multiplex: Some(true),
-      ..Default::default()
-    })
-    .collect()
+/// A `services:` map whose entries all opt into multiplexing. `n` entries,
+/// each pointed at its own port.
+pub(crate) fn multiplexed_services(n: usize) -> String {
+  let mut yaml = String::from("services:\n");
+  for i in 0..n {
+    yaml.push_str(&format!(
+      "  svc{i}: {{target: 'http://localhost:{}', multiplex: true}}\n",
+      3000 + i
+    ));
+  }
+  yaml
+}
+
+/// The same map with nothing said about multiplexing, which is what most
+/// files with several services look like.
+fn plain_services(n: usize) -> String {
+  let mut yaml = String::from("services:\n");
+  for i in 0..n {
+    yaml.push_str(&format!(
+      "  svc{i}: {{target: 'http://localhost:{}'}}\n",
+      3000 + i
+    ));
+  }
+  yaml
 }
 
 #[test]
 pub(crate) fn multiplexed_services_share_one_group() {
-  let mut settings = base_settings();
-  settings.services = multiplexed_services(3);
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+  let specs = specs(&multiplexed_services(3));
   // One group, and every service in it: the ids are what `spawn_services`
   // groups by, so two groups here would be two connections.
   assert_eq!(
@@ -37,110 +47,54 @@ pub(crate) fn multiplexed_services_share_one_group() {
 #[test]
 fn a_service_that_asks_to_multiplex_alone_keeps_its_own_connection() {
   // Nobody to share with is not an error and not a group: a group of one is
-  // the ordinary connection it would have had anyway, and announcing a
-  // one-entry `services` list instead would only narrow which servers can
-  // read the Ping.
-  let mut settings = base_settings();
-  settings.services = vec![
-    ServiceEntry {
-      name: Some("web".to_string()),
-      target: Some("http://localhost:3000".to_string()),
-      multiplex: Some(true),
-      ..Default::default()
-    },
-    ServiceEntry {
-      name: Some("api".to_string()),
-      target: Some("http://localhost:4000".to_string()),
-      ..Default::default()
-    },
-  ];
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+  // the ordinary connection it would have had anyway.
+  let specs = specs(
+    "services:\n  \
+       web: {target: 'http://localhost:3000', multiplex: true}\n  \
+       api: {target: 'http://localhost:4000', multiplex: false}\n",
+  );
   assert_eq!(specs[0].multiplex_group, None);
   assert_eq!(specs[1].multiplex_group, None);
   // What it asked for is still recorded, so nothing downstream has to guess
   // why it is ungrouped.
-  assert!(specs[0].multiplex);
-  assert!(!specs[1].multiplex);
+  assert_eq!(specs[0].multiplex, Multiplex::Asked);
+  assert_eq!(specs[1].multiplex, Multiplex::No);
 }
 
 #[test]
-fn a_file_wide_multiplex_can_be_turned_off_per_entry() {
-  let mut settings = base_settings();
-  settings.multiplex = true;
-  settings.services = vec![
-    ServiceEntry {
-      name: Some("web".to_string()),
-      target: Some("http://localhost:3000".to_string()),
-      ..Default::default()
-    },
-    ServiceEntry {
-      name: Some("api".to_string()),
-      target: Some("http://localhost:4000".to_string()),
-      ..Default::default()
-    },
-    ServiceEntry {
-      name: Some("bulk".to_string()),
-      target: Some("http://localhost:5000".to_string()),
-      multiplex: Some(false),
-      ..Default::default()
-    },
-  ];
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+fn a_default_multiplex_can_be_turned_off_per_entry() {
+  let specs = specs(
+    "defaults: {multiplex: true}\n\
+     services:\n  \
+       web: {target: 'http://localhost:3000'}\n  \
+       api: {target: 'http://localhost:4000'}\n  \
+       bulk: {target: 'http://localhost:5000', multiplex: false}\n",
+  );
   assert_eq!(specs[0].multiplex_group, Some(0));
   assert_eq!(specs[1].multiplex_group, Some(0));
   // The entry that opted out keeps a connection of its own, which is the
-  // point of being able to say `multiplex: false` in a file that turned it on
-  // for everything: one service whose responses are large should not occupy
-  // the writer the small ones send through.
+  // point of being able to say `multiplex: false` when `defaults:` turned it
+  // on: one service whose responses are large should not occupy the writer
+  // the small ones send through.
   assert_eq!(specs[2].multiplex_group, None);
 }
 
 #[test]
-fn a_multiplexed_service_must_be_named() {
-  // Two unnamed services on one connection are told apart only by their
-  // position in a list, and a name is what the server keeps routing, ejection
-  // and statistics under. Refused at config time, where it is one line to fix.
-  let mut settings = base_settings();
-  settings.multiplex = true;
-  settings.services = vec![
-    ServiceEntry {
-      target: Some("http://localhost:3000".to_string()),
-      ..Default::default()
-    },
-    ServiceEntry {
-      name: Some("api".to_string()),
-      target: Some("http://localhost:4000".to_string()),
-      ..Default::default()
-    },
-  ];
-  let err = build_specs(&settings, "base-id", false).unwrap_err();
-  assert!(err.contains("multiplexed service needs a name"), "{err}");
+fn the_one_service_of_the_command_line_never_multiplexes() {
+  // It has nobody to share with, whatever `defaults:` or the environment say.
+  let specs = build_specs(&base_with("defaults: {multiplex: true}"), "base-id").unwrap();
+  assert_eq!(specs[0].multiplex, Multiplex::No);
+  assert_eq!(specs[0].multiplex_group, None);
 }
 
 #[test]
 fn multiplexing_overrides_a_per_service_connection_pool_and_says_so() {
-  let mut settings = base_settings();
-  settings.multiplex = true;
-  settings.services = vec![
-    ServiceEntry {
-      name: Some("web".to_string()),
-      target: Some("http://localhost:3000".to_string()),
-      connections: Some(aperio_config::Connections::Fixed(4)),
-      ..Default::default()
-    },
-    ServiceEntry {
-      name: Some("api".to_string()),
-      target: Some("http://localhost:4000".to_string()),
-      connections: Some(aperio_config::Connections::Range(
-        aperio_config::ConnectionRange {
-          min: Some(2),
-          max: Some(8),
-        },
-      )),
-      ..Default::default()
-    },
-  ];
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+  let specs = specs(
+    "defaults: {multiplex: true}\n\
+     services:\n  \
+       web: {target: 'http://localhost:3000', connections: 4}\n  \
+       api: {target: 'http://localhost:4000', connections: {min: 2, max: 8}}\n",
+  );
   // One connection is what multiplexing means, so the pool is not something
   // these services can also have.
   for spec in &specs {
@@ -167,18 +121,11 @@ fn multiplexing_overrides_a_per_service_connection_pool_and_says_so() {
 fn a_service_left_on_its_own_connection_keeps_its_pool() {
   // The clamp is the group's, not the flag's: an entry that opted out is
   // untouched even in a file that multiplexes everything else.
-  let mut settings = base_settings();
-  settings.multiplex = true;
-  let mut services = multiplexed_services(2);
-  services.push(ServiceEntry {
-    name: Some("bulk".to_string()),
-    target: Some("http://localhost:9000".to_string()),
-    multiplex: Some(false),
-    connections: Some(aperio_config::Connections::Fixed(4)),
-    ..Default::default()
-  });
-  settings.services = services;
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+  let yaml = format!(
+    "defaults: {{multiplex: true}}\n{}  bulk: {{target: 'http://localhost:9000', multiplex: false, connections: 4}}\n",
+    multiplexed_services(2)
+  );
+  let specs = specs(&yaml);
   assert_eq!(specs[2].connections, 4);
   assert!(
     specs[2]
@@ -194,126 +141,161 @@ fn more_multiplexed_services_than_a_server_accepts_is_a_config_error() {
   // here is what lets the message name the file: otherwise the operator sees a
   // client that connects and disconnects with the reason in somebody else's
   // log.
-  let mut settings = base_settings();
-  settings.multiplex = true;
-  settings.services = multiplexed_services(service::MAX_MULTIPLEXED_SERVICES + 1);
-  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  let err = specs_err(&multiplexed_services(service::MAX_MULTIPLEXED_SERVICES + 1));
   assert!(err.contains("share one connection"), "{err}");
 
   // Exactly at the ceiling is fine; the bound is a fence, not a limit anybody
   // legitimate is meant to feel.
-  settings.services = multiplexed_services(service::MAX_MULTIPLEXED_SERVICES);
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+  let specs = specs(&multiplexed_services(service::MAX_MULTIPLEXED_SERVICES));
   assert_eq!(specs.len(), service::MAX_MULTIPLEXED_SERVICES);
   assert!(specs.iter().all(|s| s.multiplex_group == Some(0)));
 }
 
 // ---------------------------------------------------------------------------
-// A file-wide depends_on
+// What silence means: sharing for several services, a pool for one
 // ---------------------------------------------------------------------------
 
-/// `depends_on:` at the top of the file is the default for entries that name
-/// none of their own.
-///
-/// It was in the JSON Schema, so editors completed it and `--check-config`
-/// accepted it, and nothing ever read it: only the per-entry key was. A
-/// setting an operator can write, that validates, and that does nothing, is
-/// worse than one that does not exist.
 #[test]
-fn a_file_wide_depends_on_reaches_the_services_that_declare_none() {
-  let mut settings = base_settings();
-  settings.depends_on = Some(vec!["db".to_string()]);
-  settings.services = vec![
-    ServiceEntry {
-      name: Some("db".to_string()),
-      target: Some("http://localhost:5432".to_string()),
-      ..Default::default()
-    },
-    ServiceEntry {
-      name: Some("web".to_string()),
-      target: Some("http://localhost:3000".to_string()),
-      ..Default::default()
-    },
-    ServiceEntry {
-      name: Some("api".to_string()),
-      target: Some("http://localhost:4000".to_string()),
-      // Its own list wins over the file's, rather than merging with it.
-      depends_on: Some(vec!["web".to_string()]),
-      ..Default::default()
-    },
-  ];
-  let specs: Vec<ServiceSpec> = build_specs(&settings, "base-id", false).unwrap();
-  let of = |name: &str| -> Vec<String> {
-    specs
-      .iter()
-      .find(|s| s.name.as_deref() == Some(name))
-      .expect("service is in the list")
-      .depends_on
-      .clone()
-  };
-  assert_eq!(of("web"), vec!["db".to_string()], "the file's list applies");
-  assert_eq!(of("api"), vec!["web".to_string()], "its own list wins");
-  assert!(
-    of("db").is_empty(),
-    "a service the file-wide list names is one of the things being waited for, \
-     not one of the waiters; making it wait for itself refuses to start"
+fn several_services_share_one_connection_unless_told_otherwise() {
+  let specs = specs(&plain_services(3));
+  assert!(specs.iter().all(|s| s.multiplex == Multiplex::ByDefault));
+  assert!(specs.iter().all(|s| s.multiplex_group == Some(0)));
+  // A shared connection is one connection, and nothing was written that said
+  // otherwise, so there is no pool to clamp and nothing to report.
+  for spec in &specs {
+    assert_eq!((spec.connections_min, spec.connections), (1, 1));
+    assert!(spec.config_notes.iter().all(|n| n.field != "connections"));
+  }
+}
+
+#[test]
+fn a_service_that_a_shared_socket_would_change_keeps_its_own_by_default() {
+  // Each of these says something sharing would quietly undo: a pool it would
+  // cut to one, a cap it would turn into the group's, a start it would hand to
+  // every sibling, a raw stream it could not address.
+  let specs = specs(
+    "services:\n  \
+       web: {target: 'http://localhost:3000'}\n  \
+       api: {target: 'http://localhost:4000'}\n  \
+       paced: {target: 'http://localhost:4001', bandwidth: 1mbit}\n  \
+       pooled: {target: 'http://localhost:4002', connections: 4}\n  \
+       elastic: {target: 'http://localhost:4003', connections: {min: 1, max: 3}}\n  \
+       delayed: {target: 'http://localhost:4004', startup_delay: 5s}\n  \
+       ordered: {target: 'http://localhost:4005', depends_on: [web]}\n  \
+       raw: {tcp_target: '127.0.0.1:5432'}\n",
+  );
+  assert_eq!(specs[0].multiplex_group, Some(0));
+  assert_eq!(specs[1].multiplex_group, Some(0));
+  for spec in &specs[2..] {
+    assert_eq!(spec.multiplex, Multiplex::No, "{}", spec.label());
+    assert_eq!(spec.multiplex_group, None, "{}", spec.label());
+  }
+  // What they wrote is what they run, with no note about a clamp.
+  assert_eq!((specs[3].connections_min, specs[3].connections), (4, 4));
+  assert_eq!((specs[4].connections_min, specs[4].connections), (1, 3));
+}
+
+#[test]
+fn asking_still_shares_what_the_default_would_leave_alone() {
+  // The exclusions only decide what silence means.
+  let specs = specs(
+    "services:\n  \
+       web: {target: 'http://localhost:3000'}\n  \
+       delayed: {target: 'http://localhost:4004', startup_delay: 5s, multiplex: true}\n",
+  );
+  assert_eq!(specs[1].multiplex, Multiplex::Asked);
+  assert_eq!(specs[0].multiplex_group, Some(0));
+  assert_eq!(specs[1].multiplex_group, Some(0));
+}
+
+#[test]
+fn a_fixed_single_connection_still_shares_by_default() {
+  // `connections: 1` is one connection, which a shared one is too. This is
+  // also what a client configured with APERIO_CONNECTIONS=1 writes for every
+  // service.
+  let specs = specs(&format!(
+    "defaults: {{connections: 1}}\n{}",
+    plain_services(2)
+  ));
+  assert!(specs.iter().all(|s| s.multiplex_group == Some(0)));
+}
+
+#[test]
+fn default_sharers_past_what_a_server_accepts_take_another_connection() {
+  // A file that started before sharing was the default must not stop starting
+  // because of it: the services that only went along with it spread over as
+  // many connections as it takes. The last one alone is not a group, so it
+  // keeps a connection, and the pool, of its own.
+  let max = service::MAX_MULTIPLEXED_SERVICES;
+  let specs = specs(&plain_services(max + 1));
+  assert!(specs[..max].iter().all(|s| s.multiplex_group == Some(0)));
+  assert_eq!(specs[max].multiplex_group, None);
+  assert_eq!(specs[max].connections, DEFAULT_CONNECTIONS_MAX);
+}
+
+#[test]
+fn a_service_on_a_connection_of_its_own_gets_an_elastic_pool_by_default() {
+  let lone = build_specs(&base_settings(), "base-id").unwrap();
+  assert_eq!(
+    (lone[0].connections_min, lone[0].connections),
+    (1, DEFAULT_CONNECTIONS_MAX)
+  );
+  // The same for one of several that declined to share.
+  let specs = specs(
+    "services:\n  \
+       web: {target: 'http://localhost:3000'}\n  \
+       bulk: {target: 'http://localhost:5000', multiplex: false}\n",
+  );
+  assert_eq!(
+    (specs[1].connections_min, specs[1].connections),
+    (1, DEFAULT_CONNECTIONS_MAX)
   );
 }
 
-/// A file-wide list naming several services in the file is not a cycle.
-///
-/// This is why the fallback cannot be a plain `or_else`, and why dropping the
-/// self-reference alone is not enough either. `depends_on: [a, b]` over
-/// services `a` and `b` would leave each waiting for the other, and
-/// `validate_depends_on` refuses a cycle by exiting, so an ordinary file
-/// would stop the client from starting at all.
 #[test]
-fn a_file_wide_depends_on_naming_every_service_still_starts() {
-  let mut settings = base_settings();
-  settings.depends_on = Some(vec!["a".to_string(), "b".to_string()]);
-  settings.services = vec![
-    ServiceEntry {
-      name: Some("a".to_string()),
-      target: Some("http://localhost:3000".to_string()),
-      ..Default::default()
-    },
-    ServiceEntry {
-      name: Some("b".to_string()),
-      target: Some("http://localhost:4000".to_string()),
-      ..Default::default()
-    },
-  ];
-  let specs = build_specs(&settings, "base-id", false).unwrap();
-  validate_depends_on(&specs).expect("a file-wide list over every service is not a cycle");
+fn a_paced_service_keeps_one_connection_by_default() {
+  // The rate is divided across the pool's ceiling and the server paces each
+  // connection alone, so a default pool of four would carry one transfer at a
+  // quarter of the rate. A budget share paces as surely as a rate of its own.
+  let budget = build_specs(&base_with("bandwidth: 8mbit"), "base-id").unwrap();
+  assert_eq!((budget[0].connections_min, budget[0].connections), (1, 1));
+  assert_eq!(budget[0].bandwidth_bps, Some(1_000_000));
+
+  let own = specs(
+    "services:\n  \
+       web: {target: 'http://localhost:3000', bandwidth: 8mbit}\n",
+  );
+  assert_eq!((own[0].connections_min, own[0].connections), (1, 1));
+  assert_eq!(own[0].bandwidth_bps, Some(1_000_000));
 }
 
-/// A file-wide `depends_on:` must not refuse a file that has an unnamed entry.
-///
-/// `validate_depends_on` rejects a spec that carries a `depends_on` and has no
-/// name, because there is nothing for the others to wait *for*. That rule is
-/// about an entry declaring its own list. Handing the file-wide default to a
-/// nameless entry turns it into the same refusal, so a file that started fine
-/// yesterday stops starting today.
+// ---------------------------------------------------------------------------
+// depends_on belongs to the service that waits
+// ---------------------------------------------------------------------------
+
 #[test]
-fn a_file_wide_depends_on_does_not_refuse_a_file_with_an_unnamed_service() {
-  let mut settings = base_settings();
-  settings.depends_on = Some(vec!["db".to_string()]);
-  settings.services = vec![
-    ServiceEntry {
-      name: Some("db".to_string()),
-      target: Some("http://localhost:5432".to_string()),
-      ..Default::default()
-    },
-    ServiceEntry {
-      // No name, which is legal for a service nothing depends on.
-      target: Some("http://localhost:3000".to_string()),
-      ..Default::default()
-    },
-  ];
-  let specs = build_specs(&settings, "base-id", false).unwrap();
-  validate_depends_on(&specs)
-    .expect("an unnamed entry must not inherit a list it cannot be validated against");
+fn depends_on_is_read_from_the_entry_that_waits() {
+  let specs = specs(
+    "services:\n  \
+       db: {target: 'http://localhost:5432'}\n  \
+       web: {target: 'http://localhost:3000', depends_on: [db]}\n",
+  );
+  assert!(specs[0].depends_on.is_empty());
+  assert_eq!(specs[1].depends_on, vec!["db".to_string()]);
 }
+
+#[test]
+fn depends_on_is_not_a_default() {
+  // A file-wide list meant "everything else waits for these", which needed a
+  // rule for the services it named and another for the ones with no name.
+  // Written on the service that waits, it needs neither.
+  let err = specs_err("defaults: {depends_on: [db]}\nservices:\n  db: {target: '1'}\n");
+  assert!(err.contains("`defaults.depends_on`"), "{err}");
+}
+
+// ---------------------------------------------------------------------------
+// server_side
+// ---------------------------------------------------------------------------
 
 /// `server_side: true` on an entry reaches the spec, carrying its target.
 ///
@@ -323,15 +305,9 @@ fn a_file_wide_depends_on_does_not_refuse_a_file_with_an_unnamed_service() {
 /// a unit test that fails in this crate rather than three processes away.
 #[test]
 fn an_entry_that_asks_to_be_served_from_the_server_carries_its_target() {
-  let mut settings = base_settings();
-  settings.services = vec![ServiceEntry {
-    name: Some("ss".into()),
-    target: Some("http://127.0.0.1:9111".into()),
-    hostname: Some(aperio_config::Hostnames::One("ss.example.com".into())),
-    server_side: Some(true),
-    ..Default::default()
-  }];
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+  let specs = specs(
+    "services:\n  ss: {target: 'http://127.0.0.1:9111', hostname: ss.example.com, server_side: true}\n",
+  );
   assert_eq!(
     specs[0].server_side_target.as_deref(),
     Some("http://127.0.0.1:9111"),
@@ -342,40 +318,25 @@ fn an_entry_that_asks_to_be_served_from_the_server_carries_its_target() {
 /// An entry that does not ask keeps its backend address off the wire.
 #[test]
 fn an_entry_that_does_not_ask_sends_no_target() {
-  let mut settings = base_settings();
-  settings.services = vec![ServiceEntry {
-    name: Some("relayed".into()),
-    target: Some("http://127.0.0.1:9112".into()),
-    hostname: Some(aperio_config::Hostnames::One("relayed.example.com".into())),
-    ..Default::default()
-  }];
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+  let specs = specs(
+    "services:\n  relayed: {target: 'http://127.0.0.1:9112', hostname: relayed.example.com}\n",
+  );
   assert!(specs[0].server_side_target.is_none());
 }
 
-/// The file-wide spelling is the default for every entry that leaves it out.
+/// A default reaches every entry that leaves it out.
 ///
 /// This is the shape a container needs: `APERIO_SERVER_SIDE=1` has no entry to
 /// sit on, so it has to reach each service, and an entry that says
 /// `server_side: false` keeps its hop on the client.
 #[test]
-fn a_file_wide_server_side_reaches_every_entry_that_does_not_opt_out() {
-  let mut settings = base_settings();
-  settings.server_side = true;
-  settings.services = vec![
-    ServiceEntry {
-      name: Some("web".into()),
-      target: Some("http://127.0.0.1:9113".into()),
-      ..Default::default()
-    },
-    ServiceEntry {
-      name: Some("api".into()),
-      target: Some("http://127.0.0.1:9114".into()),
-      server_side: Some(false),
-      ..Default::default()
-    },
-  ];
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+fn a_default_server_side_reaches_every_entry_that_does_not_opt_out() {
+  let specs = specs(
+    "defaults: {server_side: true}\n\
+     services:\n  \
+       web: {target: 'http://127.0.0.1:9113'}\n  \
+       api: {target: 'http://127.0.0.1:9114', server_side: false}\n",
+  );
   assert_eq!(
     specs[0].server_side_target.as_deref(),
     Some("http://127.0.0.1:9113")
@@ -386,13 +347,10 @@ fn a_file_wide_server_side_reaches_every_entry_that_does_not_opt_out() {
   );
 }
 
-/// A file-less client has no entry to carry it, so the top-level value reaches
-/// the one service it runs.
+/// The one service of the command line takes it from `defaults:` too.
 #[test]
-fn the_single_service_shape_takes_server_side_from_the_settings() {
-  let mut settings = base_settings();
-  settings.server_side = true;
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+fn the_single_service_takes_server_side_from_the_defaults() {
+  let specs = build_specs(&base_with("defaults: {server_side: true}"), "base-id").unwrap();
   assert_eq!(
     specs[0].server_side_target.as_deref(),
     Some("http://localhost:3000")
@@ -400,23 +358,43 @@ fn the_single_service_shape_takes_server_side_from_the_settings() {
 }
 
 /// `server_side:` moves the last hop to the server, so it cannot coexist with
-/// `serve:`, whose files are on this machine, at either shape.
+/// `serve:`, whose files are on this machine.
 #[test]
 fn server_side_and_serve_are_refused_together() {
-  let mut settings = base_settings();
-  settings.server_side = true;
-  settings.serve = Some("./site".into());
-  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  let mut settings = base_with("defaults: {server_side: true}");
+  entry(&mut settings).serve = Some("./site".into());
+  let err = build_specs(&settings, "base-id").unwrap_err();
   assert!(err.contains("server_side"), "{err}");
 
-  let mut settings = base_settings();
-  settings.services = vec![ServiceEntry {
-    name: Some("ss".into()),
-    target: Some("http://127.0.0.1:9115".into()),
-    serve: Some("./site".into()),
-    server_side: Some(true),
-    ..Default::default()
-  }];
-  let err = build_specs(&settings, "base-id", false).unwrap_err();
+  let err = specs_err(
+    "services:\n  ss: {target: 'http://127.0.0.1:9115', serve: ./site, server_side: true}\n",
+  );
   assert!(err.contains("server_side"), "{err}");
+}
+
+#[test]
+fn a_resilience_profile_sets_retry_and_the_breaker_and_a_written_value_wins() {
+  let specs = specs(
+    "services:\n\
+     \x20 plain: {target: 'http://localhost:3000'}\n\
+     \x20 off: {target: 'http://localhost:3001', resilience: off}\n\
+     \x20 hard: {target: 'http://localhost:3002', resilience: aggressive}\n\
+     \x20 mixed: {target: 'http://localhost:3003', resilience: aggressive, retry: {attempts: 1}}\n",
+  );
+  let by = |name: &str| {
+    specs
+      .iter()
+      .find(|s| s.name.as_deref() == Some(name))
+      .unwrap()
+  };
+  assert_eq!(by("plain").retry_attempts, 2, "safe is the default");
+  assert_eq!(by("plain").breaker_failures, 0);
+  assert_eq!(by("off").retry_attempts, 1);
+  assert_eq!(by("hard").retry_attempts, 3);
+  assert!(by("hard").breaker_failures > 0);
+  assert_eq!(by("mixed").retry_attempts, 1, "what the entry writes wins");
+  assert!(
+    by("mixed").breaker_failures > 0,
+    "and the rest is still the profile's"
+  );
 }

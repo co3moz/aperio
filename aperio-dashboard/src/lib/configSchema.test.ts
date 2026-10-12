@@ -166,7 +166,7 @@ describe('map-valued fields', () => {
   const withMap: JsonSchema = {
     type: 'object',
     properties: {
-      'bind-tunnels': {
+      'binds': {
         type: ['object', 'null'],
         additionalProperties: { $ref: '#/$defs/BindTunnelEntry' },
         description: 'Peer clients whose tunnels this process binds.',
@@ -182,9 +182,9 @@ describe('map-valued fields', () => {
   }
 
   it('describes a name → object map by the shape of one entry', () => {
-    // Without this the field would be "unsupported" and bind-tunnels would be
+    // Without this the field would be "unsupported" and binds would be
     // the one thing the builder could not configure.
-    const field = fieldsOf(withMap, withMap).find((f) => f.key === 'bind-tunnels')
+    const field = fieldsOf(withMap, withMap).find((f) => f.key === 'binds')
     expect(field?.kind).toBe('objectMap')
     expect(field?.children?.map((c) => c.key)).toEqual(['token', 'psk'])
   })

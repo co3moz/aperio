@@ -265,7 +265,7 @@ async fn an_ejection_follows_the_service_it_belongs_to_not_its_old_index() {
   let state = Arc::new(crate::test_support::test_state_with(cfg));
 
   {
-    let mut handle = crate::test_support::mock_client(None, None, None, None);
+    let mut handle = crate::test_support::mock_client(None, None);
     handle.sole_mut().service_name = Some("api".to_string());
     let mut web = crate::state::ServiceState::newly_declared(Default::default());
     web.service_name = Some("web".to_string());

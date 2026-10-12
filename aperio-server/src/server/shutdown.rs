@@ -93,7 +93,7 @@ pub(crate) fn required_role(path: &str, method: &axum::http::Method) -> crate::s
     // end other admins' sessions, admin only, including the list.
     || path == "/api/sessions"
     || path.starts_with("/api/sessions/")
-    // Organization management is master-super-admin only (checked in the
+    // Organization management is server-admin only (checked in the
     // handlers); require at least Admin at the routing layer.
     || path == "/api/orgs"
     || path.starts_with("/api/orgs/")

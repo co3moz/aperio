@@ -15,7 +15,7 @@ async fn health(state: &Arc<AppState>, headers: HeaderMap) -> (StatusCode, serde
 
 async fn with_one_client() -> Arc<AppState> {
   let state = Arc::new(test_state());
-  let c = mock_client(Some("app.example.com"), None, None, None);
+  let c = mock_client(Some("app.example.com"), None);
   state.clients.write().await.insert("c1".to_string(), c);
   state
 }

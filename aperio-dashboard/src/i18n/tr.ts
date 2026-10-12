@@ -40,12 +40,11 @@ export const tr: Record<string, string> = {
   'Allowed source IPs / CIDRs': "İzinli kaynak IP'ler / CIDR'lar",
   'Announced link capacity; the server paces frames to this client accordingly':
     'Bildirilen hat kapasitesi; sunucu bu istemciye kareleri buna göre gönderir',
-  'Another live connection reports the same client id ({id}), bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
-    "Başka bir canlı bağlantı aynı istemci kimliğini ({id}) bildiriyor, bu kimlikle yapılan bind-tunnels ve failover aramaları belirsizleşir; her istemciye kendi --client-id'sini verin",
+  'Another live connection reports the same client id ({id}), so failover lookups by this id are ambiguous; give each client its own --client-id':
+    "Başka bir canlı bağlantı aynı istemci kimliğini ({id}) bildiriyor, bu yüzden bu kimlikle yapılan failover aramaları belirsizleşir; her istemciye kendi --client-id'sini verin",
   'Aperio Reverse Tunneling System • Server Uptime: {uptime}':
     'Aperio Ters Tünelleme Sistemi • Sunucu Çalışma Süresi: {uptime}',
   Appearance: 'Görünüm',
-  Apply: 'Uygula',
   'Audit Log': 'Denetim Kaydı',
   'Audit generations kept': 'Saklanan denetim nesli',
   'Audit rotation size': 'Denetim rotasyon boyutu',
@@ -71,7 +70,6 @@ export const tr: Record<string, string> = {
   Clear: 'Temizle',
   'Click to inspect & replay': 'İncelemek ve tekrar oynatmak için tıklayın',
   'Client ID': 'İstemci Kimliği',
-  'Client down threshold (s)': 'İstemci kapalı eşiği (sn)',
   'Client is gracefully shutting down': 'İstemci düzgün bir şekilde kapanıyor',
   'Client speaks tunnel protocol v{proto}, server differs, update the older side':
     'İstemci tünel protokolü v{proto} konuşuyor, sunucu farklı, eski tarafı güncelleyin',
@@ -80,8 +78,6 @@ export const tr: Record<string, string> = {
   Clients: 'İstemciler',
   'Clipboard unavailable': 'Pano kullanılamıyor',
   Close: 'Kapat',
-  'Cloudflare shorthand: trust the CF-Connecting-IP header':
-    "Cloudflare kısayolu: CF-Connecting-IP header'ına güven",
   'Connect a new client': 'Yeni istemci bağla',
   'Connected & Active': 'Bağlı ve Aktif',
   'Connected For': 'Bağlantı Süresi',
@@ -102,9 +98,6 @@ export const tr: Record<string, string> = {
   'Create link': 'Bağlantı oluştur',
   'Creates a dynamic tunnel token with a restricted scope.':
     'Kısıtlı kapsamlı dinamik bir tünel token\'ı oluşturur.',
-  'Current value': 'Mevcut değer',
-  'Custom 503 maintenance page (HTML)': 'Özel 503 bakım sayfası (HTML)',
-  'Custom 504 page (HTML)': 'Özel 504 sayfası (HTML)',
   DOWN: 'KAPALI',
   'Daily traffic quota (MB, 0 = no quota, empty = keep)': 'Günlük trafik kotası (MB, 0 = kota yok, boş = koru)',
   'Daily traffic quota (MB, empty = no quota)': 'Günlük trafik kotası (MB, boş = kota yok)',
@@ -137,26 +130,19 @@ export const tr: Record<string, string> = {
     'Etkinleştirme bağlı istemcilere hemen önerilir; kapatma yeni bağlantılara uygulanır',
   'End maintenance': 'Bakımı bitir',
   'End maintenance for {host}': '{host} için bakımı bitir',
-  'Env vars provide the defaults; edits become live, persisted overrides. Master token, HOST/PORT, proxy trust and OIDC stay env-only.':
-    "Varsayılanları ortam değişkenleri sağlar; düzenlemeler canlı, kalıcı geçersiz kılmalara dönüşür. Master token, HOST/PORT, proxy güveni ve OIDC yalnızca ortam değişkeniyle ayarlanır.",
-  'Environment Flags': 'Ortam Değişkenleri',
   Event: 'Olay',
   'Events (comma separated, * = all)': 'Olaylar (virgülle ayrılmış, * = tümü)',
   Expires: 'Sona Erme',
   'Failed to load request detail: {error}': 'İstek detayı yüklenemedi: {error}',
   'Failover max jumps': 'Failover azami atlama',
   'Failover non-idempotent methods': 'Idempotent olmayan metodlarda failover',
-  'Failover window (s)': 'Failover penceresi (sn)',
   'Filter by path/method...': 'Path/metoda göre filtrele...',
   'First lockout duration; doubles per repeat offense': 'İlk kilitleme süresi; her tekrarda ikiye katlanır',
   'Freeze the table while you inspect': 'İncelerken tabloyu dondur',
   'Gateway & Requests': 'Ağ Geçidi ve İstekler',
-  'Gateway timeout (s)': 'Ağ geçidi zaman aşımı (sn)',
   'Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless, they cannot be listed later, they simply expire.':
     "Birine kimlik korumalı bir siteye geçici erişim verin: bağlantı, hostname'e (ve isteğe bağlı path'e) kapsamlı, imzalı ve süreli bir token taşır. Açıldığında bir çerez ayarlar ve temiz URL'ye yönlendirir. Bağlantılar durumsuzdur, sonradan listelenemez, sadece süreleri dolar.",
   'Go to {page}': "{page} sayfasına git",
-  'Header consulted first for the visitor IP (behind CDN chains)':
-    "Ziyaretçi IP'si için önce bakılan header (CDN zincirleri arkasında)",
   Hostname: 'Hostname',
   'Hostname bind (optional)': 'Hostname bağlama (isteğe bağlı)',
   Hostnames: "Hostname'ler",
@@ -166,14 +152,11 @@ export const tr: Record<string, string> = {
     'İstekler istemciyi nasıl seçer ve istek ortasında istemci kaybolursa ne olur.',
   'I have a token': "Token'ım var",
   'IP Address': 'IP Adresi',
-  'Ignore client-declared visitor passwords; the server keeps the gate':
-    'İstemcinin bildirdiği ziyaretçi parolalarını yok say; kapı sunucuda kalır',
   'In-flight failover': 'Devam eden istekte failover',
   'In-flight proxied requests; beyond it visitors get 429': 'Eşzamanlı istek sınırı; aşımında ziyaretçiler 429 alır',
   'Invalid credentials. Please try again.': 'Geçersiz kimlik bilgileri. Lütfen tekrar deneyin.',
   'It stays connected but receives no new requests; in-flight requests complete.':
     'Bağlı kalır ama yeni istek almaz; devam eden istekler tamamlanır.',
-  'JSONL access log file path (empty = disabled)': 'JSONL erişim kaydı dosya yolu (boş = kapalı)',
   'Known events: {events}. Use * to subscribe to everything.':
     'Bilinen olaylar: {events}. Tümüne abone olmak için * kullanın.',
   'Last Ping': 'Son Ping',
@@ -232,7 +215,6 @@ export const tr: Record<string, string> = {
   'Local target (where your service listens)': 'Yerel hedef (servisinizin dinlediği adres)',
   'Login brute-force protection and audit log rotation.':
     'Giriş kaba kuvvet koruması ve denetim kaydı rotasyonu.',
-  'Login lockout base (s)': 'Giriş kilidi taban süresi (sn)',
   'Login lockout threshold': 'Giriş kilidi eşiği',
   Maintenance: 'Bakım',
   'Maintenance Mode': 'Bakım Modu',
@@ -268,21 +250,14 @@ export const tr: Record<string, string> = {
   'No matching commands': 'Eşleşen komut yok',
   'No requests matching filter': 'Filtreyle eşleşen istek yok',
   'No webhooks defined': 'Tanımlı webhook yok',
-  'Not a size, use e.g. 10 MB, 1.5 GB, or plain bytes':
-    'Geçerli bir boyut değil, örn. 10 MB, 1.5 GB veya düz bayt kullanın',
-  'OIDC single sign-on (issuer, client id/secret, redirect URL, scopes)':
-    "OIDC tek oturum açma (issuer, istemci kimliği/gizli anahtarı, yönlendirme URL'si, kapsamlar)",
   'OK / Failed': 'Başarılı / Hatalı',
   Offline: 'Çevrimdışı',
   'Offline (Waiting for Client)': 'Çevrimdışı (İstemci Bekleniyor)',
   Online: 'Çevrimiçi',
-  'Override applied for {id}': '{id} için geçersiz kılma uygulandı',
-  'Override cleared for {id}': '{id} için geçersiz kılma temizlendi',
   Overview: 'Genel Bakış',
   'POST/PATCH may reach a backend twice when enabled': "Etkinken POST/PATCH backend'e iki kez ulaşabilir",
   Password: 'Parola',
   Path: 'Path',
-  'Path bind': 'Path bağlama',
   'Path bind (optional)': 'Path bağlama (isteğe bağlı)',
   Paths: "Path'ler",
   Paused: 'Duraklatıldı',
@@ -292,8 +267,6 @@ export const tr: Record<string, string> = {
   'Per-visitor-IP token bucket for proxied requests.':
     "Proxy'lenen istekler için ziyaretçi IP'si başına token kovası.",
   Prefix: 'Önek',
-  'Prometheus metrics endpoint at /aperio/metrics': "/aperio/metrics'te Prometheus metrik endpoint'i",
-  Purpose: 'Amaç',
   'Queue Status': 'Kuyruk Durumu',
   'Random subdomain pattern': 'Rastgele subdomain deseni',
   'Rate Limiting': 'Hız Sınırlama',
@@ -315,13 +288,9 @@ export const tr: Record<string, string> = {
   'Requests pending reconnection': 'Yeniden bağlantı bekleyen istekler',
   'Requests today': 'Bugünkü istekler',
   'Requests with larger bodies are rejected up front': 'Daha büyük gövdeli istekler baştan reddedilir',
-  'Require hostname bind': 'Hostname bağlama zorunlu',
-  'Reset to env default ({value})': 'Ortam varsayılanına sıfırla ({value})',
-  'Reset {label} to default': '{label} ayarını varsayılana sıfırla',
   'Response Body': 'Yanıt Gövdesi',
   'Response Headers': "Yanıt Header'ları",
   'Response cache': 'Yanıt önbelleği',
-  'Response timeout (s)': 'Yanıt zaman aşımı (sn)',
   'Resume live updates': 'Canlı güncellemelere devam et',
   Revoke: 'İptal et',
   'Revoke token "{name}" ({prefix}…)?': '"{name}" token\'ı ({prefix}…) iptal edilsin mi?',
@@ -335,10 +304,6 @@ export const tr: Record<string, string> = {
   'Search clients…': 'İstemci ara…',
   'Search…': 'Ara…',
   'Security & Audit': 'Güvenlik ve Denetim',
-  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running inside a container, to change one:':
-    'Güvenlik ve başlangıç açısından kritik değişkenler, ele geçirilmiş bir panel oturumu bunları değiştiremesin diye yalnızca ortam değişkeni olarak kalır. Sunucu bir container içinde çalışıyor, birini değiştirmek için:',
-  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running natively, to change one:':
-    'Güvenlik ve başlangıç açısından kritik değişkenler, ele geçirilmiş bir panel oturumu bunları değiştiremesin diye yalnızca ortam değişkeni olarak kalır. Sunucu doğrudan (native) çalışıyor, birini değiştirmek için:',
   'Send this request through the tunnel again': 'Bu isteği tünelden tekrar gönder',
   Sent: 'Gönderilen',
   'Server Settings': 'Sunucu Ayarları',
@@ -347,15 +312,11 @@ export const tr: Record<string, string> = {
   'Service name announced by the client (services: list)':
     'İstemcinin bildirdiği servis adı (services: listesi)',
   Session: 'Oturum',
-  'Session cookies carry the Secure flag (HTTPS only)':
-    'Oturum çerezleri Secure bayrağı taşır (yalnızca HTTPS)',
   'Session expires in {duration}': 'Oturum {duration} sonra sona eriyor',
   'Settings applied and persisted.': 'Ayarlar uygulandı ve kalıcı hale getirildi.',
   'Share Links': 'Paylaşım Bağlantıları',
   'Showing the latest {max} of {total} matching requests.':
     'Eşleşen {total} isteğin son {max} tanesi gösteriliyor.',
-  'Shown for hostnames in maintenance mode': "Bakım modundaki hostname'ler için gösterilir",
-  'Shown when no client answers in time': 'Hiçbir istemci zamanında yanıt vermediğinde gösterilir',
   'Sign In': 'Giriş Yap',
   'Sign in to continue': 'Devam etmek için giriş yapın',
   'Sign out': 'Çıkış yap',
@@ -372,8 +333,8 @@ export const tr: Record<string, string> = {
     'YubiKey, Touch ID / Face ID veya parola yöneticinizle parolasız giriş yapın.',
   'The built-in "aperio" admin signs in with the master token or dashboard password and cannot register passkeys. Create a named user instead.':
     'Yerleşik "aperio" yöneticisi ana token veya panel parolasıyla giriş yapar ve passkey kaydedemez. Bunun yerine adlandırılmış bir kullanıcı oluşturun.',
-  'Passkey sign-in is not configured on this server. Set APERIO_WEBAUTHN_ORIGIN to the dashboard’s public URL to enable it.':
-    'Bu sunucuda passkey girişi yapılandırılmamış. Etkinleştirmek için APERIO_WEBAUTHN_ORIGIN değişkenini panelin genel adresine ayarlayın.',
+  'Passkey sign-in is not configured on this server. Set dashboard.webauthn.origin to the dashboard’s public URL to enable it.':
+    'Bu sunucuda passkey girişi yapılandırılmamış. Etkinleştirmek için dashboard.webauthn.origin ayarını panelin genel adresine ayarlayın.',
   'This browser does not support WebAuthn.':
     'Bu tarayıcı WebAuthn desteklemiyor.',
   'No passkeys registered yet.':
@@ -463,8 +424,6 @@ export const tr: Record<string, string> = {
   Status: 'Durum',
   'Status mix': 'Durum dağılımı',
   'Strategy for picking a client from the routed pool': 'Yönlendirilen havuzdan istemci seçme stratejisi',
-  'Strict multi-tenant mode: unbound clients never receive traffic':
-    'Katı çok kiracılı mod: bağlanmamış istemciler asla trafik almaz',
   Success: 'Başarılı',
   'Sustained requests per second per IP': 'IP başına saniyede sürdürülebilir istek',
   'Switch to dark theme': 'Koyu temaya geç',
@@ -493,7 +452,6 @@ export const tr: Record<string, string> = {
   'Token minted and embedded below. It is scoped to {scope} and will not be shown again after this dialog closes.':
     'Token basıldı ve aşağıya gömüldü. Kapsamı {scope}; bu pencere kapandıktan sonra bir daha gösterilmeyecek.',
   'Token name is required': 'Token adı gerekli',
-  'Token required to scrape the metrics endpoint': "Metrik endpoint'ini okumak için gereken token",
   'Total Requests': 'Toplam İstek',
   'Total memory for cached responses; entries closest to expiry are evicted first':
     'Önbellekli yanıtlar için toplam bellek; süresi en yakın dolacak girdiler önce atılır',
@@ -501,19 +459,17 @@ export const tr: Record<string, string> = {
   Traffic: 'Trafik',
   'Traffic Breakdown': 'Trafik Dağılımı',
   'Traffic by token & hostname': "Token ve hostname'e göre trafik",
-  'Trust X-Forwarded-For / X-Real-IP from a fronting reverse proxy':
-    "Öndeki ters proxy'den gelen X-Forwarded-For / X-Real-IP'ye güven",
-  'Trusted proxy/CDN egress IPs or CIDRs used to resolve the real visitor IP':
-    "Gerçek ziyaretçi IP'sini çözmek için güvenilen proxy/CDN çıkış IP'leri veya CIDR'ları",
   'Tunnel Clients': 'Tünel İstemcileri',
   'Tunnel compression': 'Tünel sıkıştırması',
   'Tunnels & Domains': 'Tüneller ve Domainler',
   'Type a command…': 'Bir komut yazın…',
   'Unsaved changes': 'Kaydedilmemiş değişiklikler',
   Username: 'Kullanıcı adı',
-  Variable: 'Değişken',
   'Visitor Experience': 'Ziyaretçi Deneyimi',
-  'Visitor password': 'Ziyaretçi parolası',
+  'Default access':
+    'Varsayılan erişim',
+  'deny, public, or a gate in front of every route nothing else declares':
+    'deny, public ya da başka hiçbir şeyin bildirmediği her rotanın önündeki kapı',
   'Wait for a client to (re)connect before failing a request':
     'İsteği başarısız saymadan önce istemcinin (yeniden) bağlanması beklenir',
   'Wait for a client to answer a dispatched request': 'Gönderilen isteğe istemcinin yanıtı beklenir',
@@ -534,23 +490,18 @@ export const tr: Record<string, string> = {
   'IP filter': 'IP filtresi',
   'Only these visitor IPs/CIDRs may reach this service: {ips}':
     'Bu servise yalnızca şu ziyaretçi IP/CIDR adresleri erişebilir: {ips}',
-  'e.g. 10 MB, 1 GB, 65536': 'örn. 10 MB, 1 GB, 65536',
   'e.g. example.com, *.example.com or *-test.example.com, * becomes a random label; empty = disabled':
     'örn. example.com, *.example.com veya *-test.example.com, * rastgele bir etikete dönüşür; boş = kapalı',
   'master token': 'master token',
   'never expires': 'süresiz',
-  override: 'geçersiz kılındı',
   public: 'herkese açık',
   'public ok': 'herkese açık olabilir',
   'expiring soon': 'süresi dolmak üzere',
-  'read-only': 'salt okunur',
   'shared secret for X-Aperio-Signature': 'X-Aperio-Signature için ortak gizli anahtar',
   signed: 'imzalı',
   standby: 'yedek',
   token: 'token',
   'token name (e.g. staging-box)': 'token adı (örn. staging-box)',
-  'user:password gate in front of all proxied traffic; empty = disabled':
-    "tüm proxy trafiğinin önünde user:password kapısı; boş = kapalı",
   'valid until {date}': '{date} tarihine kadar geçerli',
   '{count} client(s) disabled': '{count} istemci devre dışı bırakıldı',
   '{count} client(s) enabled': '{count} istemci etkinleştirildi',
@@ -679,18 +630,12 @@ export const tr: Record<string, string> = {
   'Requests in real time, table or console': 'Gerçek zamanlı istekler, tablo veya konsol',
   'no client': 'istemci yok',
   'offline': 'çevrimdışı',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, dashed nodes for token-granted routes no client currently serves, and amber nodes for another machine dialing a tunnel with --bind-tunnels (identified by the address it dialed from, so several processes behind one address are one node). Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Her rotanın hedefine nasıl ulaştığı: tünel istemcileri ve arka uçları (canlı istek hızlarıyla), sunucunun istemcisiz yönlendirmesi, statik yönlendirmeler/yanıtlar ve genel expose portları, ve hiçbir istemcinin hizmet vermediği token-verilmiş rotalar için kesikli düğümler. Yeşil = sağlıklı, sarı = boşaltılıyor veya arka uç kontrolleri başarısız, kırmızı = arızalı, devre dışı, çıkarıldı veya hizmet veren istemci yok. --bind-tunnels ile bir tüneli çeviren başka bir makine sarı bir düğüm olarak çizilir; çevirdiği adresle tanımlanır, yani tek adresin arkasındaki birden çok süreç tek düğüm görünür.',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, dashed nodes for token-granted routes no client currently serves, and amber nodes for another machine dialing a tunnel with aperio-client bind (identified by the address it dialed from, so several processes behind one address are one node). Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': 'Her rotanın hedefine nasıl ulaştığı: tünel istemcileri ve arka uçları (canlı istek hızlarıyla), sunucunun istemcisiz yönlendirmesi, statik yönlendirmeler/yanıtlar ve genel expose portları, ve hiçbir istemcinin hizmet vermediği token-verilmiş rotalar için kesikli düğümler. Yeşil = sağlıklı, sarı = boşaltılıyor veya arka uç kontrolleri başarısız, kırmızı = arızalı, devre dışı, çıkarıldı veya hizmet veren istemci yok. aperio-client bind ile bir tüneli çeviren başka bir makine sarı bir düğüm olarak çizilir; çevirdiği adresle tanımlanır, yani tek adresin arkasındaki birden çok süreç tek düğüm görünür.',
   'ejected': 'çıkarıldı',
   'draining': 'boşaltılıyor',
   'cache off': 'önbellek kapalı',
-  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect, enable the server cache or drop the flag': 'Bu servis önbelleğe almayı açtı (cache: true) ama sunucu yanıt önbelleği kapalı (APERIO_CACHE off), bu yüzden ayarın etkisi yok, sunucu önbelleğini aç veya bayrağı kaldır.',
-  'Add hostname': 'Hostname ekle',
-  'Hostname binds': 'Hostname bağlamaları',
-  'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
-    "Bu bağlantı için geçici bağlamalar: ayarlıyken buraya yalnızca bu hostname'ler yönlenir. Taşımak istediğiniz satırı düzenleyin, diğerlerini olduğu gibi bırakın; boş satırlar atılır, hepsini boşaltmak geçersiz kılmayı temizler. Yeniden bağlantılarda hiçbir şey kalıcı olmaz.",
-  'declared by the client': 'istemcinin kendi tanımladığı',
-  'granted by the token': "token'ın verdiği",
-  'random subdomain, assigned by the server': 'rastgele subdomain, sunucunun atadığı',
+  'This service opted into caching (cache.enabled) but the server response cache is disabled (cache.enabled off on the server), so the opt-in has no effect; enable the server cache or drop the setting':
+    'Bu servis önbelleği açtı (cache.enabled) ama sunucunun yanıt önbelleği kapalı (sunucuda cache.enabled kapalı), bu yüzden bir etkisi yok; sunucu önbelleğini açın ya da ayarı kaldırın',
   '{count} more hostname(s) routed here': 'buraya yönlenen {count} hostname daha',
   'Configuration of {label}': 'Yapılandırma: {label}',
   'What this connection announces over its heartbeat, plus what the server applies on top. Settings a client never announces (its target, timeouts, header rules, health probes) cannot be shown here.':
@@ -702,9 +647,7 @@ export const tr: Record<string, string> = {
   'applied by the server': 'sunucunun uyguladığı',
   "Show this connection's effective configuration": 'Bu bağlantının geçerli yapılandırmasını göster',
   'Config Builder': 'Yapılandırma Oluşturucu',
-  'Assemble an aperio.yaml or aperio-server.yaml from the settings this server understands, or open an existing one and edit it.': 'Bu sunucunun anladığı ayarlardan bir aperio.yaml veya aperio-server.yaml oluşturun ya da mevcut bir dosyayı açıp düzenleyin.',
   'Which file?': 'Hangi dosya?',
-  'The client file configures a tunnel client and what it exposes; the server file configures the Aperio server itself.': 'İstemci dosyası bir tünel istemcisini ve yayınladıklarını, sunucu dosyası ise Aperio sunucusunun kendisini yapılandırır.',
   'Empty fields are left out of the file entirely, so the server keeps its own default.': 'Boş bırakılan alanlar dosyaya hiç yazılmaz, böylece sunucu kendi varsayılanını korur.',
   'Import YAML': 'YAML içe aktar',
   'Export YAML': 'YAML dışa aktar',
@@ -761,7 +704,7 @@ export const tr: Record<string, string> = {
   'Memory (RSS)': 'Bellek (RSS)',
   'New admin key': 'Yeni yönetici anahtarı',
   'No admin keys yet': 'Henüz yönetici anahtarı yok',
-  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have APERIO_SCALING enabled.': 'Otomatik ölçekleme kaydı yok. Bir istemci scaling: bloğu tanımlayarak kayıt oluşturur ve sunucuda APERIO_SCALING etkin olmalıdır.',
+  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have scaling.enabled on.': 'Otomatik ölçekleme kaydı yok. Bir istemci scaling: bloğu tanımlayarak kayıt oluşturur ve sunucuda scaling.enabled etkin olmalıdır.',
   'No cache data yet': 'Henüz önbellek verisi yok',
   'No hostname restriction': 'Hostname kısıtlaması yok',
   'No self-health data yet': 'Henüz öz-sağlık verisi yok',
@@ -782,7 +725,8 @@ export const tr: Record<string, string> = {
   'Server self-health': 'Sunucu öz-sağlığı',
   'Server-side GET cache occupancy and hit rate.': 'Sunucu tarafı GET önbelleğinin doluluğu ve isabet oranı.',
   'Services that ask for capacity when they need it. A request for a hostname nothing is serving triggers a cold start instead of a 504, and a saturated pool asks for one more instance. Declared by the client in its scaling: block; scaling back in is the client’s own idle_timeout.': "İhtiyaç duyduklarında kapasite isteyen servisler. Hiçbir şeyin sunmadığı bir hostname'e gelen istek 504 yerine soğuk başlatma tetikler, doymuş bir havuz ise bir örnek daha ister. İstemci bunu scaling: bloğunda tanımlar; geri ölçeklenme istemcinin kendi idle_timeout değeriyle olur.",
-  'Set max_concurrent on the client to make utilization measurable.': 'Kullanımın ölçülebilmesi için istemcide max_concurrent ayarlayın.',
+  'Set limits.concurrent_requests on the client to make utilization measurable.':
+    'Kullanımın ölçülebilmesi için istemcide limits.concurrent_requests ayarlayın.',
   'Sign in at /aperio/oidc/login?org={id}. Leave issuer empty to clear.': '/aperio/oidc/login?org={id} adresinden giriş yapın. Temizlemek için issuer alanını boş bırakın.',
   'Size': 'Boyut',
   'State': 'Durum',
@@ -800,7 +744,6 @@ export const tr: Record<string, string> = {
   'not measurable': 'ölçülemiyor',
   'scale to zero': 'sıfıra ölçekle',
   '{inflight} of {capacity} concurrent slots in use; scales out above {target}%.': '{capacity} eşzamanlı yuvadan {inflight} tanesi kullanımda; %{target} üzerinde ölçeklenir.',
-  'Must be at least {min}': 'En az {min} olmalı',
   'Need more than this? ': 'Daha fazlası mı gerekiyor? ',
   'Open the config builder': 'Yapılandırma oluşturucuyu aç',
   ' to set every option, add services and tunnels, and export the file.': ', tüm seçenekleri ayarlayın, servis ve tünel ekleyin, dosyayı dışa aktarın.',
@@ -815,7 +758,6 @@ export const tr: Record<string, string> = {
   'configured': 'yapılandırıldı',
   'This section has no fixed shape, so it is edited as YAML. Leave it empty to remove it.': 'Bu bölümün sabit bir şekli yok, bu yüzden YAML olarak düzenlenir. Kaldırmak için boş bırakın.',
   'Configures a tunnel client and the backends it exposes.': 'Bir tünel istemcisini ve yayınladığı arka uçları yapılandırır.',
-  'Configures the Aperio server itself.': 'Aperio sunucusunun kendisini yapılandırır.',
   'Bind': 'Bağla',
   'Client': 'İstemci',
   'Copy config': 'Yapılandırmayı kopyala',
@@ -830,19 +772,11 @@ export const tr: Record<string, string> = {
   'Services': 'Servisler',
   'Each entry is one exposed backend with its own bind and tuning.': 'Her girdi, kendi bağı ve ayarları olan bir yayınlanmış arka uçtur.',
   'Private TCP/UDP services a peer client can bind locally, and the peers this client binds.': 'Başka bir istemcinin yerel olarak bağlayabileceği özel TCP/UDP servisleri ve bu istemcinin bağladığı eşler.',
-  'Access control': 'Erişim denetimi',
-  'Who may reach the exposed service.': 'Yayınlanan servise kimlerin erişebileceği.',
   'Capacity & pacing': 'Kapasite ve hız',
   'How much work this client accepts and how fast the server may push to it.': 'Bu istemcinin ne kadar iş kabul ettiği ve sunucunun ona ne hızda gönderebileceği.',
-  'Backend health': 'Arka uç sağlığı',
-  'Probing the backend so an unhealthy one leaves the routing pool without dropping the tunnel. Set here it applies to every entry under services:, and any entry may override it.': 'Arka ucu yoklar, böylece sağlıksız olan tüneli düşürmeden yönlendirme havuzundan çıkar. Burada ayarlanınca services: altındaki her girdi için geçerlidir ve her girdi bunu ezebilir.',
   'Asking for capacity when it is needed, and retiring when idle.': 'Gerektiğinde kapasite istemek, boşta kalınca kapanmak.',
-  'Response handling': 'Yanıt işleme',
-  'Caching, resilience, and the headers this client rewrites.': "Önbellekleme, dayanıklılık ve bu istemcinin yeniden yazdığı header'lar.",
   'Logging': 'Günlükleme',
   'What this client writes and in which format.': 'Bu istemcinin ne yazdığı ve hangi biçimde yazdığı.',
-  'Core': 'Çekirdek',
-  'Identity, listening address, and where state lives.': 'Kimlik, dinleme adresi ve durumun nerede tutulduğu.',
   'Routing & load balancing': 'Yönlendirme ve yük dengeleme',
   'How a request finds a client, and which clients are eligible.': 'Bir isteğin istemciyi nasıl bulduğu ve hangi istemcilerin uygun olduğu.',
   'Failover & retry': 'Yük devretme ve yeniden deneme',
@@ -850,8 +784,16 @@ export const tr: Record<string, string> = {
   'Limits & protection': 'Sınırlar ve koruma',
   'Ceilings on bodies, concurrency, tunnels, and per-visitor rate.': 'Gövde boyutu, eşzamanlılık, tünel sayısı ve ziyaretçi başına hız üst sınırları.',
   'The server-side GET cache for services that opt in.': 'Katılmayı seçen servisler için sunucu tarafındaki GET önbelleği.',
-  'Stream flow control': 'Akış denetimi',
-  'How much of a slow visitor’s download is buffered before the client pauses.': 'Yavaş bir ziyaretçinin indirmesinin ne kadarı, istemci duraklatılmadan önce tamponlanır.',
+  'Flow control & compression': 'Akış denetimi ve sıkıştırma',
+  'Process': 'Süreç',
+  'Files this one includes, the pid file, and how long a reload lets requests finish.': 'Dahil ettiği dosyalar, PID dosyası ve yeniden yüklemenin isteklerin bitmesi için ne kadar beklediği.',
+  'Telemetry bridge': 'Telemetri köprüsü',
+  'Carrying OpenTelemetry exports from this machine to the server’s collector over the tunnel.': 'Bu makinedeki OpenTelemetry çıktılarını tünel üzerinden sunucunun toplayıcısına taşır.',
+  'Checks the server asks for': 'Sunucunun istediği denetimler',
+  'Whether this client answers a forward check the server’s own gate wrote, from this client’s network.': 'Bu istemcinin, sunucunun kendi kapısının yazdığı bir forward denetimine kendi ağından yanıt verip vermediği.',
+  'Advanced features': 'Gelişmiş özellikler',
+  'Features most deployments never turn on. Nothing here is off-limits: it is listed last so the settings everyone decides come first.': 'Çoğu kurulumun hiç açmadığı özellikler. Hiçbiri kısıtlı değil: herkesin karar verdiği ayarlar önce gelsin diye en sona konuldu.',
+  'Stream flow control and tunnel compression. The defaults suit almost every deployment.': 'Akış denetimi ve tünel sıkıştırması. Varsayılanlar neredeyse her kurulum için uygundur.',
   'Authentication & dashboard': 'Kimlik doğrulama ve panel',
   'Who may log in, how, and what the dashboard offers.': 'Kimin, nasıl giriş yapabileceği ve panelin neler sunduğu.',
   'Proxy trust': 'Proxy güveni',
@@ -862,10 +804,11 @@ export const tr: Record<string, string> = {
   'Where the server may call out to, and honouring client scaling blocks.': 'Sunucunun nereye çağrı yapabileceği ve istemcilerin ölçekleme bloklarına uyulması.',
   'Edge integration': 'Edge entegrasyonu',
   'Publishing the live hostnames to a reverse proxy in front of this server.': 'Bu sunucunun önündeki ters proxy’ye canlı hostname’leri yayınlar.',
-  'Pages & headers': "Sayfalar ve header'lar",
-  'What visitors see on an error, and server-wide header rewriting.': 'Hata durumunda ziyaretçilerin ne gördüğü ve sunucu genelinde header yeniden yazımı.',
+  'Sites':
+    'Siteler',
+  'What the server does for a hostname by itself: answers, policy, fallbacks, pages and maintenance windows.':
+    "Sunucunun bir hostname için kendi başına yaptıkları: yanıtlar, politikalar, fallback'ler, sayfalar ve bakım pencereleri.",
   'Process & maintenance': 'Süreç ve bakım',
-  'Startup behaviour, backups, and the public expose ports.': 'Başlangıç davranışı, yedekler ve herkese açık expose portları.',
   'Settings': 'Ayarlar',
   'Configure this server, its organizations and who may sign in.': 'Bu sunucuyu, organizasyonlarını ve kimlerin giriş yapabileceğini yapılandırın.',
   'Server, organizations and users': 'Sunucu, organizasyonlar ve kullanıcılar',
@@ -889,7 +832,6 @@ export const tr: Record<string, string> = {
   'Settings & Tools': 'Ayarlar ve Araçlar',
   'Noindex preview hosts': 'Önizleme hostlarında noindex',
   'Random-subdomain services answer with X-Robots-Tag: noindex and a disallow-all robots.txt': "Rastgele subdomain'li servisler X-Robots-Tag: noindex ve her şeyi yasaklayan bir robots.txt ile yanıt verir",
-  'Serve-stale window (s)': 'Bayat yanıt penceresi (sn)',
   'How long an expired entry may still answer while a resilient service has no healthy client; 0 = off': 'Dayanıklı bir servisin sağlıklı istemcisi yokken süresi dolmuş bir kaydın ne kadar süre daha yanıt verebileceği; 0 = kapalı',
   'Stream Flow Control': 'Akış Denetimi',
   'Pause above': 'Şunun üstünde duraklat',
@@ -912,8 +854,8 @@ export const tr: Record<string, string> = {
   'TOTP QR code': 'TOTP QR kodu',
   'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.': 'Yavaş bir ziyaretçinin indirmesinin ne kadarını sunucunun, istemciden üretimi duraklatmasını istemeden önce tamponladığı.',
   'Service defaults': 'Servis varsayılanları',
-  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here, they only ever worked without a services: list, and appear only for a file that already writes them.': 'services: altındaki her girdiye uygulanır ve girdi başına geçersiz kılınabilir. Üst düzeyde tek bir arka ucu adlandıran anahtarlar burada kullanımdan kaldırıldı, zaten yalnızca services: listesi yokken işe yarıyorlardı, ve yalnızca bunları hâlihazırda yazan bir dosya için görünürler.',
-  '`{keys}` name one service at the top level, and this file also has a services: list, the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` üst düzeyde tek bir servisi adlandırıyor ve bu dosyada ayrıca bir services: listesi var, istemci listeyi okur, bunları yok sayar. Ait oldukları girdinin içine taşıyın.',
+  'What every service gets unless its own entry says otherwise. The environment and the command line write here too.':
+    'Kendi girdisi aksini söylemedikçe her servisin aldığı değerler. Ortam değişkenleri ve komut satırı da buraya yazar.',
   'Every healthy client of the route takes requests in turn, evenly. The default, and what you want when the clients are interchangeable.': 'Rotanın sağlıklı her istemcisi sırayla ve eşit olarak istek alır. Varsayılan; istemciler birbirinin yerine geçebiliyorsa istediğiniz budur.',
   'Only the clients on the lowest priority tier receive traffic; a higher tier takes over when every client above it is unhealthy, draining or gone, and hands back when one returns. Tiers come from each client’s priority (0 = primary).': 'Yalnızca en düşük öncelik katmanındaki istemciler trafik alır; üstündeki her istemci sağlıksız, boşaltılıyor ya da yokken bir üst katman devralır, biri döndüğünde geri verir. Katmanlar her istemcinin priority değerinden gelir (0 = birincil).',
   'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.': 'Bir ziyaretçi, kendisine ilk hizmet veren istemciyi o istemci sağlıklı kaldığı sürece korur. Ziyaretçi başına durumu bellekte tutan arka uçlar için; havuz istek başına değil ziyaretçi başına dağıtır.',
@@ -940,7 +882,8 @@ export const tr: Record<string, string> = {
   'Messages': 'Mesajlar',
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'Bu client\'ın dinlediği topic\'ler ve aynı makinedeki bir uygulamanın gönderip almak için bağlandığı yer.',
   'Cold start & scale-out records': 'Soğuk başlatma ve ölçek genişletme kayıtları',
-  'Private services reachable with --bind-tunnels': '--bind-tunnels ile erişilen özel servisler',
+  'Private services reachable with aperio-client bind':
+    'aperio-client bind ile erişilen özel servisler',
   'Display name': 'Görünen ad',
   'Handle': 'Kimlik',
   'Only what it is called. The handle {handle} is what addresses it and never changes.': 'Yalnızca nasıl anıldığı. Onu adresleyen {handle} kimliği hiç değişmez.',
@@ -951,23 +894,16 @@ export const tr: Record<string, string> = {
   'Parallel connections per service (0 = server default, empty = keep)': 'Servis başına paralel bağlantı (0 = sunucu varsayılanı, boş = değiştirme)',
   'Parallel connections per service (empty = server default)': 'Servis başına paralel bağlantı (boş = sunucu varsayılanı)',
   'Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.': 'Ayrıntı yok: yalnızca son istekler kaydedilir ve capture: false olan bir servis (ya da inspector\'ı kapalı bir sunucu) hiç kaydedilmez.',
-  'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.': 'Bu servis kayda izin veriyor ama sunucuda istek inspector\'ı kapalı (APERIO_INSPECTOR=0), bu yüzden burada hiçbir şey incelenemez veya tekrar oynatılamaz.',
+  'This service allows capture but the server has the request inspector switched off (inspector.enabled: false), so nothing here can be inspected or replayed.': 'Bu servis kayda izin veriyor ama sunucuda istek inspector\'ı kapalı (inspector.enabled: false), bu yüzden burada hiçbir şey incelenemez veya tekrar oynatılamaz.',
   'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': 'Bu servis istek inspector\'ı için kaydedilmiyor (aperio.yaml içinde capture: false), istekleri incelenemez ve tekrar oynatılamaz. Canlı trafik ve istatistikler etkilenmez.',
   'inspector off': 'inspector kapalı',
   'no capture': 'kayıt yok',
-  '{count} setting(s) here differ from what the server started with': 'Burada {count} ayar, sunucunun başladığı değerden farklı',
-  'from file': 'dosyadan',
-  'aperio-server.yaml sets this, and the file wins. Edit it there: a change made here would be refused, because a stored override the file contradicts is exactly the invisible state this avoids.': 'Bunu aperio-server.yaml belirliyor ve dosya kazanıyor. Oradan değiştir: burada yapılan değişiklik reddedilir, çünkü dosyanın çeliştiği kayıtlı bir override tam da bunun engellediği görünmez durumdur.',
-  '{count} setting(s) are stored overrides, not what your config file says': '{count} ayar kayıtlı override, config dosyanızın söylediği değil',
-  'They apply immediately and survive a restart, but they live in the server’s own store, so aperio-server.yaml still describes a different server than the one running. Put them in the file to make them the deployment’s: the file wins, and the override behind each of these keys is dropped at the next start.': 'Hemen uygulanır ve yeniden başlatmayı da atlatırlar, ancak sunucunun kendi deposunda dururlar, dolayısıyla aperio-server.yaml hâlâ çalışandan başka bir sunucuyu anlatır. Dağıtımın parçası olmaları için dosyaya yazın: dosya kazanır ve bu anahtarların ardındaki override bir sonraki başlangıçta düşer.',
-  'Copy as YAML': 'YAML olarak kopyala',
   'A logical JSON dump, a failsafe for upgrades and migrations. Choose what travels: the configuration that rebuilds a deployment is on by default, the history is there if you want it. Sessions and the audit log are never exported.': 'Yükseltme ve taşımalar için bir güvence olan mantıksal JSON dökümü. Neyin taşınacağını seçin: dağıtımı yeniden kuran yapılandırma varsayılan olarak açık, geçmiş isterseniz orada. Oturumlar ve denetim kaydı hiçbir zaman dışa aktarılmaz.',
   'An import applies whatever sections the file holds, so it is the export that decides.': 'İçe aktarma, dosyada hangi bölümler varsa onları uygular; yani kararı dışa aktarma verir.',
   'Importing replaces every section the file contains, on this server. Continue?': 'İçe aktarma, dosyadaki her bölümü bu sunucuda değiştirir. Devam edilsin mi?',
   'Organizations are not selected, so only the master organization travels: {sections} belonging to a tenant are left out, its statistics with them. A row whose organization does not exist on the target server would be an orphan.': 'Organizasyonlar seçili değil, bu yüzden yalnızca master organizasyon taşınır: bir kiracıya ait {sections} dışarıda kalır, istatistikleri de onunla birlikte. Organizasyonu hedef sunucuda bulunmayan bir kayıt öksüz kalırdı.',
   'Access tokens': 'Erişim tokenları',
   'Dashboard users': 'Panel kullanıcıları',
-  'Settings overrides': 'Ayar override’ları',
   'Statistics': 'İstatistikler',
   'Uptime history': 'Çalışma süresi geçmişi',
   'Webhook inbox': 'Webhook gelen kutusu',
@@ -977,7 +913,6 @@ export const tr: Record<string, string> = {
   'Password hashes, TOTP secrets, passkeys': 'Parola hashleri, TOTP sırları, geçiş anahtarları',
   'Tenants, quotas and hostname allowlists': 'Kiracılar, kotalar ve hostname izin listeleri',
   'Cold-start and scale-out records': 'Soğuk başlatma ve ölçeklenme kayıtları',
-  'Server settings changed from this dashboard': 'Bu panelden değiştirilen sunucu ayarları',
   'Lifetime counters and the daily, weekly, monthly and yearly buckets': 'Ömür boyu sayaçlar ile günlük, haftalık, aylık ve yıllık kovalar',
   'Per-client and per-hostname availability by day': 'İstemci ve hostname başına günlük erişilebilirlik',
   'Captured inbound webhook payloads': 'Yakalanan gelen webhook payloadları',
@@ -985,8 +920,6 @@ export const tr: Record<string, string> = {
   'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart. Use *.example.com for every subdomain of a domain, and list the domain itself too if you want it as well.': "Bakımda hostname yok. Listelenen bir hostname'in ziyaretçileri, istemcileri bağlı kalırken 503 sayfası görür; sunucu yeniden başlatılınca temizlenir. Bir domainin tüm subdomainleri için *.example.com kullanın; domainin kendisini de istiyorsanız onu da ekleyin.",
   'app.example.com, *.example.com, *-pi.example.com, or *': 'app.example.com, *.example.com, *-pi.example.com veya *',
   'every subdomain': 'tüm subdomainler',
-  'Not in the snippet: {settings}. The file has no spelling for these, its 503/504 keys take a path where this holds the HTML itself, so they stay dashboard overrides.': 'Snippet’te yok: {settings}. Dosyanın bunlar için bir yazımı yok, 503/504 anahtarları bir dosya yolu alıyor, buradaysa HTML’in kendisi duruyor; dolayısıyla panel override’ı olarak kalıyorlar.',
-  '{settings}: the file key is read at startup, so this one takes a restart rather than applying on reload.': '{settings}: dosyadaki anahtar başlangıçta okunuyor, yani bu yeniden yükleme ile değil ancak yeniden başlatmayla uygulanır.',
   'Maintenance window': 'Bakım penceresi',
   'lifts in {duration}': '{duration} sonra kalkıyor',
   'reason, shown on the 503 page (optional)': 'sebep, 503 sayfasında görünür (isteğe bağlı)',
@@ -1066,42 +999,44 @@ export const tr: Record<string, string> = {
     "503: {actor} tarafından konulan bir bakım işareti bu hostname'i kapsıyor ({reason}), unix {until} anında kalkıyor",
   'no maintenance flag covers this hostname':
     "bu hostname'i kapsayan bir bakım işareti yok",
-  'no routes: rules configured':
-    'yapılandırılmış routes: kuralı yok',
-  '{status}: a routes: rule answers this path':
-    "{status}: bir routes: kuralı bu path'i yanıtlıyor",
-  '{status}: a routes: rule answers this path, to {location}':
-    "{status}: bir routes: kuralı bu path'i {location} adresine yönlendirerek yanıtlıyor",
-  'no routes: rule matches this hostname and path':
-    'bu hostname ve path ile eşleşen bir routes: kuralı yok',
+  'no sites configured':
+    'yapılandırılmış site yok',
+  '{status}: a site answers this path by itself':
+    "{status}: bir site bu path'i kendisi yanıtlıyor",
+  '{status}: a site answers this path by itself, to {location}':
+    "{status}: bir site bu path'i {location} adresine yönlendirerek kendisi yanıtlıyor",
+  'no site answers this hostname and path by itself':
+    "bu hostname ve path'i kendisi yanıtlayan bir site yok",
   '200: preview_noindex answers /robots.txt itself, so this path never reaches a client':
     "200: /robots.txt'i preview_noindex kendisi yanıtlıyor, bu yüzden bu path hiçbir istemciye ulaşmaz",
-  'no waf: rules configured':
-    'yapılandırılmış waf: kuralı yok',
-  '403: blocked by a waf: rule ({reason})':
-    '403: bir waf: kuralı engelledi ({reason})',
-  'no waf: rule matches this method and path (header and body rules need a real request)':
-    'bu metod ve path ile eşleşen bir waf: kuralı yok (header ve gövde kuralları gerçek bir istek gerektirir)',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}); this dry run does not spend from it':
-    "bir rate_limits: kuralı bu path'i kapsıyor ({rps} rps, burst {burst}); bu deneme çalıştırması ondan harcamaz",
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it':
-    "bir rate_limits: kuralı bu path'i kapsıyor ({rps} rps, burst {burst}, yalnızca {methods}); bu deneme çalıştırması ondan harcamaz",
-  'no rate_limits: rule covers this path':
-    "bu path'i kapsayan bir rate_limits: kuralı yok",
+  'no site has waf rules':
+    'waf kuralı olan bir site yok',
+  '403: blocked by a waf rule ({reason})':
+    '403: bir waf kuralı engelledi ({reason})',
+  'no waf rule matches this method and path (header and body rules need a real request)':
+    'bu metod ve path ile eşleşen bir waf kuralı yok (header ve gövde kuralları gerçek bir istek gerektirir)',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}); this dry run does not spend from it":
+    "bir site'ın rate_limit'i bu path'i kapsıyor ({rps} rps, burst {burst}); bu deneme çalıştırması ondan harcamaz",
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it":
+    "bir site'ın rate_limit'i bu path'i kapsıyor ({rps} rps, burst {burst}, yalnızca {methods}); bu deneme çalıştırması ondan harcamaz",
+  "no site's rate_limit covers this path":
+    "bu path'i kapsayan bir site rate_limit'i yok",
   "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
     'ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): hizmeti veren istemci bu rota için kendi ziyaretçi parolasını bildirdi, bu sunucunun kendi kapısının önüne geçer',
-  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
-    'ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): sunucunun ziyaretçi kapısı açık ve OIDC yapılandırılmış',
   "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set":
     'ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): sunucunun ziyaretçi parolası ayarlı',
-  'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors':
-    'ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): ziyaretçiler için OIDC yapılandırılmış',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's gate asks for a single sign-on at an identity provider":
+    'ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): sunucunun kapısı bir kimlik sağlayıcısında tek oturum açma istiyor',
   'this hostname is served without a visitor gate':
     'bu hostname ziyaretçi kapısı olmadan sunuluyor',
+  "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare":
+    "ziyaretçiler bu istek bir istemciye ulaşmadan önce oturum açmalı (ya da bir paylaşım bağlantısı taşımalı): bir site'ın access ayarı bu rotayı koruyor, hizmeti veren istemcilerin bildirdiklerinin önüne geçer",
+  "a site's access opens this route to anyone, over what the clients serving it declare":
+    "bir site'ın access ayarı bu rotayı herkese açıyor, hizmeti veren istemcilerin bildirdiklerinin önüne geçer",
   "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization":
     'Ziyaretçiler bu istek bir istemciye ulaşmadan önce giriş yapmalı (ya da bir paylaşım bağlantısı taşımalı): bu rota bir Aperio girişi istiyor, bu hostname’in organizasyonuna erişen bir panel oturumu',
-  'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
-    'hiçbir şey bu rotayı erişilebilir ilan etmiyor ve `default_access` `deny`, bu yüzden yayınlanmıyor: Aperio oturumu taşımayan bir ziyaretçi, sahipsiz bir hostname icin verilen cevabın aynısını alır, oturum açmış bir Aperio kullanıcısı ise yine erişir',
+  "nothing declares this route reachable and the server's `access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it":
+    'hiçbir şey bu rotayı erişilebilir ilan etmiyor ve sunucunun `access` ayarı `deny`, bu yüzden yayınlanmıyor: Aperio oturumu taşımayan bir ziyaretçi, sahipsiz bir hostname için verilen cevabın aynısını alır, oturum açmış bir Aperio kullanıcısı ise yine erişir',
   '{count} client(s) would take it: {clients}':
     '{count} istemci bunu alırdı: {clients}',
   'no connected client serves this hostname and path':
@@ -1110,10 +1045,10 @@ export const tr: Record<string, string> = {
     "bu hostname ve path'i sunan bağlı bir istemci yok, ancak {count} tanesi sunabilirdi: {ineligible}",
   'an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once':
     'bu bağ için bir otomatik ölçekleme kaydı hazır, bu yüzden istek hemen yanıtlanmak yerine kapasite istenirken bekletilirdi',
-  '{status}: the fallbacks: rule for this hostname redirects to {url} instead of a 504':
-    '{status}: bu hostname için fallbacks: kuralı 504 yerine {url} adresine yönlendiriyor',
-  '504: nothing serves this route, and no fallbacks: rule covers it':
-    '504: bu rotayı hiçbir şey sunmuyor ve onu kapsayan bir fallbacks: kuralı da yok',
+  "{status}: this hostname's fallback redirects to {url} instead of a 504":
+    "{status}: bu hostname'in fallback'i 504 yerine {url} adresine yönlendiriyor",
+  '504: nothing serves this route, and no site gives it a fallback':
+    '504: bu rotayı hiçbir şey sunmuyor ve hiçbir site ona fallback vermiyor',
   'the request reaches a tunnel client ({clients})':
     'istek bir tünel istemcisine ulaşıyor ({clients})',
   'disabled from the dashboard':
@@ -1124,6 +1059,10 @@ export const tr: Record<string, string> = {
     'kaçırılmış kalp atışları',
   'its path bind does not match':
     'path bağı eşleşmiyor',
+  'its access, allowed_ips or denied differs from what already serves this route':
+    'access, allowed_ips ya da denied ayarı bu rotayı zaten sunandan farklı',
+  'it asked to be served from the server, and was refused':
+    'sunucudan sunulmayı istedi ve bu reddedildi',
   'Static route':
     'Statik rota',
   'Preview noindex':
@@ -1144,16 +1083,10 @@ export const tr: Record<string, string> = {
     'İstemci yok',
   'maintenance mode':
     'bakım modu',
-  'auth: on the service':
-    'hizmetteki auth:',
-  'server_auth / OIDC':
-    'server_auth / OIDC',
-  'default_access':
-    'default_access',
-  'server_auth':
-    'server_auth',
-  'OIDC':
-    'OIDC',
+  'access: on the service':
+    'hizmetteki access:',
+  'access':
+    'access',
   'hostname/path binds':
     'hostname/path bağları',
   'Served by': 'Sunan',
@@ -1207,14 +1140,11 @@ export const tr: Record<string, string> = {
   'Process, store and cache health': 'Süreç, depo ve önbellek sağlığı',
   'Routes & latency': 'Rotalar ve gecikme',
   'Read more': 'Devamını oku',
-  'Redirect hostname': 'Hostname yönlendir',
-  'Redirect client {id}…': 'İstemci {id}… için yönlendirme',
   'A bind is the hostname or path prefix a client claims; a request matching it is routed to that client.': 'Bind, bir istemcinin sahiplendiği hostname veya yol öneki; ona uyan istek o istemciye yönlendirilir.',
   'A draining client has announced it is shutting down: it gets no new requests and finishes the ones in flight.': 'Draining durumundaki istemci kapanacağını bildirmiştir: yeni istek almaz, eldekileri bitirir.',
   'An ejected service failed too often under real traffic and is out of rotation for a while, even if its health probe is green.': 'Ejected servis gerçek trafik altında çok sık hata verdi ve sağlık probu yeşil olsa da bir süre rotasyon dışıdır.',
   'A canary token is a decoy: it serves nothing, and any attempt to use it raises an alert, so a leaked copy surfaces itself.': 'Canary token bir yem: hiçbir şey sunmaz, kullanılma girişimi alarm üretir; sızan bir kopya böylece kendini ele verir.',
   'An expose entry opens a raw public port on the server that relays into a tunnel a client declared, with no second client needed.': 'Expose girdisi sunucuda ham bir genel port açar ve bunu bir istemcinin bildirdiği tünele iletir; ikinci bir istemci gerekmez.',
-  'A hostname override redirects a live client to other hostnames from the dashboard; it lives in memory and a reconnect or restart reverts it.': 'Hostname geçersiz kılma, canlı bir istemciyi panelden başka hostname\'lere yönlendirir; bellekte yaşar, yeniden bağlanma veya yeniden başlatma geri alır.',
   'updated just now': 'az önce güncellendi',
   'updated {seconds}s ago': '{seconds} sn önce güncellendi',
   'waiting for data…': 'veri bekleniyor…',
@@ -1238,11 +1168,7 @@ export const tr: Record<string, string> = {
   'by {actor}, {when}': '{actor} tarafından, {when}',
   '{count} alert(s) since yesterday, see the audit log': 'Dünden beri {count} alarm, denetim günlüğüne bak',
   'No alerts since yesterday': 'Dünden beri alarm yok',
-  "Read": "Oku",
   "Disconnect": "Bağlantıyı kes",
-  "Delegate": "Yetki devret",
-  "Public expose permissions": "Public expose yetkileri",
-  "These permissions control server listeners independently of the dashboard role.": "Bu yetkiler, dashboard rolünden bağımsız olarak sunucu listener'larını kontrol eder.",
   "Maximum TCP connections": "En fazla TCP bağlantısı",
   "Open timeout (seconds)": "Açılış zaman aşımı (saniye)",
   "Drain timeout (seconds)": "Drain süresi (saniye)",
@@ -1302,7 +1228,6 @@ export const tr: Record<string, string> = {
   "All": "Tümü",
   "Public endpoint": "Public endpoint",
   "Tunnel": "Tünel",
-  "Server configuration file (read-only)": "Sunucu yapılandırma dosyası (salt okunur)",
   "Managed through API": "API üzerinden yönetiliyor",
   "{count} sessions": "{count} oturum",
   "Dropped": "Düşürülen",
@@ -1325,10 +1250,6 @@ export const tr: Record<string, string> = {
   "Declared TCP and UDP services. Bind them locally or publish a server endpoint with an explicit expose permission.": "Tanımlı TCP ve UDP servisleri. Yerelde bind edin veya açık expose yetkisiyle bir sunucu endpoint'i yayınlayın.",
   "No tunnels declared. Add a tunnels: list in the client configuration to make a service available for binding or public exposure.": "Tanımlı tünel yok. Bir servisi bind veya public expose için kullanılabilir yapmak üzere istemci yapılandırmasına tunnels: listesi ekleyin.",
   "Expose publicly": "Public expose et",
-  "Delegated expose limits": "Devredilen expose sınırları",
-  "These limits restrict this identity. Organization-owned listeners keep their lifetime when a user loses access.": "Bu sınırlar bu kimliği kısıtlar. Kullanıcı erişimini kaybettiğinde organizasyona ait listener’lar varlıklarını korur.",
-  "Only the organization policy applies; no additional identity limit is set.": "Yalnızca organizasyon politikası geçerli; kimlik için ek sınır ayarlanmadı.",
-  "Delegated limits must remain within your own limits.": "Devredilen sınırlar kendi sınırlarınızın içinde kalmalıdır.",
   "Sort by": "Sıralama ölçütü",
   "Descending": "Azalan",
   "Visitor hostname or IP (optional)": "Ziyaretçi hostname veya IP adresi (isteğe bağlı)",
@@ -1336,4 +1257,30 @@ export const tr: Record<string, string> = {
   "Could not load expose history.": "Expose geçmişi yüklenemedi.",
   "Add group mapping": "Grup eşlemesi ekle",
   "Leave the secret empty to keep it when the issuer and client id are unchanged.": "Issuer ve client id değişmediyse mevcut secret’ı korumak için boş bırakın.",
+  "Assemble an aperio.yaml, or a server-init.yaml for a server’s first start, from the settings this server understands, or open an existing one and edit it.": "Bu sunucunun anladığı ayarlardan bir aperio.yaml ya da bir sunucunun ilk açılışı için bir server-init.yaml oluşturun, veya mevcut bir dosyayı açıp düzenleyin.",
+  "Changing this takes Admin in every organization and a sign-in from the last ten minutes.": "Bunu değiştirmek her organizasyonda Admin ve son on dakika içinde yapılmış bir oturum açma gerektirir.",
+  "Client down threshold": "İstemci düşme eşiği",
+  "Every setting lives in the server’s database and applies when saved. Security-relevant ones take a sign-in from the last ten minutes; a few are read at startup and wait for a restart.": "Her ayar sunucunun veritabanında durur ve kaydedildiğinde uygulanır. Güvenlikle ilgili olanlar son on dakika içinde açılmış bir oturum ister; birkaçı açılışta okunur ve yeniden başlatmayı bekler.",
+  "Failover window": "Failover penceresi",
+  "Gateway timeout": "Gateway zaman aşımı",
+  "How the server shuts down, and its scheduled backups.": "Sunucunun nasıl kapandığı ve zamanlanmış yedekleri.",
+  "Login lockout base": "Giriş kilidi taban süresi",
+  "Not a duration, use e.g. 30s, 5m, 2h, 1d": "Süre değil, örneğin 30s, 5m, 2h, 1d kullanın",
+  "Not a size, use e.g. 512KB, 10MB, 1GB": "Boyut değil, örneğin 512KB, 10MB, 1GB kullanın",
+  "Not valid YAML: {error}": "Geçerli YAML değil: {error}",
+  "One per line": "Satır başına bir tane",
+  "Read when the server starts: a change is stored and takes effect at the next start.": "Sunucu açılırken okunur: değişiklik kaydedilir ve bir sonraki açılışta geçerli olur.",
+  "Response timeout": "Yanıt zaman aşımı",
+  "Saved, and waiting for a restart: {paths}": "Kaydedildi, yeniden başlatma bekleniyor: {paths}",
+  "Seeds a new server’s settings on its first start, through APERIO_INIT_FILE.": "Yeni bir sunucunun ayarlarını ilk açılışında APERIO_INIT_FILE ile belirler.",
+  "Serve-stale window": "Bayat yanıt penceresi",
+  "The client file configures a tunnel client and what it exposes; the first-start document seeds a new server’s settings.": "İstemci dosyası bir tünel istemcisini ve neyi açtığını yapılandırır; ilk açılış belgesi yeni bir sunucunun ayarlarını belirler.",
+  "Undo": "Geri al",
+  "automatic": "otomatik",
+  "off": "kapalı",
+  "restart": "yeniden başlatma",
+  "restart pending": "yeniden başlatma bekliyor",
+  "security": "güvenlik",
+  "stored, type to replace": "kayıtlı, değiştirmek için yazın",
+  "Every setting that differs from its default": "Varsayılanından farklı olan her ayar",
 }

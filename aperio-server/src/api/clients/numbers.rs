@@ -48,7 +48,7 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
   let clients = state.clients.read().await;
 
   // Instance ids reported by more than one live connection: a
-  // misconfiguration worth flagging (`--bind-tunnels` / failover `wait`
+  // misconfiguration worth flagging (`aperio-client bind` / failover `wait`
   // lookups become ambiguous).
   let mut instance_counts: std::collections::HashMap<&str, u32> = std::collections::HashMap::new();
   for handle in clients.values() {
@@ -101,8 +101,6 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
       random_hostname: service.random_hostname.clone(),
       token_name: handle.perms.token_name.clone(),
       org_id: handle.perms.org_id.clone(),
-      override_path_bind: service.override_path_bind.clone(),
-      override_hostname_binds: service.override_hostname_binds.clone(),
       last_ping_seconds_ago: handle.last_ping_at.map(|t| t.elapsed().as_secs()),
       max_concurrent: service.max_concurrent,
       version: handle.client_version.clone(),
@@ -382,7 +380,7 @@ pub(crate) async fn stats_history_handler(
 
 /// Restricts a stats snapshot to the caller's effective organization: only
 /// clients whose token belongs to that org remain visible, and the connected
-/// count follows. Aggregate counters stay global. The master super-admin sees
+/// count follows. Aggregate counters stay global. The server admin sees
 /// the org currently selected on their session.
 pub(crate) fn filter_stats_for_org(stats: &mut EnhancedServerStats, org: &Option<String>) {
   stats.active_clients.retain(|c| &c.org_id == org);

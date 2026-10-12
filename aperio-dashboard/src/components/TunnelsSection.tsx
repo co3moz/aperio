@@ -26,16 +26,16 @@ import { useI18n } from '@/i18n'
  *
  * A name is unique inside an organization and nowhere else, so the bare one
  * is only an address by accident, and this list shows every organization at
- * once when read from the master one. The same spelling is what `expose:` and
- * a `bind-tunnels:` key accept.
+ * once when read from the master one. The same spelling is what an expose
+ * listener and a `binds:` key accept.
  */
 function qualified(tunnel: DeclaredTunnel): string {
   return `${tunnel.org ?? 'master'}@${tunnel.name}`
 }
 
-/** The `bind-tunnels:` block that binds one tunnel, ready to paste. */
+/** The `binds:` block that binds one tunnel, ready to paste. */
 function bindSnippet(tunnel: DeclaredTunnel): string {
-  return ['bind-tunnels:', `  ${qualified(tunnel)}: ${localPortHint(tunnel)}`, ''].join('\n')
+  return ['binds:', `  ${qualified(tunnel)}: ${localPortHint(tunnel)}`, ''].join('\n')
 }
 
 /**
@@ -58,12 +58,12 @@ function localPortHint(tunnel: DeclaredTunnel): number {
 
 export function TunnelsSection({ focus, clearFocus }: { focus: { expose?: string; client?: string } | null; clearFocus: () => void }) {
   const { t } = useI18n()
-  const { orgs, masterAdmin } = useSession()
+  const { orgs, serverAdmin } = useSession()
   const [exposeDraft, setExposeDraft] = useState<Partial<ExposeSpec> | undefined>()
   const exposeOrg = (tunnel: DeclaredTunnel) => tunnel.org ? orgs.find((o) => o.name === tunnel.org)?.id : 'master'
   const canExpose = (tunnel: DeclaredTunnel) => {
     const org = exposeOrg(tunnel)
-    return !!org && !tunnel.encrypt && (masterAdmin || !!orgs.find((o) => o.id === org)?.expose_actions?.includes('create'))
+    return !!org && !tunnel.encrypt && (serverAdmin || !!orgs.find((o) => o.id === org)?.expose_actions?.includes('create'))
   }
   const {
     data: declarations,

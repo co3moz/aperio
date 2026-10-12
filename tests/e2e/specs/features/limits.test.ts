@@ -90,9 +90,9 @@ export class ConnectionCeilingSpec extends Test({
 }
 
 /**
- * The per-candidate visitor allowlist. Union semantics: an unrestricted
- * candidate on the same route admits the visitor, because route-wide lockdown
- * belongs to the token's own IP allowlist.
+ * The visitor allowlist a client declares for its route. One route has one
+ * policy: a second client declaring another allowlist for the same route is
+ * kept out of it and told why, rather than widening the route for everyone.
  */
 export class VisitorAllowlistSpec extends Test({
   timeout: 120_000,
@@ -134,12 +134,15 @@ export class VisitorAllowlistSpec extends Test({
     assert.equal(res.headers['location'], 'https://example.com/denied')
   }
 
-  async anUnrestrictedCandidateOnTheSameRouteAdmitsTheVisitor() {
+  async anUnrestrictedClientOnTheSameRouteIsKeptOutAndToldWhy() {
     this.unrestricted._extra = { APERIO_HOSTNAME: 'ipdeny.e2e.local' }
     await this.unrestricted._start()
-    await this.unrestricted._waitRoutable('ipdeny.e2e.local', '/hello')
+    // Said in its own log, where the person who wrote the other allowlist
+    // is looking.
+    await this.unrestricted._waitForLog('one route has one policy')
+    // The route keeps the policy it had: the visitor is still refused.
     const res = await this.server._fetch('/hello', { host: 'ipdeny.e2e.local' })
-    assert.match(res.body, new RegExp(`^backend ${this.backend._port} `))
+    assert.equal(res.status, 504)
   }
 
   async aVisitorInsideTheAllowedCidrIsServed() {

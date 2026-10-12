@@ -152,12 +152,8 @@ pub(crate) async fn forward(
     .body(payload);
   // The collector's own credential, never the client's: the edge is not
   // supposed to hold one, which is the whole reason this path exists.
-  if let Ok(headers) = std::env::var("APERIO_OTEL_HEADERS") {
-    for pair in headers.split(',') {
-      if let Some((k, v)) = pair.split_once('=') {
-        req = req.header(k.trim(), v.trim());
-      }
-    }
+  for (k, v) in &crate::live::current().otel.headers {
+    req = req.header(k.trim(), v.trim());
   }
   let response = req.send().await.map_err(|e| format!("{e}"))?;
   if response.status().is_success() {
@@ -171,9 +167,10 @@ pub(crate) async fn forward(
 /// uses. Forwarding to a second, separate endpoint would be a way to have
 /// telemetry arrive in two places and be reconciled in neither.
 fn collector_endpoint() -> Option<String> {
-  std::env::var("APERIO_OTEL_ENDPOINT")
-    .ok()
-    .or_else(|| std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok())
+  crate::live::current()
+    .otel
+    .endpoint
+    .as_deref()
     .map(|v| v.trim().to_string())
     .filter(|v| !v.is_empty())
 }

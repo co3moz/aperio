@@ -40,12 +40,11 @@ export const ja: Record<string, string> = {
   'Allowed source IPs / CIDRs': '許可する送信元 IP / CIDR',
   'Announced link capacity; the server paces frames to this client accordingly':
     '申告された回線容量。サーバーはこれに合わせてこのクライアントへのフレーム送信を調整します',
-  'Another live connection reports the same client id ({id}), bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
-    '別のアクティブな接続が同じクライアント ID（{id}）を報告しています、この ID による bind-tunnels やフェイルオーバー検索が曖昧になります。各クライアントに固有の --client-id を設定してください',
+  'Another live connection reports the same client id ({id}), so failover lookups by this id are ambiguous; give each client its own --client-id':
+    '別のアクティブな接続が同じクライアント ID（{id}）を報告しているため、この ID によるフェイルオーバー検索が曖昧になります。各クライアントに固有の --client-id を設定してください',
   'Aperio Reverse Tunneling System • Server Uptime: {uptime}':
     'Aperio リバーストンネルシステム • サーバー稼働時間: {uptime}',
   Appearance: '外観',
-  Apply: '適用',
   'Audit Log': '監査ログ',
   'Audit generations kept': '保持する監査世代数',
   'Audit rotation size': '監査ローテーションサイズ',
@@ -70,7 +69,6 @@ export const ja: Record<string, string> = {
   Clear: 'クリア',
   'Click to inspect & replay': 'クリックで検査・再送',
   'Client ID': 'クライアント ID',
-  'Client down threshold (s)': 'クライアント停止しきい値（秒）',
   'Client is gracefully shutting down': 'クライアントは正常終了処理中です',
   'Client speaks tunnel protocol v{proto}, server differs, update the older side':
     'クライアントはトンネルプロトコル v{proto}を使用しており、サーバーと異なります、古い側を更新してください',
@@ -79,8 +77,6 @@ export const ja: Record<string, string> = {
   Clients: 'クライアント',
   'Clipboard unavailable': 'クリップボードを使用できません',
   Close: '閉じる',
-  'Cloudflare shorthand: trust the CF-Connecting-IP header':
-    'Cloudflare 向けショートカット: CF-Connecting-IP Header を信頼',
   'Connect a new client': '新しいクライアントを接続',
   'Connected & Active': '接続中・アクティブ',
   'Connected For': '接続時間',
@@ -100,9 +96,6 @@ export const ja: Record<string, string> = {
   'Create link': 'リンクを作成',
   'Creates a dynamic tunnel token with a restricted scope.':
     '制限されたスコープを持つ動的トンネル Token を作成します。',
-  'Current value': '現在の値',
-  'Custom 503 maintenance page (HTML)': 'カスタム503メンテナンスページ（HTML）',
-  'Custom 504 page (HTML)': 'カスタム504ページ（HTML）',
   DOWN: '停止',
   'Daily traffic quota (MB, 0 = no quota, empty = keep)': '1日のトラフィック上限（MB、0 = 無制限、空 = 維持）',
   'Daily traffic quota (MB, empty = no quota)': '1日のトラフィック上限（MB、空 = 無制限）',
@@ -135,26 +128,19 @@ export const ja: Record<string, string> = {
     '有効化は接続中のクライアントに即座に提案され、無効化は新しい接続にのみ適用されます',
   'End maintenance': 'メンテナンスを終了',
   'End maintenance for {host}': '{host}のメンテナンスを終了',
-  'Env vars provide the defaults; edits become live, persisted overrides. Master token, HOST/PORT, proxy trust and OIDC stay env-only.':
-    '環境変数がデフォルト値を提供し、編集は即時反映かつ永続化されるオーバーライドになります。マスター Token、HOST/PORT、Proxy 信頼、OIDC は環境変数のみです。',
-  'Environment Flags': '環境変数',
   Event: 'イベント',
   'Events (comma separated, * = all)': 'イベント（カンマ区切り、* = すべて）',
   Expires: '有効期限',
   'Failed to load request detail: {error}': 'リクエスト詳細の読み込みに失敗しました: {error}',
   'Failover max jumps': 'フェイルオーバー最大ジャンプ数',
   'Failover non-idempotent methods': '非冪等メソッドのフェイルオーバー',
-  'Failover window (s)': 'フェイルオーバーウィンドウ（秒）',
   'Filter by path/method...': 'Path/メソッドで絞り込み...',
   'First lockout duration; doubles per repeat offense': '初回ロックアウト時間。再犯ごとに倍増します',
   'Freeze the table while you inspect': '検査中はテーブルを固定',
   'Gateway & Requests': 'ゲートウェイとリクエスト',
-  'Gateway timeout (s)': 'ゲートウェイタイムアウト（秒）',
   'Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless, they cannot be listed later, they simply expire.':
     '認証保護されたサイトへの一時アクセスを付与します。リンクには Hostname（と任意の Path）に限定された署名付き期限付き Token が含まれます。開くと Cookie が設定され、クリーンな URL へリダイレクトされます。リンクはステートレスで、後から一覧できず、期限が切れるだけです。',
   'Go to {page}': '{page}へ移動',
-  'Header consulted first for the visitor IP (behind CDN chains)':
-    '訪問者 IP の解決で最初に参照される Header（CDN チェーンの背後）',
   Hostname: 'Hostname',
   'Hostname bind (optional)': 'Hostname バインド（任意）',
   Hostnames: 'Hostname',
@@ -164,14 +150,11 @@ export const ja: Record<string, string> = {
     'リクエストがクライアントを選ぶ方法と、処理中に失われた場合の動作。',
   'I have a token': 'Token を持っています',
   'IP Address': 'IP アドレス',
-  'Ignore client-declared visitor passwords; the server keeps the gate':
-    'クライアントが宣言した訪問者パスワードを無視し、サーバーがゲートを管理します',
   'In-flight failover': '処理中リクエストのフェイルオーバー',
   'In-flight proxied requests; beyond it visitors get 429': '同時 Proxy リクエスト数。超過すると訪問者は429を受け取ります',
   'Invalid credentials. Please try again.': '認証情報が無効です。もう一度お試しください。',
   'It stays connected but receives no new requests; in-flight requests complete.':
     '接続は維持されますが新しいリクエストは受け取りません。処理中のリクエストは完了します。',
-  'JSONL access log file path (empty = disabled)': 'JSONL アクセスログのファイル Path（空 = 無効）',
   'Known events: {events}. Use * to subscribe to everything.':
     '既知のイベント: {events}。* ですべてを購読します。',
   'Last Ping': '最終 Ping',
@@ -230,7 +213,6 @@ export const ja: Record<string, string> = {
   'Local target (where your service listens)': 'ローカルターゲット（サービスの待ち受け先）',
   'Login brute-force protection and audit log rotation.':
     'ログインの総当たり対策と監査ログのローテーション。',
-  'Login lockout base (s)': 'ログインロックアウト基本時間（秒）',
   'Login lockout threshold': 'ログインロックアウトしきい値',
   Maintenance: 'メンテナンス',
   'Maintenance Mode': 'メンテナンスモード',
@@ -266,21 +248,14 @@ export const ja: Record<string, string> = {
   'No matching commands': '一致するコマンドがありません',
   'No requests matching filter': 'フィルタに一致するリクエストがありません',
   'No webhooks defined': 'Webhook は定義されていません',
-  'Not a size, use e.g. 10 MB, 1.5 GB, or plain bytes':
-    'サイズとして無効です、例: 10 MB、1.5 GB、またはバイト数',
-  'OIDC single sign-on (issuer, client id/secret, redirect URL, scopes)':
-    'OIDC シングルサインオン（issuer、クライアント ID/シークレット、リダイレクト URL、スコープ）',
   'OK / Failed': '成功 / 失敗',
   Offline: 'オフライン',
   'Offline (Waiting for Client)': 'オフライン（クライアント待ち）',
   Online: 'オンライン',
-  'Override applied for {id}': '{id}にオーバーライドを適用しました',
-  'Override cleared for {id}': '{id}のオーバーライドを解除しました',
   Overview: '概要',
   'POST/PATCH may reach a backend twice when enabled': '有効時、POST/PATCH がバックエンドに二重到達する可能性があります',
   Password: 'パスワード',
   Path: 'Path',
-  'Path bind': 'Path バインド',
   'Path bind (optional)': 'Path バインド（任意）',
   Paths: 'Path',
   Paused: '一時停止中',
@@ -290,8 +265,6 @@ export const ja: Record<string, string> = {
   'Per-visitor-IP token bucket for proxied requests.':
     'Proxy リクエストに対する訪問者 IP ごとの Token バケット。',
   Prefix: 'プレフィックス',
-  'Prometheus metrics endpoint at /aperio/metrics': '/aperio/metrics の Prometheus メトリクス Endpoint',
-  Purpose: '用途',
   'Queue Status': 'キュー状態',
   'Random subdomain pattern': 'ランダム Subdomain パターン',
   'Rate Limiting': 'レート制限',
@@ -313,13 +286,9 @@ export const ja: Record<string, string> = {
   'Requests pending reconnection': '再接続待ちのリクエスト',
   'Requests today': '本日のリクエスト',
   'Requests with larger bodies are rejected up front': 'これより大きいボディのリクエストは即座に拒否されます',
-  'Require hostname bind': 'Hostname バインドを必須にする',
-  'Reset to env default ({value})': '環境変数のデフォルトに戻す（{value}）',
-  'Reset {label} to default': '{label}をデフォルトに戻す',
   'Response Body': 'レスポンスボディ',
   'Response Headers': 'レスポンス Header',
   'Response cache': 'レスポンスキャッシュ',
-  'Response timeout (s)': 'レスポンスタイムアウト（秒）',
   'Resume live updates': 'ライブ更新を再開',
   Revoke: '失効',
   'Revoke token "{name}" ({prefix}…)?': 'Token「{name}」（{prefix}…）を失効しますか？',
@@ -333,10 +302,6 @@ export const ja: Record<string, string> = {
   'Search clients…': 'クライアントを検索…',
   'Search…': '検索…',
   'Security & Audit': 'セキュリティと監査',
-  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running inside a container, to change one:':
-    'セキュリティおよび起動に重要な変数は、侵害されたダッシュボードセッションから変更できないよう環境変数のみです。サーバーはコンテナ内で動作しています、変更するには:',
-  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running natively, to change one:':
-    'セキュリティおよび起動に重要な変数は、侵害されたダッシュボードセッションから変更できないよう環境変数のみです。サーバーはネイティブで動作しています、変更するには:',
   'Send this request through the tunnel again': 'このリクエストを再度トンネル経由で送信',
   Sent: '送信',
   'Server Settings': 'サーバー設定',
@@ -345,15 +310,11 @@ export const ja: Record<string, string> = {
   'Service name announced by the client (services: list)':
     'クライアントが申告したサービス名（services: リスト）',
   Session: 'セッション',
-  'Session cookies carry the Secure flag (HTTPS only)':
-    'セッション Cookie に Secure フラグを付与（HTTPS のみ）',
   'Session expires in {duration}': 'セッションは{duration}後に期限切れになります',
   'Settings applied and persisted.': '設定を適用して永続化しました。',
   'Share Links': '共有リンク',
   'Showing the latest {max} of {total} matching requests.':
     '一致する{total}件のうち最新の{max}件を表示しています。',
-  'Shown for hostnames in maintenance mode': 'メンテナンスモードの Hostname に表示されます',
-  'Shown when no client answers in time': 'どのクライアントも時間内に応答しない場合に表示されます',
   'Sign In': 'サインイン',
   'Sign in to continue': '続行するにはサインインしてください',
   'Sign out': 'サインアウト',
@@ -370,8 +331,8 @@ export const ja: Record<string, string> = {
     'YubiKey、Touch ID / Face ID、またはパスワードマネージャーでパスワードなしにサインインできます。',
   'The built-in "aperio" admin signs in with the master token or dashboard password and cannot register passkeys. Create a named user instead.':
     '組み込みの「aperio」管理者はマスター Token またはダッシュボードパスワードでサインインするため、パスキーを登録できません。代わりに名前付きユーザーを作成してください。',
-  'Passkey sign-in is not configured on this server. Set APERIO_WEBAUTHN_ORIGIN to the dashboard’s public URL to enable it.':
-    'このサーバーではパスキーサインインが設定されていません。有効にするには APERIO_WEBAUTHN_ORIGIN にダッシュボードの公開 URL を設定してください。',
+  'Passkey sign-in is not configured on this server. Set dashboard.webauthn.origin to the dashboard’s public URL to enable it.':
+    'このサーバーではパスキーサインインが設定されていません。有効にするには dashboard.webauthn.origin にダッシュボードの公開 URL を設定してください。',
   'This browser does not support WebAuthn.':
     'このブラウザは WebAuthn をサポートしていません。',
   'No passkeys registered yet.':
@@ -461,8 +422,6 @@ export const ja: Record<string, string> = {
   Status: 'ステータス',
   'Status mix': 'ステータス分布',
   'Strategy for picking a client from the routed pool': 'ルーティングプールからクライアントを選ぶ戦略',
-  'Strict multi-tenant mode: unbound clients never receive traffic':
-    '厳格なマルチテナントモード: バインドのないクライアントはトラフィックを受け取りません',
   Success: '成功',
   'Sustained requests per second per IP': 'IP ごとの持続的な毎秒リクエスト数',
   'Switch to dark theme': 'ダークテーマに切り替え',
@@ -491,7 +450,6 @@ export const ja: Record<string, string> = {
   'Token minted and embedded below. It is scoped to {scope} and will not be shown again after this dialog closes.':
     'Token を発行し、下に埋め込みました。スコープは{scope}で、このダイアログを閉じると再表示されません。',
   'Token name is required': 'Token 名は必須です',
-  'Token required to scrape the metrics endpoint': 'メトリクス Endpoint の取得に必要な Token',
   'Total Requests': '総リクエスト数',
   'Total memory for cached responses; entries closest to expiry are evicted first':
     'キャッシュ済みレスポンスの総メモリ。期限に最も近いエントリから追い出されます',
@@ -499,19 +457,17 @@ export const ja: Record<string, string> = {
   Traffic: 'トラフィック',
   'Traffic Breakdown': 'トラフィック内訳',
   'Traffic by token & hostname': 'Token ・ Hostname 別トラフィック',
-  'Trust X-Forwarded-For / X-Real-IP from a fronting reverse proxy':
-    '前段リバース Proxy の X-Forwarded-For / X-Real-IP を信頼',
-  'Trusted proxy/CDN egress IPs or CIDRs used to resolve the real visitor IP':
-    '実際の訪問者 IP の解決に使う信頼済み Proxy/CDN の出口 IP または CIDR',
   'Tunnel Clients': 'トンネルクライアント',
   'Tunnel compression': 'トンネル圧縮',
   'Tunnels & Domains': 'トンネルとドメイン',
   'Type a command…': 'コマンドを入力…',
   'Unsaved changes': '未保存の変更',
   Username: 'ユーザー名',
-  Variable: '変数',
   'Visitor Experience': '訪問者エクスペリエンス',
-  'Visitor password': '訪問者パスワード',
+  'Default access':
+    '既定のアクセス',
+  'deny, public, or a gate in front of every route nothing else declares':
+    'deny、public、または他に何も宣言していないすべてのルートの前に置く関門',
   'Wait for a client to (re)connect before failing a request':
     'リクエストを失敗させる前にクライアントの（再）接続を待つ',
   'Wait for a client to answer a dispatched request': '送出済みリクエストへのクライアントの応答を待つ',
@@ -532,23 +488,18 @@ export const ja: Record<string, string> = {
   'IP filter': 'IP フィルター',
   'Only these visitor IPs/CIDRs may reach this service: {ips}':
     'このサービスにアクセスできる訪問者 IP/CIDR は次のとおりです: {ips}',
-  'e.g. 10 MB, 1 GB, 65536': '例: 10 MB、1 GB、65536',
   'e.g. example.com, *.example.com or *-test.example.com, * becomes a random label; empty = disabled':
     '例: example.com、*.example.com、*-test.example.com, * はランダムなラベルになります。空 = 無効',
   'master token': 'マスター Token',
   'never expires': '無期限',
-  override: 'オーバーライド',
   public: '公開',
   'public ok': '公開可',
   'expiring soon': 'まもなく期限切れ',
-  'read-only': '読み取り専用',
   'shared secret for X-Aperio-Signature': 'X-Aperio-Signature 用の共有シークレット',
   signed: '署名付き',
   standby: 'スタンバイ',
   token: 'Token',
   'token name (e.g. staging-box)': 'Token 名（例: staging-box）',
-  'user:password gate in front of all proxied traffic; empty = disabled':
-    '全 Proxy トラフィック前の user:password ゲート。空 = 無効',
   'valid until {date}': '{date}まで有効',
   '{count} client(s) disabled': '{count}件のクライアントを無効化しました',
   '{count} client(s) enabled': '{count}件のクライアントを有効化しました',
@@ -673,18 +624,12 @@ export const ja: Record<string, string> = {
   'Requests in real time, table or console': 'リアルタイムのリクエスト、テーブルまたはコンソール',
   'no client': 'クライアントなし',
   'offline': 'オフライン',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, dashed nodes for token-granted routes no client currently serves, and amber nodes for another machine dialing a tunnel with --bind-tunnels (identified by the address it dialed from, so several processes behind one address are one node). Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': '各ルートがどのように宛先へ到達するか：トンネルクライアントとそのバックエンド（ライブのリクエストレート付き）、サーバー自身のクライアントレスなルーティング、静的なリダイレクト/レスポンスと公開 expose ポート、および、どのクライアントも提供していない Token 付与ルートを示す破線ノード。緑 = 正常、アンバー = ドレイン中またはバックエンドのプローブ失敗、赤 = 異常・無効・除外・提供するクライアントなし。 --bind-tunnels で別のマシンがトンネルに接続している場合は琥珀色のノードとして描かれます。接続元アドレスで識別するため、1 つのアドレスの背後にある複数のプロセスは 1 つのノードになります。',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, dashed nodes for token-granted routes no client currently serves, and amber nodes for another machine dialing a tunnel with aperio-client bind (identified by the address it dialed from, so several processes behind one address are one node). Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': '各ルートがどのように宛先へ到達するか：トンネルクライアントとそのバックエンド（ライブのリクエストレート付き）、サーバー自身のクライアントレスなルーティング、静的なリダイレクト/レスポンスと公開 expose ポート、および、どのクライアントも提供していない Token 付与ルートを示す破線ノード。緑 = 正常、アンバー = ドレイン中またはバックエンドのプローブ失敗、赤 = 異常・無効・除外・提供するクライアントなし。 aperio-client bind で別のマシンがトンネルに接続している場合は琥珀色のノードとして描かれます。接続元アドレスで識別するため、1 つのアドレスの背後にある複数のプロセスは 1 つのノードになります。',
   'ejected': '除外',
   'draining': 'ドレイン中',
   'cache off': 'キャッシュ無効',
-  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect, enable the server cache or drop the flag': 'このサービスはキャッシュを有効化しました（cache: true）が、サーバーのレスポンスキャッシュが無効（APERIO_CACHE off）のため、この設定は効果がありません。サーバーキャッシュを有効にするか、フラグを外してください。',
-  'Add hostname': 'Hostname を追加',
-  'Hostname binds': 'Hostname バインド',
-  'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
-    'この接続の一時バインド。設定中はこれらの Hostname だけがここにルーティングされます。移したい行だけを編集し、ほかはそのままにしてください。空の行は破棄され、すべて空にするとオーバーライドが解除されます。再接続後は保持されません。',
-  'declared by the client': 'クライアントが宣言',
-  'granted by the token': 'Token が付与',
-  'random subdomain, assigned by the server': 'ランダムな Subdomain（サーバーが割り当て）',
+  'This service opted into caching (cache.enabled) but the server response cache is disabled (cache.enabled off on the server), so the opt-in has no effect; enable the server cache or drop the setting':
+    'このサービスはキャッシュを有効にしています（cache.enabled）が、サーバーのレスポンスキャッシュが無効（サーバーの cache.enabled がオフ）のため効果がありません。サーバーのキャッシュを有効にするか、設定を外してください',
   '{count} more hostname(s) routed here': 'ほかに {count} 件の Hostname がここにルーティング',
   'Configuration of {label}': '{label} の設定',
   'What this connection announces over its heartbeat, plus what the server applies on top. Settings a client never announces (its target, timeouts, header rules, health probes) cannot be shown here.':
@@ -696,9 +641,7 @@ export const ja: Record<string, string> = {
   'applied by the server': 'サーバーが適用',
   "Show this connection's effective configuration": 'この接続の実効設定を表示',
   'Config Builder': '設定ビルダー',
-  'Assemble an aperio.yaml or aperio-server.yaml from the settings this server understands, or open an existing one and edit it.': 'このサーバーが理解する設定から aperio.yaml または aperio-server.yaml を組み立てるか、既存のファイルを開いて編集します。',
   'Which file?': 'どちらのファイル？',
-  'The client file configures a tunnel client and what it exposes; the server file configures the Aperio server itself.': 'クライアントファイルはトンネルクライアントと公開内容を、サーバーファイルは Aperio サーバー自体を設定します。',
   'Empty fields are left out of the file entirely, so the server keeps its own default.': '空欄はファイルに一切書き出されないため、サーバーは自身の既定値を保ちます。',
   'Import YAML': 'YAML をインポート',
   'Export YAML': 'YAML をエクスポート',
@@ -755,7 +698,7 @@ export const ja: Record<string, string> = {
   'Memory (RSS)': 'メモリ (RSS)',
   'New admin key': '新しい管理キー',
   'No admin keys yet': '管理キーはまだありません',
-  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have APERIO_SCALING enabled.': 'オートスケーリングのレコードがありません。クライアントが scaling: ブロックを宣言すると作成され、サーバー側で APERIO_SCALING が有効である必要があります。',
+  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have scaling.enabled on.': 'オートスケーリングのレコードがありません。クライアントが scaling: ブロックを宣言すると作成され、サーバー側で scaling.enabled が有効である必要があります。',
   'No cache data yet': 'キャッシュのデータはまだありません',
   'No hostname restriction': 'Hostname の制限なし',
   'No self-health data yet': 'セルフヘルスのデータはまだありません',
@@ -776,7 +719,8 @@ export const ja: Record<string, string> = {
   'Server self-health': 'サーバーのセルフヘルス',
   'Server-side GET cache occupancy and hit rate.': 'サーバー側 GET キャッシュの使用量とヒット率。',
   'Services that ask for capacity when they need it. A request for a hostname nothing is serving triggers a cold start instead of a 504, and a saturated pool asks for one more instance. Declared by the client in its scaling: block; scaling back in is the client’s own idle_timeout.': '必要になったときに容量を要求するサービスです。どのクライアントも提供していない Hostname へのリクエストは、504 ではなくコールドスタートを起こし、飽和したプールはインスタンスをもう 1 つ要求します。クライアントが scaling: ブロックで宣言し、縮小はクライアント自身の idle_timeout が担います。',
-  'Set max_concurrent on the client to make utilization measurable.': '使用率を測定できるよう、クライアントで max_concurrent を設定してください。',
+  'Set limits.concurrent_requests on the client to make utilization measurable.':
+    '使用率を測定できるよう、クライアントで limits.concurrent_requests を設定してください。',
   'Sign in at /aperio/oidc/login?org={id}. Leave issuer empty to clear.': '/aperio/oidc/login?org={id} からサインインします。消去するには発行者を空欄にしてください。',
   'Size': 'サイズ',
   'State': '状態',
@@ -794,7 +738,6 @@ export const ja: Record<string, string> = {
   'not measurable': '測定不可',
   'scale to zero': 'ゼロまで縮小',
   '{inflight} of {capacity} concurrent slots in use; scales out above {target}%.': '同時実行枠 {capacity} のうち {inflight} を使用中。{target}% を超えるとスケールアウトします。',
-  'Must be at least {min}': '{min} 以上である必要があります',
   'Need more than this? ': 'もっと細かく設定しますか？ ',
   'Open the config builder': '設定ビルダーを開く',
   ' to set every option, add services and tunnels, and export the file.': ' すべての項目を設定し、サービスやトンネルを追加してファイルを書き出せます。',
@@ -809,7 +752,6 @@ export const ja: Record<string, string> = {
   'configured': '設定済み',
   'This section has no fixed shape, so it is edited as YAML. Leave it empty to remove it.': 'このセクションは形が定まっていないため YAML として編集します。空にすると削除されます。',
   'Configures a tunnel client and the backends it exposes.': 'トンネルクライアントと、それが公開するバックエンドを設定します。',
-  'Configures the Aperio server itself.': 'Aperio サーバー自体を設定します。',
   'Bind': 'バインド',
   'Client': 'クライアント',
   'Copy config': '設定をコピー',
@@ -824,19 +766,11 @@ export const ja: Record<string, string> = {
   'Services': 'サービス',
   'Each entry is one exposed backend with its own bind and tuning.': '各エントリは、独自のバインドと調整を持つ公開バックエンドです。',
   'Private TCP/UDP services a peer client can bind locally, and the peers this client binds.': '他のクライアントがローカルにバインドできるプライベート TCP/UDP サービスと、このクライアントがバインドする相手。',
-  'Access control': 'アクセス制御',
-  'Who may reach the exposed service.': '公開サービスに到達できる相手。',
   'Capacity & pacing': '容量とペース配分',
   'How much work this client accepts and how fast the server may push to it.': 'このクライアントが受け入れる仕事量と、サーバーが送り込める速度。',
-  'Backend health': 'バックエンドの健全性',
-  'Probing the backend so an unhealthy one leaves the routing pool without dropping the tunnel. Set here it applies to every entry under services:, and any entry may override it.': 'バックエンドを監視し、不健全なものがトンネルを切らずにルーティングプールから外れるようにします。ここで設定すると services: の全エントリに適用され、各エントリで上書きできます。',
   'Asking for capacity when it is needed, and retiring when idle.': '必要なときに容量を要求し、アイドル時には撤収します。',
-  'Response handling': 'レスポンス処理',
-  'Caching, resilience, and the headers this client rewrites.': 'キャッシュ、耐障害性、そしてこのクライアントが書き換える Header。',
   'Logging': 'ログ出力',
   'What this client writes and in which format.': 'このクライアントが何を、どの形式で書き出すか。',
-  'Core': 'コア',
-  'Identity, listening address, and where state lives.': '識別情報、待ち受けアドレス、状態の保存先。',
   'Routing & load balancing': 'ルーティングと負荷分散',
   'How a request finds a client, and which clients are eligible.': 'リクエストがクライアントを見つける方法と、対象となるクライアント。',
   'Failover & retry': 'フェイルオーバーと再試行',
@@ -844,8 +778,16 @@ export const ja: Record<string, string> = {
   'Limits & protection': '制限と保護',
   'Ceilings on bodies, concurrency, tunnels, and per-visitor rate.': 'ボディサイズ、同時実行数、トンネル数、訪問者ごとのレートの上限。',
   'The server-side GET cache for services that opt in.': '有効化したサービス向けの、サーバー側 GET キャッシュ。',
-  'Stream flow control': 'ストリームのフロー制御',
-  'How much of a slow visitor’s download is buffered before the client pauses.': 'クライアントが一時停止するまでに、低速な訪問者のダウンロードをどれだけバッファするか。',
+  'Flow control & compression': 'フロー制御と圧縮',
+  'Process': 'プロセス',
+  'Files this one includes, the pid file, and how long a reload lets requests finish.': '取り込むファイル、PID ファイル、再読み込み時にリクエストの完了を待つ時間。',
+  'Telemetry bridge': 'テレメトリーブリッジ',
+  'Carrying OpenTelemetry exports from this machine to the server’s collector over the tunnel.': 'このマシンの OpenTelemetry エクスポートを、トンネル経由でサーバーのコレクターへ届けます。',
+  'Checks the server asks for': 'サーバーが依頼するチェック',
+  'Whether this client answers a forward check the server’s own gate wrote, from this client’s network.': 'サーバー自身のゲートが定めた forward チェックに、このクライアントのネットワークから応答するかどうか。',
+  'Advanced features': '高度な機能',
+  'Features most deployments never turn on. Nothing here is off-limits: it is listed last so the settings everyone decides come first.': 'ほとんどの環境では有効にしない機能です。制限されているわけではなく、誰もが決める設定を先に置くため最後に並べています。',
+  'Stream flow control and tunnel compression. The defaults suit almost every deployment.': 'ストリームのフロー制御とトンネル圧縮。ほとんどの環境では既定値のままで問題ありません。',
   'Authentication & dashboard': '認証とダッシュボード',
   'Who may log in, how, and what the dashboard offers.': '誰がどのようにログインできるか、そしてダッシュボードが提供するもの。',
   'Proxy trust': 'Proxy の信頼',
@@ -856,10 +798,11 @@ export const ja: Record<string, string> = {
   'Where the server may call out to, and honouring client scaling blocks.': 'サーバーが外部へ呼び出せる先と、クライアントのスケーリング設定の尊重。',
   'Edge integration': 'エッジ連携',
   'Publishing the live hostnames to a reverse proxy in front of this server.': 'このサーバーの前段にあるリバース Proxy へ、稼働中の Hostname を公開します。',
-  'Pages & headers': 'ページと Header',
-  'What visitors see on an error, and server-wide header rewriting.': 'エラー時に訪問者が見るものと、サーバー全体での Header 書き換え。',
+  'Sites':
+    'サイト',
+  'What the server does for a hostname by itself: answers, policy, fallbacks, pages and maintenance windows.':
+    'サーバーが hostname に対して自ら行うこと：応答、ポリシー、fallback、ページ、メンテナンス時間帯。',
   'Process & maintenance': 'プロセスとメンテナンス',
-  'Startup behaviour, backups, and the public expose ports.': '起動時の挙動、バックアップ、そして公開 expose ポート。',
   'Settings': '設定',
   'Configure this server, its organizations and who may sign in.': 'このサーバー、その組織、そしてログインできる相手を設定します。',
   'Server, organizations and users': 'サーバー、組織、ユーザー',
@@ -883,7 +826,6 @@ export const ja: Record<string, string> = {
   'Settings & Tools': '設定とツール',
   'Noindex preview hosts': 'プレビューホストを noindex に',
   'Random-subdomain services answer with X-Robots-Tag: noindex and a disallow-all robots.txt': 'ランダム Subdomain のサービスは X-Robots-Tag: noindex とすべてを禁止する robots.txt を返します',
-  'Serve-stale window (s)': 'stale 応答の猶予（秒）',
   'How long an expired entry may still answer while a resilient service has no healthy client; 0 = off': '回復力のあるサービスに正常なクライアントがない間、期限切れのエントリが応答し続けられる時間。0 = 無効',
   'Stream Flow Control': 'ストリームのフロー制御',
   'Pause above': 'この値を超えたら一時停止',
@@ -906,8 +848,8 @@ export const ja: Record<string, string> = {
   'TOTP QR code': 'TOTP QR コード',
   'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.': '低速な訪問者のダウンロードをサーバーがどれだけバッファしてから、クライアントに生成の一時停止を要求するか。',
   'Service defaults': 'サービスの既定値',
-  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here, they only ever worked without a services: list, and appear only for a file that already writes them.': 'services: の各エントリに適用され、エントリごとに上書きできます。トップレベルで単一のバックエンドを指定するキーはここでは非推奨です（もともと services: リストが無いときにしか効きませんでした）。すでにそれらを書いているファイルでのみ表示されます。',
-  '`{keys}` name one service at the top level, and this file also has a services: list, the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` はトップレベルで単一のサービスを指定していますが、このファイルには services: リストもあります。クライアントはリストを読み、これらを無視します。属するエントリの中へ移動してください。',
+  'What every service gets unless its own entry says otherwise. The environment and the command line write here too.':
+    '各サービスのエントリが別の値を書かない限り、すべてのサービスに適用されます。環境変数とコマンドラインもここに書き込みます。',
   'Every healthy client of the route takes requests in turn, evenly. The default, and what you want when the clients are interchangeable.': 'ルート上の正常なクライアントが順番に、均等にリクエストを受けます。既定値で、クライアントが入れ替え可能なときに選ぶものです。',
   'Only the clients on the lowest priority tier receive traffic; a higher tier takes over when every client above it is unhealthy, draining or gone, and hands back when one returns. Tiers come from each client’s priority (0 = primary).': '最も低い優先度ティアのクライアントだけがトラフィックを受けます。その上のクライアントがすべて不健全・ドレイン中・不在になると上位ティアが引き継ぎ、1 つでも戻れば返します。ティアは各クライアントの priority（0 = プライマリ）から決まります。',
   'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.': '訪問者は最初に応対したクライアントが健全な間ずっとそのクライアントを使い続けます。訪問者ごとの状態をメモリに持つバックエンド向けで、リクエスト単位ではなく訪問者単位で分散します。',
@@ -934,7 +876,8 @@ export const ja: Record<string, string> = {
   'Messages': 'メッセージ',
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'このクライアントが待ち受けるトピックと、同じマシン上のアプリケーションが送受信のために接続する場所。',
   'Cold start & scale-out records': 'コールドスタートとスケールアウトの記録',
-  'Private services reachable with --bind-tunnels': '--bind-tunnels で到達できるプライベートサービス',
+  'Private services reachable with aperio-client bind':
+    'aperio-client bind で到達できるプライベートサービス',
   'Display name': '表示名',
   'Handle': 'ハンドル',
   'Only what it is called. The handle {handle} is what addresses it and never changes.': '呼び名だけです。アドレスに使われるハンドル {handle} は変わりません。',
@@ -945,23 +888,16 @@ export const ja: Record<string, string> = {
   'Parallel connections per service (0 = server default, empty = keep)': 'サービスごとの並列接続数（0 = サーバーの既定値、空欄 = 変更しない）',
   'Parallel connections per service (empty = server default)': 'サービスごとの並列接続数（空欄 = サーバーの既定値）',
   'Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.': '詳細はありません: 記録されるのは直近のリクエストだけで、capture: false のサービス（またはインスペクタを無効にしたサーバー）はそもそも記録されません。',
-  'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.': 'このサービスは記録を許可していますが、サーバー側でリクエストインスペクタが無効です（APERIO_INSPECTOR=0）。ここでは検査も再送もできません。',
+  'This service allows capture but the server has the request inspector switched off (inspector.enabled: false), so nothing here can be inspected or replayed.': 'このサービスは記録を許可していますが、サーバー側でリクエストインスペクタが無効です（inspector.enabled: false）。ここでは検査も再送もできません。',
   'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': 'このサービスはリクエストインスペクタに記録されていません（aperio.yaml の capture: false）。リクエストの検査も再送もできません。ライブトラフィックと統計には影響しません。',
   'inspector off': 'インスペクタ無効',
   'no capture': '記録なし',
-  '{count} setting(s) here differ from what the server started with': 'ここでは {count} 件の設定がサーバー起動時の値と異なります',
-  'from file': 'ファイル由来',
-  'aperio-server.yaml sets this, and the file wins. Edit it there: a change made here would be refused, because a stored override the file contradicts is exactly the invisible state this avoids.': 'これは aperio-server.yaml が設定しており、ファイルが優先されます。変更はそちらで行ってください。ここでの変更は拒否されます。ファイルと矛盾する保存済みの上書きこそ、これが避けようとしている見えない状態だからです。',
-  '{count} setting(s) are stored overrides, not what your config file says': '{count} 件の設定は保存された override であり、設定ファイルの内容ではありません',
-  'They apply immediately and survive a restart, but they live in the server’s own store, so aperio-server.yaml still describes a different server than the one running. Put them in the file to make them the deployment’s: the file wins, and the override behind each of these keys is dropped at the next start.': 'すぐに適用され、再起動後も残りますが、サーバー自身のストアに置かれるため、aperio-server.yaml は動作中のサーバーとは別のサーバーを説明したままです。デプロイの一部にするにはファイルに書いてください: ファイルが優先され、これらのキーの override は次回起動時に破棄されます。',
-  'Copy as YAML': 'YAML としてコピー',
   'A logical JSON dump, a failsafe for upgrades and migrations. Choose what travels: the configuration that rebuilds a deployment is on by default, the history is there if you want it. Sessions and the audit log are never exported.': 'アップグレードと移行のための保険となる論理 JSON ダンプです。何を持っていくか選べます: デプロイを再構築する設定は既定でオン、履歴は必要なら含められます。セッションと監査ログは決してエクスポートされません。',
   'An import applies whatever sections the file holds, so it is the export that decides.': 'インポートはファイルに含まれるセクションをそのまま適用するため、決めるのはエクスポート側です。',
   'Importing replaces every section the file contains, on this server. Continue?': 'インポートはファイルに含まれるすべてのセクションをこのサーバー上で置き換えます。続行しますか？',
   'Organizations are not selected, so only the master organization travels: {sections} belonging to a tenant are left out, its statistics with them. A row whose organization does not exist on the target server would be an orphan.': '組織が選択されていないため、master 組織だけが移動します: テナントに属する {sections} は残され、その統計も一緒に残ります。移行先に存在しない組織のレコードは孤児になってしまいます。',
   'Access tokens': 'アクセス Token',
   'Dashboard users': 'ダッシュボードユーザー',
-  'Settings overrides': '設定の override',
   'Statistics': '統計',
   'Uptime history': '稼働履歴',
   'Webhook inbox': 'Webhook 受信箱',
@@ -971,7 +907,6 @@ export const ja: Record<string, string> = {
   'Password hashes, TOTP secrets, passkeys': 'パスワードハッシュ、TOTP シークレット、パスキー',
   'Tenants, quotas and hostname allowlists': 'テナント、クォータ、Hostname 許可リスト',
   'Cold-start and scale-out records': 'コールドスタートとスケールアウトの記録',
-  'Server settings changed from this dashboard': 'このダッシュボードから変更されたサーバー設定',
   'Lifetime counters and the daily, weekly, monthly and yearly buckets': '累計カウンターと日次・週次・月次・年次のバケット',
   'Per-client and per-hostname availability by day': 'クライアント別・ Hostname 別の日次可用性',
   'Captured inbound webhook payloads': '受信した Webhook Payload の記録',
@@ -979,8 +914,6 @@ export const ja: Record<string, string> = {
   'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart. Use *.example.com for every subdomain of a domain, and list the domain itself too if you want it as well.': 'メンテナンス中の Hostname はありません。登録された Hostname の訪問者には、クライアントが接続されたまま 503 ページが表示されます。サーバー再起動でクリアされます。ドメイン配下のすべての Subdomain には *.example.com を、ドメイン自体も含めたい場合は別途登録してください。',
   'app.example.com, *.example.com, *-pi.example.com, or *': 'app.example.com、*.example.com、*-pi.example.com、または *',
   'every subdomain': 'すべての Subdomain',
-  'Not in the snippet: {settings}. The file has no spelling for these, its 503/504 keys take a path where this holds the HTML itself, so they stay dashboard overrides.': 'スニペットに含まれないもの: {settings}。ファイル側に対応する書き方がありません。ファイルの 503/504 キーはパスを取りますが、ここに入っているのは HTML そのものです。そのためダッシュボードの override のままになります。',
-  '{settings}: the file key is read at startup, so this one takes a restart rather than applying on reload.': '{settings}: ファイル側のキーは起動時に読まれるため、リロードではなく再起動が必要です。',
   'Maintenance window': 'メンテナンス期間',
   'lifts in {duration}': '{duration} 後に解除',
   'reason, shown on the 503 page (optional)': '理由。503 ページに表示されます（任意）',
@@ -1060,42 +993,44 @@ export const ja: Record<string, string> = {
     '503: {actor} が立てたメンテナンス表示がこの hostname を覆っています（{reason}）。unix {until} に解除されます',
   'no maintenance flag covers this hostname':
     'この hostname を覆うメンテナンス表示はありません',
-  'no routes: rules configured':
-    'routes: ルールは設定されていません',
-  '{status}: a routes: rule answers this path':
-    '{status}: routes: ルールがこの path に応答します',
-  '{status}: a routes: rule answers this path, to {location}':
-    '{status}: routes: ルールがこの path に応答し、{location} へ送ります',
-  'no routes: rule matches this hostname and path':
-    'この hostname と path に一致する routes: ルールはありません',
+  'no sites configured':
+    'site は設定されていません',
+  '{status}: a site answers this path by itself':
+    '{status}: site がこの path に自ら応答します',
+  '{status}: a site answers this path by itself, to {location}':
+    '{status}: site がこの path に自ら応答し、{location} へ送ります',
+  'no site answers this hostname and path by itself':
+    'この hostname と path に自ら応答する site はありません',
   '200: preview_noindex answers /robots.txt itself, so this path never reaches a client':
     '200: preview_noindex が /robots.txt を自分で返すため、この path はクライアントに届きません',
-  'no waf: rules configured':
-    'waf: ルールは設定されていません',
-  '403: blocked by a waf: rule ({reason})':
-    '403: waf: ルールによって遮断されました（{reason}）',
-  'no waf: rule matches this method and path (header and body rules need a real request)':
-    'このメソッドと path に一致する waf: ルールはありません（ header と本文のルールには実際のリクエストが必要です）',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}); this dry run does not spend from it':
-    'rate_limits: ルールがこの path を覆っています（ {rps} rps 、バースト {burst} ）。この試験実行はそこから消費しません',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it':
-    'rate_limits: ルールがこの path を覆っています（ {rps} rps 、バースト {burst} 、{methods} のみ）。この試験実行はそこから消費しません',
-  'no rate_limits: rule covers this path':
-    'この path を覆う rate_limits: ルールはありません',
+  'no site has waf rules':
+    'waf ルールを持つ site はありません',
+  '403: blocked by a waf rule ({reason})':
+    '403: waf ルールによって遮断されました（{reason}）',
+  'no waf rule matches this method and path (header and body rules need a real request)':
+    'このメソッドと path に一致する waf ルールはありません（ header と本文のルールには実際のリクエストが必要です）',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}); this dry run does not spend from it":
+    'site の rate_limit がこの path を覆っています（ {rps} rps 、バースト {burst} ）。この試験実行はそこから消費しません',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it":
+    'site の rate_limit がこの path を覆っています（ {rps} rps 、バースト {burst} 、{methods} のみ）。この試験実行はそこから消費しません',
+  "no site's rate_limit covers this path":
+    'この path を覆う site の rate_limit はありません',
   "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
     '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: 配信しているクライアントがこのルートに独自の訪問者パスワードを宣言しており、サーバー自身の関門に優先します',
-  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
-    '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: サーバーの訪問者関門が有効で、OIDC も設定されています',
   "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set":
     '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: サーバーの訪問者パスワードが設定されています',
-  'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors':
-    '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: 訪問者向けに OIDC が設定されています',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's gate asks for a single sign-on at an identity provider":
+    '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: サーバーの関門が ID プロバイダーでのシングルサインオンを求めています',
   'this hostname is served without a visitor gate':
     'この hostname は訪問者関門なしで配信されています',
+  "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare":
+    '訪問者はクライアントに届く前にサインイン（または共有リンクの携行）が必要です: site の access がこのルートを守っており、配信しているクライアントの宣言に優先します',
+  "a site's access opens this route to anyone, over what the clients serving it declare":
+    'site の access がこのルートを誰にでも開いており、配信しているクライアントの宣言に優先します',
   "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization":
     'これがクライアントに届く前に訪問者はサインインする（または共有リンクを持つ）必要があります: このルートは Aperio のサインイン、つまりこのホスト名の組織に到達できるダッシュボードセッションを求めます',
-  'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
-    'このルートを到達可能と宣言するものがなく、`default_access` が `deny` のため、公開されません。Aperio のセッションを持たない訪問者には、要求されていないホスト名と同じ応答が返り、サインイン済みの Aperio ユーザーは引き続き到達できます',
+  "nothing declares this route reachable and the server's `access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it":
+    'このルートを到達可能と宣言するものがなく、サーバーの `access` が `deny` のため、公開されません。Aperio のセッションを持たない訪問者には、要求されていないホスト名と同じ応答が返り、サインイン済みの Aperio ユーザーは引き続き到達できます',
   '{count} client(s) would take it: {clients}':
     '{count} 個のクライアントが受け取ります: {clients}',
   'no connected client serves this hostname and path':
@@ -1104,10 +1039,10 @@ export const ja: Record<string, string> = {
     'この hostname と path を配信している接続中のクライアントはありません。{count} 個は可能でした: {ineligible}',
   'an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once':
     'このバインドには自動スケーリングの記録が構えてあるため、リクエストは即座に応答されず、容量を要求する間だけ保留されます',
-  '{status}: the fallbacks: rule for this hostname redirects to {url} instead of a 504':
-    '{status}: この hostname の fallbacks: ルールが 504 の代わりに {url} へリダイレクトします',
-  '504: nothing serves this route, and no fallbacks: rule covers it':
-    '504: このルートを配信するものがなく、覆う fallbacks: ルールもありません',
+  "{status}: this hostname's fallback redirects to {url} instead of a 504":
+    '{status}: この hostname の fallback が 504 の代わりに {url} へリダイレクトします',
+  '504: nothing serves this route, and no site gives it a fallback':
+    '504: このルートを配信するものがなく、fallback を与える site もありません',
   'the request reaches a tunnel client ({clients})':
     'リクエストはトンネルクライアントに届きます（{clients}）',
   'disabled from the dashboard':
@@ -1118,6 +1053,10 @@ export const ja: Record<string, string> = {
     '取りこぼしたハートビート',
   'its path bind does not match':
     'その path バインドが一致しません',
+  'its access, allowed_ips or denied differs from what already serves this route':
+    'access、allowed_ips または denied が、すでにこのルートを配信しているものと異なります',
+  'it asked to be served from the server, and was refused':
+    'サーバー側からの配信を求めましたが、拒否されました',
   'Static route':
     '静的ルート',
   'Preview noindex':
@@ -1138,16 +1077,10 @@ export const ja: Record<string, string> = {
     'クライアントなし',
   'maintenance mode':
     'メンテナンスモード',
-  'auth: on the service':
-    'サービス側の auth:',
-  'server_auth / OIDC':
-    'server_auth / OIDC',
-  'default_access':
-    'default_access',
-  'server_auth':
-    'server_auth',
-  'OIDC':
-    'OIDC',
+  'access: on the service':
+    'サービス側の access:',
+  'access':
+    'access',
   'hostname/path binds':
     'hostname/path バインド',
   'Served by': '配信元',
@@ -1201,14 +1134,11 @@ export const ja: Record<string, string> = {
   'Process, store and cache health': 'プロセス、ストア、キャッシュの状態',
   'Routes & latency': 'ルートとレイテンシ',
   'Read more': '続きを読む',
-  'Redirect hostname': 'ホスト名をリダイレクト',
-  'Redirect client {id}…': 'クライアント {id}… をリダイレクト',
   'A bind is the hostname or path prefix a client claims; a request matching it is routed to that client.': 'バインドはクライアントが要求するホスト名またはパス接頭辞で、一致するリクエストはそのクライアントにルーティングされます。',
   'A draining client has announced it is shutting down: it gets no new requests and finishes the ones in flight.': 'ドレイン中のクライアントは停止を予告しています。新しいリクエストは受け取らず、処理中のものを完了させます。',
   'An ejected service failed too often under real traffic and is out of rotation for a while, even if its health probe is green.': '除外されたサービスは実トラフィックで失敗が多すぎたため、ヘルスプローブが正常でもしばらくローテーションから外れます。',
   'A canary token is a decoy: it serves nothing, and any attempt to use it raises an alert, so a leaked copy surfaces itself.': 'カナリアトークンはおとりです。何も提供せず、使おうとするだけで警告が上がるため、漏れたコピーは自ら姿を現します。',
   'An expose entry opens a raw public port on the server that relays into a tunnel a client declared, with no second client needed.': 'expose エントリはサーバー上に生の公開ポートを開き、クライアントが宣言したトンネルへ中継します。2 つ目のクライアントは不要です。',
-  'A hostname override redirects a live client to other hostnames from the dashboard; it lives in memory and a reconnect or restart reverts it.': 'ホスト名の上書きは、稼働中のクライアントをダッシュボードから別のホスト名へリダイレクトします。メモリ上にのみ存在し、再接続や再起動で元に戻ります。',
   'updated just now': 'たった今更新',
   'updated {seconds}s ago': '{seconds} 秒前に更新',
   'waiting for data…': 'データを待っています…',
@@ -1232,11 +1162,7 @@ export const ja: Record<string, string> = {
   'by {actor}, {when}': '{actor} が {when}',
   '{count} alert(s) since yesterday, see the audit log': '昨日から {count} 件のアラート、監査ログを参照',
   'No alerts since yesterday': '昨日からアラートはありません',
-  "Read": "読み取り",
   "Disconnect": "切断",
-  "Delegate": "委譲",
-  "Public expose permissions": "公開権限",
-  "These permissions control server listeners independently of the dashboard role.": "これらの権限は、ダッシュボードのロールとは独立してサーバーのリスナーを制御します。",
   "Maximum TCP connections": "最大 TCP 接続数",
   "Open timeout (seconds)": "オープンタイムアウト（秒）",
   "Drain timeout (seconds)": "ドレインタイムアウト（秒）",
@@ -1296,7 +1222,6 @@ export const ja: Record<string, string> = {
   "All": "すべて",
   "Public endpoint": "公開エンドポイント",
   "Tunnel": "トンネル",
-  "Server configuration file (read-only)": "サーバー設定ファイル（読み取り専用）",
   "Managed through API": "API で管理",
   "{count} sessions": "{count} セッション",
   "Dropped": "破棄",
@@ -1319,10 +1244,6 @@ export const ja: Record<string, string> = {
   "Declared TCP and UDP services. Bind them locally or publish a server endpoint with an explicit expose permission.": "宣言された TCP および UDP サービス。ローカルにバインドするか、明示的な公開権限でサーバーのエンドポイントを公開します。",
   "No tunnels declared. Add a tunnels: list in the client configuration to make a service available for binding or public exposure.": "トンネルが宣言されていません。クライアント設定に tunnels: リストを追加して、サービスをバインドまたは公開できるようにしてください。",
   "Expose publicly": "公開する",
-  "Delegated expose limits": "委譲された公開制限",
-  "These limits restrict this identity. Organization-owned listeners keep their lifetime when a user loses access.": "これらの制限はこの ID に適用されます。ユーザーがアクセス権を失っても、組織のリスナーは存続します。",
-  "Only the organization policy applies; no additional identity limit is set.": "組織のポリシーのみが適用されます。ID の追加制限は設定されていません。",
-  "Delegated limits must remain within your own limits.": "委譲する制限は、自分の制限の範囲内に収める必要があります。",
   "Sort by": "並べ替え",
   "Descending": "降順",
   "Visitor hostname or IP (optional)": "利用者向けホスト名または IP（任意）",
@@ -1330,4 +1251,30 @@ export const ja: Record<string, string> = {
   "Could not load expose history.": "公開履歴を読み込めませんでした。",
   "Add group mapping": "グループマッピングを追加",
   "Leave the secret empty to keep it when the issuer and client id are unchanged.": "発行者とクライアント ID が同じ場合、シークレットを空欄にすると既存の値を保持します。",
+  "Assemble an aperio.yaml, or a server-init.yaml for a server’s first start, from the settings this server understands, or open an existing one and edit it.": "このサーバーが理解する設定から aperio.yaml、またはサーバー初回起動用の server-init.yaml を作成するか、既存のファイルを開いて編集します。",
+  "Changing this takes Admin in every organization and a sign-in from the last ten minutes.": "変更にはすべての組織での Admin 権限と、直近 10 分以内のサインインが必要です。",
+  "Client down threshold": "クライアントダウンのしきい値",
+  "Every setting lives in the server’s database and applies when saved. Security-relevant ones take a sign-in from the last ten minutes; a few are read at startup and wait for a restart.": "すべての設定はサーバーのデータベースに保存され、保存した時点で適用されます。セキュリティに関わる設定には直近 10 分以内のサインインが必要です。一部は起動時に読み込まれ、再起動を待ちます。",
+  "Failover window": "フェイルオーバーウィンドウ",
+  "Gateway timeout": "ゲートウェイタイムアウト",
+  "How the server shuts down, and its scheduled backups.": "サーバーの停止方法と、スケジュールされたバックアップ。",
+  "Login lockout base": "ログインロックの基本時間",
+  "Not a duration, use e.g. 30s, 5m, 2h, 1d": "期間ではありません。例: 30s、5m、2h、1d",
+  "Not a size, use e.g. 512KB, 10MB, 1GB": "サイズではありません。例: 512KB、10MB、1GB",
+  "Not valid YAML: {error}": "無効な YAML: {error}",
+  "One per line": "1 行に 1 つ",
+  "Read when the server starts: a change is stored and takes effect at the next start.": "サーバー起動時に読み込まれます。変更は保存され、次回起動時に有効になります。",
+  "Response timeout": "応答タイムアウト",
+  "Saved, and waiting for a restart: {paths}": "保存済み。再起動待ち: {paths}",
+  "Seeds a new server’s settings on its first start, through APERIO_INIT_FILE.": "APERIO_INIT_FILE を通じて、新しいサーバーの初回起動時に設定を与えます。",
+  "Serve-stale window": "期限切れ応答の提供期間",
+  "The client file configures a tunnel client and what it exposes; the first-start document seeds a new server’s settings.": "クライアントファイルはトンネルクライアントとその公開内容を設定し、初回起動ドキュメントは新しいサーバーの設定を与えます。",
+  "Undo": "元に戻す",
+  "automatic": "自動",
+  "off": "オフ",
+  "restart": "要再起動",
+  "restart pending": "再起動待ち",
+  "security": "セキュリティ",
+  "stored, type to replace": "保存済み。入力すると置き換えます",
+  "Every setting that differs from its default": "既定値と異なるすべての設定",
 }

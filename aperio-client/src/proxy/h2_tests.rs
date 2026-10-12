@@ -191,7 +191,7 @@ async fn test_h2_buffered_success() {
     ("te".to_string(), "gzip".to_string()),
     ("x-fwd".to_string(), "yes".to_string()),
   ];
-  let result = handle_incoming_request_h2(&ctx, r, None, false)
+  let result = handle_incoming_request_h2(&ctx, r, None)
     .await
     .expect("buffered response");
   let TunnelMessage::Response {
@@ -213,7 +213,7 @@ async fn test_h2_buffered_success() {
 async fn test_h2_trailers_buffered() {
   let port = start_h2c_backend().await;
   let ctx = h2_ctx(port, drained_tx());
-  let result = handle_incoming_request_h2(&ctx, req("h2-tr", "GET", "/trailer"), None, false)
+  let result = handle_incoming_request_h2(&ctx, req("h2-tr", "GET", "/trailer"), None)
     .await
     .expect("buffered response");
   let TunnelMessage::Response {
@@ -236,7 +236,7 @@ async fn test_h2_trailers_buffered() {
 async fn test_h2_non_2xx_passthrough() {
   let port = start_h2c_backend().await;
   let ctx = h2_ctx(port, drained_tx());
-  let result = handle_incoming_request_h2(&ctx, req("h2-418", "GET", "/teapot"), None, false)
+  let result = handle_incoming_request_h2(&ctx, req("h2-418", "GET", "/teapot"), None)
     .await
     .expect("buffered response");
   let TunnelMessage::Response { status, .. } = result else {
@@ -251,7 +251,7 @@ async fn test_h2_echo_body() {
   let ctx = h2_ctx(port, drained_tx());
   let mut r = req("h2-echo", "POST", "/echo");
   r.body = Some(BASE64_STANDARD.encode(b"ping-body"));
-  let result = handle_incoming_request_h2(&ctx, r, None, false)
+  let result = handle_incoming_request_h2(&ctx, r, None)
     .await
     .expect("buffered response");
   let TunnelMessage::Response { body, .. } = result else {
@@ -270,7 +270,7 @@ async fn test_h2_echo_streamed_request_body() {
   btx.send(Ok(b"streamed-".to_vec().into())).await.unwrap();
   btx.send(Ok(b"req".to_vec().into())).await.unwrap();
   drop(btx);
-  let result = handle_incoming_request_h2(&ctx, req("h2-sreq", "POST", "/echo"), Some(brx), false)
+  let result = handle_incoming_request_h2(&ctx, req("h2-sreq", "POST", "/echo"), Some(brx))
     .await
     .expect("buffered response");
   let TunnelMessage::Response { body, .. } = result else {
@@ -285,14 +285,14 @@ async fn test_h2_streams_large_body() {
   let port = start_h2c_backend().await;
   let (tx, mut rx) = mpsc::channel::<Message>(512);
   let ctx = h2_ctx(port, tx);
-  let result = handle_incoming_request_h2(&ctx, req("h2-big", "GET", "/big"), None, false).await;
+  let result = handle_incoming_request_h2(&ctx, req("h2-big", "GET", "/big"), None).await;
   assert!(result.is_none(), "large body streams (returns None)");
 
   let mut got_start = false;
   let mut got_end = false;
   let mut total = 0usize;
-  while let Some(Message::Text(json)) = rx.recv().await {
-    match serde_json::from_str::<TunnelMessage>(&json).unwrap() {
+  while let Some(frame) = rx.recv().await {
+    match crate::protocol::decode_sent(&frame).unwrap() {
       TunnelMessage::ResponseStart { status, .. } => {
         assert_eq!(status, 200);
         got_start = true;
@@ -317,8 +317,7 @@ async fn test_h2_streams_large_body_with_trailers_binary() {
   let (tx, mut rx) = mpsc::channel::<Message>(512);
   let ctx = h2_ctx(port, tx);
   // binary_chunks=true → chunks come back as raw binary frames.
-  let result =
-    handle_incoming_request_h2(&ctx, req("h2-bigtr", "GET", "/big-trailer"), None, true).await;
+  let result = handle_incoming_request_h2(&ctx, req("h2-bigtr", "GET", "/big-trailer"), None).await;
   assert!(result.is_none());
 
   let mut got_end_trailers = None;
@@ -353,14 +352,12 @@ async fn test_h2_stream_truncated_at_limit() {
   // Cap below the full 600 KiB payload so streaming truncates mid-body.
   ctx.max_response_body_size = 300 * 1024;
   let result =
-    handle_incoming_request_h2(&ctx, req("h2-trunc", "GET", "/big-multiframe"), None, false).await;
+    handle_incoming_request_h2(&ctx, req("h2-trunc", "GET", "/big-multiframe"), None).await;
   assert!(result.is_none(), "streams then truncates");
 
   let mut got_abort = false;
-  while let Some(Message::Text(json)) = rx.recv().await {
-    if let TunnelMessage::ResponseAbort { .. } =
-      serde_json::from_str::<TunnelMessage>(&json).unwrap()
-    {
+  while let Some(frame) = rx.recv().await {
+    if let Some(TunnelMessage::ResponseAbort { .. }) = crate::protocol::decode_sent(&frame) {
       got_abort = true;
       break;
     }
@@ -375,7 +372,7 @@ async fn test_h2_stream_truncated_at_limit() {
 async fn test_h2_backend_unreachable() {
   // Port 1 has no listener → connection refused → 502.
   let ctx = h2_ctx(1, drained_tx());
-  let result = handle_incoming_request_h2(&ctx, req("h2-refused", "GET", "/"), None, false)
+  let result = handle_incoming_request_h2(&ctx, req("h2-refused", "GET", "/"), None)
     .await
     .expect("buffered error");
   let TunnelMessage::Response { status, .. } = result else {
@@ -389,7 +386,7 @@ async fn test_h2_timeout() {
   let port = start_h2c_backend().await;
   let mut ctx = h2_ctx(port, drained_tx());
   ctx.timeout_secs = 1;
-  let result = handle_incoming_request_h2(&ctx, req("h2-hang", "GET", "/hang"), None, false)
+  let result = handle_incoming_request_h2(&ctx, req("h2-hang", "GET", "/hang"), None)
     .await
     .expect("buffered error");
   let TunnelMessage::Response { status, .. } = result else {
@@ -402,7 +399,7 @@ async fn test_h2_timeout() {
 async fn test_h2_missing_client_is_bug_500() {
   let mut ctx = h2_ctx(1, drained_tx());
   ctx.h2_client = None;
-  let result = handle_incoming_request_h2(&ctx, req("h2-nobug", "GET", "/"), None, false)
+  let result = handle_incoming_request_h2(&ctx, req("h2-nobug", "GET", "/"), None)
     .await
     .expect("buffered error");
   let TunnelMessage::Response { status, .. } = result else {
@@ -415,7 +412,7 @@ async fn test_h2_missing_client_is_bug_500() {
 async fn test_h2_invalid_method_400() {
   let ctx = h2_ctx(1, drained_tx());
   // Space is not a valid method token.
-  let result = handle_incoming_request_h2(&ctx, req("h2-badm", "BAD METHOD", "/"), None, false)
+  let result = handle_incoming_request_h2(&ctx, req("h2-badm", "BAD METHOD", "/"), None)
     .await
     .expect("buffered error");
   let TunnelMessage::Response { status, .. } = result else {
@@ -429,7 +426,7 @@ async fn test_h2_bad_base64_body_400() {
   let ctx = h2_ctx(1, drained_tx());
   let mut r = req("h2-b64", "POST", "/echo");
   r.body = Some("!!not-base64!!".to_string());
-  let result = handle_incoming_request_h2(&ctx, r, None, false)
+  let result = handle_incoming_request_h2(&ctx, r, None)
     .await
     .expect("buffered error");
   let TunnelMessage::Response { status, .. } = result else {
@@ -466,7 +463,7 @@ async fn test_h2_tls_target_handshake_fails_502() {
     request_headers: HeaderTransform::default(),
     response_headers: HeaderTransform::default(),
   };
-  let result = handle_incoming_request_h2(&ctx, req("h2-tls", "GET", "/"), None, false)
+  let result = handle_incoming_request_h2(&ctx, req("h2-tls", "GET", "/"), None)
     .await
     .expect("buffered error");
   let TunnelMessage::Response { status, .. } = result else {
@@ -481,7 +478,7 @@ async fn test_h2_unparsable_incoming_uri_400() {
   // The incoming URI is spliced into `http://localhost<uri>`; an invalid port
   // makes that URL unparsable → build_dest_url returns 400.
   let ctx = h2_ctx(1, drained_tx());
-  let result = handle_incoming_request_h2(&ctx, req("h2-badpath", "GET", ":notaport"), None, false)
+  let result = handle_incoming_request_h2(&ctx, req("h2-badpath", "GET", ":notaport"), None)
     .await
     .expect("buffered error");
   let TunnelMessage::Response { status, .. } = result else {
@@ -639,7 +636,7 @@ async fn the_h2_path_honours_the_breaker_and_retries() {
   ctx.resilience = crate::proxy::http::BackendResilience::new(3, 1, false, 2, 30);
 
   let started = std::time::Instant::now();
-  let result = handle_incoming_request_h2(&ctx, req("r1", "GET", "/"), None, false).await;
+  let result = handle_incoming_request_h2(&ctx, req("r1", "GET", "/"), None).await;
   assert!(
     matches!(result, Some(TunnelMessage::Response { status: 502, .. })),
     "got {result:?}"
@@ -651,9 +648,9 @@ async fn the_h2_path_honours_the_breaker_and_retries() {
   // Two consecutive failures were configured to open the breaker, and the
   // first call recorded one. The second opens it, and from then on the
   // request is refused without dialing.
-  let _ = handle_incoming_request_h2(&ctx, req("r2", "GET", "/"), None, false).await;
+  let _ = handle_incoming_request_h2(&ctx, req("r2", "GET", "/"), None).await;
   let refused = std::time::Instant::now();
-  let result = handle_incoming_request_h2(&ctx, req("r3", "GET", "/"), None, false).await;
+  let result = handle_incoming_request_h2(&ctx, req("r3", "GET", "/"), None).await;
   assert!(
     matches!(result, Some(TunnelMessage::Response { status: 502, .. })),
     "got {result:?}"
@@ -671,7 +668,7 @@ async fn a_successful_h2_response_closes_the_breaker() {
   let (tx, _rx) = mpsc::channel::<Message>(64);
   let mut ctx = h2_ctx(port, tx);
   ctx.resilience = crate::proxy::http::BackendResilience::new(1, 1, false, 2, 30);
-  let result = handle_incoming_request_h2(&ctx, req("ok", "GET", "/"), None, false).await;
+  let result = handle_incoming_request_h2(&ctx, req("ok", "GET", "/"), None).await;
   assert!(
     matches!(result, Some(TunnelMessage::Response { status: 200, .. })),
     "got {result:?}"
@@ -698,7 +695,7 @@ async fn a_stalled_h2_backend_is_retried_like_any_other_pre_response_failure() {
 
   let started = std::time::Instant::now();
   // `/hang` never answers, so both attempts run out their budget.
-  let result = handle_incoming_request_h2(&ctx, req("slow", "GET", "/hang"), None, false).await;
+  let result = handle_incoming_request_h2(&ctx, req("slow", "GET", "/hang"), None).await;
   assert!(
     matches!(result, Some(TunnelMessage::Response { status: 504, .. })),
     "a stalled backend is still a 504 in the end, got {result:?}"

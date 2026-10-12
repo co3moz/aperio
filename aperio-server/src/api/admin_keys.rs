@@ -1,6 +1,6 @@
 //! Dashboard API for programmatic admin keys (`/aperio/api/admin-keys`).
 //!
-//! Management is restricted to the master-organization admin: admin keys are
+//! Management is restricted to the server admin (`*` Admin): admin keys are
 //! powerful, cross-org credentials, so only the top-level admin mints and
 //! revokes them. Each key is scoped to a role + organization and its secret is
 //! returned exactly once at creation.
@@ -42,9 +42,6 @@ pub(crate) struct AdminKeyView {
   pub(crate) created_at: u64,
   pub(crate) expires_at: Option<u64>,
   pub(crate) expired: bool,
-  pub(crate) expose: std::collections::BTreeSet<crate::store::grants::ExposeAction>,
-  #[serde(default)]
-  pub(crate) expose_bounds: Option<aperio_config::expose_policy::ExposePolicy>,
 }
 
 /// Lists programmatic admin keys (metadata only).
@@ -55,47 +52,73 @@ pub(crate) async fn admin_keys_list_handler(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
 ) -> Response {
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
-  let store = state.admin_key_store.lock().await;
-  let views: Vec<AdminKeyView> = store
-    .list()
-    .iter()
-    .map(|k| AdminKeyView {
-      id: k.id.clone(),
-      name: k.name.clone(),
-      key_prefix: k.key_prefix.clone(),
-      role: k.role,
-      org_id: scope_view(&k.scope()),
-      created_at: k.created_at,
-      expires_at: k.expires_at,
-      expired: k.is_expired(),
-      expose: k.expose.clone(),
-      expose_bounds: k.expose_bounds.clone(),
-    })
-    .collect();
+  let (views, adopted) = {
+    let mut store = state.admin_key_store.lock().await;
+    // The page lists what is in force, a key minted from the command line a
+    // moment ago included.
+    store.reread();
+    let views: Vec<AdminKeyView> = store
+      .list()
+      .iter()
+      .map(|k| AdminKeyView {
+        id: k.id.clone(),
+        name: k.name.clone(),
+        key_prefix: k.key_prefix.clone(),
+        role: k.role,
+        org_id: scope_view(&k.scope()),
+        created_at: k.created_at,
+        expires_at: k.expires_at,
+        expired: k.is_expired(),
+      })
+      .collect();
+    (views, store.take_adopted())
+  };
+  audit_adopted(&state, adopted).await;
   Json(views).into_response()
 }
 
-/// Payload for creating an admin key.
+/// Writes the audit events for keys `aperio-server admin create-key` added
+/// to the data directory while the server ran. That process holds no audit
+/// chain, so the server records them the first time it reads them, under
+/// the command that made them.
+pub(crate) async fn audit_adopted(state: &AppState, keys: Vec<crate::store::admin_keys::AdminKey>) {
+  for key in keys {
+    state
+      .audit(
+        "admin_key_created",
+        "aperio-server admin create-key",
+        "local",
+        &format!(
+          "name={} id={} role={} org={}",
+          key.name,
+          key.id,
+          key.role.as_str(),
+          key.scope().as_str()
+        ),
+      )
+      .await;
+  }
+}
+
+/// Payload for creating an admin key. Unknown fields are refused, so a
+/// request still naming the `expose` capabilities of before 0.13.0 is told
+/// so rather than minting a key with the whole of its role.
 #[derive(Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct AdminKeyCreateRequest {
   pub(crate) name: String,
   /// Role the key authenticates as: viewer / operator / admin.
   pub(crate) role: String,
   /// Organization the key acts within: a child id, `master` (or absent),
-  /// or `*` for every organization, which only a holder of `*` Admin may
-  /// mint.
+  /// or `*` for every organization, which makes the key a server admin when
+  /// its role is Admin.
   #[serde(default)]
   pub(crate) org_id: Option<String>,
   /// Optional lifetime in seconds; omitted = never expires.
   pub(crate) ttl_seconds: Option<u64>,
-  #[serde(default)]
-  #[schema(value_type = Vec<String>)]
-  pub(crate) expose: std::collections::BTreeSet<crate::store::grants::ExposeAction>,
-  #[serde(default)]
-  pub(crate) expose_bounds: Option<aperio_config::expose_policy::ExposePolicy>,
 }
 
 /// Creates an admin key. The plaintext secret is returned exactly once.
@@ -109,7 +132,7 @@ pub(crate) async fn admin_keys_create_handler(
   headers: HeaderMap,
   Json(payload): Json<AdminKeyCreateRequest>,
 ) -> Response {
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
   let actor_ip = extract_client_ip(
@@ -147,41 +170,16 @@ pub(crate) async fn admin_keys_create_handler(
         return (StatusCode::BAD_REQUEST, "unknown organization").into_response();
       }
     }
-    // `*` is a grant like any other and is bounded by the granter's: a master
-    // Admin runs the server and still cannot mint a credential wider than
-    // their own reach.
-    GrantOrg::All => {
-      let holds_all = crate::auth::resolve_caller(&state, &headers)
-        .await
-        .is_some_and(|c| c.holds_all_admin());
-      if !holds_all {
-        return (
-          StatusCode::FORBIDDEN,
-          "a key for every organization (*) takes a caller granted every organization",
-        )
-          .into_response();
-      }
-    }
-    GrantOrg::Master => {}
+    // `*` needs nothing more: only the server admin reaches this handler.
+    GrantOrg::All | GrantOrg::Master => {}
   }
 
-  if payload.expose_bounds.as_ref().is_some_and(|b| {
-    matches!(scope, GrantOrg::All) || b.org_id != scope.as_str() || !b.validate().is_empty()
-  }) {
-    return (
-      StatusCode::BAD_REQUEST,
-      "Expose bounds must name the key's concrete organization",
-    )
-      .into_response();
-  }
   // A key is a grant someone holds without a session, so it is bounded the
   // way a grant on a user is: a role in a child organization takes Admin
   // there, held directly or through `*`. Requiring Admin in master is not
   // enough, since that no longer reaches the children by itself, and a key
   // would otherwise be the way around the bound the users API keeps.
-  let mut grant = Grant::new(scope.clone(), role);
-  grant.expose = payload.expose.clone();
-  grant.expose_bounds = payload.expose_bounds.clone();
+  let grant = Grant::new(scope.clone(), role);
   let may_grant = crate::auth::resolve_caller(&state, &headers)
     .await
     .is_some_and(|c| c.may_grant(&grant));
@@ -195,14 +193,12 @@ pub(crate) async fn admin_keys_create_handler(
     )
       .into_response();
   }
-  let created = state.admin_key_store.lock().await.create_with_bounds(
-    name,
-    role,
-    scope,
-    payload.ttl_seconds,
-    payload.expose,
-    payload.expose_bounds,
-  );
+  let (created, adopted) = {
+    let mut store = state.admin_key_store.lock().await;
+    let created = store.create(name, role, scope, payload.ttl_seconds);
+    (created, store.take_adopted())
+  };
+  audit_adopted(&state, adopted).await;
   let Some((record, secret)) = created else {
     return crate::api::tokens::not_persisted();
   };
@@ -219,12 +215,11 @@ pub(crate) async fn admin_keys_create_handler(
       &headers,
       &actor_ip,
       &format!(
-        "name={} id={} role={} org={} expose={:?}",
+        "name={} id={} role={} org={}",
         record.name,
         record.id,
         record.role.as_str(),
-        record.scope().as_str(),
-        record.expose
+        record.scope().as_str()
       ),
     )
     .await;
@@ -236,7 +231,6 @@ pub(crate) async fn admin_keys_create_handler(
       "role": record.role.as_str(),
       "org_id": scope_view(&record.scope()),
       "expires_at": record.expires_at,
-      "expose": record.expose,
       "key": secret,
     })),
   )
@@ -254,7 +248,7 @@ pub(crate) async fn admin_keys_revoke_handler(
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
   headers: HeaderMap,
 ) -> Response {
-  if let Err(resp) = crate::auth::require_master_admin(&state, &headers).await {
+  if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
   let actor_ip = extract_client_ip(

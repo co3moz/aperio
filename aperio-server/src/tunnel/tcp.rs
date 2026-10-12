@@ -83,6 +83,9 @@ pub(crate) async fn tcp_ws_handler(
     info!("Unauthorized TCP tunnel attempt blocked.");
     return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
   };
+  if let Some(refused) = super::ws::refuse_unpaired_client(&headers, addr) {
+    return refused;
+  }
 
   let requested_client = params
     .get("client")
@@ -196,7 +199,9 @@ pub(crate) async fn tcp_ws_handler(
   };
   let peer_addr = std::net::SocketAddr::new(caller_ip, addr.port());
   let log = RelayIdentity::new(peer_addr, requested_name.clone(), &perms);
-  ws.on_upgrade(move |socket| async move {
+  // The release goes on this handshake as on every other: a binder is a
+  // client, and refuses a server that does not say what it is.
+  let mut response = ws.on_upgrade(move |socket| async move {
     // Recorded inside the upgrade rather than before it, and the pairing is
     // the reason: `on_upgrade` does not run when the handshake never
     // completes, so an `opened` outside it would have no `closed` to answer
@@ -227,7 +232,9 @@ pub(crate) async fn tcp_ws_handler(
       &edge.token_name,
       crate::store::tokens::now_secs(),
     );
-  })
+  });
+  crate::tunnel::ws::announce_release(&mut response);
+  response
 }
 
 /// One consumer connection's identity, carried into the relay so the edge can
@@ -265,6 +272,9 @@ pub(crate) async fn udp_ws_handler(
     info!("Unauthorized UDP tunnel attempt blocked.");
     return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
   };
+  if let Some(refused) = super::ws::refuse_unpaired_client(&headers, addr) {
+    return refused;
+  }
 
   let requested_name = params
     .get("tunnel")
@@ -328,7 +338,10 @@ pub(crate) async fn udp_ws_handler(
 
   let peer_addr = std::net::SocketAddr::new(caller_ip, addr.port());
   let log = RelayIdentity::new(peer_addr, requested_name.clone(), &perms);
-  ws.on_upgrade(move |socket| relay_udp_consumer(state, socket, client_id, client_tx, target, log))
+  let mut response = ws
+    .on_upgrade(move |socket| relay_udp_consumer(state, socket, client_id, client_tx, target, log));
+  crate::tunnel::ws::announce_release(&mut response);
+  response
 }
 
 /// What the relay access log needs to know about a connection, gathered at
@@ -375,9 +388,6 @@ async fn relay_udp_consumer(
   log: RelayIdentity,
 ) {
   let stream_id = uuid::Uuid::new_v4().to_string();
-  // Read once per stream: the announcement precedes routability, so the
-  // client's protocol cannot change mid-stream in a way that matters.
-  let protocol = state.client_protocol(&client_id).await;
   let (relay_tx, mut relay_rx) = mpsc::channel::<TcpConsumerMsg>(64);
   state.udp_streams.lock().await.insert(
     stream_id.clone(),
@@ -424,7 +434,6 @@ async fn relay_udp_consumer(
       };
       // v7 takes the datagram raw; an older client takes base64 in JSON.
       let Some(frame) = crate::protocol::relay_frame(
-        protocol,
         crate::protocol::FRAME_UDP_DATAGRAM,
         &stream_id_up,
         &bytes,
@@ -570,18 +579,12 @@ async fn relay_tcp_consumer(
   log: RelayIdentity,
 ) {
   let stream_id = uuid::Uuid::new_v4().to_string();
-  // Read once per stream, like the pause support below.
-  let protocol = state.client_protocol(&client_id).await;
   let (relay_tx, mut relay_rx) = mpsc::channel::<TcpConsumerMsg>(64);
   // The tunnel read loop feeds a pump rather than this channel: a consumer
   // that stops reading must not stall the other streams on that tunnel;
   // past the byte watermark the client is asked to pause producing.
-  let flow = crate::state::StreamFlow::new(
-    stream_id.clone(),
-    client_tx.clone(),
-    state.client_supports_pause(&client_id).await,
-    state.stream_limits(),
-  );
+  let flow =
+    crate::state::StreamFlow::new(stream_id.clone(), client_tx.clone(), state.stream_limits());
   let relay_tx =
     crate::state::spawn_consumer_pump(relay_tx, state.config().gateway_response_timeout, flow);
   state.tcp_streams.lock().await.insert(
@@ -638,7 +641,6 @@ async fn relay_tcp_consumer(
       };
       // v7 takes the bytes raw; an older client takes base64 in JSON.
       let Some(frame) = crate::protocol::relay_frame(
-        protocol,
         crate::protocol::FRAME_TCP_DATA,
         &stream_id_up,
         &bytes,

@@ -1,0 +1,24 @@
+# First-start settings for this example, read once into an empty data
+# directory. Start the server with:
+#
+#   APERIO_SERVER_TOKEN=apr_behind_proxy_change_me APERIO_INIT_FILE=server-init.yaml aperio-server
+#
+# After the first start the settings live in the database: change them from
+# the dashboard (Settings), with `PUT /aperio/api/settings`, or export them
+# with `GET /aperio/api/export?include=settings`.
+
+settings:
+  proxy:
+    # Resolve real visitor IPs by walking X-Forwarded-For backwards past these
+    # trusted hops (implies `proxy.trust`). List your reverse proxies and your
+    # CDN's egress ranges.
+    trusted:
+      - 10.0.0.0/8            # internal load balancers
+      - 173.245.48.0/20       # example CDN egress range
+    # Behind Cloudflare->proxy chains where the proxy resets XFF to the CDN
+    # edge, prefer the CDN's own header instead:
+    # real_ip_header: CF-Connecting-IP
+  security:
+    # Session cookies default to Secure when proxy trust is on; set it
+    # explicitly if your public URL is https but proxy trust is off.
+    secure_cookies: true

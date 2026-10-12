@@ -27,12 +27,7 @@ pub(crate) fn test_sanitize_uri_strips_query() {
 /// no bind is declared, so it is not treated as still arriving.
 pub(crate) const TEST_THRESHOLD: Duration = Duration::from_secs(3600);
 
-pub(crate) fn mock_client(
-  hostname_bind: Option<&str>,
-  path_bind: Option<&str>,
-  override_hostname: Option<&str>,
-  override_path: Option<&str>,
-) -> ClientHandle {
+pub(crate) fn mock_client(hostname_bind: Option<&str>, path_bind: Option<&str>) -> ClientHandle {
   let (tx, _rx) = mpsc::channel::<Message>(1);
   ClientHandle {
     declared_name: None,
@@ -57,6 +52,10 @@ pub(crate) fn mock_client(
     subscriptions: Vec::new(),
     services: vec![crate::state::ServiceState {
       server_side_refused: None,
+      policy_conflict: None,
+      catch_all: hostname_bind.is_none(),
+      serves_http: false,
+      route_noticed: false,
       server_side_target: None,
       metrics_labels: Vec::new(),
       service_custom_name: None,
@@ -67,11 +66,6 @@ pub(crate) fn mock_client(
       declared_hostnames: Vec::new(),
       assigned_hostnames: Vec::new(),
       random_hostname: None,
-      override_path_bind: override_path.map(|s| s.to_string()),
-      override_hostname_binds: override_hostname
-        .map(|s| s.to_string())
-        .into_iter()
-        .collect(),
       capture: true,
       connections: None,
       connections_min: None,
@@ -99,6 +93,7 @@ pub(crate) fn mock_client(
       tunnels: Vec::new(),
       cache: false,
       cache_ignored_warned: false,
+      notices_sent: Default::default(),
       resilience: false,
       max_request_body: None,
       response_timeout: None,
@@ -113,21 +108,14 @@ pub(crate) fn mock_client(
 #[test]
 pub(crate) fn test_select_client_pool_longest_path_bind_wins() {
   let mut clients = HashMap::new();
-  clients.insert(
-    "short".to_string(),
-    mock_client(None, Some("/api"), None, None),
-  );
-  clients.insert(
-    "long".to_string(),
-    mock_client(None, Some("/api/v2"), None, None),
-  );
+  clients.insert("short".to_string(), mock_client(None, Some("/api")));
+  clients.insert("long".to_string(), mock_client(None, Some("/api/v2")));
 
-  let (pool, key) =
-    select_client_pool(&clients, "/api/v2/users", None, false, TEST_THRESHOLD).unwrap();
+  let (pool, key) = select_client_pool(&clients, "/api/v2/users", None, TEST_THRESHOLD).unwrap();
   assert_eq!(ids(&pool), vec!["long".to_string()]);
   assert_eq!(key, (None, Some("/api/v2".to_string())));
 
-  let (pool, _) = select_client_pool(&clients, "/api/other", None, false, TEST_THRESHOLD).unwrap();
+  let (pool, _) = select_client_pool(&clients, "/api/other", None, TEST_THRESHOLD).unwrap();
   assert_eq!(ids(&pool), vec!["short".to_string()]);
 }
 
@@ -214,12 +202,12 @@ pub(crate) async fn test_observe_service_availability_states() {
   assert!(observe_service_availability(&state).await.is_empty());
 
   // Healthy client, keyed by its service_name → Up.
-  let mut up = mock_client(None, None, None, None);
+  let mut up = mock_client(None, None);
   up.sole_mut().service_name = Some("web".to_string());
   state.clients.write().await.insert("c-up".to_string(), up);
 
   // Connected but draining → Degraded, keyed by reported_instance_id (no name).
-  let mut drain = mock_client(None, None, None, None);
+  let mut drain = mock_client(None, None);
   drain.draining = true;
   drain.reported_instance_id = Some("inst-drain".to_string());
   state
@@ -229,7 +217,7 @@ pub(crate) async fn test_observe_service_availability_states() {
     .insert("c-drain".to_string(), drain);
 
   // Backend probe failing → Degraded, keyed by connection id (no name/instance).
-  let mut bad_backend = mock_client(None, None, None, None);
+  let mut bad_backend = mock_client(None, None);
   bad_backend.sole_mut().backend_healthy = false;
   state
     .clients
@@ -238,7 +226,7 @@ pub(crate) async fn test_observe_service_availability_states() {
     .insert("c-badbackend".to_string(), bad_backend);
 
   // Admin-disabled → Degraded as well.
-  let mut disabled = mock_client(None, None, None, None);
+  let mut disabled = mock_client(None, None);
   disabled.sole_mut().admin_enabled = false;
   disabled.sole_mut().service_name = Some("disabled-svc".to_string());
   state
@@ -265,7 +253,7 @@ pub(crate) async fn test_observe_service_availability_down_and_best_state_wins()
   let state = crate::test_support::test_state_with(cfg);
 
   // Stale heartbeat → Down.
-  let mut stale = mock_client(None, None, None, None);
+  let mut stale = mock_client(None, None);
   stale.sole_mut().service_name = Some("svc".to_string());
   stale.last_ping_at = Some(Instant::now() - Duration::from_secs(120));
   state
@@ -275,7 +263,7 @@ pub(crate) async fn test_observe_service_availability_down_and_best_state_wins()
     .insert("c-stale".to_string(), stale);
 
   // A second, healthy connection for the SAME entity → the best state wins.
-  let mut healthy = mock_client(None, None, None, None);
+  let mut healthy = mock_client(None, None);
   healthy.sole_mut().service_name = Some("svc".to_string());
   healthy.last_ping_at = Some(Instant::now());
   state

@@ -1,9 +1,10 @@
 //! What the layered configuration resolves to: the value spellings people write
-//! (bandwidth, targets, the `server:` forms), grouped blocks folding into the flat
-//! fields they stand for, and `include:` (precedence, relative paths, cycles).
+//! (bandwidth, targets), the order the layers win in, `include:` (precedence,
+//! relative paths, cycles), and the command line's own shape.
 
 use super::*;
 use clap::Parser;
+use serde_yaml::Mapping;
 
 #[test]
 fn test_parse_bandwidth() {
@@ -38,93 +39,6 @@ fn test_normalize_target() {
   );
 }
 
-#[test]
-fn test_file_config_server_forms() {
-  // Canonical nested form.
-  let nested: FileConfig = serde_yaml::from_str(
-    "server:\n  url: https://tunnel.example.com\n  token: apr_nested\ntarget: http://localhost:3000\n",
-  )
-  .unwrap();
-  assert_eq!(
-    nested.server_url().as_deref(),
-    Some("https://tunnel.example.com")
-  );
-  assert_eq!(nested.server_token().as_deref(), Some("apr_nested"));
-
-  // Legacy flat form keeps working.
-  let flat: FileConfig = serde_yaml::from_str(
-    "server: https://tunnel.example.com\ntoken: apr_flat\ntarget: http://localhost:3000\n",
-  )
-  .unwrap();
-  assert_eq!(
-    flat.server_url().as_deref(),
-    Some("https://tunnel.example.com")
-  );
-  assert_eq!(flat.server_token().as_deref(), Some("apr_flat"));
-
-  // Nested url with legacy top-level token.
-  let mixed: FileConfig =
-    serde_yaml::from_str("server:\n  url: https://t.example.com\ntoken: apr_mixed\n").unwrap();
-  assert_eq!(mixed.server_token().as_deref(), Some("apr_mixed"));
-}
-
-#[test]
-fn test_health_group_folds_into_the_flat_fields() {
-  // The grouped form is what a new config writes.
-  let mut nested: FileConfig = serde_yaml::from_str(
-    "target: http://localhost:3000\nhealth:\n  endpoint: /healthz\n  interval: 7\n  timeout: 3\n  threshold: 4\n  wait_for_backend: true\n",
-  )
-  .unwrap();
-  let deprecated = nested.fold_groups();
-  assert!(deprecated.is_empty(), "nothing deprecated in the new form");
-  assert_eq!(nested.target_health.as_deref(), Some("/healthz"));
-  assert_eq!(nested.health_interval, Some(7));
-  assert_eq!(nested.health_timeout, Some(3));
-  assert_eq!(nested.health_threshold, Some(4));
-  assert_eq!(nested.wait_for_backend, Some(true));
-
-  // The flat spelling still works, and is reported so the operator can move.
-  let mut flat: FileConfig = serde_yaml::from_str(
-    "target: http://localhost:3000\ntarget_health: /health\nhealth_interval: 9\n",
-  )
-  .unwrap();
-  let deprecated = flat.fold_groups();
-  assert_eq!(flat.target_health.as_deref(), Some("/health"));
-  assert_eq!(flat.health_interval, Some(9));
-  let old: Vec<&str> = deprecated.iter().map(|k| k.old).collect();
-  assert_eq!(old, vec!["target_health", "health_interval"]);
-  assert_eq!(deprecated[1].new, "health.interval");
-
-  // Both spellings at once: the block wins, field by field, and the flat key
-  // left over is still reported.
-  let mut mixed: FileConfig = serde_yaml::from_str(
-    "target: http://localhost:3000\nhealth_interval: 9\nhealth_timeout: 2\nhealth:\n  interval: 30\n",
-  )
-  .unwrap();
-  let deprecated = mixed.fold_groups();
-  assert_eq!(mixed.health_interval, Some(30), "the block wins");
-  assert_eq!(mixed.health_timeout, Some(2), "the flat key still applies");
-  assert_eq!(deprecated.len(), 2);
-}
-
-#[test]
-fn test_health_group_folds_per_service_entry() {
-  let mut cfg: FileConfig = serde_yaml::from_str(
-    "services:\n  - name: api\n    target: http://localhost:4000\n    health:\n      endpoint: /up\n      threshold: 5\n  - name: web\n    target: http://localhost:3000\n    health_timeout: 8\n",
-  )
-  .unwrap();
-  let deprecated = cfg.fold_groups();
-  let services = cfg.services.unwrap();
-  assert_eq!(services[0].target_health.as_deref(), Some("/up"));
-  assert_eq!(services[0].health_threshold, Some(5));
-  assert_eq!(services[1].health_timeout, Some(8));
-  assert_eq!(
-    deprecated.iter().map(|k| k.old).collect::<Vec<_>>(),
-    vec!["health_timeout"],
-    "only the entry using the old spelling is reported"
-  );
-}
-
 /// Writes files into a fresh temp directory and returns it.
 fn config_dir(files: &[(&str, &str)]) -> std::path::PathBuf {
   let dir = std::env::temp_dir().join(format!("aperio-cfg-{}", uuid::Uuid::new_v4()));
@@ -136,23 +50,30 @@ fn config_dir(files: &[(&str, &str)]) -> std::path::PathBuf {
   dir
 }
 
+/// The command line with nothing on it.
+fn no_cli() -> CliArgs {
+  CliArgs {
+    mode: CliMode::Run,
+    target: None,
+    local_port: None,
+    opts: CommonOpts::default(),
+  }
+}
+
+fn yaml(text: &str) -> Mapping {
+  aperio_config::layers::parse_document(text).unwrap()
+}
+
 #[test]
-fn test_parse_config_tree_folds_groups() {
-  // The reload path must apply the same folding pass as the initial load: a
-  // file written in the grouped `health:` form used to lose the whole block
-  // on reload, silently turning health probing off.
-  // A top-level `health:` block still carries the defaults every entry
-  // inherits; what it may no longer carry is an `endpoint:`, since that
-  // describes one service. The entry's own block is folded the same way.
-  let dir = config_dir(&[(
-    "aperio.yaml",
-    "health:\n  interval: 7\nservices:\n  - target: http://localhost:3000\n    health:\n      endpoint: /healthz\n",
-  )]);
-  let (cfg, files) = parse_config_tree(&dir.join("aperio.yaml")).unwrap();
-  assert_eq!(cfg.health_interval, Some(7));
-  let entry = &cfg.services.as_ref().unwrap()[0];
-  assert_eq!(entry.target_health.as_deref(), Some("/healthz"));
-  assert_eq!(files.len(), 1, "one file contributed");
+fn a_file_is_checked_and_its_mistake_names_the_file() {
+  let dir = config_dir(&[("aperio.yaml", "servr: {url: x}\n")]);
+  let Err(err) = parse_config_tree(&dir.join("aperio.yaml")) else {
+    panic!("a key nothing reads is refused")
+  };
+  assert!(
+    err.contains("aperio.yaml") && err.contains("did you mean `server`"),
+    "{err}"
+  );
 
   // Unparseable input reports the error instead of panicking, so the
   // supervisor keeps the previous configuration.
@@ -169,24 +90,24 @@ fn an_include_contributes_its_settings_and_the_including_file_wins() {
   let dir = config_dir(&[
     (
       "aperio.yaml",
-      "include: [shared.yaml]\ntimeout: 99\nservices:\n  - name: web\n    target: http://localhost:1\n",
+      "include: [shared.yaml]\ndefaults: {timeout: 99s}\nservices:\n  web: {target: 'http://localhost:1'}\n",
     ),
     (
       "shared.yaml",
-      "timeout: 5\nmax_redirects: 3\nservices:\n  - name: api\n    target: http://localhost:2\n",
+      "defaults: {timeout: 5s, limits: {redirects: 3}}\nservices:\n  api: {target: 'http://localhost:2'}\n",
     ),
   ]);
-  let (cfg, files) = parse_config_tree(&dir.join("aperio.yaml")).unwrap();
+  let (doc, files) = parse_config_tree(&dir.join("aperio.yaml")).unwrap();
+  let s = resolve_settings(&no_cli(), &Mapping::new(), &doc).unwrap();
+  let api = &s.services[0].entry.policy;
   // A key only the include sets is used.
-  assert_eq!(cfg.max_redirects, Some(3));
+  assert_eq!(api.limits.as_ref().unwrap().redirects, Some(3));
   // A key both set belongs to the including file.
-  assert_eq!(cfg.timeout, Some(99));
-  // Services concatenate, includes first, so a fragment adds rather than
-  // replaces.
-  let names: Vec<_> = cfg
+  assert_eq!(api.timeout.unwrap().as_secs(), 99);
+  // Services merge by name, includes first, so a fragment adds a service
+  // rather than replacing the list.
+  let names: Vec<_> = s
     .services
-    .as_ref()
-    .expect("both files contributed services")
     .iter()
     .map(|s| s.name.clone().unwrap_or_default())
     .collect();
@@ -201,14 +122,17 @@ fn includes_resolve_relative_to_the_file_that_wrote_them() {
   // whichever directory the client is started from.
   let dir = config_dir(&[
     ("aperio.yaml", "include: [conf/base.yaml]\n"),
-    ("conf/base.yaml", "include: [nested.yaml]\ntimeout: 11\n"),
-    ("conf/nested.yaml", "max_redirects: 4\n"),
+    (
+      "conf/base.yaml",
+      "include: [nested.yaml]\nname: from_base\n",
+    ),
+    ("conf/nested.yaml", "reload_drain: 4s\n"),
   ]);
-  let (cfg, files) = parse_config_tree(&dir.join("aperio.yaml")).unwrap();
-  assert_eq!(cfg.timeout, Some(11));
+  let (doc, files) = parse_config_tree(&dir.join("aperio.yaml")).unwrap();
+  assert_eq!(doc["name"], serde_yaml::Value::String("from_base".into()));
   assert_eq!(
-    cfg.max_redirects,
-    Some(4),
+    doc["reload_drain"],
+    serde_yaml::Value::String("4s".into()),
     "the nested include resolved next to its parent"
   );
   assert_eq!(files.len(), 3);
@@ -219,11 +143,11 @@ fn includes_resolve_relative_to_the_file_that_wrote_them() {
 fn later_includes_win_over_earlier_ones() {
   let dir = config_dir(&[
     ("aperio.yaml", "include: [a.yaml, b.yaml]\n"),
-    ("a.yaml", "timeout: 1\n"),
-    ("b.yaml", "timeout: 2\n"),
+    ("a.yaml", "name: a\n"),
+    ("b.yaml", "name: b\n"),
   ]);
-  let (cfg, _) = parse_config_tree(&dir.join("aperio.yaml")).unwrap();
-  assert_eq!(cfg.timeout, Some(2));
+  let (doc, _) = parse_config_tree(&dir.join("aperio.yaml")).unwrap();
+  assert_eq!(doc["name"], serde_yaml::Value::String("b".into()));
   let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -261,81 +185,161 @@ fn a_missing_or_malformed_include_is_an_error_naming_the_file() {
 }
 
 #[test]
-fn test_target_flag_accepted_by_subcommands() {
-  // `check` (and every mode) accepts --target as an alternative to the
-  // positional argument, with the same normalization.
+fn a_file_included_by_two_siblings_is_not_a_cycle() {
+  // A root that includes two per-environment fragments, both of which include
+  // a shared one. This is a diamond, not a cycle: nothing includes itself,
+  // directly or transitively, and every real layout with a shared fragment
+  // has this shape.
+  let dir = config_dir(&[
+    (
+      "common.yaml",
+      "defaults: {limits: {concurrent_requests: 4}}\n",
+    ),
+    (
+      "a.yaml",
+      "include: common.yaml\nservices:\n  a: {target: 'http://localhost:3000'}\n",
+    ),
+    (
+      "b.yaml",
+      "include: common.yaml\nservices:\n  b: {target: 'http://localhost:4000'}\n",
+    ),
+    ("root.yaml", "include: [a.yaml, b.yaml]\n"),
+  ]);
+  let parsed = parse_config_tree(&dir.join("root.yaml"));
+  let _ = std::fs::remove_dir_all(&dir);
+  let (doc, files) = parsed.expect("a diamond is not a cycle");
+  let s = resolve_settings(&no_cli(), &Mapping::new(), &doc).unwrap();
+  assert_eq!(s.services.len(), 2, "both fragments contributed");
+  assert_eq!(
+    s.services[0]
+      .entry
+      .policy
+      .limits
+      .as_ref()
+      .unwrap()
+      .concurrent_requests,
+    Some(4)
+  );
+  // Every file that contributed is watched, including the shared one.
+  assert_eq!(files.len(), 4, "{files:?}");
+}
+
+#[test]
+fn a_real_cycle_is_still_refused() {
+  let dir = config_dir(&[
+    ("a.yaml", "include: b.yaml\n"),
+    ("b.yaml", "include: a.yaml\n"),
+  ]);
+  let parsed = parse_config_tree(&dir.join("a.yaml"));
+  let _ = std::fs::remove_dir_all(&dir);
+  let err = parsed.expect_err("a cycle is refused");
+  assert!(err.contains("cycle"), "{err}");
+}
+
+// --- the command line -------------------------------------------------------
+
+#[test]
+fn the_positional_target_is_normalized() {
+  let cli = Cli::try_parse_from(["aperio-client", "3000"]).unwrap();
+  let args = cli_to_args(cli);
+  assert!(matches!(args.mode, CliMode::Run));
+  assert_eq!(args.target.as_deref(), Some("http://localhost:3000"));
+}
+
+#[test]
+fn bind_takes_tunnel_names() {
+  let cli = Cli::try_parse_from(["aperio-client", "bind", "pg_main", "acme@redis"]).unwrap();
+  let args = cli_to_args(cli);
+  assert!(
+    matches!(args.mode, CliMode::Bind(ref names) if names == &["pg_main".to_string(), "acme@redis".to_string()])
+  );
+
+  // With no name the `binds:` section drives it.
+  let cli = Cli::try_parse_from(["aperio-client", "bind", "--config", "x.yaml"]).unwrap();
+  let args = cli_to_args(cli);
+  assert!(matches!(args.mode, CliMode::Bind(ref names) if names.is_empty()));
+  assert_eq!(args.opts.config.as_deref(), Some("x.yaml"));
+}
+
+#[test]
+fn the_removed_flags_and_aliases_are_refused() {
+  // One name per setting: an alias is a second spelling to explain, and a
+  // removed flag that still parsed would be a setting silently not in force.
+  for flags in [
+    &["--bind-tunnels", "x"][..],
+    &["--target", "3000"],
+    &["--server", "https://x"],
+    &["--token", "t"],
+    &["--host", "a.example.com"],
+    &["--concurrency", "4"],
+    &["--public"],
+    &["--visitor-auth", "a:b"],
+    &["--no-capture"],
+    &["--resilience"],
+    &["--api-key", "k"],
+    &["--egress-proxy", "p:1"],
+    &["--ip-family", "ipv4"],
+  ] {
+    let argv: Vec<&str> = std::iter::once("aperio-client")
+      .chain(flags.iter().copied())
+      .collect();
+    assert!(
+      Cli::try_parse_from(&argv).is_err(),
+      "{flags:?} still parses"
+    );
+  }
+}
+
+#[test]
+fn a_flag_writes_the_key_its_help_names() {
   let cli = Cli::try_parse_from([
     "aperio-client",
-    "check",
-    "--target",
-    "https://rep.example.com",
+    "3000",
+    "--hostname",
+    "a.example.com,b.example.com",
+    "--access",
+    "public",
+    "--server-proxy",
+    "proxy:3128",
   ])
   .unwrap();
-  let args = cli_to_args(cli);
-  assert!(matches!(args.mode, CliMode::Check));
-  assert_eq!(args.target.as_deref(), Some("https://rep.example.com"));
-
-  // In run mode the positional wins over --target.
-  let cli = Cli::try_parse_from(["aperio-client", "3000", "--target", "4000"]).unwrap();
-  let args = cli_to_args(cli);
-  assert_eq!(args.target.as_deref(), Some("http://localhost:3000"));
-
-  // --target alone works in run mode and is normalized like the positional.
-  let cli = Cli::try_parse_from(["aperio-client", "--target", "3000"]).unwrap();
-  let args = cli_to_args(cli);
-  assert_eq!(args.target.as_deref(), Some("http://localhost:3000"));
+  let overlay = cli_to_args(cli).overlay().unwrap();
+  assert_eq!(
+    overlay.service["target"],
+    serde_yaml::Value::String("http://localhost:3000".into())
+  );
+  assert_eq!(overlay.service["hostname"].as_sequence().unwrap().len(), 2);
+  assert_eq!(
+    overlay.file["defaults"]["access"],
+    serde_yaml::Value::String("public".into())
+  );
+  assert_eq!(
+    overlay.file["server"]["proxy"],
+    serde_yaml::Value::String("proxy:3128".into())
+  );
 }
 
-#[test]
-fn test_bind_tunnels_flag_parsing() {
-  // With an explicit client id.
-  let cli = Cli::try_parse_from(["aperio-client", "--bind-tunnels", "client-1"]).unwrap();
-  let args = cli_to_args(cli);
-  assert!(matches!(args.mode, CliMode::BindTunnels(ref id) if id == "client-1"));
-
-  // Without a value (yaml section drives it), the id resolves to "".
-  let cli = Cli::try_parse_from(["aperio-client", "--bind-tunnels"]).unwrap();
-  let args = cli_to_args(cli);
-  assert!(matches!(args.mode, CliMode::BindTunnels(ref id) if id.is_empty()));
-
-  // A following flag is not swallowed as the value.
-  let cli = Cli::try_parse_from(["aperio-client", "--bind-tunnels", "--config", "x.yaml"]).unwrap();
-  let args = cli_to_args(cli);
-  assert!(matches!(args.mode, CliMode::BindTunnels(ref id) if id.is_empty()));
-  assert_eq!(args.opts.config.as_deref(), Some("x.yaml"));
-
-  // Conflicts with a positional target.
-  assert!(Cli::try_parse_from(["aperio-client", "3000", "--bind-tunnels", "c"]).is_err());
-}
+// --- layering ---------------------------------------------------------------
 
 #[test]
-fn test_resolve_settings_reports_invalid_idle_timeout() {
-  let cli = CliArgs {
-    mode: CliMode::Run,
-    target: None,
-    local_port: None,
-    opts: Default::default(),
-  };
-  let local: FileConfig = serde_yaml::from_str("idle_timeout: not-a-duration\n").unwrap();
+fn a_duration_that_is_not_one_is_reported() {
   // Must be reported, never fatal: this runs on hot-reload too, where a typo
   // saved into aperio.yaml used to take down a client that was serving traffic.
-  let Err(err) = resolve_settings(&cli, &Default::default(), &local) else {
+  let Err(err) = resolve_settings(&no_cli(), &Mapping::new(), &yaml("idle_timeout: soon\n")) else {
     panic!("an unparsable idle_timeout must be reported as an error");
   };
   assert!(err.contains("idle_timeout"), "got: {err}");
 
   // A valid value still resolves, and 0 means "no idle shutdown".
-  let local: FileConfig = serde_yaml::from_str("idle_timeout: 90s\n").unwrap();
-  let s = resolve_settings(&cli, &Default::default(), &local).unwrap();
+  let s = resolve_settings(&no_cli(), &Mapping::new(), &yaml("idle_timeout: 90s\n")).unwrap();
   assert_eq!(s.idle_timeout, Some(90));
-  let local: FileConfig = serde_yaml::from_str("idle_timeout: 0\n").unwrap();
-  let s = resolve_settings(&cli, &Default::default(), &local).unwrap();
+  let s = resolve_settings(&no_cli(), &Mapping::new(), &yaml("idle_timeout: 0\n")).unwrap();
   assert_eq!(s.idle_timeout, None);
 }
 
 #[test]
 fn test_resolve_settings_layering() {
-  // CLI beats the local file; the local file beats the home file.
+  // The command line beats the local file; the local file beats the home file.
   let cli = CliArgs {
     mode: CliMode::Run,
     target: Some("http://localhost:9999".to_string()),
@@ -345,24 +349,56 @@ fn test_resolve_settings_layering() {
       ..Default::default()
     },
   };
-  let home: FileConfig = serde_yaml::from_str(
-    "server:\n  url: https://home.example.com\n  token: apr_home\nhostname: home.example.com\npriority: 3\n",
-  )
-  .unwrap();
-  let local: FileConfig =
-    serde_yaml::from_str("server:\n  url: https://local.example.com\ntarget: http://localhost:1\n")
-      .unwrap();
+  let home =
+    yaml("server: {url: 'https://home.example.com', token: apr_home}\ndefaults: {priority: 3}\n");
+  let local = yaml("server: {url: 'https://local.example.com'}\n");
 
   let s = resolve_settings(&cli, &home, &local).unwrap();
-  assert_eq!(s.token.as_deref(), Some("apr_cli")); // CLI wins
-  assert_eq!(s.server.as_deref(), Some("https://local.example.com")); // local file beats home
-  assert_eq!(s.target.as_deref(), Some("http://localhost:9999")); // positional beats local
-  assert_eq!(s.hostnames, vec!["home.example.com".to_string()]); // home fills the gaps
-  assert_eq!(s.priority, 3);
-  // Defaults apply when no layer sets a value.
-  assert_eq!(s.timeout_secs, 30);
-  assert_eq!(s.max_redirects, 5);
-  assert_eq!(s.max_response_body, 50 * 1024 * 1024);
+  assert_eq!(s.token.as_deref(), Some("apr_cli")); // the command line wins
+  assert_eq!(s.server.as_deref(), Some("https://local.example.com")); // local beats home
+  assert!(s.single, "a target on the command line is the one service");
+  let service = &s.services[0].entry;
+  assert_eq!(service.target.as_deref(), Some("http://localhost:9999"));
+  assert_eq!(service.policy.priority, Some(3)); // home fills the gaps
+}
+
+#[test]
+fn the_home_file_is_a_layer_like_any_other() {
+  // `services:` and `tunnels:` in ~/.aperio.yaml used to be read only when the
+  // local file had none, and replaced wholesale when it did. They are maps
+  // now, and merge by name like everything else.
+  let home = yaml(
+    "services:\n  web: {target: 'http://localhost:3000'}\n\
+     tunnels:\n  mongo: {target: '127.0.0.1:27017'}\n",
+  );
+  let s = resolve_settings(&no_cli(), &home, &Mapping::new()).unwrap();
+  assert_eq!(s.services.len(), 1);
+  assert_eq!(s.tunnels.len(), 1);
+
+  let local = yaml("services:\n  api: {target: 'http://localhost:4000'}\n");
+  let s = resolve_settings(&no_cli(), &home, &local).unwrap();
+  let names: Vec<_> = s.services.iter().filter_map(|s| s.name.clone()).collect();
+  assert_eq!(names, vec!["web", "api"]);
+}
+
+#[test]
+fn a_top_level_service_key_says_where_it_goes_now() {
+  for body in [
+    "target: http://localhost:3000\n",
+    "serve: ./dist\n",
+    "hostname: app.example.com\nservices:\n  web: {target: '3000'}\n",
+    "tcp_target: 127.0.0.1:5432\n",
+  ] {
+    let dir = config_dir(&[("aperio.yaml", body)]);
+    let Err(err) = parse_config_tree(&dir.join("aperio.yaml")) else {
+      panic!("accepted a top-level service: {body:?}");
+    };
+    assert!(
+      err.contains("describes a single service") && err.contains("services:"),
+      "the message says where to move it: {err}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+  }
 }
 
 #[test]
@@ -384,18 +420,6 @@ fn test_build_ws_url() {
     "ws://localhost:8080/aperio/ws"
   );
   assert!(build_ws_url("ftp://localhost").is_err());
-}
-
-#[test]
-fn test_split_ip_list() {
-  assert_eq!(
-    // Deliberately messy: a space before a comma and two empty entries, which
-    // is what this function exists to survive. An earlier sweep tidied the
-    // input and quietly took the coverage with it.
-    split_ip_list(" 203.0.113.7, 10.0.0.0/8 ,,"),
-    vec!["203.0.113.7".to_string(), "10.0.0.0/8".to_string()]
-  );
-  assert!(split_ip_list("").is_empty());
 }
 
 #[test]
@@ -444,7 +468,7 @@ fn test_merge_security_headers() {
   // Detailed selection injects only what is set.
   let detailed = SecurityHeaders::Detailed(SecurityHeaderOptions {
     hsts: Some(true),
-    hsts_max_age: Some(60),
+    hsts_max_age: Some(aperio_config::units::Span::secs(60)),
     csp: Some("default-src 'self'".to_string()),
     ..Default::default()
   });
@@ -479,43 +503,6 @@ fn test_merge_security_headers() {
   assert!(resp.add.contains_key("Strict-Transport-Security"));
 }
 
-#[test]
-fn test_home_config_supplies_the_list_sections() {
-  // `services:`, `tunnels:` and `bind-tunnels:` used to be read from the
-  // local file only, so declaring them in ~/.aperio.yaml did nothing at all
-  // while every neighbouring key layered normally.
-  let cli = CliArgs {
-    mode: CliMode::Run,
-    target: None,
-    local_port: None,
-    opts: CommonOpts::default(),
-  };
-  let home: FileConfig = serde_yaml::from_str(
-    "server:\n  url: https://home.example.com\n  token: apr_home\n\
-     services:\n  - name: web\n    target: http://localhost:3000\n\
-     tunnels:\n  - target: 127.0.0.1:27017\n",
-  )
-  .unwrap();
-
-  // Home alone: its sections are used.
-  let s = resolve_settings(&cli, &home, &FileConfig::default()).unwrap();
-  assert_eq!(s.services.len(), 1);
-  assert_eq!(s.services[0].name.as_deref(), Some("web"));
-  assert_eq!(s.tunnels.len(), 1);
-
-  // A local file that declares its own replaces the home one wholesale,
-  // rather than merging entry by entry.
-  let local: FileConfig = serde_yaml::from_str(
-    "services:\n  - name: api\n    target: http://localhost:4000\n  - name: docs\n    target: http://localhost:5000\n",
-  )
-  .unwrap();
-  let s = resolve_settings(&cli, &home, &local).unwrap();
-  assert_eq!(s.services.len(), 2);
-  assert_eq!(s.services[0].name.as_deref(), Some("api"));
-  // A section the local file does not mention still comes from home.
-  assert_eq!(s.tunnels.len(), 1);
-}
-
 // ---------------------------------------------------------------------------
 // Shell completion (planned_features #70)
 // ---------------------------------------------------------------------------
@@ -531,7 +518,7 @@ fn completions_is_a_mode_that_prints_and_exits() {
   // No target is resolved for it: the script is printed before anything reads
   // a config file, so a completion run in a directory with a broken
   // aperio.yaml still works.
-  assert!(args.opts.target_opt.is_none());
+  assert!(args.target.is_none());
 }
 
 #[test]
@@ -558,110 +545,29 @@ fn the_generated_script_mentions_the_subcommands_it_completes() {
     &mut out,
   );
   let script = String::from_utf8(out).expect("a completion script is text");
-  for expected in [
-    "check",
-    "api",
-    "completions",
-    "--bind-tunnels",
-    "--server-url",
-  ] {
+  for expected in ["check", "api", "completions", "bind", "--server-url"] {
     assert!(script.contains(expected), "missing {expected}");
   }
 }
 
 #[test]
-fn a_file_included_by_two_siblings_is_not_a_cycle() {
-  // A root that includes two per-environment fragments, both of which include
-  // a shared one. This is a diamond, not a cycle: nothing includes itself,
-  // directly or transitively, and every real layout with a shared fragment
-  // has this shape.
-  let dir = std::env::temp_dir().join(format!("aperio-include-{}", uuid::Uuid::new_v4()));
-  std::fs::create_dir_all(&dir).unwrap();
-  std::fs::write(dir.join("common.yaml"), "max_concurrent: 4\n").unwrap();
-  std::fs::write(
-    dir.join("a.yaml"),
-    "include: common.yaml\nservices:\n  - name: a\n    target: http://localhost:3000\n",
-  )
+fn init_takes_the_target_and_the_flags_of_a_one_liner() {
+  let cli = Cli::try_parse_from([
+    "aperio-client",
+    "init",
+    "3000",
+    "--hostname",
+    "app.example.com",
+    "--service",
+    "app",
+    "--stdout",
+  ])
   .unwrap();
-  std::fs::write(
-    dir.join("b.yaml"),
-    "include: common.yaml\nservices:\n  - name: b\n    target: http://localhost:4000\n",
-  )
-  .unwrap();
-  std::fs::write(dir.join("root.yaml"), "include: [a.yaml, b.yaml]\n").unwrap();
-
-  let parsed = parse_config_tree(&dir.join("root.yaml"));
-  let _ = std::fs::remove_dir_all(&dir);
-  let (cfg, files) = parsed.expect("a diamond is not a cycle");
-  assert_eq!(cfg.max_concurrent, Some(4));
-  assert_eq!(
-    cfg.services.unwrap_or_default().len(),
-    2,
-    "both fragments contributed"
-  );
-  // Every file that contributed is watched, including the shared one.
-  assert_eq!(files.len(), 4, "{files:?}");
-}
-
-#[test]
-fn a_real_cycle_is_still_refused() {
-  let dir = std::env::temp_dir().join(format!("aperio-cycle-{}", uuid::Uuid::new_v4()));
-  std::fs::create_dir_all(&dir).unwrap();
-  std::fs::write(dir.join("a.yaml"), "include: b.yaml\n").unwrap();
-  std::fs::write(dir.join("b.yaml"), "include: a.yaml\n").unwrap();
-  let parsed = parse_config_tree(&dir.join("a.yaml"));
-  let _ = std::fs::remove_dir_all(&dir);
-  let err = parsed.err().expect("a cycle is refused");
-  assert!(err.contains("cycle"), "{err}");
-}
-
-// --- the top-level single-service keys, removed in 0.9.0 --------------------
-
-#[test]
-fn a_file_describing_a_service_at_the_top_level_is_refused() {
-  // Announced from 0.6.0 and carried out here. Refused rather than ignored:
-  // a file that says `target:` while the client serves nothing is the one
-  // outcome an operator cannot debug from what they are looking at.
-  for body in [
-    "target: http://localhost:3000\n",
-    "serve: ./dist\n",
-    "hostname: app.example.com\nservices:\n  - target: http://localhost:3000\n",
-    "tcp_target: 127.0.0.1:5432\n",
-    "health:\n  endpoint: /healthz\n",
-  ] {
-    let dir = config_dir(&[("aperio.yaml", body)]);
-    let Err(err) = parse_config_tree(&dir.join("aperio.yaml")) else {
-      panic!("accepted a top-level service: {body:?}");
-    };
-    assert!(err.contains("no longer accepts"), "{err}");
-    // The message has to name the key, since that is the edit to make.
-    assert!(
-      err.contains("services:") && err.contains("command line"),
-      "the message says where to move it and what still works: {err}"
-    );
-    let _ = std::fs::remove_dir_all(&dir);
-  }
-}
-
-#[test]
-fn the_same_file_written_under_services_is_accepted() {
-  let dir = config_dir(&[(
-    "aperio.yaml",
-    "services:\n  - target: http://localhost:3000\n    hostname: app.example.com\n    health:\n      endpoint: /healthz\n",
-  )]);
-  let (cfg, _) = parse_config_tree(&dir.join("aperio.yaml")).unwrap();
-  let entry = &cfg.services.as_ref().unwrap()[0];
-  assert_eq!(entry.target.as_deref(), Some("http://localhost:3000"));
-  assert_eq!(entry.target_health.as_deref(), Some("/healthz"));
-  let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn a_home_file_describing_a_service_is_dropped_rather_than_fatal() {
-  // `~/.aperio.yaml` is a layer of defaults for every project on the machine.
-  // One stale service in it must not stop a client whose own file is fine.
-  let mut cfg: FileConfig =
-    serde_yaml::from_str("target: http://localhost:3000\nserver:\n  url: https://x.example\n")
-      .unwrap();
-  assert!(fold_and_warn(&mut cfg, "~/.aperio.yaml").is_err());
+  let args = cli_to_args(cli);
+  assert!(matches!(
+    args.mode,
+    CliMode::Init { ref service, force: false, stdout: true } if service.as_deref() == Some("app")
+  ));
+  assert_eq!(args.target.as_deref(), Some("http://localhost:3000"));
+  assert_eq!(args.opts.hostname.as_deref(), Some("app.example.com"));
 }

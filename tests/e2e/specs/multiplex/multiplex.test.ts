@@ -7,7 +7,7 @@ import { waitFor } from '../../lib/env.js'
 
 /** Random subdomains off, so a hostname that is not routed really is not. */
 export class MultiplexServer extends AperioServerBase({
-  env: { APERIO_RANDOM_SUBDOMAIN: '' },
+  settings: { routing: { random_subdomain: null } },
 }) {}
 
 export class WebBackend extends StandardBackendBase() {}
@@ -16,11 +16,12 @@ export class ApiBackend extends StandardBackendBase() {}
 /**
  * One client, two services, one WebSocket between them.
  *
- * The point of the fixture is the pair of `multiplex: true` lines. Everything
- * else is the ordinary two-service shape, which is what makes the assertions
- * below meaningful: the services are configured exactly as they would be on
- * two connections, and the only question is whether they still behave that way
- * on one.
+ * The point of the fixture is that nothing in it says `multiplex:`: two
+ * services sharing one connection is what a file with two services gets. It is
+ * the ordinary two-service shape, which is what makes the assertions below
+ * meaningful: the services are configured exactly as they would be on two
+ * connections, and the only question is whether they still behave that way on
+ * one.
  */
 export class MultiplexedClient extends AperioClientBase({
   dependencies: {
@@ -46,15 +47,14 @@ export class MultiplexedClient extends AperioClientBase({
       'server:',
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
-      'multiplex: true',
       'services:',
-      '  - name: mx_web',
+      '  mx_web:',
       `    target: ${this.web._url}`,
       '    hostname: mx-web.e2e.local',
-      '  - name: mx_api',
+      '  mx_api:',
       `    target: ${this.api._url}`,
       '    hostname: mx-api.e2e.local',
-      '    max_concurrent: 4',
+      '    limits: { concurrent_requests: 4 }',
       '',
     ].join('\n')
   }

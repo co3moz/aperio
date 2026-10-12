@@ -6,23 +6,40 @@ use super::*;
 use crate::client::specs::tests::multiplexed_services;
 use crate::config::ClientSettings;
 use crate::tests::*;
-use aperio_config::ServiceEntry;
 
-/// A `services:` entry with just a target, an optional bandwidth request and
-/// an optional parallel-connection count.
-fn bw_service(name: &str, bandwidth: Option<&str>, connections: u32) -> ServiceEntry {
-  ServiceEntry {
-    name: Some(name.to_string()),
-    target: Some("http://localhost:3000".to_string()),
-    bandwidth: bandwidth.map(|s| s.to_string()),
-    connections: Some(aperio_config::Connections::Fixed(connections)),
-    ..Default::default()
-  }
+/// A service with just a target, an optional bandwidth request and a
+/// parallel-connection count, on connections of its own: what is under test
+/// here is the split per service, which sharing a socket replaces with one
+/// number for the group.
+fn bw_service(name: &str, bandwidth: Option<&str>, connections: u32) -> crate::config::Service {
+  let mut service = svc(name, "{target: 'http://localhost:3000'}");
+  service.entry.bandwidth = bandwidth.map(|s| s.to_string());
+  service.entry.policy.connections = Some(aperio_config::Connections::Fixed(connections));
+  service.entry.policy.multiplex = Some(false);
+  service
+}
+
+#[test]
+fn services_sharing_a_connection_by_default_share_their_part_of_the_budget() {
+  // Two services that said nothing share one socket, and the server paces the
+  // socket, so each announces the pair's part of the budget: all of it here.
+  // The budget still holds for the client as a whole, and one of them may
+  // use what the other leaves idle.
+  let specs = specs(
+    "bandwidth: 2mbit\n\
+     services:\n  \
+       x: {target: 'http://localhost:3000'}\n  \
+       y: {target: 'http://localhost:4000'}\n",
+  );
+  assert!(specs.iter().all(|s| s.multiplex_group == Some(0)));
+  assert!(specs.iter().all(|s| s.bandwidth_bps == Some(250_000)));
+  // Paced, so neither has a pool to divide it across.
+  assert!(specs.iter().all(|s| s.connections == 1));
 }
 
 /// Maps service name to the rate a single connection of it announces.
 fn announced(settings: &ClientSettings) -> Vec<(String, Option<u64>)> {
-  build_specs(settings, "id", false)
+  build_specs(settings, "id")
     .unwrap()
     .into_iter()
     .map(|s| (s.name.clone().unwrap_or_default(), s.bandwidth_bps))
@@ -38,7 +55,7 @@ fn test_config_notes_report_declared_versus_announced() {
   let mut settings = base_settings();
   settings.bandwidth = Some("10mbit".to_string());
   settings.services = vec![bw_service("x", Some("10mbit"), 10)];
-  let specs = build_specs(&settings, "id", false).unwrap();
+  let specs = build_specs(&settings, "id").unwrap();
   let note = specs[0]
     .config_notes
     .iter()
@@ -57,7 +74,7 @@ fn test_config_notes_report_declared_versus_announced() {
   let mut settings = base_settings();
   settings.bandwidth = Some("2mbit".to_string());
   settings.services = vec![bw_service("x", None, 1), bw_service("y", None, 1)];
-  let specs = build_specs(&settings, "id", false).unwrap();
+  let specs = build_specs(&settings, "id").unwrap();
   let note = &specs[0].config_notes[0];
   assert_eq!(note.declared, "");
   assert_eq!(note.effective, "1mbit");
@@ -67,7 +84,7 @@ fn test_config_notes_report_declared_versus_announced() {
   let mut settings = base_settings();
   settings.services = vec![bw_service("x", Some("1mbit"), 1)];
   assert!(
-    build_specs(&settings, "id", false).unwrap()[0]
+    build_specs(&settings, "id").unwrap()[0]
       .config_notes
       .is_empty()
   );
@@ -80,7 +97,7 @@ fn test_config_notes_report_invalid_and_clamped_values() {
   // dashboard to show an unexplained "unlimited".
   let mut settings = base_settings();
   settings.services = vec![bw_service("x", Some("very fast"), 1)];
-  let specs = build_specs(&settings, "id", false).unwrap();
+  let specs = build_specs(&settings, "id").unwrap();
   let note = &specs[0].config_notes[0];
   assert_eq!(note.field, "bandwidth");
   assert_eq!(note.declared, "very fast");
@@ -91,7 +108,7 @@ fn test_config_notes_report_invalid_and_clamped_values() {
   // client's log, not here, since this runs before anything has connected.
   let mut settings = base_settings();
   settings.services = vec![bw_service("x", None, 100_000)];
-  let specs = build_specs(&settings, "id", false).unwrap();
+  let specs = build_specs(&settings, "id").unwrap();
   let note = &specs[0].config_notes[0];
   assert_eq!(note.field, "connections");
   assert_eq!(note.declared, "100000");
@@ -111,8 +128,8 @@ fn test_bandwidth_split_across_parallel_connections() {
   // the budget and the only service's request.
   let mut settings = base_settings();
   settings.bandwidth = Some("10mbit".to_string());
-  settings.connections = Some(aperio_config::Connections::Fixed(4));
-  let specs = build_specs(&settings, "id", false).unwrap();
+  policy(&mut settings).connections = Some(aperio_config::Connections::Fixed(4));
+  let specs = build_specs(&settings, "id").unwrap();
   assert_eq!(specs[0].bandwidth_bps, Some(312_500));
 }
 
@@ -253,47 +270,36 @@ fn test_bandwidth_share_never_rounds_to_unlimited() {
 fn test_log_spec_all_branches() {
   init_tracing();
   // A richly configured named service touches every optional log line.
-  let mut settings = base_settings();
-  settings.services = vec![ServiceEntry {
-    name: Some("web".to_string()),
-    target: Some("http://localhost:3000".to_string()),
-    path: Some("/api".to_string()),
-    hostname: Some(aperio_config::Hostnames::Many(vec![
-      "a.example.com".to_string(),
-      "b.example.com".to_string(),
-    ])),
-    max_concurrent: Some(8),
-    priority: Some(5),
-    bandwidth: Some("8mbit".to_string()),
-    connections: Some(aperio_config::Connections::Fixed(4)),
-    tcp_target: Some("127.0.0.1:5432".to_string()),
-    public: Some(true),
-    auth: Some(aperio_config::AuthSetting::Credentials(
-      "user:pass".to_string(),
-    )),
-    ..Default::default()
-  }];
+  let mut settings = settings(
+    "services:\n  web:\n    \
+       target: 'http://localhost:3000'\n    \
+       path: /api\n    \
+       hostname: [a.example.com, b.example.com]\n    \
+       limits: {concurrent_requests: 8}\n    \
+       priority: 5\n    \
+       bandwidth: 8mbit\n    \
+       connections: 4\n    \
+       tcp_target: '127.0.0.1:5432'\n    \
+       access: {method: basic, users: 'user:pass'}\n",
+  );
   settings.tunnels = vec![tcp_tunnel("127.0.0.1:6000")];
   // Multiple failover servers so the failover log line runs.
-  unsafe { std::env::set_var("APERIO_SERVER_URLS", "https://backup.example.com") };
-  let specs = build_specs(&settings, "id", false).unwrap();
-  unsafe { std::env::remove_var("APERIO_SERVER_URLS") };
+  settings.server_urls = vec!["https://backup.example.com".to_string()];
+  let specs = build_specs(&settings, "id").unwrap();
   for spec in &specs {
     log_spec(spec);
   }
 
-  // The single, unnamed, tunnels-only variant: empty target + single hostname.
-  let mut settings = base_settings();
-  settings.target = None;
-  settings.hostnames = vec!["only.example.com".to_string()];
+  // The tunnels-only carrier: empty target.
+  let mut settings = crate::tests::settings("");
   settings.tunnels = vec![tcp_tunnel("127.0.0.1:6001")];
-  let specs = build_specs(&settings, "id", false).unwrap();
+  let specs = build_specs(&settings, "id").unwrap();
   log_spec(&specs[0]);
 
-  // A plain single service with no hostnames at all.
-  let mut settings = base_settings();
-  settings.hostnames = Vec::new();
-  let specs = build_specs(&settings, "id", false).unwrap();
+  // A public single service with no hostnames at all.
+  let mut settings = base_with("defaults: {access: public}");
+  entry(&mut settings).hostname = None;
+  let specs = build_specs(&settings, "id").unwrap();
   log_spec(&specs[0]);
 }
 
@@ -312,7 +318,6 @@ fn test_validate_tunnels_accepts_the_combined_protocol() {
     psk: None,
     proxy_protocol: false,
     idle_timeout: Some(30),
-    expose: None,
   };
 
   let out = validate_tunnels(&[decl("tcp/udp")]).expect("tcp/udp is accepted");
@@ -340,28 +345,9 @@ fn test_validate_tunnels_refuses_encrypt_on_a_combined_tunnel() {
     psk: None,
     proxy_protocol: false,
     idle_timeout: None,
-    expose: None,
   }])
   .unwrap_err();
   assert!(err.contains("only supported for tcp tunnels"), "got: {err}");
-}
-
-#[test]
-fn test_validate_tunnels_allows_expose_on_a_combined_tunnel() {
-  // A public port relays TCP; the tunnel's tcp half qualifies.
-  let out = validate_tunnels(&[protocol::TunnelDecl {
-    custom_name: None,
-    name: Some("dns".to_string()),
-    target: "192.168.3.100:53".to_string(),
-    protocol: "tcp/udp".to_string(),
-    encrypt: false,
-    psk: None,
-    proxy_protocol: false,
-    idle_timeout: None,
-    expose: Some("a-long-shared-secret".to_string()),
-  }])
-  .expect("expose is accepted on the tcp half");
-  assert_eq!(out.len(), 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -378,11 +364,9 @@ fn a_multiplexed_group_announces_the_budget_it_actually_gets_paced_at() {
   // they share one, and the wrongness is silent and large: four services
   // splitting an 8mbit budget announced 2mbit each, the cell held 2mbit, and a
   // link sized at 8 ran at 2. At forty services it is a fortieth.
-  let mut settings = base_settings();
-  settings.multiplex = true;
+  let mut settings = settings(&multiplexed_services(4));
   settings.bandwidth = Some("8mbit".to_string());
-  settings.services = multiplexed_services(4);
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+  let specs = build_specs(&settings, "base-id").unwrap();
   let budget = parse_bandwidth("8mbit").unwrap();
   for spec in &specs {
     assert_eq!(spec.bandwidth_bps, Some(budget));
@@ -406,11 +390,9 @@ fn one_uncapped_service_uncaps_the_connection_it_shares_and_says_so() {
   // cap was already not being enforced; the only question was whether anything
   // said so. Capping the socket at the declared ones instead would throttle a
   // service the file never limited.
-  let mut settings = base_settings();
-  settings.multiplex = true;
-  settings.services = multiplexed_services(3);
-  settings.services[0].bandwidth = Some("4mbit".to_string());
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+  let mut settings = settings(&multiplexed_services(3));
+  settings.services[0].entry.bandwidth = Some("4mbit".to_string());
+  let specs = build_specs(&settings, "base-id").unwrap();
   for spec in &specs {
     assert_eq!(spec.bandwidth_bps, None);
   }
@@ -430,8 +412,8 @@ fn a_service_on_its_own_connection_still_splits_its_bandwidth_per_connection() {
   // its connections separately.
   let mut settings = base_settings();
   settings.bandwidth = Some("8mbit".to_string());
-  settings.connections = Some(aperio_config::Connections::Fixed(4));
-  let specs = build_specs(&settings, "base-id", false).unwrap();
+  policy(&mut settings).connections = Some(aperio_config::Connections::Fixed(4));
+  let specs = build_specs(&settings, "base-id").unwrap();
   let budget = parse_bandwidth("8mbit").unwrap();
   assert_eq!(specs[0].bandwidth_bps, Some(budget / 4));
 }

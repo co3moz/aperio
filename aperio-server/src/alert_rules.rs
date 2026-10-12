@@ -161,24 +161,14 @@ impl AlertRules {
   }
 }
 
-/// Reads and compiles the `alert_rules:` section. A malformed section is a
-/// startup error, like `routes:`: an alert rule the operator believes is
-/// armed, silently dropped, is worse than no rule at all.
-pub(crate) fn from_config_file() -> AlertRules {
-  let Some(section) = crate::config_file::structured("alert_rules") else {
-    return AlertRules::default();
+/// Compiles `alerts.rules` of the settings.
+pub(crate) fn from_section(section: Option<serde_yaml::Value>) -> Result<AlertRules, String> {
+  let Some(section) = section else {
+    return Ok(AlertRules::default());
   };
-  let parsed: Result<Vec<RuleRaw>, _> = serde_yaml::from_value(section);
-  match parsed
-    .map_err(|e| e.to_string())
-    .and_then(AlertRules::compile)
-  {
-    Ok(rules) => rules,
-    Err(err) => {
-      tracing::error!("invalid `alert_rules:` section in aperio-server.yaml: {err}");
-      std::process::exit(1);
-    }
-  }
+  let parsed: Vec<RuleRaw> =
+    serde_yaml::from_value(section).map_err(|e| format!("alerts.rules: {e}"))?;
+  AlertRules::compile(parsed).map_err(|e| format!("alerts.rules: {e}"))
 }
 
 /// Where one rule stands: how long the condition has held in its current

@@ -43,10 +43,6 @@ export interface ClientDetail {
   /** The random subdomain the server assigned, if any. */
   random_hostname: string | null
   token_name: string | null
-  override_path_bind: string | null
-  /** Temporary dashboard overrule: while non-empty these replace every
-   *  declared and assigned hostname for routing. */
-  override_hostname_binds: string[]
   last_ping_seconds_ago: number | null
   max_concurrent: number | null
   version: string | null
@@ -241,8 +237,6 @@ export interface AdminKeyView {
   created_at: number
   expires_at: number | null
   expired: boolean
-  expose_bounds?: ExposePolicy | null
-  expose?: ExposeAction[]
 }
 
 export interface AdminKeyCreatePayload {
@@ -250,8 +244,6 @@ export interface AdminKeyCreatePayload {
   role: string
   org_id?: string
   ttl_seconds?: number
-  expose_bounds?: ExposePolicy | null
-  expose?: ExposeAction[]
 }
 
 export interface TokenCreatePayload {
@@ -419,38 +411,37 @@ export function auditQuery(filter?: AuditFilter): string {
   return qs ? `?${qs}` : ''
 }
 
-/** Dashboard-editable server settings (see SettingsOverrides in the server). */
-export type SettingsValues = Record<string, string | number | boolean | null>
+/** The server's settings document, every field present, nested by section
+ *  (`{ cache: { enabled: true } }`). Credentials read as `********`. */
+export type ServerSettings = Record<string, unknown>
 
-export type SettingsOverrides = Record<string, string | number | boolean | null | undefined>
-
-export interface EnvFlag {
-  key: string
-  value: string
-}
-
-export interface EnvironmentReport {
-  /** "docker" when the server runs in a container, else "native". */
-  runtime: 'docker' | 'native'
-  flags: EnvFlag[]
-}
-
+/** What `GET /aperio/api/settings` answers. */
 export interface SettingsPayload {
-  effective: SettingsValues
-  defaults: SettingsValues
-  overrides: SettingsOverrides
-  /** Keys aperio-server.yaml writes: the file wins, so they are not editable here. */
-  file_keys: string[]
-  /** The yaml key each setting is written as; the two names often differ
-   *  (`gateway_timeout_secs` is `gateway_timeout:` in the file). */
-  yaml_keys?: Record<string, string>
-  /** Settings whose yaml key is only read at startup. */
-  yaml_keys_needing_restart?: string[]
-  /** Settings the file has no honest spelling for (it takes a path where the
-   *  override holds the HTML itself). */
-  not_expressible_in_yaml?: string[]
-  /** Read-only env-only flags for the reference table. */
-  environment: EnvironmentReport
+  settings: ServerSettings
+  /** Paths whose change takes Admin in every organization and a recent
+   *  sign-in. A path names a field or a whole section. */
+  security_paths: string[]
+  /** Paths holding a credential, read back as `********`; writing the mask
+   *  back keeps the stored value. */
+  secret_paths: string[]
+  /** Paths read when the server starts. */
+  restart_paths: string[]
+  /** Restart paths changed since the server started. */
+  restart_pending: string[]
+}
+
+/** What a settings change answers. */
+export interface SettingsChange {
+  settings: ServerSettings
+  /** The paths the change moved. */
+  changed: string[]
+  restart_pending: string[]
+}
+
+/** Whether `path` falls under one of `prefixes` (a prefix names a field or
+ *  a whole section), the rule the server applies to its special paths. */
+export function pathIn(path: string, prefixes: string[]): boolean {
+  return prefixes.some((p) => path === p || path.startsWith(`${p}.`))
 }
 
 /** One five-second slice of served traffic, from the server's own ring. */
@@ -518,12 +509,11 @@ export interface SessionInfo {
   role: Role
   /** True when the session's user has TOTP two-factor auth enabled. */
   totp: boolean
-  /** True when the caller holds Admin in the master organization, directly
-   *  or through `*`: the built-in `aperio` account, or a named user granted
-   *  it. Gates the organization-management and server-global screens. */
-  master_admin: boolean
-  /** True when the caller holds `*` Admin, the only one who may grant `*`. */
-  all_orgs: boolean
+  /** True when the caller is the server admin (`*` Admin): the built-in
+   *  `aperio` account, or a named user granted it. Gates the
+   *  organization-management and server-global screens, and is the only one
+   *  who may grant `*`. */
+  server_admin: boolean
   /** The organization the session currently views (`master` or a child id). */
   selected_org: string
   /** Every organization a grant on this account reaches, with the role held
@@ -538,8 +528,8 @@ export interface ReachableOrg {
   name: string
   custom_name: string | null
   role: Role
-  /** Effective listener capabilities; these do not bypass server port policy. */
-  expose_bounds?: ExposePolicy | null
+  /** What the role held there may do with the organization's public
+   *  listeners, within the ports the server admin allocated to it. */
   expose_actions?: ExposeAction[]
 }
 
@@ -551,15 +541,12 @@ export type ExposeAction =
   | 'disable'
   | 'delete'
   | 'disconnect'
-  | 'delegate'
 
 /** One `(organization, role)` pair on a dashboard user. `org` is `master`,
  *  `*` for every organization, or a child id. */
 export interface UserGrant {
   org: string
   role: Role
-  expose_bounds?: ExposePolicy | null
-  expose?: ExposeAction[]
   /** The identity provider's group this grant was mapped from, when it was
    *  not written by hand; the map takes it back when the group is gone. */
   source?: string | null
@@ -796,7 +783,7 @@ export interface TopoOffline {
  * token-granted binds no client currently serves. */
 /** One client-to-client dependency: a machine that dials a tunnel another
  * client declares. Identified by the address it dialed from, because a
- * `--bind-tunnels` consumer is not a registered client and has no id. */
+ * `aperio-client bind` consumer is not a registered client and has no id. */
 export interface TopoConsumer {
   from_ip: string
   to_client: string
@@ -853,7 +840,7 @@ export interface ExposeSpec {
   org_id: string; tunnel: string; listener: ExposeListener; enabled: boolean
   limits: ExposeLimits; allowed_ips: string[]; advertised_host?: string | null
 }
-export interface ExposeResource { id: string; revision: number; source: 'file' | 'api'; spec: ExposeSpec }
+export interface ExposeResource { id: string; revision: number; source: 'api'; spec: ExposeSpec }
 export interface ExposeView extends ExposeResource {
   state: 'disabled' | 'binding' | 'listening' | 'draining' | 'suspended' | 'failed'
   target_state: 'waiting' | 'ready' | 'unavailable' | 'incompatible'
@@ -867,9 +854,9 @@ export interface ExposePolicy {
   max_rules: number; max_tcp_connections: number; max_udp_sessions: number
   ingress_bytes_per_second: number; egress_bytes_per_second: number
 }
-export interface ExposeItem { bounds: ExposePolicy | null; resource: ExposeView; actions: ExposeAction[]; policy: ExposePolicy | null }
+export interface ExposeItem { resource: ExposeView; actions: ExposeAction[]; policy: ExposePolicy | null }
 export interface ExposePage {
-  items: ExposeItem[]; total: number; volatile: boolean; history_error: string | null; store_error: string | null; file_error: string | null
+  items: ExposeItem[]; total: number; volatile: boolean; history_error: string | null; store_error: string | null
 }
 export interface ExposeSession {
   id: string; expose_id: string; org_id: string; revision: number; protocol: ExposeProtocol
@@ -981,11 +968,6 @@ export const api = {
   /** JSON Schema of a configuration file, driving the config builder. */
   configSchema: (kind: 'client' | 'server') =>
     request<JsonSchema>(`/config/schema/${kind}`),
-  overrideClient: (id: string, hostnameBinds: string[], pathBind: string, service = 0) =>
-    mutate(
-      `/clients/${encodeURIComponent(id)}/override?service=${service}`,
-      json('POST', { hostname_binds: hostnameBinds, path_bind: pathBind }),
-    ),
   setClientEnabled: (id: string, enabled: boolean, service = 0) =>
     mutate(
       `/clients/${encodeURIComponent(id)}/enabled?service=${service}`,
@@ -1034,8 +1016,8 @@ export const api = {
   scaling: () => request<ScalingRecord[]>('/scaling'),
   disarmScaling: (id: string) => mutate(`/scaling/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   settings: () => request<SettingsPayload>('/settings'),
-  updateSettings: (overrides: SettingsOverrides) =>
-    request<{ effective: SettingsValues }>('/settings', json('PUT', overrides)),
+  updateSettings: (settings: ServerSettings) =>
+    request<SettingsChange>('/settings', json('PUT', settings)),
   createShareLink: (payload: { hostname: string; path?: string; ttl_seconds?: number }) =>
     request<{ id: string; url: string; token: string; expires_at: number | null }>(
       '/share',

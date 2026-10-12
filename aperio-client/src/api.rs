@@ -3,11 +3,12 @@
 //! tokens, ephemeral tunnels, maintenance mode, cache/webhooks/users/orgs,
 //! …), so they can be scripted from CI without a browser session.
 //!
-//! Authentication uses a programmatic admin key (`--api-key`, yaml
-//! `server.api_key`, env `APERIO_API_KEY`) sent as `Authorization: Bearer`.
-//! The tunnel token (`--server-token`) is accepted as a fallback credential;
-//! the server only honours it on the endpoints that take the master token
-//! (`api tunnel create|delete`), so everything else needs an admin key.
+//! Authentication uses a programmatic admin key (`--server-api-key`, yaml
+//! `server.api_key`, env `APERIO_SERVER_API_KEY`) sent as `Authorization: Bearer`.
+//! With none configured, the key `aperio-client login` kept for the profile
+//! in use stands in, for that profile's server only. The tunnel token
+//! (`--server-token`) is the last fallback; the server only honours it on the
+//! endpoints that take the master token (`api tunnel create|delete`).
 //!
 //! Every command prints the server's JSON response (pretty-printed) on
 //! stdout and exits 0; a transport error or a non-2xx status prints to
@@ -20,10 +21,13 @@ use std::time::Duration;
 pub(crate) mod build;
 pub(crate) mod call;
 pub(crate) mod commands;
+pub(crate) mod login;
+pub(crate) mod profiles;
 
 pub(crate) use build::*;
 pub(crate) use call::*;
 pub(crate) use commands::*;
+pub(crate) use login::*;
 
 use crate::config::{ClientSettings, CommonOpts, build_http_url};
 
@@ -70,6 +74,26 @@ fn credential(settings: &ClientSettings) -> Option<String> {
     .filter(|s| !s.trim().is_empty())
 }
 
+/// Where a call goes and what it carries: an admin key configured here; else
+/// the profile in use, when the call is going to its server or nowhere
+/// configured; else the tunnel token. `None` when there is no server at all.
+fn endpoint(
+  settings: &ClientSettings,
+  profiles: &profiles::Profiles,
+) -> Option<(String, Option<String>)> {
+  if settings
+    .api_key
+    .as_deref()
+    .is_some_and(|k| !k.trim().is_empty())
+  {
+    return settings.server.clone().map(|s| (s, credential(settings)));
+  }
+  if let Some((server, key)) = profiles.credential_for(settings.server.as_deref()) {
+    return Some((settings.server.clone().unwrap_or(server), Some(key)));
+  }
+  settings.server.clone().map(|s| (s, credential(settings)))
+}
+
 /// Runs one `aperio-client api ...` command and exits the process: the JSON
 /// response goes to stdout with exit code 0, any failure to stderr with 1.
 pub(crate) async fn run_api(
@@ -77,9 +101,17 @@ pub(crate) async fn run_api(
   opts: &CommonOpts,
   command: &ApiCommand,
 ) -> ! {
-  let Some(server) = settings.server.clone() else {
+  let profiles = match profiles::profiles_path().map(|p| profiles::Profiles::read(&p)) {
+    Some(Ok(profiles)) => profiles,
+    Some(Err(e)) => {
+      eprintln!("warning: {e}; the profiles in it are not used");
+      profiles::Profiles::default()
+    }
+    None => profiles::Profiles::default(),
+  };
+  let Some((server, credential)) = endpoint(settings, &profiles) else {
     eprintln!(
-      "error: the server URL is required (--server-url, APERIO_SERVER_URL, or yaml: server.url)"
+      "error: the server URL is required (--server-url, APERIO_SERVER_URL, or yaml: server.url), or sign in with `aperio-client login`"
     );
     std::process::exit(1);
   };
@@ -107,7 +139,7 @@ pub(crate) async fn run_api(
     }
   };
 
-  match send(&http, &server, credential(settings).as_deref(), call).await {
+  match send(&http, &server, credential.as_deref(), call).await {
     Ok(Value::Null) => std::process::exit(0),
     // Non-JSON responses (the CSV export, plain-text acknowledgements) print
     // verbatim rather than as a quoted JSON string.

@@ -40,12 +40,11 @@ export const zh: Record<string, string> = {
   'Allowed source IPs / CIDRs': '允许的源 IP / CIDR',
   'Announced link capacity; the server paces frames to this client accordingly':
     '声明的链路容量；服务器据此控制发往该客户端的帧速',
-  'Another live connection reports the same client id ({id}), bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
-    '另一个活动连接报告了相同的客户端 ID（{id}）,  通过此 ID 的 bind-tunnels 和故障转移查找存在歧义；请为每个客户端设置独立的 --client-id',
+  'Another live connection reports the same client id ({id}), so failover lookups by this id are ambiguous; give each client its own --client-id':
+    '另一个活动连接报告了相同的客户端 ID（{id}），因此通过此 ID 的故障转移查找存在歧义；请为每个客户端设置独立的 --client-id',
   'Aperio Reverse Tunneling System • Server Uptime: {uptime}':
     'Aperio 反向隧道系统 • 服务器运行时长：{uptime}',
   Appearance: '外观',
-  Apply: '应用',
   'Audit Log': '审计日志',
   'Audit generations kept': '保留的审计文件代数',
   'Audit rotation size': '审计轮转大小',
@@ -70,7 +69,6 @@ export const zh: Record<string, string> = {
   Clear: '清除',
   'Click to inspect & replay': '点击以检查和重放',
   'Client ID': '客户端 ID',
-  'Client down threshold (s)': '客户端离线阈值（秒）',
   'Client is gracefully shutting down': '客户端正在优雅关闭',
   'Client speaks tunnel protocol v{proto}, server differs, update the older side':
     '客户端使用隧道协议 v{proto}，与服务器不一致，请更新较旧的一方',
@@ -79,7 +77,6 @@ export const zh: Record<string, string> = {
   Clients: '客户端',
   'Clipboard unavailable': '剪贴板不可用',
   Close: '关闭',
-  'Cloudflare shorthand: trust the CF-Connecting-IP header': 'Cloudflare 快捷方式：信任 CF-Connecting-IP header',
   'Connect a new client': '连接新客户端',
   'Connected & Active': '已连接并活动',
   'Connected For': '已连接时长',
@@ -98,9 +95,6 @@ export const zh: Record<string, string> = {
   'Create Token': '创建 Token',
   'Create link': '创建链接',
   'Creates a dynamic tunnel token with a restricted scope.': '创建具有受限范围的动态隧道 Token。',
-  'Current value': '当前值',
-  'Custom 503 maintenance page (HTML)': '自定义 503 维护页面（HTML）',
-  'Custom 504 page (HTML)': '自定义 504 页面（HTML）',
   DOWN: '离线',
   'Daily traffic quota (MB, 0 = no quota, empty = keep)': '每日流量配额（MB，0 = 无配额，留空 = 保持）',
   'Daily traffic quota (MB, empty = no quota)': '每日流量配额（MB，留空 = 无配额）',
@@ -133,26 +127,19 @@ export const zh: Record<string, string> = {
     '启用会立即提供给已连接客户端；禁用只对新连接生效',
   'End maintenance': '结束维护',
   'End maintenance for {host}': '结束 {host} 的维护',
-  'Env vars provide the defaults; edits become live, persisted overrides. Master token, HOST/PORT, proxy trust and OIDC stay env-only.':
-    '环境变量提供默认值；编辑会成为即时生效且持久化的覆盖。主 Token、HOST/PORT、Proxy 信任和 OIDC 仅限环境变量。',
-  'Environment Flags': '环境变量',
   Event: '事件',
   'Events (comma separated, * = all)': '事件（逗号分隔，* = 全部）',
   Expires: '过期时间',
   'Failed to load request detail: {error}': '加载请求详情失败：{error}',
   'Failover max jumps': '故障转移最大跳数',
   'Failover non-idempotent methods': '对非幂等方法进行故障转移',
-  'Failover window (s)': '故障转移窗口（秒）',
   'Filter by path/method...': '按 Path/方法过滤...',
   'First lockout duration; doubles per repeat offense': '首次锁定时长；每次再犯翻倍',
   'Freeze the table while you inspect': '检查时冻结表格',
   'Gateway & Requests': '网关与请求',
-  'Gateway timeout (s)': '网关超时（秒）',
   'Give someone temporary access to an auth-protected site: the link carries a signed, expiring token scoped to the hostname (and optional path). Opening it sets a cookie and redirects to the clean URL. Links are stateless, they cannot be listed later, they simply expire.':
     '给某人临时访问受保护站点的权限：链接携带一个限定于 Hostname（和可选 Path）的签名过期 Token。打开时会设置 Cookie 并重定向到干净的 URL。链接是无状态的，之后无法列出，只会过期。',
   'Go to {page}': '前往{page}',
-  'Header consulted first for the visitor IP (behind CDN chains)':
-    '优先用于解析访客 IP 的请求 Header（位于 CDN 链后）',
   Hostname: 'Hostname',
   'Hostname bind (optional)': 'Hostname 绑定（可选）',
   Hostnames: 'Hostname',
@@ -162,14 +149,11 @@ export const zh: Record<string, string> = {
     '请求如何选择客户端，以及客户端在请求中途丢失时的处理。',
   'I have a token': '我有 Token',
   'IP Address': 'IP 地址',
-  'Ignore client-declared visitor passwords; the server keeps the gate':
-    '忽略客户端声明的访客密码；由服务器把守',
   'In-flight failover': '进行中请求的故障转移',
   'In-flight proxied requests; beyond it visitors get 429': '并发 Proxy 请求上限；超过后访客收到 429',
   'Invalid credentials. Please try again.': '凭据无效。请重试。',
   'It stays connected but receives no new requests; in-flight requests complete.':
     '它保持连接但不再接收新请求；进行中的请求会完成。',
-  'JSONL access log file path (empty = disabled)': 'JSONL 访问日志文件 Path（留空 = 禁用）',
   'Known events: {events}. Use * to subscribe to everything.':
     '已知事件：{events}。使用 * 订阅全部。',
   'Last Ping': '最近 Ping',
@@ -227,7 +211,6 @@ export const zh: Record<string, string> = {
   'Load balancing': '负载均衡',
   'Local target (where your service listens)': '本地目标（您的服务监听地址）',
   'Login brute-force protection and audit log rotation.': '登录暴力破解防护与审计日志轮转。',
-  'Login lockout base (s)': '登录锁定基础时长（秒）',
   'Login lockout threshold': '登录锁定阈值',
   Maintenance: '维护',
   'Maintenance Mode': '维护模式',
@@ -261,20 +244,14 @@ export const zh: Record<string, string> = {
   'No matching commands': '没有匹配的命令',
   'No requests matching filter': '没有符合过滤条件的请求',
   'No webhooks defined': '未定义 Webhook',
-  'Not a size, use e.g. 10 MB, 1.5 GB, or plain bytes': '不是有效大小，请使用如 10 MB、1.5 GB 或纯字节',
-  'OIDC single sign-on (issuer, client id/secret, redirect URL, scopes)':
-    'OIDC 单点登录（issuer、客户端 ID/密钥、重定向 URL、scopes）',
   'OK / Failed': '成功 / 失败',
   Offline: '离线',
   'Offline (Waiting for Client)': '离线（等待客户端）',
   Online: '在线',
-  'Override applied for {id}': '已为 {id} 应用覆盖',
-  'Override cleared for {id}': '已清除 {id} 的覆盖',
   Overview: '概览',
   'POST/PATCH may reach a backend twice when enabled': '启用后 POST/PATCH 可能两次到达后端',
   Password: '密码',
   Path: 'Path',
-  'Path bind': 'Path 绑定',
   'Path bind (optional)': 'Path 绑定（可选）',
   Paths: 'Path',
   Paused: '已暂停',
@@ -283,8 +260,6 @@ export const zh: Record<string, string> = {
   'Per-hostname 503 switch': '按 Hostname 的 503 开关',
   'Per-visitor-IP token bucket for proxied requests.': '按访客 IP 的 Token 桶（用于 Proxy 请求）。',
   Prefix: '前缀',
-  'Prometheus metrics endpoint at /aperio/metrics': '位于 /aperio/metrics 的 Prometheus 指标 Endpoint',
-  Purpose: '用途',
   'Queue Status': '队列状态',
   'Random subdomain pattern': '随机 Subdomain 模式',
   'Rate Limiting': '速率限制',
@@ -306,13 +281,9 @@ export const zh: Record<string, string> = {
   'Requests pending reconnection': '等待重连的请求',
   'Requests today': '今日请求',
   'Requests with larger bodies are rejected up front': '正文更大的请求会被直接拒绝',
-  'Require hostname bind': '要求 Hostname 绑定',
-  'Reset to env default ({value})': '重置为环境默认值（{value}）',
-  'Reset {label} to default': '将{label}重置为默认值',
   'Response Body': '响应正文',
   'Response Headers': '响应 Header',
   'Response cache': '响应缓存',
-  'Response timeout (s)': '响应超时（秒）',
   'Resume live updates': '恢复实时更新',
   Revoke: '吊销',
   'Revoke token "{name}" ({prefix}…)?': '吊销 Token “{name}”（{prefix}…）？',
@@ -325,10 +296,6 @@ export const zh: Record<string, string> = {
   'Search clients…': '搜索客户端…',
   'Search…': '搜索…',
   'Security & Audit': '安全与审计',
-  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running inside a container, to change one:':
-    '安全与启动关键变量仅限环境变量，以防被入侵的仪表板会话修改。服务器运行在容器中，修改方法：',
-  'Security- and startup-critical flags stay environment-only so a compromised dashboard session cannot change them. The server is running natively, to change one:':
-    '安全与启动关键变量仅限环境变量，以防被入侵的仪表板会话修改。服务器为原生运行，修改方法：',
   'Send this request through the tunnel again': '再次通过隧道发送此请求',
   Sent: '发送',
   'Server Settings': '服务器设置',
@@ -336,13 +303,10 @@ export const zh: Record<string, string> = {
     '为以 cache: true 加入的服务提供的服务器端响应缓存。',
   'Service name announced by the client (services: list)': '客户端声明的服务名（services: 列表）',
   Session: '会话',
-  'Session cookies carry the Secure flag (HTTPS only)': '会话 Cookie 带有 Secure 标志（仅 HTTPS）',
   'Session expires in {duration}': '会话将在 {duration} 后过期',
   'Settings applied and persisted.': '设置已应用并持久化。',
   'Share Links': '分享链接',
   'Showing the latest {max} of {total} matching requests.': '显示 {total} 条匹配请求中最新的 {max} 条。',
-  'Shown for hostnames in maintenance mode': '为处于维护模式的 Hostname 显示',
-  'Shown when no client answers in time': '当没有客户端及时响应时显示',
   'Sign In': '登录',
   'Sign in to continue': '登录以继续',
   'Sign out': '退出登录',
@@ -359,8 +323,8 @@ export const zh: Record<string, string> = {
     '使用 YubiKey、Touch ID / Face ID 或密码管理器实现免密码登录。',
   'The built-in "aperio" admin signs in with the master token or dashboard password and cannot register passkeys. Create a named user instead.':
     '内置的 "aperio" 管理员使用主 Token 或仪表板密码登录，无法注册通行密钥。请改为创建命名用户。',
-  'Passkey sign-in is not configured on this server. Set APERIO_WEBAUTHN_ORIGIN to the dashboard’s public URL to enable it.':
-    '此服务器未配置通行密钥登录。将 APERIO_WEBAUTHN_ORIGIN 设置为仪表板的公开 URL 即可启用。',
+  'Passkey sign-in is not configured on this server. Set dashboard.webauthn.origin to the dashboard’s public URL to enable it.':
+    '此服务器未配置通行密钥登录。将 dashboard.webauthn.origin 设置为仪表板的公开 URL 即可启用。',
   'This browser does not support WebAuthn.':
     '此浏览器不支持 WebAuthn。',
   'No passkeys registered yet.':
@@ -450,7 +414,6 @@ export const zh: Record<string, string> = {
   Status: '状态',
   'Status mix': '状态分布',
   'Strategy for picking a client from the routed pool': '从路由池中选择客户端的策略',
-  'Strict multi-tenant mode: unbound clients never receive traffic': '严格多租户模式：未绑定的客户端不会接收流量',
   Success: '成功',
   'Sustained requests per second per IP': '每 IP 每秒的持续请求数',
   'Switch to dark theme': '切换到深色主题',
@@ -477,7 +440,6 @@ export const zh: Record<string, string> = {
   'Token minted and embedded below. It is scoped to {scope} and will not be shown again after this dialog closes.':
     'Token 已铸造并嵌入下方。其范围为 {scope}，此对话框关闭后不会再显示。',
   'Token name is required': 'Token 名称为必填项',
-  'Token required to scrape the metrics endpoint': '抓取指标 Endpoint 所需的 Token',
   'Total Requests': '总请求数',
   'Total memory for cached responses; entries closest to expiry are evicted first':
     '缓存响应的总内存；最接近过期的条目最先被驱逐',
@@ -485,19 +447,17 @@ export const zh: Record<string, string> = {
   Traffic: '流量',
   'Traffic Breakdown': '流量细分',
   'Traffic by token & hostname': '按 Token 和 Hostname 的流量',
-  'Trust X-Forwarded-For / X-Real-IP from a fronting reverse proxy':
-    '信任前置反向 Proxy 的 X-Forwarded-For / X-Real-IP',
-  'Trusted proxy/CDN egress IPs or CIDRs used to resolve the real visitor IP':
-    '用于解析真实访客 IP 的可信 Proxy/CDN 出口 IP 或 CIDR',
   'Tunnel Clients': '隧道客户端',
   'Tunnel compression': '隧道压缩',
   'Tunnels & Domains': '隧道与域名',
   'Type a command…': '输入命令…',
   'Unsaved changes': '未保存的更改',
   Username: '用户名',
-  Variable: '变量',
   'Visitor Experience': '访客体验',
-  'Visitor password': '访客密码',
+  'Default access':
+    '默认访问',
+  'deny, public, or a gate in front of every route nothing else declares':
+    'deny、public，或者在没有其他声明的每条路由前设置的门禁',
   'Wait for a client to (re)connect before failing a request': '在请求失败前等待客户端（重新）连接',
   'Wait for a client to answer a dispatched request': '等待客户端响应已派发的请求',
   'Webhook "{name}" added': 'Webhook“{name}”已添加',
@@ -515,23 +475,18 @@ export const zh: Record<string, string> = {
   'IP filter': 'IP 过滤',
   'Only these visitor IPs/CIDRs may reach this service: {ips}':
     '只有这些访客 IP/CIDR 可以访问此服务：{ips}',
-  'e.g. 10 MB, 1 GB, 65536': '例如 10 MB、1 GB、65536',
   'e.g. example.com, *.example.com or *-test.example.com, * becomes a random label; empty = disabled':
     '例如 example.com、*.example.com 或 *-test.example.com, * 会变成随机标签；留空 = 禁用',
   'master token': '主 Token',
   'never expires': '永不过期',
-  override: '已覆盖',
   public: '公开',
   'public ok': '允许公开',
   'expiring soon': '即将过期',
-  'read-only': '只读',
   'shared secret for X-Aperio-Signature': '用于 X-Aperio-Signature 的共享密钥',
   signed: '已签名',
   standby: '备用',
   token: 'Token',
   'token name (e.g. staging-box)': 'Token 名称（例如 staging-box）',
-  'user:password gate in front of all proxied traffic; empty = disabled':
-    '所有 Proxy 流量前的 user:password 门禁；留空 = 禁用',
   'valid until {date}': '有效期至 {date}',
   '{count} client(s) disabled': '已禁用 {count} 个客户端',
   '{count} client(s) enabled': '已启用 {count} 个客户端',
@@ -656,18 +611,12 @@ export const zh: Record<string, string> = {
   'Requests in real time, table or console': '实时请求，表格或控制台',
   'no client': '无客户端',
   'offline': '离线',
-  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, dashed nodes for token-granted routes no client currently serves, and amber nodes for another machine dialing a tunnel with --bind-tunnels (identified by the address it dialed from, so several processes behind one address are one node). Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': '每条路由如何到达其目标：隧道客户端及其后端（带实时请求速率）、服务器自身的无客户端路由，静态重定向/响应和公共 expose 端口，以及为无客户端提供服务的 Token 授权路由绘制的虚线节点。绿色 = 健康，琥珀色 = 正在排空或后端探测失败，红色 = 不健康、已禁用、已剔除或无客户端提供服务。 另一台机器通过 --bind-tunnels 拨入隧道时显示为琥珀色节点，以其拨入地址标识，因此同一地址背后的多个进程算作一个节点。',
+  'How every route reaches its destination: tunnel clients and their backends (with live request rates), plus the client-less routing the server owns, static redirects/responses and public expose ports, dashed nodes for token-granted routes no client currently serves, and amber nodes for another machine dialing a tunnel with aperio-client bind (identified by the address it dialed from, so several processes behind one address are one node). Green = healthy, amber = draining or failing backend probes, red = unhealthy, disabled, ejected, or no client serving.': '每条路由如何到达其目标：隧道客户端及其后端（带实时请求速率）、服务器自身的无客户端路由，静态重定向/响应和公共 expose 端口，以及为无客户端提供服务的 Token 授权路由绘制的虚线节点。绿色 = 健康，琥珀色 = 正在排空或后端探测失败，红色 = 不健康、已禁用、已剔除或无客户端提供服务。 另一台机器通过 aperio-client bind 拨入隧道时显示为琥珀色节点，以其拨入地址标识，因此同一地址背后的多个进程算作一个节点。',
   'ejected': '已剔除',
   'draining': '排空中',
   'cache off': '缓存关闭',
-  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect, enable the server cache or drop the flag': '此服务启用了缓存（cache: true），但服务器响应缓存已禁用（APERIO_CACHE off），因此该选项无效，请启用服务器缓存或移除该标志。',
-  'Add hostname': '添加 Hostname',
-  'Hostname binds': 'Hostname 绑定',
-  'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
-    '此连接的临时绑定：设置后，仅这些 Hostname 会路由到这里。编辑要迁移的那一行，其余保持不变；空行会被丢弃，全部清空则移除覆盖。重连后不保留任何内容。',
-  'declared by the client': '由客户端声明',
-  'granted by the token': '由 Token 授予',
-  'random subdomain, assigned by the server': '随机 Subdomain，由服务器分配',
+  'This service opted into caching (cache.enabled) but the server response cache is disabled (cache.enabled off on the server), so the opt-in has no effect; enable the server cache or drop the setting':
+    '此服务启用了缓存（cache.enabled），但服务器的响应缓存已关闭（服务器上的 cache.enabled 为关），因此不起作用；请启用服务器缓存或移除该设置',
   '{count} more hostname(s) routed here': '另有 {count} 个 Hostname 路由到这里',
   'Configuration of {label}': '{label} 的配置',
   'What this connection announces over its heartbeat, plus what the server applies on top. Settings a client never announces (its target, timeouts, header rules, health probes) cannot be shown here.':
@@ -679,9 +628,7 @@ export const zh: Record<string, string> = {
   'applied by the server': '由服务器应用',
   "Show this connection's effective configuration": '显示此连接的生效配置',
   'Config Builder': '配置生成器',
-  'Assemble an aperio.yaml or aperio-server.yaml from the settings this server understands, or open an existing one and edit it.': '用本服务器可识别的设置组装 aperio.yaml 或 aperio-server.yaml，也可打开已有文件进行编辑。',
   'Which file?': '哪个文件？',
-  'The client file configures a tunnel client and what it exposes; the server file configures the Aperio server itself.': '客户端文件配置隧道客户端及其对外发布的内容；服务器文件配置 Aperio 服务器本身。',
   'Empty fields are left out of the file entirely, so the server keeps its own default.': '留空的字段完全不会写入文件，因此服务器沿用自身默认值。',
   'Import YAML': '导入 YAML',
   'Export YAML': '导出 YAML',
@@ -738,7 +685,7 @@ export const zh: Record<string, string> = {
   'Memory (RSS)': '内存 (RSS)',
   'New admin key': '新建管理密钥',
   'No admin keys yet': '暂无管理密钥',
-  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have APERIO_SCALING enabled.': '暂无自动扩缩记录。客户端通过声明 scaling: 块来创建记录，且服务器必须启用 APERIO_SCALING。',
+  'No autoscaling records. A client arms one by declaring a scaling: block, and the server must have scaling.enabled on.': '暂无自动扩缩记录。客户端通过声明 scaling: 块来创建记录，且服务器必须启用 scaling.enabled。',
   'No cache data yet': '暂无缓存数据',
   'No hostname restriction': '无 Hostname 限制',
   'No self-health data yet': '暂无自检数据',
@@ -759,7 +706,8 @@ export const zh: Record<string, string> = {
   'Server self-health': '服务器自检',
   'Server-side GET cache occupancy and hit rate.': '服务器端 GET 缓存的占用与命中率。',
   'Services that ask for capacity when they need it. A request for a hostname nothing is serving triggers a cold start instead of a 504, and a saturated pool asks for one more instance. Declared by the client in its scaling: block; scaling back in is the client’s own idle_timeout.': '在需要时请求容量的服务。当请求指向无人提供服务的 Hostname 时，会触发冷启动而不是返回 504；当连接池饱和时会再请求一个实例。由客户端在 scaling: 块中声明；缩减则由客户端自身的 idle_timeout 完成。',
-  'Set max_concurrent on the client to make utilization measurable.': '在客户端设置 max_concurrent，使利用率可被度量。',
+  'Set limits.concurrent_requests on the client to make utilization measurable.':
+    '在客户端设置 limits.concurrent_requests，使利用率可被度量。',
   'Sign in at /aperio/oidc/login?org={id}. Leave issuer empty to clear.': '请在 /aperio/oidc/login?org={id} 登录。将颁发者留空可清除配置。',
   'Size': '大小',
   'State': '状态',
@@ -777,7 +725,6 @@ export const zh: Record<string, string> = {
   'not measurable': '无法度量',
   'scale to zero': '缩容到零',
   '{inflight} of {capacity} concurrent slots in use; scales out above {target}%.': '{capacity} 个并发槽位中已使用 {inflight} 个；超过 {target}% 时扩容。',
-  'Must be at least {min}': '至少需要 {min}',
   'Need more than this? ': '需要更多设置？',
   'Open the config builder': '打开配置生成器',
   ' to set every option, add services and tunnels, and export the file.': '，可设置全部选项、添加服务与隧道并导出文件。',
@@ -792,7 +739,6 @@ export const zh: Record<string, string> = {
   'configured': '已配置',
   'This section has no fixed shape, so it is edited as YAML. Leave it empty to remove it.': '该部分没有固定结构，因此以 YAML 编辑。留空即可移除。',
   'Configures a tunnel client and the backends it exposes.': '配置隧道客户端及其对外发布的后端。',
-  'Configures the Aperio server itself.': '配置 Aperio 服务器本身。',
   'Bind': '绑定',
   'Client': '客户端',
   'Copy config': '复制配置',
@@ -807,19 +753,11 @@ export const zh: Record<string, string> = {
   'Services': '服务',
   'Each entry is one exposed backend with its own bind and tuning.': '每一项都是一个已公开的后端，带有自己的绑定与调优。',
   'Private TCP/UDP services a peer client can bind locally, and the peers this client binds.': '其他客户端可在本地绑定的私有 TCP/UDP 服务，以及此客户端所绑定的对端。',
-  'Access control': '访问控制',
-  'Who may reach the exposed service.': '谁可以访问已公开的服务。',
   'Capacity & pacing': '容量与节流',
   'How much work this client accepts and how fast the server may push to it.': '此客户端接受多少工作，以及服务器可以多快向它推送。',
-  'Backend health': '后端健康',
-  'Probing the backend so an unhealthy one leaves the routing pool without dropping the tunnel. Set here it applies to every entry under services:, and any entry may override it.': '探测后端，使不健康的后端离开路由池而不中断隧道。在此设置将应用于 services: 下的每一项，任何一项都可覆盖它。',
   'Asking for capacity when it is needed, and retiring when idle.': '需要时申请容量，空闲时退场。',
-  'Response handling': '响应处理',
-  'Caching, resilience, and the headers this client rewrites.': '缓存、弹性，以及此客户端重写的 Header。',
   'Logging': '日志',
   'What this client writes and in which format.': '此客户端写入什么内容，以及采用何种格式。',
-  'Core': '核心',
-  'Identity, listening address, and where state lives.': '身份、监听地址，以及状态存放位置。',
   'Routing & load balancing': '路由与负载均衡',
   'How a request finds a client, and which clients are eligible.': '请求如何找到客户端，以及哪些客户端符合条件。',
   'Failover & retry': '故障转移与重试',
@@ -827,8 +765,16 @@ export const zh: Record<string, string> = {
   'Limits & protection': '限制与防护',
   'Ceilings on bodies, concurrency, tunnels, and per-visitor rate.': '对请求体、并发、隧道与单访客速率的上限。',
   'The server-side GET cache for services that opt in.': '为选择启用的服务提供的服务端 GET 缓存。',
-  'Stream flow control': '流控制',
-  'How much of a slow visitor’s download is buffered before the client pauses.': '在客户端暂停之前，为慢速访客的下载缓冲多少数据。',
+  'Flow control & compression': '流控制与压缩',
+  'Process': '进程',
+  'Files this one includes, the pid file, and how long a reload lets requests finish.': '引入的文件、PID 文件，以及重新加载时允许请求完成的时间。',
+  'Telemetry bridge': '遥测桥接',
+  'Carrying OpenTelemetry exports from this machine to the server’s collector over the tunnel.': '通过隧道将本机的 OpenTelemetry 导出数据送到服务器的收集器。',
+  'Checks the server asks for': '服务器请求的检查',
+  'Whether this client answers a forward check the server’s own gate wrote, from this client’s network.': '此客户端是否从自己的网络响应由服务器自身门控编写的 forward 检查。',
+  'Advanced features': '高级功能',
+  'Features most deployments never turn on. Nothing here is off-limits: it is listed last so the settings everyone decides come first.': '大多数部署从不启用的功能。这些并未被限制：放在最后，是为了让每个人都要决定的设置排在前面。',
+  'Stream flow control and tunnel compression. The defaults suit almost every deployment.': '流控制与隧道压缩。默认值适用于几乎所有部署。',
   'Authentication & dashboard': '认证与仪表板',
   'Who may log in, how, and what the dashboard offers.': '谁可以登录、如何登录，以及仪表板提供什么。',
   'Proxy trust': 'Proxy 信任',
@@ -839,10 +785,11 @@ export const zh: Record<string, string> = {
   'Where the server may call out to, and honouring client scaling blocks.': '服务器可以向何处发起调用，以及是否遵循客户端的伸缩配置块。',
   'Edge integration': '边缘集成',
   'Publishing the live hostnames to a reverse proxy in front of this server.': '将当前生效的 Hostname 发布给此服务器前面的反向 Proxy。',
-  'Pages & headers': '页面与 Header',
-  'What visitors see on an error, and server-wide header rewriting.': '出错时访客看到什么，以及服务器范围的 Header 重写。',
+  'Sites':
+    '站点',
+  'What the server does for a hostname by itself: answers, policy, fallbacks, pages and maintenance windows.':
+    '服务器自行为一个 hostname 所做的事：应答、策略、fallback、页面和维护时段。',
   'Process & maintenance': '进程与维护',
-  'Startup behaviour, backups, and the public expose ports.': '启动行为、备份，以及公开的 expose 端口。',
   'Settings': '设置',
   'Configure this server, its organizations and who may sign in.': '配置此服务器、其组织，以及谁可以登录。',
   'Server, organizations and users': '服务器、组织与用户',
@@ -866,7 +813,6 @@ export const zh: Record<string, string> = {
   'Settings & Tools': '设置与工具',
   'Noindex preview hosts': '预览主机使用 noindex',
   'Random-subdomain services answer with X-Robots-Tag: noindex and a disallow-all robots.txt': '随机 Subdomain 的服务会返回 X-Robots-Tag: noindex 以及全部禁止的 robots.txt',
-  'Serve-stale window (s)': '过期响应可用窗口（秒）',
   'How long an expired entry may still answer while a resilient service has no healthy client; 0 = off': '当有韧性的服务没有健康客户端时，已过期的条目还能继续应答多久；0 = 关闭',
   'Stream Flow Control': '流控',
   'Pause above': '超过则暂停',
@@ -889,8 +835,8 @@ export const zh: Record<string, string> = {
   'TOTP QR code': 'TOTP 二维码',
   'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.': '在请求客户端暂停生成之前，服务器为速度较慢的访问者缓冲多少下载内容。',
   'Service defaults': '服务默认值',
-  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here, they only ever worked without a services: list, and appear only for a file that already writes them.': '应用于 services: 下的每个条目，可按条目覆盖。在顶层指定单个后端的键在这里已废弃，它们本来也只有在没有 services: 列表时才生效，只有已经写了它们的文件才会显示。',
-  '`{keys}` name one service at the top level, and this file also has a services: list, the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` 在顶层指定了单个服务，而该文件同时还有 services: 列表，客户端读取列表并忽略它们。请把它们移到所属的条目中。',
+  'What every service gets unless its own entry says otherwise. The environment and the command line write here too.':
+    '每个服务都会得到的设置，除非其自身条目另有说明。环境变量和命令行也写入这里。',
   'Every healthy client of the route takes requests in turn, evenly. The default, and what you want when the clients are interchangeable.': '路由上每个健康的客户端轮流均分请求。默认值，客户端可互换时就用它。',
   'Only the clients on the lowest priority tier receive traffic; a higher tier takes over when every client above it is unhealthy, draining or gone, and hands back when one returns. Tiers come from each client’s priority (0 = primary).': '只有优先级最低一档的客户端接收流量；当其上的所有客户端都不健康、正在排空或已离线时，更高一档接管，有一个恢复后再交还。档位来自各客户端的 priority（0 = 主）。',
   'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.': '只要首次为访客服务的客户端保持健康，该访客就一直用它。适用于在内存中保存按访客状态的后端；按访客而非按请求分摊。',
@@ -917,7 +863,8 @@ export const zh: Record<string, string> = {
   'Messages': '消息',
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': '该客户端监听的主题，以及同一台机器上的应用接入收发消息的位置。',
   'Cold start & scale-out records': '冷启动与扩容记录',
-  'Private services reachable with --bind-tunnels': '通过 --bind-tunnels 访问的私有服务',
+  'Private services reachable with aperio-client bind':
+    '通过 aperio-client bind 访问的私有服务',
   'Display name': '显示名称',
   'Handle': '标识符',
   'Only what it is called. The handle {handle} is what addresses it and never changes.': '只是它的称呼。标识符 {handle} 用于寻址，且永不改变。',
@@ -928,23 +875,16 @@ export const zh: Record<string, string> = {
   'Parallel connections per service (0 = server default, empty = keep)': '每个服务的并行连接数（0 = 服务器默认值，留空 = 保持不变）',
   'Parallel connections per service (empty = server default)': '每个服务的并行连接数（留空 = 服务器默认值）',
   'Detail not available: only recent requests are captured, and a service with capture: false (or a server with the inspector off) is not captured at all.': '详情不可用：只有最近的请求会被记录，而设置了 capture: false 的服务（或关闭了检查器的服务器）根本不会被记录。',
-  'This service allows capture but the server has the request inspector switched off (APERIO_INSPECTOR=0), so nothing here can be inspected or replayed.': '该服务允许记录，但服务器关闭了请求检查器（APERIO_INSPECTOR=0），因此这里无法检查或重放任何内容。',
+  'This service allows capture but the server has the request inspector switched off (inspector.enabled: false), so nothing here can be inspected or replayed.': '该服务允许记录，但服务器关闭了请求检查器（inspector.enabled: false），因此这里无法检查或重放任何内容。',
   'This service is not recorded for the request inspector (capture: false in its aperio.yaml), so its requests cannot be inspected or replayed. Live traffic and statistics are unaffected.': '该服务未被请求检查器记录（其 aperio.yaml 中 capture: false），其请求无法检查或重放。实时流量和统计不受影响。',
   'inspector off': '检查器已关闭',
   'no capture': '未记录',
-  '{count} setting(s) here differ from what the server started with': '此处有 {count} 项设置与服务器启动时的值不同',
-  'from file': '来自文件',
-  'aperio-server.yaml sets this, and the file wins. Edit it there: a change made here would be refused, because a stored override the file contradicts is exactly the invisible state this avoids.': '这是 aperio-server.yaml 设置的，以文件为准。请在那里修改：在此处的更改会被拒绝，因为与文件矛盾的已存覆盖正是这里要避免的隐形状态。',
-  '{count} setting(s) are stored overrides, not what your config file says': '{count} 项设置是已保存的 override，而不是配置文件中的内容',
-  'They apply immediately and survive a restart, but they live in the server’s own store, so aperio-server.yaml still describes a different server than the one running. Put them in the file to make them the deployment’s: the file wins, and the override behind each of these keys is dropped at the next start.': '它们立即生效并能在重启后保留，但保存在服务器自己的存储里，因此 aperio-server.yaml 描述的仍是另一台服务器，而不是正在运行的这台。把它们写进文件，它们才属于这次部署：文件优先，这些键背后的 override 会在下次启动时被丢弃。',
-  'Copy as YAML': '复制为 YAML',
   'A logical JSON dump, a failsafe for upgrades and migrations. Choose what travels: the configuration that rebuilds a deployment is on by default, the history is there if you want it. Sessions and the audit log are never exported.': '一份逻辑 JSON 转储，为升级与迁移准备的保险。选择要带走什么：重建部署所需的配置默认开启，历史数据按需选取。会话与审计日志从不导出。',
   'An import applies whatever sections the file holds, so it is the export that decides.': '导入会应用文件中包含的所有部分，因此决定权在导出这一步。',
   'Importing replaces every section the file contains, on this server. Continue?': '导入会在本服务器上替换文件中包含的每个部分。继续？',
   'Organizations are not selected, so only the master organization travels: {sections} belonging to a tenant are left out, its statistics with them. A row whose organization does not exist on the target server would be an orphan.': '未选择组织，因此只有 master 组织会被带走：属于租户的 {sections} 会被留下，其统计数据也一并留下。组织在目标服务器上不存在的记录会成为孤儿。',
   'Access tokens': '访问 Token',
   'Dashboard users': '面板用户',
-  'Settings overrides': '设置 override',
   'Statistics': '统计数据',
   'Uptime history': '可用性历史',
   'Webhook inbox': 'Webhook 收件箱',
@@ -954,7 +894,6 @@ export const zh: Record<string, string> = {
   'Password hashes, TOTP secrets, passkeys': '密码哈希、TOTP 密钥、Passkey',
   'Tenants, quotas and hostname allowlists': '租户、配额与 Hostname 允许列表',
   'Cold-start and scale-out records': '冷启动与扩容记录',
-  'Server settings changed from this dashboard': '从本面板更改过的服务器设置',
   'Lifetime counters and the daily, weekly, monthly and yearly buckets': '累计计数以及日、周、月、年分桶',
   'Per-client and per-hostname availability by day': '按天统计的每客户端与每 Hostname 可用性',
   'Captured inbound webhook payloads': '已捕获的入站 Webhook Payload',
@@ -962,8 +901,6 @@ export const zh: Record<string, string> = {
   'No hostnames in maintenance. Visitors of a listed hostname get the 503 page while its clients stay connected; cleared on server restart. Use *.example.com for every subdomain of a domain, and list the domain itself too if you want it as well.': '没有处于维护中的 Hostname。列出的 Hostname 的访客会看到 503 页面，而其客户端保持连接；服务器重启后清除。用 *.example.com 覆盖一个域名下的所有 Subdomain；若也想包含域名本身，请另外列出。',
   'app.example.com, *.example.com, *-pi.example.com, or *': 'app.example.com、*.example.com、*-pi.example.com 或 *',
   'every subdomain': '所有 Subdomain',
-  'Not in the snippet: {settings}. The file has no spelling for these, its 503/504 keys take a path where this holds the HTML itself, so they stay dashboard overrides.': '片段中不含：{settings}。文件没有对应的写法，它的 503/504 键接受文件路径，而这里保存的是 HTML 本身，因此它们仍是面板 override。',
-  '{settings}: the file key is read at startup, so this one takes a restart rather than applying on reload.': '{settings}：文件中的这个键在启动时读取，因此需要重启才会生效，而不是重新加载。',
   'Maintenance window': '维护窗口',
   'lifts in {duration}': '{duration} 后解除',
   'reason, shown on the 503 page (optional)': '原因，会显示在 503 页面上（可选）',
@@ -1043,42 +980,44 @@ export const zh: Record<string, string> = {
     '503：{actor} 设置的维护标记覆盖了这个 hostname （{reason}），将在 unix {until} 解除',
   'no maintenance flag covers this hostname':
     '没有维护标记覆盖这个 hostname',
-  'no routes: rules configured':
-    '没有配置 routes: 规则',
-  '{status}: a routes: rule answers this path':
-    '{status}：一条 routes: 规则回应这个 path',
-  '{status}: a routes: rule answers this path, to {location}':
-    '{status}：一条 routes: 规则回应这个 path ，转到 {location}',
-  'no routes: rule matches this hostname and path':
-    '没有 routes: 规则匹配这个 hostname 和 path',
+  'no sites configured':
+    '没有配置 site',
+  '{status}: a site answers this path by itself':
+    '{status}：一个 site 自行回应这个 path',
+  '{status}: a site answers this path by itself, to {location}':
+    '{status}：一个 site 自行回应这个 path ，转到 {location}',
+  'no site answers this hostname and path by itself':
+    '没有 site 自行回应这个 hostname 和 path',
   '200: preview_noindex answers /robots.txt itself, so this path never reaches a client':
     '200：preview_noindex 自己回应 /robots.txt ，所以这个 path 永远不会到达客户端',
-  'no waf: rules configured':
-    '没有配置 waf: 规则',
-  '403: blocked by a waf: rule ({reason})':
-    '403：被一条 waf: 规则拦截（{reason}）',
-  'no waf: rule matches this method and path (header and body rules need a real request)':
-    '没有 waf: 规则匹配这个方法和 path （header 和请求体规则需要一个真实请求）',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}); this dry run does not spend from it':
-    '一条 rate_limits: 规则覆盖这个 path （{rps} rps，突发 {burst}）；这次试运行不会消耗其中的额度',
-  'a rate_limits: rule covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it':
-    '一条 rate_limits: 规则覆盖这个 path （{rps} rps，突发 {burst}，仅限 {methods}）；这次试运行不会消耗其中的额度',
-  'no rate_limits: rule covers this path':
-    '没有 rate_limits: 规则覆盖这个 path',
+  'no site has waf rules':
+    '没有 site 配置 waf 规则',
+  '403: blocked by a waf rule ({reason})':
+    '403：被一条 waf 规则拦截（{reason}）',
+  'no waf rule matches this method and path (header and body rules need a real request)':
+    '没有 waf 规则匹配这个方法和 path （header 和请求体规则需要一个真实请求）',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}); this dry run does not spend from it":
+    '一个 site 的 rate_limit 覆盖这个 path （{rps} rps，突发 {burst}）；这次试运行不会消耗其中的额度',
+  "a site's rate_limit covers this path ({rps} rps, burst {burst}, {methods} only); this dry run does not spend from it":
+    '一个 site 的 rate_limit 覆盖这个 path （{rps} rps，突发 {burst}，仅限 {methods}）；这次试运行不会消耗其中的额度',
+  "no site's rate_limit covers this path":
+    '没有 site 的 rate_limit 覆盖这个 path',
   "visitors must sign in (or carry a share link) before this reaches a client: the serving client declared a visitor password for this route, which supersedes the server's own gate":
     '访客必须先登录（或带着分享链接）才能到达客户端：提供服务的客户端为这条路由声明了自己的访客密码，它优先于服务器自身的门禁',
-  "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor gate is on, and OIDC is configured":
-    '访客必须先登录（或带着分享链接）才能到达客户端：服务器的访客门禁已开启，并且配置了 OIDC',
   "visitors must sign in (or carry a share link) before this reaches a client: the server's visitor password is set":
     '访客必须先登录（或带着分享链接）才能到达客户端：服务器的访客密码已设置',
-  'visitors must sign in (or carry a share link) before this reaches a client: OIDC is configured for visitors':
-    '访客必须先登录（或带着分享链接）才能到达客户端：已为访客配置 OIDC',
+  "visitors must sign in (or carry a share link) before this reaches a client: the server's gate asks for a single sign-on at an identity provider":
+    '访客必须先登录（或带着分享链接）才能到达客户端：服务器的门禁要求在身份提供方处进行单点登录',
   'this hostname is served without a visitor gate':
     '这个 hostname 在没有访客门禁的情况下提供服务',
+  "visitors must sign in (or carry a share link) before this reaches a client: a site's access gates this route, over what the clients serving it declare":
+    '访客必须先登录（或带着分享链接）才能到达客户端：一个 site 的 access 保护这条路由，优先于提供服务的客户端的声明',
+  "a site's access opens this route to anyone, over what the clients serving it declare":
+    '一个 site 的 access 向所有人开放这条路由，优先于提供服务的客户端的声明',
   "visitors must sign in (or carry a share link) before this reaches a client: this route asks for an Aperio sign-in, a dashboard session reaching this hostname's organization":
     '访客必须先登录（或携带共享链接）才能到达客户端：此路由要求 Aperio 登录，即可访问该主机名所属组织的仪表板会话',
-  'nothing declares this route reachable and `default_access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it':
-    '没有任何配置声明该路由可达，且 `default_access` 为 `deny`，因此不予发布：没有 Aperio 会话的访问者得到的响应与未被认领的主机名相同，而已登录的 Aperio 用户仍可访问',
+  "nothing declares this route reachable and the server's `access` is `deny`, so it is not published: a visitor carrying no Aperio session gets the same answer an unclaimed hostname gives, and a signed-in Aperio user still reaches it":
+    '没有任何配置声明该路由可达，且服务器的 `access` 为 `deny`，因此不予发布：没有 Aperio 会话的访问者得到的响应与未被认领的主机名相同，而已登录的 Aperio 用户仍可访问',
   '{count} client(s) would take it: {clients}':
     '{count} 个客户端会接收它：{clients}',
   'no connected client serves this hostname and path':
@@ -1087,10 +1026,10 @@ export const zh: Record<string, string> = {
     '没有已连接的客户端提供这个 hostname 和 path ，尽管有 {count} 个本可以：{ineligible}',
   'an autoscaling record is armed for this bind, so the request would be held while capacity is asked for, rather than answered at once':
     '这个绑定上有一条自动伸缩记录处于待命状态，所以请求会在申请容量期间被挂起，而不是立刻得到回应',
-  '{status}: the fallbacks: rule for this hostname redirects to {url} instead of a 504':
-    '{status}：这个 hostname 的 fallbacks: 规则重定向到 {url} ，而不是返回 504',
-  '504: nothing serves this route, and no fallbacks: rule covers it':
-    '504：没有任何东西提供这条路由，也没有 fallbacks: 规则覆盖它',
+  "{status}: this hostname's fallback redirects to {url} instead of a 504":
+    '{status}：这个 hostname 的 fallback 重定向到 {url} ，而不是返回 504',
+  '504: nothing serves this route, and no site gives it a fallback':
+    '504：没有任何东西提供这条路由，也没有 site 给它 fallback',
   'the request reaches a tunnel client ({clients})':
     '请求到达了一个隧道客户端（{clients}）',
   'disabled from the dashboard':
@@ -1101,6 +1040,10 @@ export const zh: Record<string, string> = {
     '错过的心跳',
   'its path bind does not match':
     '它的 path 绑定不匹配',
+  'its access, allowed_ips or denied differs from what already serves this route':
+    '它的 access、allowed_ips 或 denied 与已在提供这条路由的服务不同',
+  'it asked to be served from the server, and was refused':
+    '它要求由服务器提供服务，但被拒绝了',
   'Static route':
     '静态路由',
   'Preview noindex':
@@ -1121,16 +1064,10 @@ export const zh: Record<string, string> = {
     '没有客户端',
   'maintenance mode':
     '维护模式',
-  'auth: on the service':
-    '服务上的 auth:',
-  'server_auth / OIDC':
-    'server_auth / OIDC',
-  'default_access':
-    'default_access',
-  'server_auth':
-    'server_auth',
-  'OIDC':
-    'OIDC',
+  'access: on the service':
+    '服务上的 access:',
+  'access':
+    'access',
   'hostname/path binds':
     'hostname/path 绑定',
   'Served by': '由谁提供',
@@ -1184,14 +1121,11 @@ export const zh: Record<string, string> = {
   'Process, store and cache health': '进程、存储与缓存健康',
   'Routes & latency': '路由与延迟',
   'Read more': '阅读更多',
-  'Redirect hostname': '重定向主机名',
-  'Redirect client {id}…': '重定向客户端 {id}…',
   'A bind is the hostname or path prefix a client claims; a request matching it is routed to that client.': 'bind 是客户端声明的主机名或路径前缀；匹配的请求会被路由到该客户端。',
   'A draining client has announced it is shutting down: it gets no new requests and finishes the ones in flight.': '处于 draining 的客户端已宣布关闭：不再接收新请求，并完成进行中的请求。',
   'An ejected service failed too often under real traffic and is out of rotation for a while, even if its health probe is green.': '被剔除的服务在真实流量下失败过多，即使健康探针正常，也会暂时退出轮转。',
   'A canary token is a decoy: it serves nothing, and any attempt to use it raises an alert, so a leaked copy surfaces itself.': '金丝雀令牌是诱饵：它不提供任何服务，任何使用尝试都会触发警报，泄露的副本会自己暴露。',
   'An expose entry opens a raw public port on the server that relays into a tunnel a client declared, with no second client needed.': 'expose 条目在服务器上打开一个原始公共端口，转发到客户端声明的隧道，无需第二个客户端。',
-  'A hostname override redirects a live client to other hostnames from the dashboard; it lives in memory and a reconnect or restart reverts it.': '主机名覆盖会从仪表板将在线客户端重定向到其他主机名；它只存在于内存中，重连或重启即恢复。',
   'updated just now': '刚刚更新',
   'updated {seconds}s ago': '{seconds} 秒前更新',
   'waiting for data…': '等待数据…',
@@ -1215,11 +1149,7 @@ export const zh: Record<string, string> = {
   'by {actor}, {when}': '由 {actor}，{when}',
   '{count} alert(s) since yesterday, see the audit log': '自昨天起 {count} 条警报，见审计日志',
   'No alerts since yesterday': '自昨天起无警报',
-  "Read": "读取",
   "Disconnect": "断开连接",
-  "Delegate": "委派",
-  "Public expose permissions": "公开暴露权限",
-  "These permissions control server listeners independently of the dashboard role.": "这些权限独立于仪表盘角色，控制服务器监听器。",
   "Maximum TCP connections": "最大 TCP 连接数",
   "Open timeout (seconds)": "打开超时（秒）",
   "Drain timeout (seconds)": "排空超时（秒）",
@@ -1279,7 +1209,6 @@ export const zh: Record<string, string> = {
   "All": "全部",
   "Public endpoint": "公开端点",
   "Tunnel": "隧道",
-  "Server configuration file (read-only)": "服务器配置文件（只读）",
   "Managed through API": "通过 API 管理",
   "{count} sessions": "{count} 个会话",
   "Dropped": "已丢弃",
@@ -1302,10 +1231,6 @@ export const zh: Record<string, string> = {
   "Declared TCP and UDP services. Bind them locally or publish a server endpoint with an explicit expose permission.": "已声明的 TCP 和 UDP 服务。可在本地绑定，或通过明确的暴露权限发布服务器端点。",
   "No tunnels declared. Add a tunnels: list in the client configuration to make a service available for binding or public exposure.": "未声明隧道。在客户端配置中添加 tunnels: 列表，使服务可供绑定或公开暴露。",
   "Expose publicly": "公开暴露",
-  "Delegated expose limits": "委派的暴露限制",
-  "These limits restrict this identity. Organization-owned listeners keep their lifetime when a user loses access.": "这些限制约束此身份。用户失去访问权限后，组织拥有的监听器仍然保留。",
-  "Only the organization policy applies; no additional identity limit is set.": "仅应用组织策略；未设置额外的身份限制。",
-  "Delegated limits must remain within your own limits.": "委派的限制不得超出您自己的限制。",
   "Sort by": "排序依据",
   "Descending": "降序",
   "Visitor hostname or IP (optional)": "访问者使用的主机名或 IP（可选）",
@@ -1313,4 +1238,30 @@ export const zh: Record<string, string> = {
   "Could not load expose history.": "无法加载暴露历史记录。",
   "Add group mapping": "添加组映射",
   "Leave the secret empty to keep it when the issuer and client id are unchanged.": "如果颁发者和客户端 ID 未更改，留空密钥以保留原值。",
+  "Assemble an aperio.yaml, or a server-init.yaml for a server’s first start, from the settings this server understands, or open an existing one and edit it.": "根据此服务器支持的设置生成 aperio.yaml，或用于服务器首次启动的 server-init.yaml，也可以打开现有文件进行编辑。",
+  "Changing this takes Admin in every organization and a sign-in from the last ten minutes.": "更改此项需要在所有组织中拥有 Admin 权限，并且需要在最近十分钟内登录。",
+  "Client down threshold": "客户端离线阈值",
+  "Every setting lives in the server’s database and applies when saved. Security-relevant ones take a sign-in from the last ten minutes; a few are read at startup and wait for a restart.": "每项设置都保存在服务器的数据库中，保存后立即生效。与安全相关的设置需要最近十分钟内的登录；少数设置在启动时读取，需要重启后生效。",
+  "Failover window": "故障转移窗口",
+  "Gateway timeout": "网关超时",
+  "How the server shuts down, and its scheduled backups.": "服务器如何关闭，以及计划备份。",
+  "Login lockout base": "登录锁定基础时长",
+  "Not a duration, use e.g. 30s, 5m, 2h, 1d": "不是有效的时长，请使用如 30s、5m、2h、1d",
+  "Not a size, use e.g. 512KB, 10MB, 1GB": "不是有效的大小，请使用如 512KB、10MB、1GB",
+  "Not valid YAML: {error}": "无效的 YAML：{error}",
+  "One per line": "每行一个",
+  "Read when the server starts: a change is stored and takes effect at the next start.": "在服务器启动时读取：更改会被保存，并在下次启动时生效。",
+  "Response timeout": "响应超时",
+  "Saved, and waiting for a restart: {paths}": "已保存，等待重启：{paths}",
+  "Seeds a new server’s settings on its first start, through APERIO_INIT_FILE.": "通过 APERIO_INIT_FILE 在新服务器首次启动时设定其设置。",
+  "Serve-stale window": "过期响应窗口",
+  "The client file configures a tunnel client and what it exposes; the first-start document seeds a new server’s settings.": "客户端文件配置隧道客户端及其公开的内容；首次启动文档设定新服务器的设置。",
+  "Undo": "撤销",
+  "automatic": "自动",
+  "off": "关",
+  "restart": "需重启",
+  "restart pending": "等待重启",
+  "security": "安全",
+  "stored, type to replace": "已保存，输入以替换",
+  "Every setting that differs from its default": "所有与默认值不同的设置",
 }

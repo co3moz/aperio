@@ -76,16 +76,14 @@ export class ScalingBackend extends StandardBackendBase() {}
  *  which is what an internal provider API needs. The strict default has its
  *  own server below. */
 export class ScalingServer extends AperioServerBase({
-  env: {
-    APERIO_SCALING: '1',
-    APERIO_SCALING_ALLOW_HTTP: '1',
-    APERIO_SCALING_ALLOW_PRIVATE: '1',
-    APERIO_GATEWAY_TIMEOUT: '2',
+  settings: {
+    scaling: { enabled: true, allow_http: true, allow_private: true },
+    gateway: { timeout: '2s' },
   },
 }) {}
 
 export class StrictScalingServer extends AperioServerBase({
-  env: { APERIO_SCALING: '1', APERIO_GATEWAY_TIMEOUT: '2' },
+  settings: { scaling: { enabled: true }, gateway: { timeout: '2s' } },
 }) {}
 
 /** Connects once to arm the record, then goes away. */
@@ -117,9 +115,10 @@ class ArmingClient extends AperioClientBase({
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
       'services:',
-      `  - target: ${this.backend._url}`,
+      `  web:`,
+      `    target: ${this.backend._url}`,
       `    hostname: ${this._host}`,
-      '    max_concurrent: 10',
+      '    limits: { concurrent_requests: 10 }',
       'scaling:',
       `  url: ${this.hook._url()}`,
       '  min: 0',
@@ -155,7 +154,8 @@ export class StrictArmingClient extends AperioClientBase({
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
       'services:',
-      `  - target: ${this.backend._url}`,
+      `  web:`,
+      `    target: ${this.backend._url}`,
       '    hostname: ssrf.e2e.local',
       'scaling:',
       `  url: ${this.hook._url()}`,
@@ -221,7 +221,7 @@ export class ColdStartSpec extends Test({
           // this itself: the posture is closed by default (#108) and a woken
           // service declares what it is exactly as it would have done had it
           // never slept.
-          APERIO_PUBLIC: '1',
+          APERIO_ACCESS: 'public',
           APERIO_SERVER_URL: this.server._url,
           APERIO_SERVER_TOKEN: this.server._token,
           APERIO_TARGET: this.backend._url,

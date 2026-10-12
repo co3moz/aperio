@@ -18,11 +18,11 @@
 - [ ] `npm --prefix tests/e2e test` passes (skip only for a dashboard-only change)
 - [ ] Dashboard change: `npm run check-i18n`, `tsc -b`, `lint`, `test`, `build` pass
 - [ ] `CHANGELOG.md` updated in this same commit, or the change is purely internal
-- [ ] A new setting reaches **all** its surfaces: yaml field with a doc comment,
-      environment variable, `docs/configuration.md`, `docs/book/aperio.tex`
-- [ ] A config change that can affect an existing file has a `CONFIG_CHANGES`
-      entry with an honest severity (`aperio-config/src/compat.rs`)
-- [ ] The tunnel protocol still accepts an older peer, or the break is agreed
-      in an issue first and refuses the connection with a message that says so
+- [ ] A new setting has a doc comment, and `docs/reference.md` and the
+      dashboard's schema snapshot are regenerated
+- [ ] A removed or renamed key has a hint in `aperio-config/src/removed.rs`
+      and a Breaking line in `CHANGELOG.md`
+- [ ] A wire change (frame, handshake header, Ping shape) lands only in a minor
+      release, never in a patch
 - [ ] New Rust tests live in a sibling `<module>_tests.rs`, not inline
 - [ ] English throughout, and no em dashes

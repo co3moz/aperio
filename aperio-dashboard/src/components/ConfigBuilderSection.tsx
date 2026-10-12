@@ -6,9 +6,9 @@ import {
   PlusIcon,
   Trash2Icon,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { parse, stringify } from 'yaml'
-import { SectionHeader } from './shared'
+import { AdvancedFeaturesHeading, SectionHeader } from './shared'
 import { CopyButton } from './shared'
 import {
   Accordion,
@@ -69,14 +69,6 @@ import { toast } from 'sonner'
 
 type Kind = 'client' | 'server'
 
-/**
- * The keys that name one service at the top level of a client file.
- *
- * Deprecated, and read by nothing once a `services:` list exists, the client
- * drops them silently. The form can construct exactly that combination now
- * that it no longer forces a choice of shape, so it has to say so.
- */
-const SINGLE_SERVICE_KEYS = ['target', 'serve', 'hostname', 'path', 'tcp_target', 'target_health']
 type Doc = Record<string, unknown>
 
 /** How many of a section's fields the document actually sets, so a collapsed
@@ -128,7 +120,8 @@ function sectionsFor(
     all: picked,
   })
 
-  const out: Section[] = []
+  const core: Section[] = []
+  const advanced: Section[] = []
   for (const spec of groups) {
     const picked: Field[] = []
     for (const key of spec.keys) {
@@ -137,11 +130,13 @@ function sectionsFor(
       claimed.add(key)
       if (usable(field)) picked.push(field)
     }
-    if (picked.length) out.push(split(spec, picked))
+    if (picked.length) (spec.advanced ? advanced : core).push(split(spec, picked))
   }
+  // The catch-all is no feature anybody chose to file as advanced, so it
+  // stays with the core sections, ahead of the "Advanced features" line.
   const leftovers = fields.filter((f) => !claimed.has(f.key) && usable(f))
   if (leftovers.length) {
-    out.push(
+    core.push(
       split(
         {
           title: 'Other settings',
@@ -152,12 +147,17 @@ function sectionsFor(
       ),
     )
   }
-  return out
+  return [...core, ...advanced]
 }
 
 /**
- * Builds an `aperio.yaml` or `aperio-server.yaml` from a form, or edits one
- * that already exists.
+ * Builds an `aperio.yaml`, or a first-start settings document for a server,
+ * from a form, or edits one that already exists.
+ *
+ * The server keeps its settings in its database; what can be written ahead
+ * of a deployment is the document `APERIO_INIT_FILE` seeds them from, the
+ * settings under a `settings:` key. The form edits the settings, and the
+ * file wraps them.
  *
  * The form is generated from the JSON Schema the server serves, which is
  * derived from the very Rust types that parse these files, so every setting
@@ -196,10 +196,8 @@ export function ConfigBuilderSection() {
 
   const sections = useMemo(() => {
     if (!schema) return []
-    // Nothing is hidden by mode any more: a client file has one shape,
-    // `services:`. The single-service keys are marked deprecated in the
-    // schema, so they surface only for a file that already writes them,
-    // which is exactly what someone migrating such a file needs.
+    // Nothing is hidden by mode: a client file has one shape, services keyed
+    // by name with `defaults:` beside them.
     return sectionsFor(
       fieldsOf(schema, schema),
       kind === 'client' ? CLIENT_GROUPS : SERVER_GROUPS,
@@ -208,39 +206,28 @@ export function ConfigBuilderSection() {
     )
   }, [schema, kind, doc])
 
-  // Both shapes at once: the list is what runs, so the top-level keys are dead
-  // weight the file still claims. Only for a client file, the server has no
-  // such pair.
-  const shadowed = useMemo(
-    () =>
-      kind === 'client' && Array.isArray((doc as { services?: unknown[] }).services)
-        ? SINGLE_SERVICE_KEYS.filter((k) => doc[k] !== undefined && doc[k] !== '')
-        : [],
-    [kind, doc],
-  )
-
   const update = useCallback(
     (path: string, value: unknown) =>
       setDocs((prev) => ({ ...prev, [kind]: setAt(prev[kind], path, value) })),
     [kind],
   )
 
-  const filename = kind === 'client' ? 'aperio.yaml' : 'aperio-server.yaml'
+  const filename = kind === 'client' ? 'aperio.yaml' : 'server-init.yaml'
   const yamlText = useMemo(() => {
     if (Object.keys(doc).length === 0) return ''
     try {
-      return stringify(doc, { lineWidth: 0 })
+      return stringify(kind === 'server' ? { settings: doc } : doc, { lineWidth: 0 })
     } catch {
       return ''
     }
-  }, [doc])
+  }, [doc, kind])
 
   return (
     <div className="space-y-6">
       <SectionHeader
         title={t('Config Builder')}
         description={t(
-          'Assemble an aperio.yaml or aperio-server.yaml from the settings this server understands, or open an existing one and edit it.',
+          'Assemble an aperio.yaml, or a server-init.yaml for a server’s first start, from the settings this server understands, or open an existing one and edit it.',
         )}
       >
         <div className="flex flex-wrap items-center gap-2">
@@ -264,7 +251,7 @@ export function ConfigBuilderSection() {
           <CardTitle>{t('Which file?')}</CardTitle>
           <CardDescription>
             {t(
-              'The client file configures a tunnel client and what it exposes; the server file configures the Aperio server itself.',
+              'The client file configures a tunnel client and what it exposes; the first-start document seeds a new server’s settings.',
             )}
           </CardDescription>
         </CardHeader>
@@ -282,27 +269,20 @@ export function ConfigBuilderSection() {
               }}
             >
               <ToggleGroupItem value="client">aperio.yaml</ToggleGroupItem>
-              <ToggleGroupItem value="server">aperio-server.yaml</ToggleGroupItem>
+              <ToggleGroupItem value="server">server-init.yaml</ToggleGroupItem>
             </ToggleGroup>
             {/* Keeps this column the same height as the one beside it, which
                 carries a hint under its buttons. */}
             <p className="max-w-md text-xs text-muted-foreground">
               {kind === 'client'
                 ? t('Configures a tunnel client and the backends it exposes.')
-                : t('Configures the Aperio server itself.')}
+                : t('Seeds a new server’s settings on its first start, through APERIO_INIT_FILE.')}
             </p>
           </div>
         </CardContent>
       </Card>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
-      {shadowed.length > 0 && (
-        <p className="rounded-3xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
-          {t('`{keys}` name one service at the top level, and this file also has a services: list, the client reads the list and ignores them. Move them into the entry they belong to.', {
-            keys: shadowed.join('`, `'),
-          })}
-        </p>
-      )}
       {!schema && !error && (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner /> {t('Loading…')}
@@ -314,7 +294,11 @@ export function ConfigBuilderSection() {
           <div className="min-w-0">
             <Accordion className="w-full">
               {sections.map((section, i) => (
-                <AccordionItem key={section.spec.title} value={String(i)}>
+                <Fragment key={section.spec.title}>
+                {section.spec.advanced && !sections[i - 1]?.spec.advanced && (
+                  <AdvancedFeaturesHeading />
+                )}
+                <AccordionItem value={String(i)}>
                   <AccordionTrigger>
                     <span className="flex flex-1 items-center justify-between gap-3 pr-2">
                       <span className="text-left">{t(section.spec.title)}</span>
@@ -381,6 +365,7 @@ export function ConfigBuilderSection() {
                     </div>
                   </AccordionContent>
                 </AccordionItem>
+                </Fragment>
               ))}
             </Accordion>
           </div>
@@ -418,7 +403,17 @@ export function ConfigBuilderSection() {
         open={importOpen}
         onOpenChange={setImportOpen}
         filename={filename}
-        onImport={(parsed) => setDocs((prev) => ({ ...prev, [kind]: parsed }))}
+        onImport={(parsed) =>
+          setDocs((prev) => ({
+            ...prev,
+            // A first-start document carries the settings under `settings:`;
+            // the form edits what is inside it.
+            [kind]:
+              kind === 'server' && parsed.settings && typeof parsed.settings === 'object'
+                ? (parsed.settings as Doc)
+                : parsed,
+          }))
+        }
       />
       <ExportDialog
         open={exportOpen}
@@ -808,7 +803,7 @@ function RawYamlField({
 }
 
 /**
- * A map of name → object, the shape `bind-tunnels:` uses. Editing it inline
+ * A map of name → object, the shape `services:` and `binds:` use. Editing it inline
  * would swamp the column, so the summary stays in the form and the entries are
  * edited in a dialog. Nothing here is left unconfigurable: the point of the
  * builder is that every key the schema knows can be reached.

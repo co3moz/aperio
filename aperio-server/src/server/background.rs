@@ -26,29 +26,24 @@ pub(crate) fn spawn_background(state: &Arc<AppState>) {
   });
 
   // Autoscaling loops: the scale-out sampler and the record TTL sweep. Both
-  // are no-ops unless the feature is enabled, so a server that never uses it
-  // pays nothing.
+  // check `scaling.enabled` every pass, so the feature can be switched on
+  // and off without a restart, and a server that never uses it pays a sleep.
+  let sampler_state = state.clone();
+  crate::supervise::spawn_supervised("scaling-sampler", move || {
+    crate::scaling::run_scale_out_loop(sampler_state.clone())
+  });
+  let prune_state = state.clone();
+  crate::supervise::spawn_supervised("scaling-prune", move || {
+    crate::scaling::run_prune_loop(prune_state.clone())
+  });
   if state.config().scaling_enabled {
-    let sampler_state = state.clone();
-    crate::supervise::spawn_supervised("scaling-sampler", move || {
-      crate::scaling::run_scale_out_loop(sampler_state.clone())
-    });
-    let prune_state = state.clone();
-    let prune_ttl = state.config().scaling_record_ttl.as_secs();
-    crate::supervise::spawn_supervised("scaling-prune", move || {
-      crate::scaling::run_prune_loop(prune_state.clone(), prune_ttl)
-    });
     info!("Autoscaling enabled: client `scaling:` declarations are honored");
   }
 
   // Availability ticker: observe every service entity and accrue elapsed
-  // time into the uptime history (APERIO_UPTIME_TICK_SECS, default 10).
+  // time into the uptime history (`uptime.tick`, default 10s, read each
+  // beat).
   let uptime_state = state.clone();
-  let uptime_tick_secs = std::env::var("APERIO_UPTIME_TICK_SECS")
-    .ok()
-    .and_then(|v| v.parse::<u64>().ok())
-    .filter(|v| *v >= 1)
-    .unwrap_or(10);
   // The one loop that ticks before it sleeps, which is why it is written out
   // rather than using `spawn_ticker`: uptime accrues from the moment the
   // server is up, and skipping the first interval would lose it.
@@ -57,49 +52,15 @@ pub(crate) fn spawn_background(state: &Arc<AppState>) {
     async move {
       loop {
         uptime_tick_once(&state).await;
-        tokio::time::sleep(Duration::from_secs(uptime_tick_secs)).await;
+        let tick = crate::live::current().uptime.tick.as_secs().max(1);
+        tokio::time::sleep(Duration::from_secs(tick)).await;
       }
     }
   });
-  // Config hot-reload: watch aperio-server.yaml for changes and re-apply the
-  // live-editable settings and structured headers/routes without a restart
-  // (no `set_var`, so it is safe on the running server). Structural keys
-  // (host/port/data_dir, proxy trust, OIDC) still need a
-  // restart. Off when no config file is in use, or when disabled explicitly.
-  let hot_reload = std::env::var("APERIO_CONFIG_HOT_RELOAD")
-    .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
-    .unwrap_or(true);
-  if hot_reload && let Some(watch_path) = config_file::watched_path() {
-    let reload_state = state.clone();
-    info!(
-      "Watching {} for configuration changes",
-      watch_path.display()
-    );
-    crate::supervise::spawn_supervised("config-hot-reload", move || {
-      let state = reload_state.clone();
-      let path = watch_path.clone();
-      async move {
-        // Re-read on restart rather than carrying a stale mtime across the
-        // panic: a change made while the loop was down should be picked up,
-        // not skipped because the remembered timestamp is newer.
-        let mut last_mtime = std::fs::metadata(&path)
-          .ok()
-          .and_then(|m| m.modified().ok());
-        loop {
-          tokio::time::sleep(Duration::from_secs(5)).await;
-          last_mtime = hot_reload_tick_once(&state, &path, last_mtime).await;
-        }
-      }
-    });
-  }
-
-  // Threshold alerting: the two built-in rules (APERIO_ALERT_*) and any
-  // operator-defined `alert_rules:`, evaluated by one background ticker and
-  // emitted as webhook/audit events. The ticker runs when either exists,
-  // since a file with only `alert_rules:` and no APERIO_ALERT_* would
-  // otherwise have armed rules and nothing evaluating them.
-  let rules = state.config().alert_rules.clone();
-  for rule in rules.rules() {
+  // Threshold alerting: the two built-in thresholds (`alerts`) and the
+  // operator's own rules (`alerts.rules`), evaluated by one background ticker
+  // that reads both every beat and emits webhook/audit events.
+  for rule in state.config().alert_rules.rules() {
     if !rule.metric.readable_here() {
       warn!(
         "Alert rule '{}' watches {}, which cannot be read on this platform; it will never fire",
@@ -108,51 +69,46 @@ pub(crate) fn spawn_background(state: &Arc<AppState>) {
       );
     }
   }
-  let alert_cfg = alerts::AlertConfig::from_env();
-  if alert_cfg.is_some() || !rules.is_empty() {
-    if !rules.is_empty() {
-      info!("Alert rules armed: {}", rules.rules().len());
-    }
-    alerts::spawn(state.clone(), alert_cfg.unwrap_or_default());
-  }
+  alerts::spawn(state.clone());
 
   // Token expiry early-warning ticker: emits one `token_expiring`
   // webhook/audit event per token (per expiry window) once its remaining
-  // lifetime drops under APERIO_TOKEN_EXPIRY_WARNING seconds (default 24 h,
-  // 0 disables). The warned set is in-memory: a restart re-arms warnings,
-  // and a refresh (new expires_at) re-arms them too.
-  let expiry_warning_secs = std::env::var("APERIO_TOKEN_EXPIRY_WARNING")
-    .ok()
-    .and_then(|v| v.parse::<u64>().ok())
-    .unwrap_or(24 * 3600);
-  if expiry_warning_secs > 0 {
-    let warn_state = state.clone();
-    crate::supervise::spawn_supervised("token-expiry-warning", move || {
-      let state = warn_state.clone();
-      async move {
-        // The warned set starts empty again after a restart, which re-arms
-        // warnings that were already sent. That is the same thing a server
-        // restart does, and a duplicate warning is a far better failure than
-        // a silence caused by state nobody can inspect.
-        let mut warned: std::collections::HashSet<(String, u64)> = std::collections::HashSet::new();
-        loop {
-          tokio::time::sleep(Duration::from_secs(60)).await;
-          let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-          token_expiry_tick_once(&state, expiry_warning_secs, now, &mut warned).await;
+  // lifetime drops under `security.token_expiry_warning` (default 1d, 0s
+  // disables, read each beat). The warned set is in-memory: a restart
+  // re-arms warnings, and a refresh (new expires_at) re-arms them too.
+  let warn_state = state.clone();
+  crate::supervise::spawn_supervised("token-expiry-warning", move || {
+    let state = warn_state.clone();
+    async move {
+      // The warned set starts empty again after a restart, which re-arms
+      // warnings that were already sent. That is the same thing a server
+      // restart does, and a duplicate warning is a far better failure than
+      // a silence caused by state nobody can inspect.
+      let mut warned: std::collections::HashSet<(String, u64)> = std::collections::HashSet::new();
+      loop {
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        let window = crate::live::current()
+          .security
+          .token_expiry_warning
+          .as_secs();
+        if window == 0 {
+          continue;
         }
+        let now = std::time::SystemTime::now()
+          .duration_since(std::time::UNIX_EPOCH)
+          .map(|d| d.as_secs())
+          .unwrap_or(0);
+        token_expiry_tick_once(&state, window, now, &mut warned).await;
       }
-    });
-  }
+    }
+  });
 
-  // Per-data-type retention pruner (APERIO_RETENTION_*): inert when nothing
-  // is configured.
+  // Per-data-type retention pruner (`retention`): inert when nothing is
+  // configured.
   retention::spawn(state.clone());
 
-  // Scheduled physical DB snapshots (APERIO_BACKUP_*): inert unless both an
-  // interval and a directory are configured.
+  // Scheduled physical DB snapshots (`backup`): inert unless both an
+  // interval and a directory are configured. Read once; a restart path.
   backup::spawn(state.clone());
 
   // Routine sweeps of the per-IP/per-route rate buckets and expired
@@ -196,41 +152,6 @@ pub(crate) async fn uptime_tick_once(state: &Arc<AppState>) {
     .map(|d| d.as_secs())
     .unwrap_or(0);
   state.uptime.lock().await.tick(now, live);
-}
-
-/// One beat of the hot-reload watcher: compares the file's mtime against the
-/// last one seen and re-applies the live-editable settings when it moved.
-/// Returns the mtime to compare against next time.
-pub(crate) async fn hot_reload_tick_once(
-  state: &Arc<AppState>,
-  watch_path: &std::path::Path,
-  last_mtime: Option<std::time::SystemTime>,
-) -> Option<std::time::SystemTime> {
-  let mtime = std::fs::metadata(watch_path)
-    .ok()
-    .and_then(|m| m.modified().ok());
-  if mtime == last_mtime {
-    return last_mtime;
-  }
-  match config_file::reload() {
-    Ok(_) => {
-      let diff = state.reload_from_file().await;
-      info!(
-        "Reloaded {}: live settings and headers/routes re-applied (structural keys need a restart)",
-        watch_path.display()
-      );
-      let detail = if diff.is_empty() {
-        format!("{} (no live-setting changes)", watch_path.display())
-      } else {
-        format!("{} | {}", watch_path.display(), diff.join(", "))
-      };
-      state
-        .audit("config_reloaded", "system", "system", &detail)
-        .await;
-    }
-    Err(e) => warn!("Config reload of {} failed: {}", watch_path.display(), e),
-  }
-  mtime
 }
 
 /// One beat of the token-expiry warning ticker: warns (once per token per

@@ -15,6 +15,13 @@ export interface GroupSpec {
   description: string
   /** Top-level keys this section claims, in the order they should appear. */
   keys: string[]
+  /**
+   * A feature most deployments never turn on. The builder and the settings
+   * pane list these after every other section, under one "Advanced features"
+   * heading, so the settings everyone decides are not read past them on the
+   * way. Nothing in one is hidden or turned off: it is ordering, not access.
+   */
+  advanced?: boolean
 }
 
 /** `aperio.yaml`, most consequential first. */
@@ -22,141 +29,93 @@ export const CLIENT_GROUPS: GroupSpec[] = [
   {
     title: 'Server connection',
     description: 'Which Aperio server this client dials, and how it identifies itself.',
-    keys: ['server', 'token', 'version', 'client_id', 'ip_family', 'device_key', 'device_key_file'],
+    keys: ['server', 'name', 'client_id', 'client_id_file', 'device_key', 'device_key_file'],
   },
   {
     title: 'Services',
     description: 'Each entry is one exposed backend with its own bind and tuning.',
-    keys: ['services'],
-  },
-  {
-    title: 'Tunnels',
-    description:
-      'Private TCP/UDP services a peer client can bind locally, and the peers this client binds.',
-    keys: ['tunnels', 'bind-tunnels'],
-  },
-  {
-    title: 'Messages',
-    description:
-      'Topics this client listens for, and where an application on the same machine attaches to send and receive them.',
-    keys: ['subscribe', 'messages_listen', 'messages_mqtt_listen'],
+    keys: ['services', 'serve_spa', 'serve_404'],
   },
   {
     title: 'Service defaults',
     description:
-      'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here, they only ever worked without a services: list, and appear only for a file that already writes them.',
-    keys: [
-      'target',
-      'serve',
-      'hostname',
-      'path',
-      'tcp_target',
-      'serve_spa',
-      'serve_404',
-      'trim_bind',
-      'pass_hostname',
-    ],
-  },
-  {
-    title: 'Access control',
-    description: 'Who may reach the exposed service.',
-    keys: ['public', 'auth', 'allowed_ips', 'denied'],
-  },
-  {
-    title: 'Capacity & pacing',
-    description: 'How much work this client accepts and how fast the server may push to it.',
-    keys: [
-      'max_concurrent',
-      'connections',
-      'priority',
-      'bandwidth',
-      'timeout',
-      'response_timeout',
-      'max_request_body',
-      'max_response_body',
-      'max_message_size',
-      'max_redirects',
-    ],
-  },
-  {
-    title: 'Backend health',
-    description:
-      'Probing the backend so an unhealthy one leaves the routing pool without dropping the tunnel. Set here it applies to every entry under services:, and any entry may override it.',
-    keys: [
-      'health',
-      'target_health',
-      'health_interval',
-      'health_timeout',
-      'health_threshold',
-      'wait_for_backend',
-    ],
-  },
-  {
-    title: 'Autoscaling',
-    description: 'Asking for capacity when it is needed, and retiring when idle.',
-    keys: ['scaling', 'idle_timeout'],
-  },
-  {
-    title: 'Response handling',
-    description: 'Caching, resilience, and the headers this client rewrites.',
-    keys: ['cache', 'resilience', 'webhook_inbox', 'headers', 'security_headers'],
+      'What every service gets unless its own entry says otherwise. The environment and the command line write here too.',
+    keys: ['defaults'],
   },
   {
     title: 'Logging',
     description: 'What this client writes and in which format.',
     keys: ['log_level', 'log_format'],
   },
+  {
+    title: 'Process',
+    description: 'Files this one includes, the pid file, and how long a reload lets requests finish.',
+    keys: ['include', 'pid_file', 'reload_drain'],
+  },
+  {
+    title: 'Tunnels',
+    description:
+      'Private TCP/UDP services a peer client can bind locally, and the peers this client binds.',
+    keys: ['tunnels', 'binds'],
+    advanced: true,
+  },
+  {
+    title: 'Messages',
+    description:
+      'Topics this client listens for, and where an application on the same machine attaches to send and receive them.',
+    keys: ['subscribe', 'messages'],
+    advanced: true,
+  },
+  {
+    title: 'Telemetry bridge',
+    description: 'Carrying OpenTelemetry exports from this machine to the server’s collector over the tunnel.',
+    keys: ['otel_bridge'],
+    advanced: true,
+  },
+  {
+    title: 'Checks the server asks for',
+    description: 'Whether this client answers a forward check the server’s own gate wrote, from this client’s network.',
+    keys: ['allow_server_forward'],
+    advanced: true,
+  },
+  {
+    title: 'Capacity & pacing',
+    description: 'How much work this client accepts and how fast the server may push to it.',
+    keys: ['bandwidth', 'max_message_size'],
+    advanced: true,
+  },
+  {
+    title: 'Autoscaling',
+    description: 'Asking for capacity when it is needed, and retiring when idle.',
+    keys: ['scaling', 'idle_timeout'],
+    advanced: true,
+  },
 ]
 
-/** `aperio-server.yaml`. */
+/** The server's settings document, by section. Shared by the settings form
+ *  and the builder's first-start document, so the two arrange the same
+ *  sections the same way. */
 export const SERVER_GROUPS: GroupSpec[] = [
-  {
-    title: 'Core',
-    description: 'Identity, listening address, and where state lives.',
-    keys: ['version', 'server', 'server_token', 'host', 'port', 'data_dir', 'log_level'],
-  },
   {
     title: 'Routing & load balancing',
     description: 'How a request finds a client, and which clients are eligible.',
-    keys: [
-      'lb_strategy',
-      'require_hostname_bind',
-      'random_subdomain',
-      'preview_noindex',
-      'client_down_threshold',
-      'outlier_ejection',
-      'outlier_max_failures',
-      'outlier_window',
-      'outlier_eject_secs',
-      'routes',
-      'fallbacks',
-    ],
+    keys: ['routing'],
+  },
+  {
+    title: 'Sites',
+    description:
+      'What the server does for a hostname by itself: answers, policy, fallbacks, pages and maintenance windows.',
+    keys: ['sites'],
   },
   {
     title: 'Failover & retry',
     description: 'What happens when a client dies mid-request or answers with an error.',
-    keys: [
-      'failover',
-      'failover_max_jumps',
-      'failover_window',
-      'failover_all_methods',
-      'retry_on_5xx',
-      'retry_statuses',
-    ],
+    keys: ['resilience'],
   },
   {
     title: 'Limits & protection',
     description: 'Ceilings on bodies, concurrency, tunnels, and per-visitor rate.',
-    keys: [
-      'max_body_size',
-      'max_concurrent_requests',
-      'max_ws_connections',
-      'max_tunnels',
-      'gateway',
-      'ip_limit',
-      'rate_limits',
-      'waf',
-    ],
+    keys: ['limits', 'gateway'],
   },
   {
     title: 'Caching',
@@ -164,37 +123,14 @@ export const SERVER_GROUPS: GroupSpec[] = [
     keys: ['cache'],
   },
   {
-    title: 'Stream flow control',
-    description: 'How much of a slow visitor’s download is buffered before the client pauses.',
-    keys: ['stream'],
-  },
-  {
     title: 'Authentication & dashboard',
     description: 'Who may log in, how, and what the dashboard offers.',
-    keys: [
-      'server_auth',
-      'ignore_client_auth',
-      'dashboard',
-      'oidc',
-      'webauthn_origin',
-      'webauthn_rp_id',
-      'token_pinning',
-      'token_expiry_warning',
-      'login_lockout',
-      'admin_allowed_ips',
-      'ui_language',
-    ],
+    keys: ['access', 'dashboard', 'oidc', 'security'],
   },
   {
     title: 'Proxy trust',
     description: 'How the real client IP is resolved behind a proxy or CDN.',
-    keys: [
-      'trust_proxy',
-      'trusted_proxies',
-      'real_ip_header',
-      'trust_cf_header',
-      'secure_cookies',
-    ],
+    keys: ['proxy'],
   },
   {
     title: 'Observability',
@@ -202,35 +138,39 @@ export const SERVER_GROUPS: GroupSpec[] = [
     keys: [
       'metrics',
       'otel',
-      'access_log',
-      'inspector_redact',
-      'alert',
+      'logging',
+      'inspector',
+      'request_id',
+      'identity_headers',
+      'alerts',
       'audit',
       'retention',
-      'db_max_bytes',
-      'uptime_tick_secs',
-      'webhook_retry_schedule',
+      'uptime',
+      'webhooks',
     ],
+  },
+  {
+    title: 'Process & maintenance',
+    description: 'How the server shuts down, and its scheduled backups.',
+    keys: ['shutdown', 'backup'],
   },
   {
     title: 'Outbound & autoscaling',
     description: 'Where the server may call out to, and honouring client scaling blocks.',
     keys: ['outbound', 'scaling'],
+    advanced: true,
   },
   {
     title: 'Edge integration',
     description: 'Publishing the live hostnames to a reverse proxy in front of this server.',
     keys: ['edge'],
+    advanced: true,
   },
   {
-    title: 'Pages & headers',
-    description: 'What visitors see on an error, and server-wide header rewriting.',
-    keys: ['504_page', '503_page', 'error_pages', 'headers'],
-  },
-  {
-    title: 'Process & maintenance',
-    description: 'Startup behaviour, backups, and the public expose ports.',
-    keys: ['config_hot_reload', 'reuseport', 'backup', 'expose', 'tunnel_compression'],
+    title: 'Flow control & compression',
+    description: 'Stream flow control and tunnel compression. The defaults suit almost every deployment.',
+    keys: ['advanced'],
+    advanced: true,
   },
 ]
 
@@ -253,7 +193,6 @@ export const ESSENTIAL_KEYS: string[] = [
   'server',
   'url',
   'token',
-  'version',
   // What it is.
   'target',
   'serve',
@@ -266,9 +205,6 @@ export const ESSENTIAL_KEYS: string[] = [
   'path',
   'port',
   'host',
-  // The server's own irreducible minimum.
-  'server_token',
-  'data_dir',
   // Block-level switches: without these the rest of the block is inert.
   'enabled',
   'mode',

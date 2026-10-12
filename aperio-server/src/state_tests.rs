@@ -466,7 +466,7 @@ async fn test_ip_rate_limit_exhausts() {
 #[tokio::test]
 async fn test_route_rate_limit_default_allows() {
   let state = crate::test_support::test_state();
-  // No `rate_limits:` rules configured → always allowed.
+  // No site carries a `rate_limit` → always allowed.
   assert!(
     state
       .check_route_rate_limit(Some("a.local"), "/x", "GET")
@@ -481,7 +481,7 @@ async fn test_disconnect_token_clients() {
   use crate::test_support::mock_client;
   let state = crate::test_support::test_state();
 
-  let mut c = mock_client(Some("a.local"), None, None, None);
+  let mut c = mock_client(Some("a.local"), None);
   c.perms = ClientPerms {
     allow_server_side: false,
     master: false,
@@ -540,15 +540,6 @@ async fn test_audit_events_and_session_actor() {
   state
     .emit_event("nothing", serde_json::json!({"k": 1}))
     .await;
-}
-
-#[tokio::test]
-async fn test_reload_from_file_returns_diff() {
-  let state = std::sync::Arc::new(crate::test_support::test_state());
-  // With no dashboard overrides and no file layer, the effective config is
-  // unchanged, so the diff is empty. Exercises the reload plumbing.
-  let diff = state.reload_from_file().await;
-  assert!(diff.is_empty(), "no changes: {diff:?}");
 }
 
 #[test]
@@ -759,7 +750,7 @@ async fn an_unfenced_org_still_needs_a_client_serving_the_hostname() {
   let (state, id) = state_with_org(&[]).await;
   assert!(!state.org_may_claim_hostname(Some(&id), "x.com").await);
 
-  let mut handle = crate::test_support::mock_client(Some("x.com"), None, None, None);
+  let mut handle = crate::test_support::mock_client(Some("x.com"), None);
   handle.perms = ClientPerms {
     org_id: Some(id.clone()),
     ..ClientPerms::master()
@@ -817,22 +808,14 @@ async fn a_dropped_handler_takes_its_pending_entry_with_it() {
   assert!(state.pending_upgrades.lock().await.is_empty());
 }
 
-// --- inline route rate limits (planned_features #26) ------------------------
+// --- a site's rate limit (planned_features #26) -------------------------------
 
 #[tokio::test]
-async fn an_inline_route_rate_limit_applies_and_respects_its_method_filter() {
+async fn a_site_rate_limit_applies_and_respects_its_method_filter() {
   let mut cfg = crate::test_support::test_config();
-  let rules: Vec<crate::static_routes::RouteRule> = serde_yaml::from_str(
-    r#"
-- path: /upload
-  rate_limit:
-    rps: 1
-    burst: 2
-    methods: [POST]
-"#,
-  )
-  .unwrap();
-  cfg.static_routes = crate::static_routes::StaticRoutes::compile(rules).unwrap();
+  cfg.sites = crate::test_support::sites(
+    "- hostname: \"*\"\n  path: /upload\n  rate_limit: {rps: 1, burst: 2, methods: [POST]}\n",
+  );
   let state = crate::test_support::test_state_with(cfg);
 
   // Two POSTs fit the burst, the third does not.
@@ -846,20 +829,16 @@ async fn an_inline_route_rate_limit_applies_and_respects_its_method_filter() {
 }
 
 #[tokio::test]
-async fn an_inline_route_limit_wins_over_a_rate_limits_entry() {
+async fn the_narrower_sites_rate_limit_wins_over_a_broader_one() {
   let mut cfg = crate::test_support::test_config();
-  let rules: Vec<crate::static_routes::RouteRule> =
-    serde_yaml::from_str("- path: /x\n  rate_limit:\n    rps: 1\n    burst: 1\n").unwrap();
-  cfg.static_routes = crate::static_routes::StaticRoutes::compile(rules).unwrap();
-  cfg.route_limits = crate::route_limits::RouteLimits {
-    rules: crate::route_limits::compile(
-      serde_yaml::from_str("- path: /x\n  rps: 1000\n  burst: 1000\n").unwrap(),
-    ),
-  };
+  cfg.sites = crate::test_support::sites(
+    "- hostname: \"*\"\n  rate_limit: {rps: 1000, burst: 1000}\n\
+     - hostname: \"*\"\n  path: /x\n  rate_limit: {rps: 1, burst: 1}\n",
+  );
   let state = crate::test_support::test_state_with(cfg);
 
-  // The generous `rate_limits:` entry matches too, but the route's own limit
-  // is the one written next to the route, so it is the one that applies.
+  // The generous `*` limit matches too, but the site for `/x` is narrower, so
+  // it is the one that applies.
   assert!(state.check_route_rate_limit(None, "/x", "GET").await);
   assert!(!state.check_route_rate_limit(None, "/x", "GET").await);
 }
@@ -875,7 +854,7 @@ async fn subscribed(
 ) -> tokio::sync::mpsc::Receiver<axum::extract::ws::Message> {
   use crate::test_support::mock_client;
   let (tx, rx) = tokio::sync::mpsc::channel::<axum::extract::ws::Message>(16);
-  let mut handle = mock_client(None, None, None, None);
+  let mut handle = mock_client(None, None);
   handle.tx = tx;
   handle.instance_group = Some(connection_id.to_string());
   handle.perms = ClientPerms {
