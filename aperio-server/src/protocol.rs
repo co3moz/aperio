@@ -477,7 +477,7 @@ pub enum TunnelMessage {
     client_id: String,
     /// What to call this client, from `name:` in its file. A label the server
     /// shows instead of an id, never something it addresses: `client_id`
-    /// above stays the identity, because failover and `bind_tunnels:` need
+    /// above stays the identity, because failover and `binds:` need
     /// one value per process and a name is shared by replicas on purpose.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     name: Option<String>,

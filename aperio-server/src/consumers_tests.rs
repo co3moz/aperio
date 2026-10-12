@@ -13,7 +13,7 @@ fn repeated_dials_from_one_machine_are_one_edge() {
   }
   let edges = c.live(100);
   // Five connections, one dependency. Counting them as five nodes is the
-  // failure mode this key exists to prevent: `--bind-tunnels` opens a
+  // failure mode this key exists to prevent: `aperio-client bind` opens a
   // connection per accepted socket, so a busy consumer would otherwise fill
   // the graph with copies of itself.
   assert_eq!(edges.len(), 1);

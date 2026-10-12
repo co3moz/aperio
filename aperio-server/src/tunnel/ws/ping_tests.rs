@@ -941,7 +941,7 @@ async fn a_client_that_sends_no_name_keeps_showing_its_id() {
 /// The name is a label, and nothing addresses the client by it.
 ///
 /// This is the property the whole design rests on: `client_id` stays the
-/// identity because failover and `bind_tunnels:` need one value per process,
+/// identity because failover and `binds:` need one value per process,
 /// and a name is shared by replicas on purpose. Two connections calling
 /// themselves the same thing must therefore stay two connections.
 #[tokio::test]

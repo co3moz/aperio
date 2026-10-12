@@ -225,7 +225,7 @@ pub(crate) struct ServiceSpec {
   /// announced via Ping and enforced by the server before dispatch.
   pub(crate) allowed_ips: Vec<String>,
   /// Tunnels declared by this client process (`tunnels:` list): normally
-  /// unexposed local services a peer client may bind with `--bind-tunnels`.
+  /// unexposed local services a peer client may bind with `aperio-client bind`.
   /// Announced via Ping on every connection of the process.
   pub(crate) tunnels: Vec<TunnelDecl>,
   /// Header add/remove rules for this service's proxied HTTP traffic

@@ -30,7 +30,7 @@ Each is a directory under `e2e/specs/`, and each runs on its own, as does each f
 | `lb` | primary-standby tiers, sticky sessions |
 | `features` | positional-target CLI, `check`, redirect following, request-id correlation, multi-service client, webhook inbox, unix-socket target, `~/.aperio.yaml` layer, per-token rate limit, connection ceiling, visitor allowlist |
 | `ws` | WebSocket pass-through (upgrade, frame echo, close) and a backend that speaks first |
-| `tunnels` | emergency tunnels (`tunnels:` + `--bind-tunnels`) and the legacy tcp bridge |
+| `tunnels` | emergency tunnels (`tunnels:` + `aperio-client bind`) and the legacy tcp bridge |
 | `subdomain` | same-level random subdomain pattern (`*-suffix`), passkey surface |
 | `h2` | `h2c://` backend (HTTP/2 prior knowledge) with gRPC-style trailer relay and gRPC health checking, driven by the [`mock-h2`](mock-h2/) helper |
 | `sessions` | dashboard sessions survive a server restart; active session management; usernameless passkey endpoints |

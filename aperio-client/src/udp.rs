@@ -1,6 +1,6 @@
 //! UDP tunneling for declared `protocol: udp` tunnels: the declaring side
 //! relays datagrams between the tunnel and its local UDP target, and the
-//! consumer side (`--bind-tunnels`) exposes a local UDP socket whose peers
+//! consumer side (`aperio-client bind`) exposes a local UDP socket whose peers
 //! each get their own relay stream through the server.
 //!
 //! Everything here is best-effort, matching UDP semantics: when a hop is

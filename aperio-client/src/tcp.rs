@@ -278,7 +278,7 @@ pub(crate) async fn handle_tcp_open(
 }
 
 /// Exits the process cleanly on SIGINT/SIGTERM. Spawned by the auxiliary
-/// modes (`tcp` bridge, `--bind-tunnels`) which otherwise run forever; the
+/// modes (`tcp` bridge, `aperio-client bind`) which otherwise run forever; the
 /// clean exit also flushes coverage/profiling data in instrumented builds.
 pub(crate) fn spawn_shutdown_watcher() {
   tokio::spawn(async {

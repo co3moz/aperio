@@ -787,7 +787,7 @@ export interface TopoOffline {
  * token-granted binds no client currently serves. */
 /** One client-to-client dependency: a machine that dials a tunnel another
  * client declares. Identified by the address it dialed from, because a
- * `--bind-tunnels` consumer is not a registered client and has no id. */
+ * `aperio-client bind` consumer is not a registered client and has no id. */
 export interface TopoConsumer {
   from_ip: string
   to_client: string
