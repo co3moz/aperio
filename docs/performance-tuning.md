@@ -161,11 +161,11 @@ control handles the other direction, a slow *visitor* behind a fast client.
 
 ## Failover vs. latency
 
-`failover.mode: retry-wait` maximizes availability but a request during an
-outage can take up to `failover.window` seconds while a client
+`resilience.failover.mode: retry-wait` (the `aggressive` profile's) maximizes availability but a request during an
+outage can take up to `resilience.failover.window` while a client
 reconnects. For latency-sensitive traffic prefer `retry` (instant re-dispatch to
-a redundant client) or accept the `fail` default. `failover.retry_on_5xx` adds a
-retry on error responses; both share the `failover.max_jumps` budget, so a
+a redundant client, the `safe` profile's default) or `fail` (the `off` profile). `resilience.failover.retry_on_5xx` adds a
+retry on error responses; both share the `resilience.failover.max_jumps` budget, so a
 persistently failing pool cannot loop.
 
 ## Data growth

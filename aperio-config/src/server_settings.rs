@@ -62,11 +62,11 @@ pub struct ServerSettings {
   pub gateway: Gateway,
   /// How a request picks among the clients serving its route.
   pub routing: Routing,
-  /// What happens to a request whose client fails or disappears mid-flight.
-  pub failover: Failover,
-  /// Taking a client out of routing when it keeps failing, while its health
-  /// probe still reports green.
-  pub outlier: Outlier,
+  /// How hard the server works to answer when a client fails: a profile,
+  /// `off`, `safe` (the default) or `aggressive`, and the failover and outlier
+  /// settings it stands for, each of which can be written to differ.
+  #[schemars(extend("examples" = [{"profile": "aggressive"}, {"profile": "safe", "failover": {"mode": "wait"}}]))]
+  pub resilience: Resilience,
   /// Who may reach a proxied route when nothing more specific says: `deny`
   /// (the default) refuses a route nothing declares, `public` serves it to
   /// anyone, and a method block or a list of them gates it. A client's

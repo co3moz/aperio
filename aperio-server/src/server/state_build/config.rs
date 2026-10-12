@@ -256,6 +256,10 @@ pub(crate) fn build_config(
     Drain::For(span) => (Some(span.as_secs()), false),
   };
 
+  // The profile's values, with what was written over them.
+  let failover = s.resilience.failover();
+  let outlier = s.resilience.outlier();
+
   Ok(ServerConfig {
     token: token.to_string(),
     gateway_timeout: secs(s.gateway.timeout),
@@ -300,16 +304,16 @@ pub(crate) fn build_config(
     client_down_threshold: secs(s.gateway.client_down_threshold).max(Duration::from_secs(1)),
     tunnel_compression: s.tunnel.compression,
     lb_strategy: s.routing.lb_strategy,
-    failover_mode: s.failover.mode,
-    failover_max_jumps: s.failover.max_jumps,
-    failover_window: secs(s.failover.window),
-    failover_all_methods: s.failover.all_methods,
-    retry_on_5xx: s.failover.retry_on_5xx,
-    retry_statuses: s.failover.retry_statuses.clone(),
-    outlier_ejection: s.outlier.enabled,
-    outlier_max_failures: s.outlier.max_failures.max(1),
-    outlier_window: secs(s.outlier.window).max(Duration::from_secs(1)),
-    outlier_eject: secs(s.outlier.eject_for).max(Duration::from_secs(1)),
+    failover_mode: failover.mode,
+    failover_max_jumps: failover.max_jumps,
+    failover_window: secs(failover.window),
+    failover_all_methods: failover.all_methods,
+    retry_on_5xx: failover.retry_on_5xx,
+    retry_statuses: failover.retry_statuses.clone(),
+    outlier_ejection: outlier.enabled,
+    outlier_max_failures: outlier.max_failures.max(1),
+    outlier_window: secs(outlier.window).max(Duration::from_secs(1)),
+    outlier_eject: secs(outlier.eject_for).max(Duration::from_secs(1)),
     cache_enabled: s.cache.enabled,
     cache_max_bytes: s.cache.size.0,
     cache_max_stale: s.cache.max_stale.as_secs(),

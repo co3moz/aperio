@@ -37,6 +37,7 @@ pub mod changelog;
 pub mod client;
 pub mod file;
 pub mod hop_by_hop;
+pub mod resilience;
 pub mod rules;
 pub mod sites;
 pub mod surfaces;
@@ -44,6 +45,7 @@ pub mod surfaces;
 pub use auth::*;
 pub use client::*;
 pub use file::*;
+pub use resilience::*;
 pub use rules::*;
 pub use sites::*;
 

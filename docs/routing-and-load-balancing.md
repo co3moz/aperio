@@ -72,8 +72,9 @@ Related: [In-Flight Failover](failover.md) covers what happens when the chosen c
 
 Active health probing (`health.endpoint`, `APERIO_HEALTH_ENDPOINT`) pulls a service from
 rotation when its own `/health` check fails. Passive outlier ejection is the
-complement: it reacts to how a service behaves under **real traffic**. When
-`outlier.enabled: true`, a service that returns too many server errors,
+complement: it reacts to how a service behaves under **real traffic**. It is on
+in the `safe` resilience profile, the default, and `aggressive`, and off in `off`;
+`resilience.outlier.enabled` decides it directly. A service that returns too many server errors,
 times out, or drops connections in a short window is temporarily removed from
 the routing pool, even while its `/health` probe still reports green.
 
@@ -84,12 +85,12 @@ failing backend takes its own service out of rotation and leaves the services
 sharing its connection serving. For a client running one service per
 connection, which is the ordinary shape, the two are the same thing.
 
-| Variable | Meaning | Default |
+| Setting | Meaning | Default |
 | --- | --- | --- |
-| `outlier_ejection` (env `outlier.enabled`) | Enable passive ejection. | off |
-| `outlier_max_failures` (env `outlier.max_failures`) | Failures within the window that trigger an ejection. | `5` |
-| `outlier_window` (env `outlier.window`) | Seconds the failures are counted over. | `30` |
-| `outlier_eject_secs` (env `outlier.eject_for`) | How long an ejected service stays out before automatic re-admission. | `30` |
+| `resilience.outlier.enabled` | Enable passive ejection. | on, off when the profile is `off` |
+| `resilience.outlier.max_failures` | Failures within the window that trigger an ejection. | `5`, `3` when aggressive |
+| `resilience.outlier.window` | Time the failures are counted over. | `30s` |
+| `resilience.outlier.eject_for` | How long an ejected service stays out before automatic re-admission. | `30s`, `1m` when aggressive |
 
 Ejection is **per-route fail-open**: if every candidate for a route is ejected,
 the route keeps serving from the struggling pool rather than returning no route

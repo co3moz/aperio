@@ -71,7 +71,7 @@ export const SERVER_GROUPS: GroupSpec[] = [
   {
     title: 'Routing & load balancing',
     description: 'How a request finds a client, and which clients are eligible.',
-    keys: ['routing', 'outlier'],
+    keys: ['routing'],
   },
   {
     title: 'Sites',
@@ -82,7 +82,7 @@ export const SERVER_GROUPS: GroupSpec[] = [
   {
     title: 'Failover & retry',
     description: 'What happens when a client dies mid-request or answers with an error.',
-    keys: ['failover'],
+    keys: ['resilience'],
   },
   {
     title: 'Limits & protection',

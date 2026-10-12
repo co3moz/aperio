@@ -8,15 +8,22 @@
 # with `GET /aperio/api/export?include=settings`.
 
 settings:
-  failover:
-    # When a client dies mid-request: retry on another healthy client at
-    # once, or wait for one to (re)connect if none is available.
-    mode: retry-wait
-    # Max re-dispatch attempts per request (default 2).
-    max_jumps: 2
-    # Total time the wait modes may spend waiting for a candidate, across
-    # all jumps (default 15s).
-    window: 15s
-    # Keep POST/PATCH out of failover (default), a re-dispatched request may
-    # reach a backend twice. Set true only if your backends are idempotent.
-    all_methods: false
+  resilience:
+    # One word for how hard the server works to answer when a client fails:
+    # off, safe (the default) or aggressive. Each setting below can be
+    # written to differ from the profile's; one left out is the profile's.
+    profile: safe
+    failover:
+      # When a client dies mid-request: retry on another healthy client at
+      # once, or wait for one to (re)connect if none is available. The safe
+      # profile retries without waiting; this example waits too.
+      mode: retry-wait
+      # Max re-dispatch attempts per request (the profile's: 2).
+      max_jumps: 2
+      # Total time the wait modes may spend waiting for a candidate, across
+      # all jumps (the profile's: 15s).
+      window: 15s
+      # Keep POST/PATCH out of failover (every profile does): a re-dispatched
+      # request may reach a backend twice. Set true only if your backends are
+      # idempotent.
+      all_methods: false

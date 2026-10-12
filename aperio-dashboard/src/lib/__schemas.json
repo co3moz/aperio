@@ -789,7 +789,7 @@
         "type": "object",
         "properties": {
           "failures": {
-            "description": "Consecutive failures that open the breaker. `0` disables it.\nDefault: `0` (off).",
+            "description": "Consecutive failures that open the breaker. `0` disables it.\nDefault: the profile's, off unless `resilience` is `aggressive`.",
             "type": [
               "integer",
               "null"
@@ -1172,7 +1172,7 @@
         "type": "object",
         "properties": {
           "all_methods": {
-            "description": "Retry non-idempotent methods (POST, PATCH) as well. Off by default,\nbecause a retried write may reach the backend twice; the same reasoning\nas the server's `failover.all_methods`. Default: `false`.",
+            "description": "Retry non-idempotent methods (POST, PATCH) as well. Off by default,\nbecause a retried write may reach the backend twice; the same reasoning\nas the server's `resilience.failover.all_methods`. Default: `false`.",
             "type": [
               "boolean",
               "null"
@@ -1182,7 +1182,7 @@
             ]
           },
           "attempts": {
-            "description": "Total attempts, including the first. `1` disables retrying.\nDefault: `1`.",
+            "description": "Total attempts, including the first. `1` disables retrying.\nDefault: the profile's, `2` unless `resilience` says otherwise.",
             "type": [
               "integer",
               "null"
@@ -1194,7 +1194,7 @@
             "minimum": 0
           },
           "delay": {
-            "description": "Wait before the second attempt, doubled before each further one.\nDefault: `100ms`.",
+            "description": "Wait before the second attempt, doubled before each further one.\nDefault: the profile's, `100ms` unless `resilience` is `aggressive`.",
             "anyOf": [
               {
                 "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
@@ -1919,6 +1919,24 @@
             ],
             "minimum": 0
           },
+          "resilience": {
+            "description": "How hard this service works to answer when its backend fails: `off`,\n`safe` (the default: an idempotent request that fails before any\nresponse is tried once more) or `aggressive` (three attempts, and a\ncircuit breaker). `retry` and `circuit_breaker`, where written, win\nover the profile's values.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "off",
+              "safe",
+              "aggressive",
+              null
+            ],
+            "examples": [
+              "safe",
+              "aggressive",
+              "off"
+            ]
+          },
           "response_timeout": {
             "description": "How long the server waits for this service to answer a dispatched\nrequest before failing it: the service's own `gateway.response_timeout`,\nfor slow report and upload endpoints. Unset: the server's applies.",
             "anyOf": [
@@ -2470,6 +2488,24 @@
             ],
             "minimum": 0
           },
+          "resilience": {
+            "description": "How hard this service works to answer when its backend fails: `off`,\n`safe` (the default: an idempotent request that fails before any\nresponse is tried once more) or `aggressive` (three attempts, and a\ncircuit breaker). `retry` and `circuit_breaker`, where written, win\nover the profile's values.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "off",
+              "safe",
+              "aggressive",
+              null
+            ],
+            "examples": [
+              "safe",
+              "aggressive",
+              "off"
+            ]
+          },
           "response_timeout": {
             "description": "How long the server waits for this service to answer a dispatched\nrequest before failing it: the service's own `gateway.response_timeout`,\nfor slow report and upload endpoints. Unset: the server's applies.",
             "anyOf": [
@@ -2890,18 +2926,6 @@
           "include_offline": false
         }
       },
-      "failover": {
-        "description": "What happens to a request whose client fails or disappears mid-flight.",
-        "$ref": "#/$defs/Failover",
-        "default": {
-          "all_methods": false,
-          "max_jumps": 2,
-          "mode": "fail",
-          "retry_on_5xx": false,
-          "retry_statuses": [],
-          "window": "15s"
-        }
-      },
       "gateway": {
         "description": "How long the server waits on a client.",
         "$ref": "#/$defs/Gateway",
@@ -2989,16 +3013,6 @@
           "no_proxy": []
         }
       },
-      "outlier": {
-        "description": "Taking a client out of routing when it keeps failing, while its health\nprobe still reports green.",
-        "$ref": "#/$defs/Outlier",
-        "default": {
-          "eject_for": "30s",
-          "enabled": false,
-          "max_failures": 5,
-          "window": "30s"
-        }
-      },
       "proxy": {
         "description": "The reverse proxy or CDN in front of this server, and whose\n`X-Forwarded-For` to believe. Security-relevant.",
         "$ref": "#/$defs/Proxy",
@@ -3015,6 +3029,26 @@
           "header": "x-request-id",
           "trust_inbound": false
         }
+      },
+      "resilience": {
+        "description": "How hard the server works to answer when a client fails: a profile,\n`off`, `safe` (the default) or `aggressive`, and the failover and outlier\nsettings it stands for, each of which can be written to differ.",
+        "$ref": "#/$defs/Resilience",
+        "default": {
+          "failover": {},
+          "outlier": {},
+          "profile": "safe"
+        },
+        "examples": [
+          {
+            "profile": "aggressive"
+          },
+          {
+            "failover": {
+              "mode": "wait"
+            },
+            "profile": "safe"
+          }
+        ]
       },
       "retention": {
         "description": "How long recorded data is kept.",
@@ -3871,56 +3905,84 @@
         },
         "additionalProperties": false
       },
-      "Failover": {
+      "FailoverSettings": {
+        "description": "The failover a profile stands for, field by field.",
         "type": "object",
         "properties": {
           "all_methods": {
-            "description": "Also fail over non-idempotent methods, which may then reach a backend\ntwice. Default `false`.",
-            "type": "boolean",
-            "default": false
+            "description": "Also fail over non-idempotent methods, which may then reach a backend\ntwice. `false` in every profile: it is a decision about the backend,\nwhich no profile can make.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "examples": [
+              true
+            ]
           },
           "max_jumps": {
-            "description": "Re-dispatch attempts per request. Default `2`.",
-            "type": "integer",
+            "description": "Re-dispatch attempts per request. `2`, or `3` when aggressive.",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "uint32",
-            "default": 2,
+            "examples": [
+              3
+            ],
             "minimum": 0
           },
           "mode": {
-            "description": "What to do when a client dies mid-request. Default `fail`.",
-            "default": "fail",
-            "oneOf": [
+            "description": "What to do when a client dies mid-request: `fail`, `retry`, `wait` or\n`retry-wait`. `off`: `fail`; `safe`: `retry`; `aggressive`:\n`retry-wait`.",
+            "anyOf": [
               {
-                "description": "Answer `502` at once.",
-                "type": "string",
-                "const": "fail"
+                "description": "What to do when a client is lost while a request is in flight.",
+                "oneOf": [
+                  {
+                    "description": "Answer `502` at once.",
+                    "type": "string",
+                    "const": "fail"
+                  },
+                  {
+                    "description": "Re-dispatch to another available candidate.",
+                    "type": "string",
+                    "const": "retry"
+                  },
+                  {
+                    "description": "Wait for the same client to reconnect.",
+                    "type": "string",
+                    "const": "wait"
+                  },
+                  {
+                    "description": "Re-dispatch now, or wait for a candidate when there is none.",
+                    "type": "string",
+                    "const": "retry-wait"
+                  }
+                ]
               },
               {
-                "description": "Re-dispatch to another available candidate.",
-                "type": "string",
-                "const": "retry"
-              },
-              {
-                "description": "Wait for the same client to reconnect.",
-                "type": "string",
-                "const": "wait"
-              },
-              {
-                "description": "Re-dispatch now, or wait for a candidate when there is none.",
-                "type": "string",
-                "const": "retry-wait"
+                "type": "null"
               }
+            ],
+            "examples": [
+              "retry-wait"
             ]
           },
           "retry_on_5xx": {
-            "description": "Re-dispatch a buffered response whose status is a retryable server\nerror to another client. Shares the jump budget. Default `false`.",
-            "type": "boolean",
-            "default": false
+            "description": "Re-dispatch a buffered response whose status is a retryable server\nerror to another client, sharing the jump budget. `true` only when\naggressive.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "examples": [
+              true
+            ]
           },
           "retry_statuses": {
-            "description": "The statuses that count for `retry_on_5xx`; empty = every 5xx.",
-            "type": "array",
-            "default": [],
+            "description": "The statuses that count for `retry_on_5xx`; empty = every 5xx.\n`[502, 503, 504]` when aggressive.",
+            "type": [
+              "array",
+              "null"
+            ],
             "examples": [
               [
                 502,
@@ -3935,22 +3997,32 @@
             }
           },
           "window": {
-            "description": "Total time the waiting modes may spend across all jumps. Default `15s`.",
+            "description": "Total time the waiting modes may spend across all jumps. `15s`, or\n`30s` when aggressive.",
             "anyOf": [
               {
-                "type": "string",
-                "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
               },
               {
-                "type": "integer",
-                "minimum": 0
+                "type": "null"
               }
             ],
-            "default": "15s",
             "examples": [
-              "30s",
-              "5m",
-              "1h"
+              "30s"
             ]
           }
         },
@@ -4584,57 +4656,88 @@
         },
         "additionalProperties": false
       },
-      "Outlier": {
+      "OutlierSettings": {
+        "description": "The outlier ejection a profile stands for, field by field.",
         "type": "object",
         "properties": {
           "eject_for": {
-            "description": "How long an ejected client stays out. Default `30s`.",
+            "description": "How long an ejected client stays out. `30s`, or `1m` when aggressive.",
             "anyOf": [
               {
-                "type": "string",
-                "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
               },
               {
-                "type": "integer",
-                "minimum": 0
+                "type": "null"
               }
             ],
-            "default": "30s",
             "examples": [
-              "30s",
-              "5m",
-              "1h"
+              "1m"
             ]
           },
           "enabled": {
-            "description": "Turn passive ejection on. Default `false`.",
-            "type": "boolean",
-            "default": false
+            "description": "Turn passive ejection on. `false` only when the profile is `off`.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "examples": [
+              false
+            ]
           },
           "max_failures": {
-            "description": "Failures inside `window` that eject a client. Default `5`.",
-            "type": "integer",
+            "description": "Failures inside `window` that eject a client. `5`, or `3` when\naggressive.",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "uint32",
-            "default": 5,
+            "examples": [
+              3
+            ],
             "minimum": 0
           },
           "window": {
-            "description": "Window the failures are counted over. Default `30s`.",
+            "description": "Window the failures are counted over. `30s`.",
             "anyOf": [
               {
-                "type": "string",
-                "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
               },
               {
-                "type": "integer",
-                "minimum": 0
+                "type": "null"
               }
             ],
-            "default": "30s",
             "examples": [
-              "30s",
-              "5m",
-              "1h"
+              "30s"
             ]
           }
         },
@@ -4750,6 +4853,33 @@
             "description": "Adopt the visitor's own value when the request carries one. Default\n`false`.",
             "type": "boolean",
             "default": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "Resilience": {
+        "description": "How hard the server works to answer when a client fails: a profile, and\nthe settings it stands for, each of which can be written to differ.",
+        "type": "object",
+        "properties": {
+          "failover": {
+            "description": "Re-dispatching a request whose client fails mid-flight. A field left\nout is the profile's.",
+            "$ref": "#/$defs/FailoverSettings",
+            "default": {}
+          },
+          "outlier": {
+            "description": "Taking a client out of routing when it keeps failing, while its health\nprobe still reports green. A field left out is the profile's.",
+            "$ref": "#/$defs/OutlierSettings",
+            "default": {}
+          },
+          "profile": {
+            "description": "`off` (a failure is the answer, nothing is ejected), `safe` (the\ndefault: an idempotent request is re-dispatched once to another client,\nand a client that keeps failing is taken out of routing for a while) or\n`aggressive` (more attempts, a retryable `5xx` re-dispatched too, a\nwaiting failover).",
+            "type": "string",
+            "default": "safe",
+            "enum": [
+              "off",
+              "safe",
+              "aggressive"
+            ]
           }
         },
         "additionalProperties": false

@@ -142,59 +142,177 @@ pub enum FailoverMode {
   RetryWait,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, JsonSchema)]
+/// How hard the server works to answer when a client fails: a profile, and
+/// the settings it stands for, each of which can be written to differ.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
-pub struct Failover {
-  /// What to do when a client dies mid-request. Default `fail`.
-  pub mode: FailoverMode,
-  /// Re-dispatch attempts per request. Default `2`.
-  pub max_jumps: u32,
-  /// Total time the waiting modes may spend across all jumps. Default `15s`.
-  pub window: Span,
+pub struct Resilience {
+  /// `off` (a failure is the answer, nothing is ejected), `safe` (the
+  /// default: an idempotent request is re-dispatched once to another client,
+  /// and a client that keeps failing is taken out of routing for a while) or
+  /// `aggressive` (more attempts, a retryable `5xx` re-dispatched too, a
+  /// waiting failover).
+  pub profile: crate::ResilienceProfile,
+  /// Re-dispatching a request whose client fails mid-flight. A field left
+  /// out is the profile's.
+  pub failover: FailoverSettings,
+  /// Taking a client out of routing when it keeps failing, while its health
+  /// probe still reports green. A field left out is the profile's.
+  pub outlier: OutlierSettings,
+}
+
+/// The failover a profile stands for, field by field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct FailoverSettings {
+  /// What to do when a client dies mid-request: `fail`, `retry`, `wait` or
+  /// `retry-wait`. `off`: `fail`; `safe`: `retry`; `aggressive`:
+  /// `retry-wait`.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["retry-wait"]))]
+  pub mode: Option<FailoverMode>,
+  /// Re-dispatch attempts per request. `2`, or `3` when aggressive.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [3]))]
+  pub max_jumps: Option<u32>,
+  /// Total time the waiting modes may spend across all jumps. `15s`, or
+  /// `30s` when aggressive.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["30s"]))]
+  pub window: Option<Span>,
   /// Also fail over non-idempotent methods, which may then reach a backend
-  /// twice. Default `false`.
-  pub all_methods: bool,
+  /// twice. `false` in every profile: it is a decision about the backend,
+  /// which no profile can make.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [true]))]
+  pub all_methods: Option<bool>,
   /// Re-dispatch a buffered response whose status is a retryable server
-  /// error to another client. Shares the jump budget. Default `false`.
-  pub retry_on_5xx: bool,
+  /// error to another client, sharing the jump budget. `true` only when
+  /// aggressive.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [true]))]
+  pub retry_on_5xx: Option<bool>,
   /// The statuses that count for `retry_on_5xx`; empty = every 5xx.
+  /// `[502, 503, 504]` when aggressive.
+  #[serde(skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [[502, 503]]))]
+  pub retry_statuses: Option<Vec<u16>>,
+}
+
+/// The outlier ejection a profile stands for, field by field.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct OutlierSettings {
+  /// Turn passive ejection on. `false` only when the profile is `off`.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [false]))]
+  pub enabled: Option<bool>,
+  /// Failures inside `window` that eject a client. `5`, or `3` when
+  /// aggressive.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [3]))]
+  pub max_failures: Option<u32>,
+  /// Window the failures are counted over. `30s`.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["30s"]))]
+  pub window: Option<Span>,
+  /// How long an ejected client stays out. `30s`, or `1m` when aggressive.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["1m"]))]
+  pub eject_for: Option<Span>,
+}
+
+/// The failover in force: the profile's, with what was written over it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Failover {
+  pub mode: FailoverMode,
+  pub max_jumps: u32,
+  pub window: Span,
+  pub all_methods: bool,
+  pub retry_on_5xx: bool,
   pub retry_statuses: Vec<u16>,
 }
 
-impl Default for Failover {
-  fn default() -> Self {
-    Failover {
-      mode: FailoverMode::Fail,
-      max_jumps: 2,
-      window: Span::secs(15),
-      all_methods: false,
-      retry_on_5xx: false,
-      retry_statuses: Vec::new(),
-    }
-  }
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, JsonSchema)]
-#[serde(default, deny_unknown_fields)]
+/// The outlier ejection in force: the profile's, with what was written over
+/// it.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Outlier {
-  /// Turn passive ejection on. Default `false`.
   pub enabled: bool,
-  /// Failures inside `window` that eject a client. Default `5`.
   pub max_failures: u32,
-  /// Window the failures are counted over. Default `30s`.
   pub window: Span,
-  /// How long an ejected client stays out. Default `30s`.
   pub eject_for: Span,
 }
 
-impl Default for Outlier {
-  fn default() -> Self {
+impl Resilience {
+  /// The failover in force.
+  pub fn failover(&self) -> Failover {
+    use crate::ResilienceProfile::*;
+    let base = match self.profile {
+      Off => Failover {
+        mode: FailoverMode::Fail,
+        max_jumps: 2,
+        window: Span::secs(15),
+        all_methods: false,
+        retry_on_5xx: false,
+        retry_statuses: Vec::new(),
+      },
+      Safe => Failover {
+        mode: FailoverMode::Retry,
+        max_jumps: 2,
+        window: Span::secs(15),
+        all_methods: false,
+        retry_on_5xx: false,
+        retry_statuses: Vec::new(),
+      },
+      Aggressive => Failover {
+        mode: FailoverMode::RetryWait,
+        max_jumps: 3,
+        window: Span::secs(30),
+        all_methods: false,
+        retry_on_5xx: true,
+        retry_statuses: vec![502, 503, 504],
+      },
+    };
+    let w = &self.failover;
+    Failover {
+      mode: w.mode.unwrap_or(base.mode),
+      max_jumps: w.max_jumps.unwrap_or(base.max_jumps),
+      window: w.window.unwrap_or(base.window),
+      all_methods: w.all_methods.unwrap_or(base.all_methods),
+      retry_on_5xx: w.retry_on_5xx.unwrap_or(base.retry_on_5xx),
+      retry_statuses: w.retry_statuses.clone().unwrap_or(base.retry_statuses),
+    }
+  }
+
+  /// The outlier ejection in force.
+  pub fn outlier(&self) -> Outlier {
+    use crate::ResilienceProfile::*;
+    let base = match self.profile {
+      Off => Outlier {
+        enabled: false,
+        max_failures: 5,
+        window: Span::secs(30),
+        eject_for: Span::secs(30),
+      },
+      Safe => Outlier {
+        enabled: true,
+        max_failures: 5,
+        window: Span::secs(30),
+        eject_for: Span::secs(30),
+      },
+      Aggressive => Outlier {
+        enabled: true,
+        max_failures: 3,
+        window: Span::secs(30),
+        eject_for: Span::secs(60),
+      },
+    };
+    let w = &self.outlier;
     Outlier {
-      enabled: false,
-      max_failures: 5,
-      window: Span::secs(30),
-      eject_for: Span::secs(30),
+      enabled: w.enabled.unwrap_or(base.enabled),
+      max_failures: w.max_failures.unwrap_or(base.max_failures),
+      window: w.window.unwrap_or(base.window),
+      eject_for: w.eject_for.unwrap_or(base.eject_for),
     }
   }
 }

@@ -65,7 +65,7 @@ export const GROUPS: GroupSpec[] = [
         },
       },
       {
-        key: 'failover.mode',
+        key: 'resilience.failover.mode',
         label: 'In-flight failover',
         hint: 'Reaction when the serving client drops mid-request',
         optionHints: {
@@ -76,9 +76,9 @@ export const GROUPS: GroupSpec[] = [
             'Try another client first; if the route has none, wait for one to come back. The most forgiving, and the slowest to give up.',
         },
       },
-      { key: 'failover.max_jumps', label: 'Failover max jumps', hint: 'Re-dispatch attempts per request' },
-      { key: 'failover.window', label: 'Failover window', hint: 'Total time budget across all jumps' },
-      { key: 'failover.all_methods', label: 'Failover non-idempotent methods', hint: 'POST/PATCH may reach a backend twice when enabled' },
+      { key: 'resilience.failover.max_jumps', label: 'Failover max jumps', hint: 'Re-dispatch attempts per request' },
+      { key: 'resilience.failover.window', label: 'Failover window', hint: 'Total time budget across all jumps' },
+      { key: 'resilience.failover.all_methods', label: 'Failover non-idempotent methods', hint: 'POST/PATCH may reach a backend twice when enabled' },
     ],
   },
   {

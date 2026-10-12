@@ -218,7 +218,7 @@ async fn put_applies_stores_and_reports_what_changed() {
       "limits": {"tunnels": 16},
       "dashboard": {"ui_language": "de"},
       "routing": {"lb_strategy": "sticky"},
-      "failover": {"mode": "retry"},
+      "resilience": {"failover": {"mode": "wait"}},
     }),
   )
   .await;
@@ -235,7 +235,7 @@ async fn put_applies_stores_and_reports_what_changed() {
     "limits.tunnels",
     "dashboard.ui_language",
     "routing.lb_strategy",
-    "failover.mode",
+    "resilience.failover.mode",
   ] {
     assert!(changed.contains(&path), "{path} in {changed:?}");
   }

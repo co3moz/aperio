@@ -109,11 +109,6 @@ pub const REMOVED_CLIENT_KEYS: &[RemovedKey] = &[
   },
   RemovedKey {
     scope: KeyScope::Top,
-    key: "resilience",
-    hint: "became `cache.offline` in 0.13.0, written under `defaults:` for every service.",
-  },
-  RemovedKey {
-    scope: KeyScope::Top,
     key: "max_concurrent",
     hint: "became `limits.concurrent_requests` in 0.13.0, written under `defaults:` for every service.",
   },
@@ -329,11 +324,6 @@ pub const REMOVED_CLIENT_KEYS: &[RemovedKey] = &[
   },
   RemovedKey {
     scope: KeyScope::Service,
-    key: "resilience",
-    hint: "became `cache.offline` in 0.13.0 (`cache: {enabled: true, offline: true}`).",
-  },
-  RemovedKey {
-    scope: KeyScope::Service,
     key: "target_health",
     hint: "became `health.endpoint` in 0.13.0.",
   },
@@ -437,10 +427,6 @@ pub const REMOVED_CLIENT_ENV: &[Removed] = &[
   Removed {
     key: "APERIO_CAPTURE",
     hint: "was renamed APERIO_INSPECTOR in 0.13.0.",
-  },
-  Removed {
-    key: "APERIO_RESILIENCE",
-    hint: "was renamed APERIO_CACHE_OFFLINE in 0.13.0.",
   },
   Removed {
     key: "APERIO_CACHE",
@@ -575,43 +561,43 @@ pub const REMOVED_SERVER_ENV: &[Removed] = &[
   },
   Removed {
     key: "APERIO_FAILOVER",
-    hint: "moved into the settings as `failover.mode` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings as `resilience.failover.mode` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_FAILOVER_MAX_JUMPS",
-    hint: "moved into the settings as `failover.max_jumps` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings as `resilience.failover.max_jumps` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_FAILOVER_WINDOW",
-    hint: "moved into the settings as `failover.window` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings as `resilience.failover.window` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_FAILOVER_ALL_METHODS",
-    hint: "moved into the settings as `failover.all_methods` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings as `resilience.failover.all_methods` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_RETRY_ON_5XX",
-    hint: "moved into the settings as `failover.retry_on_5xx` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings as `resilience.failover.retry_on_5xx` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_RETRY_STATUSES",
-    hint: "moved into the settings as `failover.retry_statuses` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings as `resilience.failover.retry_statuses` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_OUTLIER_EJECTION",
-    hint: "moved into the settings as `outlier.enabled` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings as `resilience.outlier.enabled` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_OUTLIER_MAX_FAILURES",
-    hint: "moved into the settings as `outlier.max_failures` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings as `resilience.outlier.max_failures` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_OUTLIER_WINDOW",
-    hint: "moved into the settings as `outlier.window` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings as `resilience.outlier.window` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_OUTLIER_EJECT_SECS",
-    hint: "moved into the settings as `outlier.eject_for` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings as `resilience.outlier.eject_for` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_DEFAULT_ACCESS",
@@ -1038,6 +1024,14 @@ pub const REMOVED_SETTINGS: &[Removed] = &[
   Removed {
     key: "headers",
     hint: "moved into `sites` in 0.13.0: the `headers` of the `hostname: \"*\"` site.",
+  },
+  Removed {
+    key: "failover",
+    hint: "moved under `resilience` in 0.13.0: `resilience.failover`, each of whose fields defaults to the profile's (`resilience.profile`, `safe` unless written).",
+  },
+  Removed {
+    key: "outlier",
+    hint: "moved under `resilience` in 0.13.0: `resilience.outlier`, each of whose fields defaults to the profile's (`resilience.profile`, `safe` unless written).",
   },
   Removed {
     key: "require_hostname_bind",

@@ -259,3 +259,47 @@ fn the_access_block_of_before_is_told_what_it_became() {
     crate::ServerAccess::Declared(crate::Access::Public)
   );
 }
+
+#[test]
+fn a_resilience_profile_is_the_default_values_and_a_written_field_wins() {
+  let safe = ServerSettings::default().resilience;
+  assert_eq!(safe.profile, crate::ResilienceProfile::Safe);
+  assert_eq!(safe.failover().mode, FailoverMode::Retry);
+  assert!(safe.outlier().enabled);
+  assert!(
+    !safe.failover().all_methods,
+    "no profile decides that for a backend"
+  );
+
+  let off = ServerSettings::from_yaml("resilience:\n  profile: off\n")
+    .unwrap()
+    .resilience;
+  assert_eq!(off.failover().mode, FailoverMode::Fail);
+  assert!(!off.outlier().enabled);
+
+  let hard = ServerSettings::from_yaml(
+    "resilience:\n  profile: aggressive\n  failover:\n    mode: wait\n  outlier:\n    max_failures: 9\n",
+  )
+  .unwrap()
+  .resilience;
+  assert_eq!(
+    hard.failover().mode,
+    FailoverMode::Wait,
+    "written over the profile's"
+  );
+  assert_eq!(
+    hard.failover().max_jumps,
+    3,
+    "the profile's where not written"
+  );
+  assert!(hard.failover().retry_on_5xx);
+  assert_eq!(hard.outlier().max_failures, 9);
+}
+
+#[test]
+fn the_old_failover_and_outlier_sections_say_where_they_went() {
+  for old in ["failover:\n  mode: retry\n", "outlier:\n  enabled: true\n"] {
+    let err = ServerSettings::from_yaml(old).unwrap_err();
+    assert!(err.contains("moved under `resilience`"), "{old}: {err}");
+  }
+}

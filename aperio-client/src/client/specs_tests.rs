@@ -239,3 +239,30 @@ fn server_side_and_serve_are_refused_together() {
   );
   assert!(err.contains("server_side"), "{err}");
 }
+
+#[test]
+fn a_resilience_profile_sets_retry_and_the_breaker_and_a_written_value_wins() {
+  let specs = specs(
+    "services:\n\
+     \x20 plain: {target: 'http://localhost:3000'}\n\
+     \x20 off: {target: 'http://localhost:3001', resilience: off}\n\
+     \x20 hard: {target: 'http://localhost:3002', resilience: aggressive}\n\
+     \x20 mixed: {target: 'http://localhost:3003', resilience: aggressive, retry: {attempts: 1}}\n",
+  );
+  let by = |name: &str| {
+    specs
+      .iter()
+      .find(|s| s.name.as_deref() == Some(name))
+      .unwrap()
+  };
+  assert_eq!(by("plain").retry_attempts, 2, "safe is the default");
+  assert_eq!(by("plain").breaker_failures, 0);
+  assert_eq!(by("off").retry_attempts, 1);
+  assert_eq!(by("hard").retry_attempts, 3);
+  assert!(by("hard").breaker_failures > 0);
+  assert_eq!(by("mixed").retry_attempts, 1, "what the entry writes wins");
+  assert!(
+    by("mixed").breaker_failures > 0,
+    "and the rest is still the profile's"
+  );
+}

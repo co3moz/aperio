@@ -272,6 +272,10 @@ pub(crate) fn build_specs(
     let health = p.health.clone().unwrap_or_default();
     let retry = p.retry.clone().unwrap_or_default();
     let breaker = p.circuit_breaker.clone().unwrap_or_default();
+    // The profile's values, which what the entry writes wins over.
+    let profile = p.resilience.unwrap_or_default();
+    let profile_retry = profile.client_retry();
+    let profile_breaker = profile.client_breaker();
     let limits = p.limits.clone().unwrap_or_default();
     let cache = p.cache.clone().unwrap_or_default();
     let path = entry
@@ -317,11 +321,14 @@ pub(crate) fn build_specs(
         .map(|b| b.0 as usize)
         .unwrap_or(50 * 1024 * 1024),
       reload_drain_secs: settings.reload_drain_secs,
-      retry_attempts: retry.attempts.unwrap_or(1).clamp(1, 10),
-      retry_backoff_ms: retry.delay.map(|d| d.0.as_millis() as u64).unwrap_or(100),
+      retry_attempts: retry.attempts.unwrap_or(profile_retry.0).clamp(1, 10),
+      retry_backoff_ms: retry
+        .delay
+        .map(|d| d.0.as_millis() as u64)
+        .unwrap_or(profile_retry.1),
       retry_all_methods: retry.all_methods.unwrap_or(false),
-      breaker_failures: breaker.failures.unwrap_or(0),
-      breaker_open_for_secs: secs(breaker.open_for).unwrap_or(30).max(1),
+      breaker_failures: breaker.failures.unwrap_or(profile_breaker.0),
+      breaker_open_for_secs: secs(breaker.open_for).unwrap_or(profile_breaker.1).max(1),
       max_request_body: limits.request_body.map(|b| b.0),
       response_timeout: secs(p.response_timeout).filter(|s| *s > 0),
       timeout_secs: secs(p.timeout).unwrap_or(30),

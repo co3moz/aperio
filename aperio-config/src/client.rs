@@ -311,16 +311,16 @@ pub struct HealthConfig {
 #[serde(deny_unknown_fields)]
 pub struct RetryConfig {
   /// Total attempts, including the first. `1` disables retrying.
-  /// Default: `1`.
+  /// Default: the profile's, `2` unless `resilience` says otherwise.
   #[schemars(extend("examples" = [3]))]
   pub attempts: Option<u32>,
   /// Wait before the second attempt, doubled before each further one.
-  /// Default: `100ms`.
+  /// Default: the profile's, `100ms` unless `resilience` is `aggressive`.
   #[schemars(extend("examples" = ["100ms", "1s"]))]
   pub delay: Option<Span>,
   /// Retry non-idempotent methods (POST, PATCH) as well. Off by default,
   /// because a retried write may reach the backend twice; the same reasoning
-  /// as the server's `failover.all_methods`. Default: `false`.
+  /// as the server's `resilience.failover.all_methods`. Default: `false`.
   #[schemars(extend("examples" = [true]))]
   pub all_methods: Option<bool>,
 }
@@ -332,7 +332,7 @@ pub struct RetryConfig {
 #[serde(deny_unknown_fields)]
 pub struct CircuitBreakerConfig {
   /// Consecutive failures that open the breaker. `0` disables it.
-  /// Default: `0` (off).
+  /// Default: the profile's, off unless `resilience` is `aggressive`.
   #[schemars(extend("examples" = [5]))]
   pub failures: Option<u32>,
   /// How long the breaker stays open before one request is let through to
@@ -630,6 +630,14 @@ pub struct ServicePolicy {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [{"endpoint": "/health", "interval": "10s", "threshold": 2}]))]
   pub health: Option<HealthConfig>,
+  /// How hard this service works to answer when its backend fails: `off`,
+  /// `safe` (the default: an idempotent request that fails before any
+  /// response is tried once more) or `aggressive` (three attempts, and a
+  /// circuit breaker). `retry` and `circuit_breaker`, where written, win
+  /// over the profile's values.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["safe", "aggressive", "off"]))]
+  pub resilience: Option<ResilienceProfile>,
   /// Retrying backend requests that fail before a response arrives.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [{"attempts": 3, "delay": "100ms"}]))]

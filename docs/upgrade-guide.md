@@ -126,6 +126,20 @@ proxy.trusted`). Moving a deployment over is four steps:
 check <file>`, `settings show`, `schema`, `audit verify` and
 `backup decrypt`. The flags are refused rather than ignored.
 
+**Resilience is a profile, and the default works harder.** The server's
+`failover` and `outlier` sections are `resilience.failover` and
+`resilience.outlier` now, each field defaulting to `resilience.profile`'s:
+`off`, `safe` (the default) or `aggressive`. Under `safe` an idempotent
+request whose client dies mid-flight is re-dispatched to another healthy
+client of the route instead of answering `502`, and passive outlier ejection
+is on; both fail open, so a single-client route behaves as before. A client
+service's `resilience` does the same for `retry` and `circuit_breaker`, and
+`safe` tries an idempotent request that fails before any response once more.
+Write `resilience: {profile: off}` on the server, and `resilience: off` under
+the client's `defaults:`, to keep 0.12's behaviour exactly. A client file's
+`resilience: true` from 0.12 is refused with what it became,
+`cache.offline`.
+
 **A service that names no hostname no longer serves every unclaimed one.**
 Write `hostname: "*"` on the service that should; until it does, a request
 for a hostname nothing claims answers `504`, and the client is told in its
