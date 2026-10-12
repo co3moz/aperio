@@ -234,7 +234,7 @@ pub enum AuthSetting {
   Any(Vec<AuthMethodSpec>),
 }
 
-/// One entry of an `auth:` policy: which method gates the route, and the
+/// One entry of an `access` policy: which method gates the route, and the
 /// settings that method needs.
 ///
 /// `method` is deliberately a string here rather than an enum: an unknown one
@@ -386,7 +386,7 @@ pub fn validate_client_declared_auth(setting: &AuthSetting) -> Result<(), String
   for (i, spec) in setting.methods().iter().enumerate() {
     if spec.method.trim().eq_ignore_ascii_case("sso") {
       return Err(format!(
-        "`auth:` entry #{}: `method: sso` is written in the server's settings, its own `access` \
+        "`access` entry #{}: `method: sso` is written in the server's settings, its own `access` \
          or a site's: the identity provider and its client secret are the operator's, not \
          something to send through a tunnel",
         i + 1
@@ -394,7 +394,7 @@ pub fn validate_client_declared_auth(setting: &AuthSetting) -> Result<(), String
     }
     if spec.method.trim().eq_ignore_ascii_case("forward") && !forward_via_client(spec) {
       return Err(format!(
-        "`auth:` entry #{}: a `forward` declared on a client has to say `via: client`, since its \
+        "`access` entry #{}: a `forward` declared on a client has to say `via: client`, since its \
          endpoint is on this client's network and the server never dials a URL a client chose",
         i + 1
       ));
@@ -503,14 +503,14 @@ fn credential_is_usable(raw: &str) -> bool {
 
 /// Validates a visitor-auth policy, naming what is wrong and where.
 ///
-/// Called from both sides: the client refuses to start on its own `auth:`,
-/// and the server refuses to start on the file's. A policy that parses but
+/// Called from both sides: the client refuses to start on a service's
+/// `access:`, and the server refuses settings whose `access` is one. A policy that parses but
 /// cannot admit anybody is the failure worth catching here, since it presents
 /// as "the password does not work" hours later.
 pub fn validate_auth_setting(setting: &AuthSetting) -> Result<(), String> {
   let methods = setting.methods();
   if methods.is_empty() {
-    return Err("`auth:` is an empty list; remove it, or write `{method: none}` to say the route is deliberately open".to_string());
+    return Err("`access` is an empty list; remove it, or write `public` to say the route is deliberately open".to_string());
   }
   if methods.len() > 1
     && methods
@@ -523,7 +523,7 @@ pub fn validate_auth_setting(setting: &AuthSetting) -> Result<(), String> {
     );
   }
   for (i, spec) in methods.iter().enumerate() {
-    let at = |what: String| format!("`auth:` entry #{}: {}", i + 1, what);
+    let at = |what: String| format!("`access` entry #{}: {}", i + 1, what);
     let name = spec.method.trim().to_ascii_lowercase();
     if !AUTH_METHODS.contains(&name.as_str()) {
       return Err(at(format!(

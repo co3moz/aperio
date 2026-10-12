@@ -353,7 +353,7 @@ pub(crate) async fn handle_incoming_request_unix(
         break;
       }
       warn!(
-        "Unix-socket response for request ID {} exceeded max_response_body ({} bytes) before any of it was sent; refusing",
+        "Unix-socket response for request ID {} exceeded limits.response_body ({} bytes) before any of it was sent; refusing",
         id, ctx.max_response_body_size
       );
       return Some(make_error_response(id, 502));

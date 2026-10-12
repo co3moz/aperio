@@ -8,6 +8,7 @@ services:
     hostname: "*"               # every hostname no other service claims
     access: public
 
-# A stable id lets the server's `wait` failover recognize this client when
-# it reconnects after a crash or redeploy.
-client_id: 8b1a9953-c461-4f21-a04f-2b3e5d5cbe11
+# The server's `wait` failover recognizes this client when it reconnects
+# after a crash or redeploy by its id, which a client reading this file
+# keeps under ~/.aperio/clients/ from its first run. A container that starts
+# fresh each time gives it one with `client_id_file` on a volume.

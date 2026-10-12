@@ -58,7 +58,7 @@ impl Limit {
       Limit::Ip => "limits.ip_rate",
       Limit::ServerConcurrency => "limits.concurrent_requests",
       Limit::Route => "sites",
-      Limit::ClientConcurrency => "max_concurrent",
+      Limit::ClientConcurrency => "service.limits.concurrent_requests",
       Limit::TokenRate => "token.max_rps",
       Limit::TokenQuota => "token.daily_max_bytes",
       Limit::OrgQuota => "organization.monthly_max_bytes",
@@ -79,7 +79,7 @@ impl Limit {
         "the per-visitor limit on concurrently open streamed responses (limits.streams_per_ip in the server settings)"
       }
       Limit::ClientConcurrency => {
-        "the serving client's own concurrency limit (max_concurrent in its aperio.yaml); no slot freed before the gateway timeout"
+        "the serving client's own concurrency limit (limits.concurrent_requests in its aperio.yaml); no slot freed before the gateway timeout"
       }
       Limit::TokenRate => "the access token's requests-per-second limit (max_rps on the token)",
       Limit::TokenQuota => "the access token's daily byte quota (daily_max_bytes on the token)",

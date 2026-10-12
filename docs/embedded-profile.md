@@ -12,6 +12,19 @@ The classification lives in `aperio-server/src/protocol_profile.rs`. Its exhaust
 match requires every new message type to be classified, and a check keeps this
 page aligned with that list.
 
+## Connecting
+
+A device opens the same WebSocket the client does: `GET /aperio/ws` with an
+upgrade, `Authorization: Bearer <token>`, and `x-aperio-release: <version>`
+naming the release whose protocol it speaks. The server pairs only with its
+own minor release (`0.13.x` with `0.13.y`), and refuses anything else,
+a missing header included, with `426` and a sentence naming both releases.
+It announces its own release in the same header on the upgrade response,
+which a device should compare before it relies on anything. A device is
+therefore written against one minor and moves with the server, the same as
+`aperio-client` does. Once the socket is open, the device sends its `Ping`,
+which declares everything it serves; nothing routes to it before that.
+
 ## What a device must handle
 
 | Message | Direction | What it is |

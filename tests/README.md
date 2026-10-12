@@ -35,8 +35,11 @@ Each is a directory under `e2e/specs/`, and each runs on its own, as does each f
 | `h2` | `h2c://` backend (HTTP/2 prior knowledge) with gRPC-style trailer relay and gRPC health checking, driven by the [`mock-h2`](mock-h2/) helper |
 | `sessions` | dashboard sessions survive a server restart; active session management; usernameless passkey endpoints |
 | `cache` | cache hits, ETag/304, serve-stale during an outage, single-flight coalescing, stale-while-revalidate, ranged reads, purge |
-| `health` | `target_health` probes: unhealthy reporting and routing exclusion, recovery, immediate first probe, `wait_for_backend` |
+| `health` | `health.endpoint` probes: unhealthy reporting and routing exclusion, recovery, immediate first probe, `health.wait_for_backend` |
 | `multihost` | one service claiming several hostnames; per-service static `serve:` |
+| `multiplex` | several services on one connection, each routed to its own backend with its own settings |
+| `server-side` | `server_side:` targets the server reaches itself, within `security.server_side_targets` |
+| `timing` | the time budget of a server start, a client connect and a reconnect |
 | `config` | settings applied live and from a first-start document, `security.denied_ips` and `settings reset`, per-hostname error pages, `schema` / `check` / `apply`, tunnel compression |
 | `api-cli` | the `aperio-client api …` admin commands |
 | `scaling` | cold start from zero, single-flight scaling calls, the SSRF fence |
@@ -67,5 +70,5 @@ rather than by unit tests, so **new features should add a phase or extend an
 existing one**. Unit tests, by contrast, live in the crates next to their
 modules (`<module>_tests.rs`).
 
-See [docs/development.md](../docs/development.md) for the full
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for the full
 test/coverage/release workflow.

@@ -27,6 +27,14 @@ User=aperio
 Group=aperio
 Environment=APERIO_DATA_DIR=/var/lib/aperio
 
+# The one privilege it is given rather than refused: binding a port below
+# 1024. The built-in HTTPS listener needs 443, where an ACME authority proves
+# a hostname, and a plain listener on 80 needs it too. Nothing else of root
+# comes with it, and NoNewPrivileges still holds: the capability is granted
+# at the start, not gained.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
 # Everything below is a refusal, not a tuning knob. Read them as the list of
 # things an operator would otherwise have to trust this process not to do.
 NoNewPrivileges=yes

@@ -89,3 +89,104 @@ fn a_document_in_the_old_shape_is_told_where_the_section_went() {
   let err = crate::server_settings::ServerSettings::from_yaml("limitz: {}\n").unwrap_err();
   assert!(!err.contains("moved into"), "{err}");
 }
+
+/// Every path the client and server schemas accept, with `*` for a map key.
+fn schema_paths(root: &serde_json::Value) -> Vec<String> {
+  fn visit(
+    root: &serde_json::Value,
+    node: &serde_json::Value,
+    prefix: &str,
+    depth: usize,
+    out: &mut Vec<String>,
+  ) {
+    if depth > 12 {
+      return;
+    }
+    let node = match node.get("$ref").and_then(|r| r.as_str()) {
+      Some(r) => &root["$defs"][r.rsplit('/').next().unwrap_or_default()],
+      None => node,
+    };
+    for key in ["anyOf", "allOf", "oneOf"] {
+      for sub in node[key].as_array().into_iter().flatten() {
+        visit(root, sub, prefix, depth + 1, out);
+      }
+    }
+    if let Some(items) = node.get("items") {
+      visit(root, items, prefix, depth + 1, out);
+    }
+    let join = |name: &str| {
+      if prefix.is_empty() {
+        name.to_string()
+      } else {
+        format!("{prefix}.{name}")
+      }
+    };
+    for (name, sub) in node["properties"].as_object().into_iter().flatten() {
+      out.push(join(name));
+      visit(root, sub, &join(name), depth + 1, out);
+    }
+    if let Some(map) = node.get("additionalProperties").filter(|v| v.is_object()) {
+      out.push(join("*"));
+      visit(root, map, &join("*"), depth + 1, out);
+    }
+  }
+  let mut out = Vec::new();
+  visit(root, root, "", 0, &mut out);
+  out
+}
+
+/// Whether `path` is a setting today: exactly, through a map key (`*`), or
+/// as the key of one entry, which a hint writes without what holds it: a
+/// client's service key without `defaults.`, a site's without `sites.`.
+fn is_a_setting(path: &str, known: &[String]) -> bool {
+  let matches = |pattern: &str, path: &str| {
+    let (p, q): (Vec<&str>, Vec<&str>) = (pattern.split('.').collect(), path.split('.').collect());
+    p.len() == q.len() && p.iter().zip(&q).all(|(a, b)| *a == "*" || a == b)
+  };
+  let in_an_entry = [format!("defaults.{path}"), format!("sites.{path}")];
+  known
+    .iter()
+    .any(|k| matches(k, path) || in_an_entry.iter().any(|e| matches(k, e)))
+}
+
+/// A hint is read by someone who has just been refused, and acts on it
+/// word for word. Every setting it points at has to exist: two named
+/// `pages.unavailable` and one `routing.require_hostname_bind` after both
+/// had moved again in the same release, so the refusal sent its reader to a
+/// key that was refused in turn.
+#[test]
+fn every_setting_a_hint_points_at_exists() {
+  let client = schema_paths(crate::layers::client_schema());
+  let server_root: serde_json::Value = serde_json::from_str(&crate::server_schema_json()).unwrap();
+  let mut known = schema_paths(&server_root);
+  known.extend(client);
+
+  let hints = REMOVED_CLIENT_KEYS
+    .iter()
+    .map(|r| (r.key, r.hint))
+    .chain(REMOVED_CLIENT_ENV.iter().map(|r| (r.key, r.hint)))
+    .chain(REMOVED_SERVER_ENV.iter().map(|r| (r.key, r.hint)))
+    .chain(REMOVED_SETTINGS.iter().map(|r| (r.key, r.hint)));
+  let mut wrong = Vec::new();
+  for (key, hint) in hints {
+    let root = key.split('.').next().unwrap_or(key);
+    for (i, quoted) in hint.split('`').enumerate() {
+      let looks_like_a_path = i % 2 == 1
+        && quoted.contains('.')
+        && quoted
+          .chars()
+          .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "_.*".contains(c))
+        && !quoted.ends_with(".yaml");
+      // The removed key itself, and what was under it, are the old names.
+      let the_old_name = quoted == key || quoted.starts_with(&format!("{root}."));
+      if looks_like_a_path && !the_old_name && !is_a_setting(quoted, &known) {
+        wrong.push(format!("{key}: `{quoted}`"));
+      }
+    }
+  }
+  assert!(
+    wrong.is_empty(),
+    "hints pointing at settings that do not exist:\n  {}",
+    wrong.join("\n  ")
+  );
+}

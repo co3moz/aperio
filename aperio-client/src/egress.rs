@@ -173,9 +173,9 @@ async fn connect_through(
     let hint = match status {
       407 => {
         if proxy.has_credentials() {
-          " (the proxy rejected the credential in egress_proxy)"
+          " (the proxy rejected the credential in server.proxy)"
         } else {
-          " (the proxy wants a credential; put it in egress_proxy as user:password@host:port)"
+          " (the proxy wants a credential; put it in server.proxy as user:password@host:port)"
         }
       }
       403 => " (the proxy refused this destination)",

@@ -72,8 +72,9 @@ service:
   port: 8080
   annotations: {}
 
-# Aperio does not terminate TLS; the ingress controller in front of it does.
-# See docs/edge-proxy.md.
+# In a cluster the ingress controller terminates TLS; the server's own HTTPS
+# listener (`tls`) is for a server on a machine of its own. See "In front of
+# the server" in docs/deployment.md.
 ingress:
   enabled: false
   className: ""

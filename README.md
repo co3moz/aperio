@@ -30,16 +30,17 @@ docker run -d --network host \
   -e APERIO_SERVER_URL="http://your-server-ip:8080" \
   -e APERIO_SERVER_TOKEN="a-long-random-string" \
   -e APERIO_TARGET="http://localhost:3000" \
+  -e APERIO_HOSTNAME='*' \
   -e APERIO_ACCESS=public \
   ghcr.io/co3moz/aperio-client:latest
 ```
 
-Open `http://your-server-ip:8080`. The dashboard is at `/aperio` (user `aperio`, password: the token). Routes are closed by default, which is why the client says `APERIO_ACCESS=public`.
+Open `http://your-server-ip:8080`. The dashboard is at `/aperio` (user `aperio`, password: the token). A route is served only where something says so, which is why the client says `APERIO_HOSTNAME='*'` (every hostname nothing else claims) and `APERIO_ACCESS=public` (open to everyone).
 
 Without Docker, `curl -sSf https://raw.githubusercontent.com/co3moz/aperio/master/install.sh | sh`, `brew install --formula https://github.com/co3moz/aperio/releases/latest/download/aperio-client.rb`, or the `.deb`/`.rpm` on every release:
 
 ```bash
-aperio-client 3000 --server-url https://tunnel.example.com --server-token a-long-random-string --access public
+aperio-client 3000 --server-url https://tunnel.example.com --server-token a-long-random-string --hostname '*' --access public
 ```
 
 [Getting Started](docs/getting-started.md) walks through it.
@@ -73,7 +74,7 @@ Use it to show work in progress on a real URL, give every pull request a preview
 
 ## Security
 
-Put TLS in front of the server, give clients scoped tokens, and treat the master token like a root password. Releases are signed with [Sigstore](https://www.sigstore.dev/) and carry build provenance and an SBOM; see [SECURITY.md](SECURITY.md#verifying-a-release). Report a vulnerability [privately](https://github.com/co3moz/aperio/security/advisories/new), never as a public issue.
+Serve the server over HTTPS, from its own listener with a Let's Encrypt certificate or from a proxy in front, give clients scoped tokens, and treat the master token like a root password. Releases are signed with [Sigstore](https://www.sigstore.dev/) and carry build provenance and an SBOM; see [SECURITY.md](SECURITY.md#verifying-a-release). Report a vulnerability [privately](https://github.com/co3moz/aperio/security/advisories/new), never as a public issue.
 
 ## Contributing
 

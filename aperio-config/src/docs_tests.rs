@@ -137,30 +137,52 @@ fn broken(from: &Path, url: &str) -> Option<String> {
   None
 }
 
+/// The text of the changelog's `[Unreleased]` section, the one part of it
+/// that is still being written. A released section links to the pages as
+/// they were at its tag, which is where a reader of it finds them.
+fn unreleased(changelog: &str) -> String {
+  let Some(start) = changelog.find("## [Unreleased]") else {
+    return String::new();
+  };
+  let rest = &changelog[start + 3..];
+  let end = rest.find("\n## [").unwrap_or(rest.len());
+  rest[..end].to_string()
+}
+
+/// Every link in `text` that leads nowhere, as `page: why`.
+fn broken_links(page: &Path, text: &str, problems: &mut Vec<String>) {
+  let text = prose(text);
+  let mut rest = text.as_str();
+  while let Some(at) = rest.find("](") {
+    let after = &rest[at + 2..];
+    let end = after.find([')', ' ', '\n']).unwrap_or(after.len());
+    if let Some(why) = broken(page, &after[..end]) {
+      problems.push(format!("{}: {why}", page.display()));
+    }
+    rest = &after[end..];
+  }
+}
+
 #[test]
 fn every_link_in_the_documentation_leads_somewhere() {
   let root = root();
-  let mut pages = vec![
-    root.join("README.md"),
-    root.join("CONTRIBUTING.md"),
-    root.join("SECURITY.md"),
-  ];
-  collect(&root.join("docs"), &mut pages, &|p| {
+  // Every Markdown file in the repository, the crates' and the tests' own
+  // READMEs included: those were left out once, and a dozen of their links
+  // pointed at pages the merge had removed.
+  let mut pages = Vec::new();
+  collect(&root, &mut pages, &|p| {
     p.extension().is_some_and(|e| e == "md")
+      && !p
+        .components()
+        .any(|c| c.as_os_str() == "target" || c.as_os_str() == ".git")
+      && p.file_name().is_some_and(|n| n != "CHANGELOG.md")
   });
   let mut problems = Vec::new();
   for page in &pages {
-    let text = prose(&read(page));
-    let mut rest = text.as_str();
-    while let Some(at) = rest.find("](") {
-      let after = &rest[at + 2..];
-      let end = after.find([')', ' ', '\n']).unwrap_or(after.len());
-      if let Some(why) = broken(page, &after[..end]) {
-        problems.push(format!("{}: {why}", page.display()));
-      }
-      rest = &after[end..];
-    }
+    broken_links(page, &read(page), &mut problems);
   }
+  let changelog = root.join("CHANGELOG.md");
+  broken_links(&changelog, &unreleased(&read(&changelog)), &mut problems);
   assert!(
     problems.is_empty(),
     "links that lead nowhere:\n  {}",

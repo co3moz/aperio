@@ -87,6 +87,7 @@ settings:
       hostnames: [tunnel.example.com]
 ```
 
+- **Turning it on.** `tls` is read at start, so save it and restart. The listener uses the boot `HOST`: a server that listened on loopback behind a proxy needs `HOST=0.0.0.0` or its public address. A container publishes the port (`-p 443:443`, and `-p 80:8080` for the redirect). The packaged unit may bind ports below 1024; anything else running the server unprivileged needs `CAP_NET_BIND_SERVICE`, or a forward from 443 to a higher `tls.port`.
 - **The proof is TLS-ALPN-01, on 443 itself.** The authority connects to the hostname on port 443, so the listener has to be reachable there, directly or through a plain TCP forward; no port 80 and no DNS provider are involved. A wildcard needs a DNS-01 proof and comes from `tls.certificates` instead.
 - **Which names get one.** Those in `tls.acme.hostnames` and `dashboard.hostname` are obtained at start. A panel's hostname, and with `tls.acme.on_demand` (on) a hostname a connected client serves, gets one the first time it is reached over HTTPS: that handshake waits for the certificate, up to a minute. Random subdomains are left out, and at most 20 are obtained on demand an hour. A name whose order fails is tried again after an hour, and both outcomes are audited (`tls_certificate_issued`, `tls_certificate_failed`).
 - **Try the staging directory first** (`https://acme-staging-v02.api.letsencrypt.org/directory`): a mistake there costs nothing against the production rate limits. The account and the issued certificates are kept in `APERIO_DATA_DIR/tls/` and renewed 30 days before they end.
@@ -98,6 +99,7 @@ settings:
 ## Before going live
 
 - **Credentials.** A master token of 32 random bytes (`openssl rand -hex 32`); scoped tokens for every client; a named user per operator with the least role, and a second factor for admins. Set `oidc.redirect_url` if you use OIDC. Seed a few canary tokens where a leak would expose them; using one raises `canary_tripped`.
+- **HTTPS.** The plain port is not on the internet: the server serves HTTPS itself, or a proxy in front of it does (above).
 - **The admin surface.** `security.admin_allowed_ips` fences the dashboard and the API to your operator network; `security.secure_cookies` is on behind a trusted proxy or with `tls.enabled`.
 - **Limits.** Size `limits.ip_rate`, `limits.concurrent_requests` and `limits.request_body` to your traffic; keep `security.login_lockout` on.
 - **Outbound calls.** Where webhook or autoscaling owners are not fully trusted, set `outbound.allowlist`, or at least `outbound.block_private`, so the server cannot be pointed at your internal network.
@@ -187,4 +189,5 @@ Behaviour that changed without a key to point at:
 - **Public listeners follow the role**, within the organization's port allocation. Review the allocations.
 - **A service naming no hostname no longer serves every unclaimed one.** Write `hostname: "*"` where that was meant.
 - **OIDC gates no visitor by being configured.** Write `access: {method: aperio}` or `{method: sso, ...}` where it did.
+- **A client answers only the `forward` checks it declared.** A `forward` with `via: client` written in the server's own `access` needs `allow_server_forward: true` on every client that should answer it; set it before upgrading those clients.
 - **Several services share one connection and a lone one grows a pool.** `multiplex: false` and `connections: 1` restore the old shape.

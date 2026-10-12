@@ -545,7 +545,7 @@ pub const REMOVED_SERVER_ENV: &[Removed] = &[
   },
   Removed {
     key: "APERIO_REQUIRE_HOSTNAME_BIND",
-    hint: "moved into the settings as `routing.require_hostname_bind` in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "was removed in 0.13.0, along with the setting it moved to: a service serves every hostname nobody claims only when it writes `hostname: \"*\"`, so a service naming no hostname is never a catch-all.",
   },
   Removed {
     key: "APERIO_RANDOM_SUBDOMAIN",
@@ -965,11 +965,11 @@ pub const REMOVED_SERVER_ENV: &[Removed] = &[
   },
   Removed {
     key: "APERIO_504_PAGE",
-    hint: "moved into the settings as `pages.unavailable` (the HTML itself) in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings in 0.13.0 as the `*` site's `pages.unavailable`, the HTML itself: `sites: [{hostname: \"*\", pages: {unavailable: ...}}]`. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_503_PAGE",
-    hint: "moved into the settings as `pages.maintenance` (the HTML itself) in 0.13.0. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
+    hint: "moved into the settings in 0.13.0 as the `*` site's `pages.maintenance`, the HTML itself: `sites: [{hostname: \"*\", pages: {maintenance: ...}}]`. Set it from the dashboard (Settings), with `PUT /aperio/api/settings`, or in APERIO_INIT_FILE for a first start.",
   },
   Removed {
     key: "APERIO_SERVER_CONFIG",

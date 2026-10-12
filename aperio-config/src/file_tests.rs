@@ -5,6 +5,34 @@
 use super::*;
 
 // ---------------------------------------------------------------------------
+// target: a bare port
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_bare_port_is_a_target_as_it_is_on_the_command_line() {
+  // `target: 3000` is a number to yaml. It was refused as "expected a
+  // string" while the doc comment and `aperio-client 3000` both said a port
+  // is a target; quoted or not, it now reads as the port.
+  let target = |yaml: &str| {
+    let file: FileConfig = serde_yaml::from_str(yaml).unwrap();
+    file.services.unwrap()["web"].target.clone()
+  };
+  assert_eq!(
+    target("services: {web: {target: 3000}}").as_deref(),
+    Some("3000")
+  );
+  assert_eq!(
+    target("services: {web: {target: \"3000\"}}").as_deref(),
+    Some("3000")
+  );
+  assert_eq!(
+    target("services: {web: {target: http://localhost:4000}}").as_deref(),
+    Some("http://localhost:4000")
+  );
+  assert_eq!(target("services: {web: {serve: ./dist}}"), None);
+}
+
+// ---------------------------------------------------------------------------
 // connections: fixed or elastic (planned_features #48)
 // ---------------------------------------------------------------------------
 

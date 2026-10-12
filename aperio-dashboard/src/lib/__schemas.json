@@ -436,7 +436,7 @@
         "x-env": "whole"
       },
       "AuthMethodSpec": {
-        "description": "One entry of an `auth:` policy: which method gates the route, and the\nsettings that method needs.\n\n`method` is deliberately a string here rather than an enum: an unknown one\nshould be refused by name, with the available methods listed, and a serde\n\"unknown variant\" error inside an untagged enum says only that nothing\nmatched. The same reason `alert_rules` parses its `metric` by hand.",
+        "description": "One entry of an `access` policy: which method gates the route, and the\nsettings that method needs.\n\n`method` is deliberately a string here rather than an enum: an unknown one\nshould be refused by name, with the available methods listed, and a serde\n\"unknown variant\" error inside an untagged enum says only that nothing\nmatched. The same reason `alert_rules` parses its `metric` by hand.",
         "type": "object",
         "properties": {
           "allowed_emails": {
@@ -2054,11 +2054,12 @@
             "description": "Local backend to expose: a port (`3000`), a host, or a URL. `h2c://` /\n`h2://` targets are dialed over HTTP/2 (gRPC backends, trailers\nrelayed); `unix://` targets forward over a Unix domain socket.",
             "type": [
               "string",
+              "integer",
               "null"
             ],
             "examples": [
               "http://localhost:3000",
-              "3000",
+              3000,
               "h2c://127.0.0.1:50051",
               "unix:///var/run/app.sock"
             ]
@@ -3478,7 +3479,7 @@
         "additionalProperties": false
       },
       "AuthMethodSpec": {
-        "description": "One entry of an `auth:` policy: which method gates the route, and the\nsettings that method needs.\n\n`method` is deliberately a string here rather than an enum: an unknown one\nshould be refused by name, with the available methods listed, and a serde\n\"unknown variant\" error inside an untagged enum says only that nothing\nmatched. The same reason `alert_rules` parses its `metric` by hand.",
+        "description": "One entry of an `access` policy: which method gates the route, and the\nsettings that method needs.\n\n`method` is deliberately a string here rather than an enum: an unknown one\nshould be refused by name, with the available methods listed, and a serde\n\"unknown variant\" error inside an untagged enum says only that nothing\nmatched. The same reason `alert_rules` parses its `metric` by hand.",
         "type": "object",
         "properties": {
           "allowed_emails": {
@@ -3816,12 +3817,12 @@
         "type": "object",
         "properties": {
           "enabled": {
-            "description": "Turn the cache on for services that set `cache: true`. Default `false`.",
+            "description": "Turn the cache on for services that set `cache.enabled`. Default `false`.",
             "type": "boolean",
             "default": false
           },
           "max_stale": {
-            "description": "How long past its lifetime a cached response may still answer while a\n`resilience: true` service has no healthy client. Default `1h`.",
+            "description": "How long past its lifetime a cached response may still answer while a\nservice with `cache.offline` has no healthy client. Default `1h`.",
             "anyOf": [
               {
                 "type": "string",

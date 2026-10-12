@@ -20,7 +20,7 @@ npm run lint     # oxlint
 
 Start a local `aperio-server` (debug build, port 8080) next to `npm run dev`
 so API calls have something to talk to. See
-[docs/development.md](../docs/development.md).
+[CONTRIBUTING.md](../CONTRIBUTING.md) for the checks a change runs.
 
 ## Source map
 

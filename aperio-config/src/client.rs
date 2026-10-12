@@ -751,6 +751,23 @@ pub struct ServicePolicy {
   pub server_side: Option<bool>,
 }
 
+/// A target as yaml writes it: `target: 3000` is a number to the parser and a
+/// port to the person who wrote it, the same port the command line's
+/// `aperio-client 3000` means. Read as its text, so it is expanded the same
+/// way wherever it was written.
+fn port_or_text<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+  #[derive(Deserialize)]
+  #[serde(untagged)]
+  enum Target {
+    Text(String),
+    Port(u64),
+  }
+  Ok(Option::<Target>::deserialize(d)?.map(|t| match t {
+    Target::Text(text) => text,
+    Target::Port(port) => port.to_string(),
+  }))
+}
+
 /// One exposed backend. The key it is written under is its name: a-z, 0-9
 /// and `_`, the handle the dashboard and the logs use. Every key of
 /// `defaults:` is accepted here as well and wins over it.
@@ -759,8 +776,13 @@ pub struct ServiceEntry {
   /// Local backend to expose: a port (`3000`), a host, or a URL. `h2c://` /
   /// `h2://` targets are dialed over HTTP/2 (gRPC backends, trailers
   /// relayed); `unix://` targets forward over a Unix domain socket.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["http://localhost:3000", "3000", "h2c://127.0.0.1:50051", "unix:///var/run/app.sock"]))]
+  #[serde(
+    default,
+    deserialize_with = "port_or_text",
+    skip_serializing_if = "Option::is_none"
+  )]
+  #[schemars(extend("type" = ["string", "integer", "null"]))]
+  #[schemars(extend("examples" = ["http://localhost:3000", 3000, "h2c://127.0.0.1:50051", "unix:///var/run/app.sock"]))]
   pub target: Option<String>,
   /// Serve a local directory of static files instead of forwarding to a
   /// backend (instead of `target`); directories serve their `index.html`.

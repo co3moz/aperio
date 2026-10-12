@@ -23,8 +23,9 @@ Reach it:
 
 {{- if not .Values.ingress.enabled }}
 
-Aperio does not terminate TLS. Put an ingress controller in front of it
-(`ingress.enabled=true`) and let that hold the certificate.
+Put an ingress controller in front of it (`ingress.enabled=true`) and let
+that hold the certificate. The server's own HTTPS listener (`tls`) is for a
+server on a machine of its own, not behind a cluster's ingress.
 {{- end }}
 
 Point a client at it with the master token, or with a scoped token minted

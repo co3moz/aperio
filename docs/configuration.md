@@ -190,6 +190,9 @@ aperio-client completions SHELL        Print a completion script
 ### When the server does not apply a setting
 
 The client asks and the server, with the client's token, decides. When the server does not apply something a service asked for, the client's own log says so once per connection, as `The server says, about web: ...`. That covers:
+- a service nothing routes to: no hostname and none granted, or a `hostname: "*"` its token may not claim;
+- a service refused because it declares no `access:` and the server's `access` is `deny`;
+- a route another client already serves with a different `access`, `allowed_ips` or `denied`;
 - an `access:` the token does not permit, or a site's `access` deciding instead;
 - a hostname or path the token does not grant;
 - `cache:` while the server's cache is off;

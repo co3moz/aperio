@@ -35,7 +35,7 @@ A bind the token does not permit is ignored and the client is told. Editing a to
 
 ## Signing in to the dashboard
 
-**Users.** Named users are created on the *Users* page, each with a role: **viewer** reads, **operator** runs day-to-day operations (clients, tokens, webhooks, maintenance, share links), **admin** also manages settings and users. Passwords are Argon2id hashes. Roles are enforced by the server, not just hidden in the UI. Sessions last 24 hours and survive a restart.
+**Users.** Named users are created on the *Users* page, each with a role: **viewer** reads, **operator** runs day-to-day operations (clients, tokens, webhooks, maintenance, share links), **admin** also manages users and public listeners. The server's settings take the server admin, [below](#grants-and-the-server-admin). Passwords are Argon2id hashes. Roles are enforced by the server, not just hidden in the UI. Sessions last 24 hours and survive a restart.
 
 **Two-factor.** A named user enrolls an authenticator from the sidebar and keeps eight single-use recovery codes. An admin can reset a user's second factor. The built-in `aperio` account has no user record and cannot enroll.
 
