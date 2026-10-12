@@ -864,7 +864,7 @@
         "additionalProperties": false
       },
       "Connections": {
-        "description": "`connections:` as written in the file: a fixed count, or an elastic pool\nwith a floor and a ceiling.\n\nA number opens exactly that many connections at startup and keeps them.\nElasticity is something an operator opts into by writing a range, which is\nthe honest default: our own measurements have a peak, past which more\nconnections cost more than they return, so growing a pool without being\nasked would not be a safe assumption.",
+        "description": "`connections:` as written in the file: a fixed count, or an elastic pool\nwith a floor and a ceiling.\n\nA number opens exactly that many connections at startup and keeps them. A\nrange opens the floor and grows towards the ceiling under load. Unwritten,\na service on a connection of its own runs a small range, one to four: our\nown measurements have a peak past which more connections cost more than\nthey return, and four is on the near side of it.",
         "anyOf": [
           {
             "description": "`connections: 4`, opened at startup and kept.",
@@ -1703,7 +1703,7 @@
             ]
           },
           "connections": {
-            "description": "Parallel tunnel connections; the server's\n`limits.connections_per_service` is the ceiling, announced on connect,\nand a token may lower it further. The server load-balances across them\nlike separate clients, so a single dropped connection leaves no\nvisitor-facing gap. A number opens exactly that many at startup;\n`{min: 1, max: 8}` opens the floor and grows towards the ceiling while\nrequests queue up, then shrinks back when they stop. Default: `1`.",
+            "description": "Parallel tunnel connections; the server's\n`limits.connections_per_service` is the ceiling, announced on connect,\nand a token may lower it further. The server load-balances across them\nlike separate clients, so a single dropped connection leaves no\nvisitor-facing gap. A number opens exactly that many at startup;\n`{min: 1, max: 8}` opens the floor and grows towards the ceiling while\nrequests queue up, then shrinks back when they stop. Default:\n`{min: 1, max: 4}` for a service on a connection of its own, and `1` for\none that shares a connection or whose bandwidth is paced, since the\nrate is divided across the pool's ceiling. A connection the pool grew\nthat the server refuses as full stands down rather than waiting for room.",
             "anyOf": [
               {
                 "$ref": "#/$defs/Connections"
@@ -1877,13 +1877,13 @@
             ]
           },
           "multiplex": {
-            "description": "Carry the service on one WebSocket shared with every other service\nthat sets it, instead of a connection of its own.\n\nWhat it saves is the whole cost of a connection per service: one\nsocket, one TLS session, one reader, one writer and one heartbeat. What\nit costs is that the services then share a link, so a large response\noccupies the writer the others send through, and a dropped connection\ntakes all of them down together. Two services are needed for it to do\nanything, and `connections:` is not honored for a multiplexed service,\none connection is what multiplexing means. Default: `false`.",
+            "description": "Carry the service on one WebSocket shared with the client's other\nservices, instead of a connection of its own.\n\nWhat it saves is the whole cost of a connection per service: one\nsocket, one TLS session, one reader, one writer and one heartbeat. What\nit costs is that the services then share a link, so a large response\noccupies the writer the others send through, and a dropped connection\ntakes all of them down together. Two services are needed for it to do\nanything, and `connections:` is not honored for a service that asks for\nit, one connection is what multiplexing means. Default: shared, for one\nof several services that writes nothing a shared socket would change (a\n`connections:` above one, a `bandwidth:` of its own, `startup_delay:`,\n`depends_on:` or `tcp_target:`); `false` keeps a connection of its own.",
             "type": [
               "boolean",
               "null"
             ],
             "examples": [
-              true
+              false
             ]
           },
           "pass_hostname": {
@@ -2326,7 +2326,7 @@
             ]
           },
           "connections": {
-            "description": "Parallel tunnel connections; the server's\n`limits.connections_per_service` is the ceiling, announced on connect,\nand a token may lower it further. The server load-balances across them\nlike separate clients, so a single dropped connection leaves no\nvisitor-facing gap. A number opens exactly that many at startup;\n`{min: 1, max: 8}` opens the floor and grows towards the ceiling while\nrequests queue up, then shrinks back when they stop. Default: `1`.",
+            "description": "Parallel tunnel connections; the server's\n`limits.connections_per_service` is the ceiling, announced on connect,\nand a token may lower it further. The server load-balances across them\nlike separate clients, so a single dropped connection leaves no\nvisitor-facing gap. A number opens exactly that many at startup;\n`{min: 1, max: 8}` opens the floor and grows towards the ceiling while\nrequests queue up, then shrinks back when they stop. Default:\n`{min: 1, max: 4}` for a service on a connection of its own, and `1` for\none that shares a connection or whose bandwidth is paced, since the\nrate is divided across the pool's ceiling. A connection the pool grew\nthat the server refuses as full stands down rather than waiting for room.",
             "anyOf": [
               {
                 "$ref": "#/$defs/Connections"
@@ -2456,13 +2456,13 @@
             ]
           },
           "multiplex": {
-            "description": "Carry the service on one WebSocket shared with every other service\nthat sets it, instead of a connection of its own.\n\nWhat it saves is the whole cost of a connection per service: one\nsocket, one TLS session, one reader, one writer and one heartbeat. What\nit costs is that the services then share a link, so a large response\noccupies the writer the others send through, and a dropped connection\ntakes all of them down together. Two services are needed for it to do\nanything, and `connections:` is not honored for a multiplexed service,\none connection is what multiplexing means. Default: `false`.",
+            "description": "Carry the service on one WebSocket shared with the client's other\nservices, instead of a connection of its own.\n\nWhat it saves is the whole cost of a connection per service: one\nsocket, one TLS session, one reader, one writer and one heartbeat. What\nit costs is that the services then share a link, so a large response\noccupies the writer the others send through, and a dropped connection\ntakes all of them down together. Two services are needed for it to do\nanything, and `connections:` is not honored for a service that asks for\nit, one connection is what multiplexing means. Default: shared, for one\nof several services that writes nothing a shared socket would change (a\n`connections:` above one, a `bandwidth:` of its own, `startup_delay:`,\n`depends_on:` or `tcp_target:`); `false` keeps a connection of its own.",
             "type": [
               "boolean",
               "null"
             ],
             "examples": [
-              true
+              false
             ]
           },
           "pass_hostname": {
@@ -4310,7 +4310,7 @@
             "minimum": 0
           },
           "tunnels": {
-            "description": "Tunnel connections at once. A client holds one per service unless it\nmultiplexes, and a reload briefly wants two. Default `64`.",
+            "description": "Tunnel connections at once. A client holds one per connection it runs:\none for several services sharing it, which is their default, one per\nservice that does not, and a few more for a pool under load while there\nis room. A reload briefly wants two. Default `64`.",
             "type": "integer",
             "format": "uint32",
             "default": 64,

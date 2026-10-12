@@ -85,6 +85,23 @@ impl PoolLoad {
   }
 }
 
+/// Whether a service may share its connection with the others, and why.
+///
+/// Two ways to say yes, because they are not refused the same way: a service
+/// that asked is told when it cannot share, and one that only went along with
+/// the default is not, since nothing it wrote is being overruled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Multiplex {
+  /// `multiplex: false`, the one service of the command line, or a service
+  /// the default leaves on a connection of its own.
+  No,
+  /// `multiplex: true`.
+  Asked,
+  /// Nothing written, one of several services, and nothing in it that a
+  /// shared socket would change.
+  ByDefault,
+}
+
 /// Everything a service needs to run, fully resolved. Built by `main` from
 /// the layered configuration; rebuilt (and the service respawned) on
 /// config hot-reload.
@@ -150,11 +167,16 @@ pub(crate) struct ServiceSpec {
   /// for a fixed pool; lower for an elastic one, where the supervisor opens
   /// this many and grows towards `connections` under load.
   pub(crate) connections_min: u32,
-  /// This service asked to share a connection with the others that did
-  /// (`multiplex: true`). What it asked for, not what it got: whether it
-  /// actually shares one is `multiplex_group`, since sharing needs somebody to
-  /// share with.
-  pub(crate) multiplex: bool,
+  /// Whether this service may share a connection with the others that may.
+  /// What it asked for, or what the default made of its silence, not what it
+  /// got: whether it actually shares one is `multiplex_group`, since sharing
+  /// needs somebody to share with.
+  pub(crate) multiplex: Multiplex,
+  /// `connections:` was not written, so the pool is the default's to size:
+  /// an elastic one for a service on a connection of its own, unless its
+  /// bandwidth is paced. Settled by `build_specs` once grouping and the
+  /// bandwidth budget are known.
+  pub(crate) pool_by_default: bool,
   /// The group of services this one is carried on a single connection with,
   /// settled by `build_specs` because that is the only place that sees every
   /// service at once.

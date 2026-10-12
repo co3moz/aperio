@@ -16,11 +16,12 @@ export class ApiBackend extends StandardBackendBase() {}
 /**
  * One client, two services, one WebSocket between them.
  *
- * The point of the fixture is the pair of `multiplex: true` lines. Everything
- * else is the ordinary two-service shape, which is what makes the assertions
- * below meaningful: the services are configured exactly as they would be on
- * two connections, and the only question is whether they still behave that way
- * on one.
+ * The point of the fixture is that nothing in it says `multiplex:`: two
+ * services sharing one connection is what a file with two services gets. It is
+ * the ordinary two-service shape, which is what makes the assertions below
+ * meaningful: the services are configured exactly as they would be on two
+ * connections, and the only question is whether they still behave that way on
+ * one.
  */
 export class MultiplexedClient extends AperioClientBase({
   dependencies: {
@@ -46,7 +47,6 @@ export class MultiplexedClient extends AperioClientBase({
       'server:',
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
-      'defaults: { multiplex: true }',
       'services:',
       '  mx_web:',
       `    target: ${this.web._url}`,

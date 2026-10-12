@@ -75,11 +75,11 @@ times out, or drops connections in a short window is temporarily removed from
 the routing pool, even while its `/health` probe still reports green.
 
 Ejection is per **service**, not per connection, and the difference is visible
-once a client carries more than one with
-[`multiplex: true`](configuration.md#one-connection-for-several-services): a
-failing backend takes its own service out of rotation and leaves the services
-sharing its connection serving. For a client running one service per
-connection, which is the ordinary shape, the two are the same thing.
+once a connection carries more than one, which
+[several services do by default](configuration.md#one-connection-for-several-services):
+a failing backend takes its own service out of rotation and leaves the services
+sharing its connection serving. For a service on a connection of its own the
+two are the same thing.
 
 | Setting | Meaning | Default |
 | --- | --- | --- |

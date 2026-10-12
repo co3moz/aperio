@@ -153,6 +153,12 @@ const POOL_GROW_COOLDOWN: Duration = Duration::from_secs(10);
 /// memory, being one too few costs latency on live traffic, so the pool is
 /// eager to grow and reluctant to shrink.
 const POOL_SHRINK_COOLDOWN: Duration = Duration::from_secs(120);
+/// How long the pool holds off growing after one of its connections stood
+/// down. The usual cause is a server with no room for another (its tunnel
+/// limit, or the organization's client quota), and asking again at the growth
+/// pace would put a refused handshake and two warnings in the log every ten
+/// seconds for as long as the load lasts.
+const POOL_REFUSED_HOLD: Duration = Duration::from_secs(120);
 
 /// Runs a service whose `connections:` is a range, opening `min` connections
 /// and growing towards `max` while the pool is busy.
@@ -191,6 +197,7 @@ pub(crate) async fn run_elastic_pool(
   );
   let mut grew_at = tokio::time::Instant::now();
   let mut shrank_at = tokio::time::Instant::now();
+  let mut grow_after = tokio::time::Instant::now();
   let mut ticker = tokio::time::interval(POOL_TICK);
   ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
   loop {
@@ -210,6 +217,7 @@ pub(crate) async fn run_elastic_pool(
         let before = pool.len();
         pool.retain(|(_, _, handle)| !handle.is_finished());
         if pool.len() != before {
+          grow_after = tokio::time::Instant::now() + POOL_REFUSED_HOLD;
           warn!(
             "[{}] {} connection(s) of this pool are not running (the server's \
              ceiling, or a connection that gave up); the pool is {} deep",
@@ -228,6 +236,7 @@ pub(crate) async fn run_elastic_pool(
         if open < permitted
           && peak >= open as usize * POOL_GROW_PER_CONNECTION
           && now.duration_since(grew_at) >= POOL_GROW_COOLDOWN
+          && now >= grow_after
         {
           let conn = next_connection_number(pool.iter().map(|(c, _, _)| *c));
           info!(

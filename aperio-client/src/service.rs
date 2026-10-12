@@ -100,6 +100,15 @@ pub(crate) async fn run_service(
   // transient refusal, retried at a steady short pace rather than doubling
   // towards the ceiling (`planned_features.md` #156).
   let mut server_full = false;
+  // A connection an elastic pool opened past its floor exists because the pool
+  // had load to spread and assumed the server had room. When the server says
+  // it has none (`503`: its tunnel limit, or the organization's client quota)
+  // this one gives the slot back by not waiting for it: it stands down rather
+  // than queueing, and the pool asks again later if the load stays. A floor
+  // connection, or one of a fixed pool, is one the file asked for and keeps
+  // retrying as before.
+  let yields_when_full =
+    spec.connections_min < spec.connections && connection_index > spec.connections_min;
   // Index into `spec.ws_urls` for cross-server failover: advanced after each
   // failed/dropped connection so the client rotates across the server fleet.
   let mut server_idx = 0usize;
@@ -764,6 +773,13 @@ pub(crate) async fn run_service(
                   "[{}] Authentication failed (HTTP {}): the server rejected the tunnel token. Check --server-token / APERIO_SERVER_TOKEN / yaml server.token, it may be wrong, expired, or revoked.",
                   label, code
                 );
+              } else if code == 503 && yields_when_full {
+                warn!(
+                  "[{}] The server has no room for another connection (HTTP 503); this one \
+                   stands down, and the pool asks again later if the load stays.",
+                  label
+                );
+                break 'outer;
               } else if code == 503 {
                 // The server is full, which is a transient refusal and not
                 // the connection failing: the slot frees when a sibling's old

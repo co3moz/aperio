@@ -531,11 +531,11 @@ impl Hostnames {
 /// `connections:` as written in the file: a fixed count, or an elastic pool
 /// with a floor and a ceiling.
 ///
-/// A number opens exactly that many connections at startup and keeps them.
-/// Elasticity is something an operator opts into by writing a range, which is
-/// the honest default: our own measurements have a peak, past which more
-/// connections cost more than they return, so growing a pool without being
-/// asked would not be a safe assumption.
+/// A number opens exactly that many connections at startup and keeps them. A
+/// range opens the floor and grows towards the ceiling under load. Unwritten,
+/// a service on a connection of its own runs a small range, one to four: our
+/// own measurements have a peak past which more connections cost more than
+/// they return, and four is on the near side of it.
 #[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
 #[serde(untagged)]
 pub enum Connections {
@@ -696,22 +696,29 @@ pub struct ServicePolicy {
   /// like separate clients, so a single dropped connection leaves no
   /// visitor-facing gap. A number opens exactly that many at startup;
   /// `{min: 1, max: 8}` opens the floor and grows towards the ceiling while
-  /// requests queue up, then shrinks back when they stop. Default: `1`.
+  /// requests queue up, then shrinks back when they stop. Default:
+  /// `{min: 1, max: 4}` for a service on a connection of its own, and `1` for
+  /// one that shares a connection or whose bandwidth is paced, since the
+  /// rate is divided across the pool's ceiling. A connection the pool grew
+  /// that the server refuses as full stands down rather than waiting for room.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [2, {"min": 1, "max": 8}]))]
   pub connections: Option<Connections>,
-  /// Carry the service on one WebSocket shared with every other service
-  /// that sets it, instead of a connection of its own.
+  /// Carry the service on one WebSocket shared with the client's other
+  /// services, instead of a connection of its own.
   ///
   /// What it saves is the whole cost of a connection per service: one
   /// socket, one TLS session, one reader, one writer and one heartbeat. What
   /// it costs is that the services then share a link, so a large response
   /// occupies the writer the others send through, and a dropped connection
   /// takes all of them down together. Two services are needed for it to do
-  /// anything, and `connections:` is not honored for a multiplexed service,
-  /// one connection is what multiplexing means. Default: `false`.
+  /// anything, and `connections:` is not honored for a service that asks for
+  /// it, one connection is what multiplexing means. Default: shared, for one
+  /// of several services that writes nothing a shared socket would change (a
+  /// `connections:` above one, a `bandwidth:` of its own, `startup_delay:`,
+  /// `depends_on:` or `tcp_target:`); `false` keeps a connection of its own.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = [true]))]
+  #[schemars(extend("examples" = [false]))]
   pub multiplex: Option<bool>,
   /// Static Prometheus labels on the service's metric series, e.g.
   /// `{env: prod, region: eu-west}`, so one Prometheus can serve several

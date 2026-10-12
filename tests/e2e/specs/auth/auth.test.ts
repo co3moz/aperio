@@ -305,7 +305,7 @@ export class AuthMethodGrammarSpec extends Test({
   async before() {
     await this.grammar._start()
     // Waiting on the open service answering is the routability wait for both:
-    // they are two connections of one process and come up together. The gated
+    // they share one connection and come up together. The gated
     // one cannot be waited on the same way, since its 302 is also what an
     // unrouted hostname produces while the server's own gate is configured.
     await waitFor(

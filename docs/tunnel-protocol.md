@@ -66,8 +66,8 @@ rather than a quietly truncated success.
 A Ping describes the connection's work as a `services` list, always: a
 connection carrying one service sends a list of one, and there is no second
 spelling in top-level fields. Several entries are one connection for several
-services of the same client process, which a client produces when its config
-says `multiplex: true` (see
+services of the same client process, which a client with several services
+produces unless its config says `multiplex: false` (see
 [One connection for several services](configuration.md#one-connection-for-several-services)).
 Each declared service is routed by its own binds, gated by its own `auth:` and
 `allowed_ips:`, ejected on its own backend failures without touching its

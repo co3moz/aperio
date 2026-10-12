@@ -8,12 +8,33 @@ use crate::config::ClientSettings;
 use crate::tests::*;
 
 /// A service with just a target, an optional bandwidth request and a
-/// parallel-connection count.
+/// parallel-connection count, on connections of its own: what is under test
+/// here is the split per service, which sharing a socket replaces with one
+/// number for the group.
 fn bw_service(name: &str, bandwidth: Option<&str>, connections: u32) -> crate::config::Service {
   let mut service = svc(name, "{target: 'http://localhost:3000'}");
   service.entry.bandwidth = bandwidth.map(|s| s.to_string());
   service.entry.policy.connections = Some(aperio_config::Connections::Fixed(connections));
+  service.entry.policy.multiplex = Some(false);
   service
+}
+
+#[test]
+fn services_sharing_a_connection_by_default_share_their_part_of_the_budget() {
+  // Two services that said nothing share one socket, and the server paces the
+  // socket, so each announces the pair's part of the budget: all of it here.
+  // The budget still holds for the client as a whole, and one of them may
+  // use what the other leaves idle.
+  let specs = specs(
+    "bandwidth: 2mbit\n\
+     services:\n  \
+       x: {target: 'http://localhost:3000'}\n  \
+       y: {target: 'http://localhost:4000'}\n",
+  );
+  assert!(specs.iter().all(|s| s.multiplex_group == Some(0)));
+  assert!(specs.iter().all(|s| s.bandwidth_bps == Some(250_000)));
+  // Paced, so neither has a pool to divide it across.
+  assert!(specs.iter().all(|s| s.connections == 1));
 }
 
 /// Maps service name to the rate a single connection of it announces.

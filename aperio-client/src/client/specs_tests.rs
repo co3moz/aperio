@@ -1,9 +1,10 @@
 //! Which services end up sharing a connection, and what that costs them: the
-//! grouping itself, and the pool and bandwidth a multiplexed service does not
-//! get to keep. Also where `depends_on` and `server_side` may be written.
+//! grouping itself, what the default makes of a service that says nothing, and
+//! the pool and bandwidth a multiplexed service does not get to keep. Also
+//! where `depends_on` and `server_side` may be written.
 
 use super::*;
-use crate::service::ServiceSpec;
+use crate::service::{Multiplex, ServiceSpec};
 use crate::tests::*;
 
 /// A `services:` map whose entries all opt into multiplexing. `n` entries,
@@ -13,6 +14,19 @@ pub(crate) fn multiplexed_services(n: usize) -> String {
   for i in 0..n {
     yaml.push_str(&format!(
       "  svc{i}: {{target: 'http://localhost:{}', multiplex: true}}\n",
+      3000 + i
+    ));
+  }
+  yaml
+}
+
+/// The same map with nothing said about multiplexing, which is what most
+/// files with several services look like.
+fn plain_services(n: usize) -> String {
+  let mut yaml = String::from("services:\n");
+  for i in 0..n {
+    yaml.push_str(&format!(
+      "  svc{i}: {{target: 'http://localhost:{}'}}\n",
       3000 + i
     ));
   }
@@ -37,14 +51,14 @@ fn a_service_that_asks_to_multiplex_alone_keeps_its_own_connection() {
   let specs = specs(
     "services:\n  \
        web: {target: 'http://localhost:3000', multiplex: true}\n  \
-       api: {target: 'http://localhost:4000'}\n",
+       api: {target: 'http://localhost:4000', multiplex: false}\n",
   );
   assert_eq!(specs[0].multiplex_group, None);
   assert_eq!(specs[1].multiplex_group, None);
   // What it asked for is still recorded, so nothing downstream has to guess
   // why it is ungrouped.
-  assert!(specs[0].multiplex);
-  assert!(!specs[1].multiplex);
+  assert_eq!(specs[0].multiplex, Multiplex::Asked);
+  assert_eq!(specs[1].multiplex, Multiplex::No);
 }
 
 #[test]
@@ -69,7 +83,7 @@ fn a_default_multiplex_can_be_turned_off_per_entry() {
 fn the_one_service_of_the_command_line_never_multiplexes() {
   // It has nobody to share with, whatever `defaults:` or the environment say.
   let specs = build_specs(&base_with("defaults: {multiplex: true}"), "base-id").unwrap();
-  assert!(!specs[0].multiplex);
+  assert_eq!(specs[0].multiplex, Multiplex::No);
   assert_eq!(specs[0].multiplex_group, None);
 }
 
@@ -135,6 +149,124 @@ fn more_multiplexed_services_than_a_server_accepts_is_a_config_error() {
   let specs = specs(&multiplexed_services(service::MAX_MULTIPLEXED_SERVICES));
   assert_eq!(specs.len(), service::MAX_MULTIPLEXED_SERVICES);
   assert!(specs.iter().all(|s| s.multiplex_group == Some(0)));
+}
+
+// ---------------------------------------------------------------------------
+// What silence means: sharing for several services, a pool for one
+// ---------------------------------------------------------------------------
+
+#[test]
+fn several_services_share_one_connection_unless_told_otherwise() {
+  let specs = specs(&plain_services(3));
+  assert!(specs.iter().all(|s| s.multiplex == Multiplex::ByDefault));
+  assert!(specs.iter().all(|s| s.multiplex_group == Some(0)));
+  // A shared connection is one connection, and nothing was written that said
+  // otherwise, so there is no pool to clamp and nothing to report.
+  for spec in &specs {
+    assert_eq!((spec.connections_min, spec.connections), (1, 1));
+    assert!(spec.config_notes.iter().all(|n| n.field != "connections"));
+  }
+}
+
+#[test]
+fn a_service_that_a_shared_socket_would_change_keeps_its_own_by_default() {
+  // Each of these says something sharing would quietly undo: a pool it would
+  // cut to one, a cap it would turn into the group's, a start it would hand to
+  // every sibling, a raw stream it could not address.
+  let specs = specs(
+    "services:\n  \
+       web: {target: 'http://localhost:3000'}\n  \
+       api: {target: 'http://localhost:4000'}\n  \
+       paced: {target: 'http://localhost:4001', bandwidth: 1mbit}\n  \
+       pooled: {target: 'http://localhost:4002', connections: 4}\n  \
+       elastic: {target: 'http://localhost:4003', connections: {min: 1, max: 3}}\n  \
+       delayed: {target: 'http://localhost:4004', startup_delay: 5s}\n  \
+       ordered: {target: 'http://localhost:4005', depends_on: [web]}\n  \
+       raw: {tcp_target: '127.0.0.1:5432'}\n",
+  );
+  assert_eq!(specs[0].multiplex_group, Some(0));
+  assert_eq!(specs[1].multiplex_group, Some(0));
+  for spec in &specs[2..] {
+    assert_eq!(spec.multiplex, Multiplex::No, "{}", spec.label());
+    assert_eq!(spec.multiplex_group, None, "{}", spec.label());
+  }
+  // What they wrote is what they run, with no note about a clamp.
+  assert_eq!((specs[3].connections_min, specs[3].connections), (4, 4));
+  assert_eq!((specs[4].connections_min, specs[4].connections), (1, 3));
+}
+
+#[test]
+fn asking_still_shares_what_the_default_would_leave_alone() {
+  // The exclusions only decide what silence means.
+  let specs = specs(
+    "services:\n  \
+       web: {target: 'http://localhost:3000'}\n  \
+       delayed: {target: 'http://localhost:4004', startup_delay: 5s, multiplex: true}\n",
+  );
+  assert_eq!(specs[1].multiplex, Multiplex::Asked);
+  assert_eq!(specs[0].multiplex_group, Some(0));
+  assert_eq!(specs[1].multiplex_group, Some(0));
+}
+
+#[test]
+fn a_fixed_single_connection_still_shares_by_default() {
+  // `connections: 1` is one connection, which a shared one is too. This is
+  // also what a client configured with APERIO_CONNECTIONS=1 writes for every
+  // service.
+  let specs = specs(&format!(
+    "defaults: {{connections: 1}}\n{}",
+    plain_services(2)
+  ));
+  assert!(specs.iter().all(|s| s.multiplex_group == Some(0)));
+}
+
+#[test]
+fn default_sharers_past_what_a_server_accepts_take_another_connection() {
+  // A file that started before sharing was the default must not stop starting
+  // because of it: the services that only went along with it spread over as
+  // many connections as it takes. The last one alone is not a group, so it
+  // keeps a connection, and the pool, of its own.
+  let max = service::MAX_MULTIPLEXED_SERVICES;
+  let specs = specs(&plain_services(max + 1));
+  assert!(specs[..max].iter().all(|s| s.multiplex_group == Some(0)));
+  assert_eq!(specs[max].multiplex_group, None);
+  assert_eq!(specs[max].connections, DEFAULT_CONNECTIONS_MAX);
+}
+
+#[test]
+fn a_service_on_a_connection_of_its_own_gets_an_elastic_pool_by_default() {
+  let lone = build_specs(&base_settings(), "base-id").unwrap();
+  assert_eq!(
+    (lone[0].connections_min, lone[0].connections),
+    (1, DEFAULT_CONNECTIONS_MAX)
+  );
+  // The same for one of several that declined to share.
+  let specs = specs(
+    "services:\n  \
+       web: {target: 'http://localhost:3000'}\n  \
+       bulk: {target: 'http://localhost:5000', multiplex: false}\n",
+  );
+  assert_eq!(
+    (specs[1].connections_min, specs[1].connections),
+    (1, DEFAULT_CONNECTIONS_MAX)
+  );
+}
+
+#[test]
+fn a_paced_service_keeps_one_connection_by_default() {
+  // The rate is divided across the pool's ceiling and the server paces each
+  // connection alone, so a default pool of four would carry one transfer at a
+  // quarter of the rate. A budget share paces as surely as a rate of its own.
+  let budget = build_specs(&base_with("bandwidth: 8mbit"), "base-id").unwrap();
+  assert_eq!((budget[0].connections_min, budget[0].connections), (1, 1));
+  assert_eq!(budget[0].bandwidth_bps, Some(1_000_000));
+
+  let own = specs(
+    "services:\n  \
+       web: {target: 'http://localhost:3000', bandwidth: 8mbit}\n",
+  );
+  assert_eq!((own[0].connections_min, own[0].connections), (1, 1));
+  assert_eq!(own[0].bandwidth_bps, Some(1_000_000));
 }
 
 // ---------------------------------------------------------------------------

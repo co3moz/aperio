@@ -1026,8 +1026,8 @@ entry rather than beside it.
 \section{Several services from one process}
 \label{sec:several-services}
 
-Add an entry per backend and the client opens one tunnel connection per
-entry, each with its own binds, health probe and limits:
+Add an entry per backend and the client carries them on one shared tunnel
+connection, each with its own binds, health probe and limits:
 
 \begin{codecard}[aperioyaml]{./aperio.yaml (client)}
 server:
@@ -1056,6 +1056,27 @@ merged with: a key the entry writes wins, a block it writes is merged with
 the default block field by field, and a key it leaves out is the default's.
 The environment writes \code{defaults:}, so \code{APERIO\_TIMEOUT=60s}
 reaches every service that does not write its own \code{timeout}.
+
+Sharing one connection saves a socket, a TLS session, a reader, a writer
+and a heartbeat per service on both ends. It costs a shared link: a large
+response occupies the writer the others send through, and a dropped
+connection takes all of them out of routing together, so
+\code{multiplex: false} on the one service whose responses are large is
+worth writing. A service that writes something a shared socket would
+quietly change keeps a connection of its own without being told: a
+\code{connections:} above one, a \code{bandwidth:} of its own (the server
+paces the socket, so it would become the group's cap),
+\code{startup\_delay:} or \code{depends\_on:} (a shared connection opens
+when its last member is ready), or \code{tcp\_target:} (a raw stream does
+not name its service). \code{multiplex: true} shares any of them anyway.
+
+A service on a connection of its own that writes no \code{connections:}
+runs an elastic pool of one to four: one connection while it is quiet,
+growing while requests queue up and shrinking when they stop. A service
+whose bandwidth is paced keeps one, since its rate is divided across the
+pool's ceiling. A connection the pool grew that the server refuses as
+full stands down instead of waiting for a slot, so the default only ever
+takes room the server has free.
 
 \section{Editing traffic}
 
@@ -3625,7 +3646,7 @@ What the defaults are chosen for and almost nobody needs to touch. Read past it 
 \rowsep
 \code{limits.streams\_per\_ip} & Streamed responses one visitor address may hold open at once. Saturating a service's concurrency budget otherwise takes one host holding many slow streams; this makes it take a botnet. The slot is taken when a response turns out to \emph{be} a stream and released when the body ends or the visitor walks away, so it is a concurrency limit rather than a rate limit: opening and closing streams quickly never trips it, holding them open does. Refusals appear as \code{aperio\_rate\_limited\_total\{limit="streams-per-ip"\}}. \textbf{Check \code{proxy.trust} before setting it}, or every visitor behind your CDN shares one address. & \code{0} \\
 \rowsep
-\code{limits.tunnels} & Max simultaneously connected tunnel connections. A client holds one per service unless it multiplexes, and a config reload briefly wants two per service (the replacement comes up before the old one closes). Was \code{10} before 0.12.0. & \code{64} \\
+\code{limits.tunnels} & Max simultaneously connected tunnel connections. A client holds one per connection it runs: one for several services sharing it, which is their default, one per service that does not, and up to a few more for an elastic pool under load while there is room. A config reload briefly wants two (the replacement comes up before the old one closes). Was \code{10} before 0.12.0. & \code{64} \\
 \rowsep
 \code{limits.websockets} & Max concurrently-live proxied public WebSockets (they are long-lived, so they get their own ceiling separate from the request limit above); beyond it an upgrade gets \code{503}. \code{0} = no cap. & \code{10000} \\
 \rowsep
@@ -4079,7 +4100,7 @@ Written in a \code{services:} entry for that service, or under \code{defaults:} 
 \rowsep
 \code{APERIO\_CONNECT\_TIMEOUT} &  & \code{connect\_timeout} & How long to wait for the TCP connection to a backend, separate from \code{timeout}, which covers the whole request. Per service: a backend across a VPN needs longer than one on loopback, and one number for both means either slow failure detection everywhere or spurious failures for the far one. Unset = only the whole-request budget applies. \\
 \rowsep
-\code{APERIO\_CONNECTIONS} &  & \code{connections} & Parallel tunnel connections per service; the server load-balances across them like separate clients. The ceiling is the server's \code{limits.connections\_per\_service} (default 16), announced on connect and lowerable per token. More is not automatically faster, each connection costs CPU on both ends; see the note under Multiple services. Default: \code{1}. \\
+\code{APERIO\_CONNECTIONS} &  & \code{connections} & Parallel tunnel connections per service; the server load-balances across them like separate clients. The ceiling is the server's \code{limits.connections\_per\_service} (default 16), announced on connect and lowerable per token. More is not automatically faster, each connection costs CPU on both ends; see the note under Multiple services. Default: \code{\{min: 1, max: 4\}} for a service on a connection of its own; \code{1} when it shares one or its bandwidth is paced. \\
 \rowsep
 \code{APERIO\_CONNECTIONS\_MAX} &  & \code{connections.max} & Ceiling of an elastic pool. The server's \code{limits.connections\_per\_service} still wins over it. Default: \code{min}. \\
 \rowsep
@@ -4121,7 +4142,7 @@ Written in a \code{services:} entry for that service, or under \code{defaults:} 
 \rowsep
 \code{APERIO\_MIN\_TLS\_VERSION} &  & \code{min\_tls\_version} & Lowest TLS version accepted from an \code{https://} backend, \code{1.2} or \code{1.3}. Per service so a fleet with one legacy backend does not have to lower the floor for all of them. A value that is not a TLS version is refused at startup rather than ignored: a typo that quietly leaves the floor where it was is what makes a security setting worse than none. Unset = rustls's own floor. \\
 \rowsep
-\code{APERIO\_MULTIPLEX} &  & \code{multiplex} & Carry every service that sets this on one WebSocket instead of opening a connection each: one socket, one TLS session, one reader, one writer and one heartbeat for all of them, rather than that many of each on both ends. Written under \code{defaults:} it turns on once, and a service still keeps a connection of its own with \code{multiplex: false}. Needs two services; the one service of the command line never multiplexes. \code{connections:} is not honored for a multiplexed service. See One connection for several services. Default: \code{false}. \\
+\code{APERIO\_MULTIPLEX} &  & \code{multiplex} & Carry the service on one WebSocket shared with the client's other services instead of a connection of its own: one socket, one TLS session, one reader, one writer and one heartbeat for all of them, rather than that many of each on both ends. Unwritten, a service shares when it is one of several and writes nothing a shared socket would change (a \code{connections:} above one, a \code{bandwidth:} of its own, \code{startup\_delay:}, \code{depends\_on:} or \code{tcp\_target:}); \code{true} shares it anyway, \code{false} keeps a connection of its own. The one service of the command line never multiplexes. \code{connections:} is not honored for a service that asks to multiplex. See One connection for several services. Default: shared, for one of several services. \\
 \rowsep
 \code{APERIO\_PASS\_HOSTNAME} & \code{--pass-hostname} & \code{pass\_hostname} & Forward the original \code{Host} header instead of the target's. Default: \code{0}. \\
 \rowsep
@@ -4288,8 +4309,8 @@ top-level per-service fields carry one at a time, and when the list is
 present it is authoritative and those fields are ignored. A list of
 several is served as several, each routed by its own binds, gated by
 its own \code{auth:}, ejected on its own backend failures and shown
-separately in the dashboard, which is what \code{multiplex: true} on
-the client produces; identity across heartbeats is by the name the
+separately in the dashboard, which is what a client sharing a connection
+between services produces; identity across heartbeats is by the name the
 client gives a service, so a multiplexed one needs a \code{name:}. v9 lets a service entry carry \code{server\_side\_target},
 asking the server to reach the target itself, and a Ping carry the client's
 \code{name}. Messages an older peer can ignore are added without a bump:

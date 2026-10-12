@@ -87,10 +87,10 @@ fn the_announcement_is_read_forgivingly_but_never_widened() {
 fn two_multiplexed(ws_url: &str) -> Vec<ServiceRuntime> {
   let mut web = crate::service::tests::test_spec(ws_url, "http://127.0.0.1:9");
   web.name = Some("web".to_string());
-  web.multiplex = true;
+  web.multiplex = Multiplex::Asked;
   let mut api = crate::service::tests::test_spec(ws_url, "http://127.0.0.1:10");
   api.name = Some("api".to_string());
-  api.multiplex = true;
+  api.multiplex = Multiplex::Asked;
   vec![web, api]
     .into_iter()
     .map(|s| {

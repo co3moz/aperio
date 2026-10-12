@@ -9,7 +9,45 @@ use tracing::{info, warn};
 
 use crate::config::ClientSettings;
 use crate::protocol::ConfigNote;
-use crate::service::{self, ServiceSpec};
+use crate::service::{self, Multiplex, ServiceSpec};
+
+/// The pool a service gets when it writes no `connections:` and has a
+/// connection of its own: one opened at startup, grown to this many while
+/// requests queue up, and given back when they stop. Small on purpose. The
+/// curve of connections against throughput has a peak, and a pool that only
+/// grows under load and only into room the server has left is a default that
+/// cannot cost anyone more than they were already spending.
+pub(crate) const DEFAULT_CONNECTIONS_MAX: u32 = 4;
+
+/// Whether a service that writes no `multiplex:` shares its connection with
+/// the others. It does, since a connection per service is the whole cost
+/// sharing removes, unless it says something a shared socket would quietly
+/// change:
+///
+/// - **a pool of more than one** (`connections:`), which sharing cuts to one;
+/// - **a `bandwidth:` of its own**, which the server enforces per socket, so on
+///   a shared one it would stop being this service's cap and become the
+///   group's;
+/// - **a start of its own** (`startup_delay:` or `depends_on:`), since a shared
+///   connection opens when its last member is ready, and one service's delay
+///   would become every sibling's;
+/// - **a `tcp_target:`**, because a raw stream reaches the client without
+///   naming its service, and on a shared connection it would be dialled from
+///   whichever service comes first.
+///
+/// `multiplex: true` still shares any of them; this only decides what silence
+/// means.
+fn shares_by_default(entry: &aperio_config::ServiceEntry) -> bool {
+  let p = &entry.policy;
+  p.connections.as_ref().is_none_or(|c| c.max() <= 1)
+    && entry.bandwidth.is_none()
+    && p.startup_delay.is_none_or(|d| d.as_secs() == 0)
+    && entry.depends_on.as_ref().is_none_or(Vec::is_empty)
+    && entry
+      .tcp_target
+      .as_deref()
+      .is_none_or(|t| t.trim().is_empty())
+}
 use crate::*;
 
 /// Resolves a service's visitor gate into the two things the tunnel handshake
@@ -337,8 +375,17 @@ pub(crate) fn build_specs(
       connections,
       connections_min,
       // A lone service has nobody to share a connection with, so the flag has
-      // nothing to do there whichever way it is set.
-      multiplex: !single && p.multiplex.unwrap_or(false),
+      // nothing to do there whichever way it is set. A service with no name
+      // could not be told apart from its siblings on a shared connection, so
+      // the default leaves it alone; one that asks is refused below.
+      multiplex: match p.multiplex {
+        _ if single => Multiplex::No,
+        Some(true) => Multiplex::Asked,
+        Some(false) => Multiplex::No,
+        None if service.name.is_some() && shares_by_default(entry) => Multiplex::ByDefault,
+        None => Multiplex::No,
+      },
+      pool_by_default: declared.is_none(),
       // Settled below, once every entry has been built: whether this service
       // shares a connection depends on what the others asked for.
       multiplex_group: None,
@@ -388,7 +435,27 @@ pub(crate) fn build_specs(
   group_multiplexed(&mut specs)?;
   allocate_bandwidth(&mut specs, budget_bps);
   settle_multiplexed_bandwidth(&mut specs);
+  size_default_pools(&mut specs);
   Ok(specs)
+}
+
+/// Gives a service that wrote no `connections:` its default pool, once it is
+/// known whether it shares a connection and whether it is paced.
+///
+/// Last, because both of those are settled over the whole list. A shared
+/// connection is one connection by definition. A paced service stays at one
+/// because the server paces each connection on its own and the client divides
+/// the service's rate across the pool's ceiling: a pool of four would carry a
+/// single transfer at a quarter of the rate the file asked for, while three
+/// connections that may never open hold the rest. A pool only pays for itself
+/// when nothing caps what one connection can carry.
+pub(crate) fn size_default_pools(specs: &mut [ServiceSpec]) {
+  for spec in specs.iter_mut() {
+    if spec.pool_by_default && spec.multiplex_group.is_none() && spec.bandwidth_bps.is_none() {
+      spec.connections_min = 1;
+      spec.connections = DEFAULT_CONNECTIONS_MAX;
+    }
+  }
 }
 
 /// Makes a multiplexed group's announced bandwidth mean what the server will
@@ -505,7 +572,7 @@ pub(crate) fn group_multiplexed(specs: &mut [ServiceSpec]) -> Result<(), String>
   let mut keys: Vec<(String, String)> = Vec::new();
   let mut members: Vec<Vec<usize>> = Vec::new();
   for (i, spec) in specs.iter().enumerate() {
-    if !spec.multiplex {
+    if spec.multiplex == Multiplex::No {
       continue;
     }
     let key = (spec.token.clone(), spec.ws_url.clone());
@@ -518,79 +585,91 @@ pub(crate) fn group_multiplexed(specs: &mut [ServiceSpec]) -> Result<(), String>
     }
   }
   let mut group = 0usize;
-  for (key, indexes) in keys.iter().zip(members) {
-    if indexes.len() < 2 {
-      // Asked for, and nobody to share with. Said out loud rather than
-      // silently ignored: `multiplex: true` on one service reads as a setting
-      // that took effect, and the operator who wrote it is usually one entry
-      // away from meaning it.
-      if let Some(i) = indexes.first() {
-        info!(
-          "[{}] multiplex: no other service shares this server and token, so this one keeps its own connection",
-          specs[*i].label()
-        );
-      }
-      continue;
-    }
+  for (key, all) in keys.iter().zip(members) {
     // Refused here, where the message can name the file, rather than at the
     // server, which answers a list this long by dropping the connection: the
     // operator would see a client that connects and disconnects with the
-    // reason in somebody else's log.
-    if indexes.len() > service::MAX_MULTIPLEXED_SERVICES {
+    // reason in somebody else's log. Only the services that asked count: the
+    // ones that went along with the default are spread over as many
+    // connections as it takes, since a file that started before this default
+    // existed must not stop starting because of it.
+    let asked = all
+      .iter()
+      .filter(|&&i| specs[i].multiplex == Multiplex::Asked)
+      .count();
+    if asked > service::MAX_MULTIPLEXED_SERVICES {
       return Err(format!(
         "CRITICAL ERROR: {} services ask to share one connection (multiplex: true) and a server accepts at most {}! Split them across connections with multiplex: false, or give some of them a server of their own.",
-        indexes.len(),
+        asked,
         service::MAX_MULTIPLEXED_SERVICES
       ));
     }
-    for i in &indexes {
-      // A name is what the server files this service's routing, ejection and
-      // statistics under, and what addresses it in the dashboard. On a
-      // connection of its own a service can do without one, because the
-      // connection is the address; sharing one, two unnamed services are told
-      // apart only by their position in a list, which is not something a
-      // config file promises to keep.
-      if specs[*i].name.is_none() {
-        return Err(format!(
-          "CRITICAL ERROR: every multiplexed service needs a name: (the service at {} shares a connection with {} other(s) and has none)!",
-          specs[*i].target,
-          indexes.len() - 1
-        ));
+    for indexes in all.chunks(service::MAX_MULTIPLEXED_SERVICES) {
+      let indexes = indexes.to_vec();
+      if indexes.len() < 2 {
+        // Asked for, and nobody to share with. Said out loud rather than
+        // silently ignored: `multiplex: true` on one service reads as a setting
+        // that took effect, and the operator who wrote it is usually one entry
+        // away from meaning it. Silence that found nobody needs no answer.
+        if let Some(i) = indexes.first()
+          && specs[*i].multiplex == Multiplex::Asked
+        {
+          info!(
+            "[{}] multiplex: no other service shares this server and token, so this one keeps its own connection",
+            specs[*i].label()
+          );
+        }
+        continue;
       }
-    }
-    for i in indexes {
-      specs[i].multiplex_group = Some(group);
-      // One connection is what multiplexing means, so a pool is not something
-      // this service can also have. Reported rather than dropped: the
-      // dashboard's config view is where a value that did not survive its
-      // config is supposed to show up, and `connections:` is exactly the key
-      // an operator would otherwise believe was in force.
-      if specs[i].connections != 1 || specs[i].connections_min != 1 {
-        let declared = if specs[i].connections_min < specs[i].connections {
-          format!("{}-{}", specs[i].connections_min, specs[i].connections)
-        } else {
-          specs[i].connections.to_string()
-        };
-        specs[i].config_notes.retain(|n| n.field != "connections");
-        specs[i].config_notes.push(ConfigNote {
-          field: "connections".to_string(),
-          declared,
-          effective: "1".to_string(),
-          reason: "multiplexed services share one connection".to_string(),
-        });
-        specs[i].connections = 1;
-        specs[i].connections_min = 1;
+      for i in &indexes {
+        // A name is what the server files this service's routing, ejection and
+        // statistics under, and what addresses it in the dashboard. On a
+        // connection of its own a service can do without one, because the
+        // connection is the address; sharing one, two unnamed services are told
+        // apart only by their position in a list, which is not something a
+        // config file promises to keep.
+        if specs[*i].name.is_none() {
+          return Err(format!(
+            "CRITICAL ERROR: every multiplexed service needs a name: (the service at {} shares a connection with {} other(s) and has none)!",
+            specs[*i].target,
+            indexes.len() - 1
+          ));
+        }
       }
+      for i in indexes {
+        specs[i].multiplex_group = Some(group);
+        // One connection is what multiplexing means, so a pool is not something
+        // this service can also have. Reported rather than dropped: the
+        // dashboard's config view is where a value that did not survive its
+        // config is supposed to show up, and `connections:` is exactly the key
+        // an operator would otherwise believe was in force.
+        if specs[i].connections != 1 || specs[i].connections_min != 1 {
+          let declared = if specs[i].connections_min < specs[i].connections {
+            format!("{}-{}", specs[i].connections_min, specs[i].connections)
+          } else {
+            specs[i].connections.to_string()
+          };
+          specs[i].config_notes.retain(|n| n.field != "connections");
+          specs[i].config_notes.push(ConfigNote {
+            field: "connections".to_string(),
+            declared,
+            effective: "1".to_string(),
+            reason: "multiplexed services share one connection".to_string(),
+          });
+          specs[i].connections = 1;
+          specs[i].connections_min = 1;
+        }
+      }
+      info!(
+        "multiplex: {} services share one connection to {}",
+        specs
+          .iter()
+          .filter(|s| s.multiplex_group == Some(group))
+          .count(),
+        key.1
+      );
+      group += 1;
     }
-    info!(
-      "multiplex: {} services share one connection to {}",
-      specs
-        .iter()
-        .filter(|s| s.multiplex_group == Some(group))
-        .count(),
-      key.1
-    );
-    group += 1;
   }
   Ok(())
 }

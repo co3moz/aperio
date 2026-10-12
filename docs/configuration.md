@@ -175,7 +175,7 @@ Written in a `services:` entry for that service, or under `defaults:` for every 
 | `APERIO_CIRCUIT_BREAKER_FAILURES` |  | `circuit_breaker.failures` | Consecutive backend failures that open the circuit breaker. While open the backend is **not dialed at all** and the visitor gets `502` immediately, so a dead backend stops being hammered once per request and nobody waits out a connect that will not succeed. `0` disables it. A response head of any status counts as a success: a `500` is a backend that is up, and refusing to dial it would turn an application error into an outage. | off, `3` when aggressive |
 | `APERIO_CIRCUIT_BREAKER_OPEN_FOR` |  | `circuit_breaker.open_for` | How long the breaker stays open. After that one request is let through to probe the backend; if it fails, a fresh window starts. | `30s` |
 | `APERIO_CONNECT_TIMEOUT` |  | `connect_timeout` | How long to wait for the TCP connection to a backend, separate from `timeout`, which covers the whole request. Per service: a backend across a VPN needs longer than one on loopback, and one number for both means either slow failure detection everywhere or spurious failures for the far one. Unset = only the whole-request budget applies. |  |
-| `APERIO_CONNECTIONS` |  | `connections` | Parallel tunnel connections per service; the server load-balances across them like separate clients. The ceiling is the server's `limits.connections_per_service` (default 16), announced on connect and lowerable per token. More is not automatically faster, each connection costs CPU on both ends; see the note under [Multiple services](#multiple-services). | `1` |
+| `APERIO_CONNECTIONS` |  | `connections` | Parallel tunnel connections per service; the server load-balances across them like separate clients. The ceiling is the server's `limits.connections_per_service` (default 16), announced on connect and lowerable per token. More is not automatically faster, each connection costs CPU on both ends; see the note under [Multiple services](#multiple-services). Unwritten, a service on a connection of its own runs an elastic pool of one to four, see [Elastic connections](#elastic-connections). | `{min: 1, max: 4}` on a connection of its own; `1` when it shares one or its bandwidth is paced |
 | `APERIO_CONNECTIONS_MAX` |  | `connections.max` | Ceiling of an elastic pool. The server's `limits.connections_per_service` still wins over it. | `min` |
 | `APERIO_CONNECTIONS_MIN` |  | `connections.min` | Floor of an elastic pool: `connections: {min: 1, max: 8}` opens one connection and grows towards eight while requests queue up. Writing either half turns the setting into a range; a plain number stays a fixed pool. See [Elastic connections](#elastic-connections). | `1` |
 | `APERIO_DENIED` |  | `denied` | Absolute http(s) URL a fully rejected visitor (see `allowed_ips`) is redirected to (302). Declared via the tunnel handshake; unset = the stealth answer. | stealth |
@@ -196,7 +196,7 @@ Written in a `services:` entry for that service, or under `defaults:` for every 
 | `APERIO_LIMITS_RESPONSE_BODY` |  | `limits.response_body` | Largest backend response this client relays, e.g. `50MB`; bodies over 32 KB are streamed through the tunnel as binary chunks rather than base64 in one message (256 KB against a server too old for binary frames). A response that grows past this limit before any of it was sent is refused with a `502`; one already streaming is aborted, so the visitor sees a broken response rather than a silently truncated success. | `50MB` |
 | `APERIO_METRICS_LABELS` |  | `metrics_labels` | Static Prometheus labels attached to this client's own `aperio_client_requests_total` series, so one Prometheus can serve several environments without relabelling rules. YAML takes a mapping (`{env: prod, region: eu-west}`); the environment spelling is a flat `env=prod,region=eu-west` list, because that is what a container platform can inject. The server validates and caps what arrives, at most 8 labels, names must be `[a-zA-Z_][a-zA-Z0-9_]*` and at most 32 characters, values at most 64 characters, and both the names the server writes itself (`client_id`, `job`, `instance`, `token`, `hostname`, `limit`, `service`) and any `__`-prefixed name are refused. An invalid label is dropped and the rest are kept. |  |
 | `APERIO_MIN_TLS_VERSION` |  | `min_tls_version` | Lowest TLS version accepted from an `https://` backend, `1.2` or `1.3`. Per service so a fleet with one legacy backend does not have to lower the floor for all of them. A value that is not a TLS version is refused at startup rather than ignored: a typo that quietly leaves the floor where it was is what makes a security setting worse than none. Unset = rustls's own floor. |  |
-| `APERIO_MULTIPLEX` |  | `multiplex` | Carry every service that sets this on one WebSocket instead of opening a connection each: one socket, one TLS session, one reader, one writer and one heartbeat for all of them, rather than that many of each on both ends. Written under `defaults:` it turns on once, and a service still keeps a connection of its own with `multiplex: false`. Needs two services; the one service of the command line never multiplexes. `connections:` is not honored for a multiplexed service. See [One connection for several services](#one-connection-for-several-services). | `false` |
+| `APERIO_MULTIPLEX` |  | `multiplex` | Carry the service on one WebSocket shared with the client's other services instead of a connection of its own: one socket, one TLS session, one reader, one writer and one heartbeat for all of them, rather than that many of each on both ends. Unwritten, a service shares when it is one of several and writes nothing a shared socket would change (a `connections:` above one, a `bandwidth:` of its own, a `startup_delay:` or `depends_on:`, or a `tcp_target:`); `true` shares it anyway, `false` keeps a connection of its own. The one service of the command line never multiplexes. `connections:` is not honored for a service that asks to multiplex. See [One connection for several services](#one-connection-for-several-services). | shared, for one of several services |
 | `APERIO_PASS_HOSTNAME` | `--pass-hostname` | `pass_hostname` | Forward the original `Host` header instead of the target's. | `0` |
 | `APERIO_PRIORITY` | `--priority` | `priority` | Load-balancing priority tier announced to the server (0 = primary, higher = standby; effective with `routing.lb_strategy: primary-standby`). | `0` |
 | `APERIO_RESILIENCE` |  | `resilience` | How hard this service works to answer when its backend fails: `off`, `safe` (an idempotent request that fails before any response is tried once more) or `aggressive` (three attempts, and a circuit breaker). `retry` and `circuit_breaker`, where written, win over the profile's values. | `safe` |
@@ -304,7 +304,7 @@ Paths resolve relative to the file that wrote them, so a fragment means the same
 
 ### Multiple services
 
-One client process can expose several targets: add an entry per backend to `services:`, and the client opens one tunnel connection per entry (or shares one, with `multiplex`), each with its own binds, health probe, and knobs:
+One client process can expose several targets: add an entry per backend to `services:`, and the client carries them on one shared tunnel connection unless an entry says otherwise (see [One connection for several services](#one-connection-for-several-services)), each with its own binds, health probe, and knobs:
 
 ```yaml
 # ./aperio.yaml (client)
@@ -352,9 +352,9 @@ Retrying only covers failures that happen *before* a response head arrives, and 
 
 **One case is handled whatever `retry:` says.** The client keeps backend connections alive and reuses them, and the backend closes idle ones on its own schedule, so there is a window where a request is written onto a socket the backend has just finished with. Nothing is wrong with the backend, and no response head arrives; under load that window is hit constantly. The client re-dials once, silently, for a request the same fences already allow to be replayed (an idempotent method, a replayable body). This is not the retry policy, which is about a backend that failed, and it is why the same backend behind any mainstream proxy does not answer with a scattering of `502`s under load. A second such failure on the same request is a backend genuinely closing on the client, and it reaches the visitor.
 
-`connections: N` (default 1) opens N parallel tunnel connections for a service. How many N may be is the server's decision, `limits.connections_per_service` (default 16), lowerable per token and announced on connect: a client asking for more opens what it is allowed and says so in its log. The server pools them like separate clients, its load-balancing strategy spreads requests across them, so a single service is no longer serialized behind one WebSocket under heavy parallel traffic. Each connection gets its own instance id (`<id>`, `<id>-c2`, `<id>-c3`, …), so the dashboard's shared-id warning is not triggered and failover lookups stay unambiguous; `limits.concurrent_requests` applies per connection. Config hot-reload re-resolves every service, so adding or removing one doesn't need a restart.
+`connections: N` opens N parallel tunnel connections for a service; unwritten, a service on a connection of its own runs an elastic pool of one to four (see [Elastic connections](#elastic-connections)). How many N may be is the server's decision, `limits.connections_per_service` (default 16), lowerable per token and announced on connect: a client asking for more opens what it is allowed and says so in its log. The server pools them like separate clients, its load-balancing strategy spreads requests across them, so a single service is no longer serialized behind one WebSocket under heavy parallel traffic. Each connection gets its own instance id (`<id>`, `<id>-c2`, `<id>-c3`, …), so the dashboard's shared-id warning is not triggered and failover lookups stay unambiguous; `limits.concurrent_requests` applies per connection. Config hot-reload re-resolves every service, so adding or removing one doesn't need a restart.
 
-More connections is not automatically faster: each one costs a reader and a writer task on both ends, and its own sockets and queues. Raising N pays off when the bottleneck is the network, a long round-trip or a single TCP stream's throughput ceiling between client and server. When client and server share a machine's CPU (loopback, a dev box, co-located containers), small values win; in a loopback bulk-throughput measurement the curve peaked at 4 connections and fell past it, with 10 slower than 1. Start small, and let a measurement on your own deployment justify each increase.
+More connections is not automatically faster: each one costs a reader and a writer task on both ends, and its own sockets and queues. Raising N pays off when the bottleneck is the network, a long round-trip or a single TCP stream's throughput ceiling between client and server. When client and server share a machine's CPU (loopback, a dev box, co-located containers), small values win; in a loopback bulk-throughput measurement the curve peaked at 4 connections and fell past it, with 10 slower than 1. Start small, and let a measurement on your own deployment justify each increase. The default pool stops at four for this reason, and only grows while requests queue up.
 
 ### Template variables
 
@@ -422,7 +422,7 @@ A name that is not a service in this configuration, a service depending on itsel
 
 ### Elastic connections
 
-A plain `connections: N` opens N connections at startup and keeps them, whether or not there is traffic. Written as a range, the pool sizes itself:
+A plain `connections: N` opens N connections at startup and keeps them, whether or not there is traffic. Written as a range, the pool sizes itself, and a service that writes no `connections:` and has a connection of its own runs `{ min: 1, max: 4 }` without being told:
 
 ```yaml
 services:
@@ -446,15 +446,18 @@ The client logs each decision with the numbers behind it, and the dashboard's co
 
 Environment: `APERIO_CONNECTIONS_MIN` / `APERIO_CONNECTIONS_MAX`. The server's `limits.connections_per_service` still wins over `max`, and the `bandwidth:` share is divided by `max` (never by the current size), so growing the pool cannot exceed the budget the file declares. The dashboard shows the connections a service actually has open, not its ceiling.
 
-A range is opt-in for a reason: as the note above says, more connections is not automatically faster, and on a host where client and server share CPU the curve has a peak. `connections: N` keeps behaving exactly as it always did.
+The default stops at four because, as the note above says, more connections is not automatically faster, and on a host where client and server share CPU the curve has a peak. Two cases keep one connection by default instead:
+
+- **A service on a shared connection.** One connection is what sharing means; see the next section.
+- **A service whose bandwidth is paced**, by a `bandwidth:` of its own or a share of the top-level budget. The share is divided by `max`, so a pool of four would carry a single transfer at a quarter of the rate the file asked for.
+
+A connection the pool grew past its floor is one the server may not have room for. When the server refuses it as full (`503`: its `limits.tunnels`, or an organization's client quota), it stands down instead of queueing for a slot, and the pool holds off growing for two minutes; the floor keeps retrying like any connection the file asked for. So a default pool only ever takes room the server has free. `connections: N` keeps behaving exactly as it always did.
 
 ### One connection for several services
 
 `connections:` is about giving one service several sockets. `multiplex: true` is the opposite question, and it is the one an operator with forty services asks: can several services share one socket?
 
 ```yaml
-defaults:
-  multiplex: true        # every service, unless it says otherwise
 services:
   web:
     target: http://localhost:3000
@@ -468,13 +471,22 @@ services:
     multiplex: false     # large responses, keep a connection of its own
 ```
 
-`web` and `api` are carried on one WebSocket; `bulk` opens its own. What that saves is per service and it is the whole cost of a connection: one socket, one TLS session, one reader task, one writer task and one heartbeat for the group, rather than that many of each on both ends. Forty services on one client is forty of everything today, and it is the same forty on the server.
+`web` and `api` are carried on one WebSocket without being told; `bulk` opens its own. What that saves is per service and it is the whole cost of a connection: one socket, one TLS session, one reader task, one writer task and one heartbeat for the group, rather than that many of each on both ends. Forty services on one client is forty of everything today, and it is the same forty on the server.
 
-What it costs is that the services share a link. They send through one writer, so a large response occupies it while the others wait their turn, and they share a fate: the connection dropping takes all of them out of routing together, and brings all of them back together. That is why it is opt-in and why `multiplex: false` on the one service whose responses are large is worth writing.
+What it costs is that the services share a link. They send through one writer, so a large response occupies it while the others wait their turn, and they share a fate: the connection dropping takes all of them out of routing together, and brings all of them back together. That is why `multiplex: false` on the one service whose responses are large is worth writing.
+
+**What the default leaves alone.** A service that writes no `multiplex:` shares when it is one of several, unless it writes something a shared socket would quietly change, and then it keeps a connection of its own:
+
+- **`connections:` above one**, which sharing would cut to one.
+- **A `bandwidth:` of its own.** The server paces the socket, so on a shared one the cap would stop being this service's and become the group's. Services sharing a connection on a top-level budget alone announce their shares' sum, so the budget still holds for the client, and one of them may use what the others leave idle.
+- **`startup_delay:` or `depends_on:`.** A shared connection opens when its last member is ready, so one service's delay would become every sibling's.
+- **`tcp_target:`.** A raw stream reaches the client without naming its service, so on a shared connection it would be dialled from whichever service comes first.
+
+`multiplex: true` shares any of them anyway. A server accepts at most 256 services on one connection; more services than that which only went along with the default are spread over as many connections as it takes, while more than 256 that ask with `multiplex: true` are a configuration error.
 
 Each service is still its own service everywhere it matters. The server routes to it by its own binds, gates it with its own `access:` and `allowed_ips:`, ejects it on its own backend failures without touching its neighbours, and shows and controls it separately in the dashboard. On the client, each keeps its own backend, header rules, timeouts, circuit breaker, health probe and `limits.concurrent_requests`. The one service of the command line has nobody to share with and never multiplexes.
 
-**`connections:` is not honored for a multiplexed service.** One connection is what multiplexing means. The client reports the difference in the dashboard's config view rather than dropping it silently, so a `connections: 4` that stopped applying is visible.
+**`connections:` is not honored for a service that asks to multiplex.** One connection is what multiplexing means. The client reports the difference in the dashboard's config view rather than dropping it silently, so a `connections: 4` that stopped applying is visible.
 
 ### Sharing the bandwidth budget
 
@@ -986,7 +998,7 @@ What the defaults are chosen for and almost nobody needs to touch. Read past it 
 | `limits.ip_rate` | The per-visitor-IP token bucket every request spends from. | `{"burst": 100.0, "per_second": 5.0}` |
 | `limits.request_body` | Max request body size. | `10MB` |
 | `limits.streams_per_ip` | Streamed responses one visitor address may hold open at once. Saturating a service's concurrency budget otherwise takes one host holding many slow streams; this makes it take a botnet. The slot is taken when a response turns out to *be* a stream and released when the body ends or the visitor walks away, so it is a concurrency limit rather than a rate limit: opening and closing streams quickly never trips it, holding them open does. Refusals appear as `aperio_rate_limited_total{limit="streams-per-ip"}`. **Check `proxy.trust` before setting it**, or every visitor behind your CDN shares one address. | `0` |
-| `limits.tunnels` | Max simultaneously connected tunnel connections. A client holds one per service unless it multiplexes, and a config reload briefly wants two per service (the replacement comes up before the old one closes). Was `10` before 0.12.0. | `64` |
+| `limits.tunnels` | Max simultaneously connected tunnel connections. A client holds one per connection it runs: one for several services sharing it, which is their default, one per service that does not, and up to a few more for an elastic pool under load while there is room. A config reload briefly wants two (the replacement comes up before the old one closes). Was `10` before 0.12.0. | `64` |
 | `limits.websockets` | Max concurrently-live proxied public WebSockets (they are long-lived, so they get their own ceiling separate from the request limit above); beyond it an upgrade gets `503`. `0` = no cap. | `10000` |
 
 #### Logging (`logging`)

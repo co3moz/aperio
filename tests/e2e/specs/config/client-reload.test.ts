@@ -89,16 +89,17 @@ export class ClientReloadSpec extends Test({
       !log.includes('did not come up within'),
       `the handover completed inside its budget:\n${log}`,
     )
-    // And the old connections are gone: two services, two connections, no
-    // ghost holding a third slot.
+    // And the old connection is gone: two services sharing one connection,
+    // which is what a file with two services gets, and no ghost holding a
+    // second slot.
     await waitFor(
       async () => {
         const health = await this.server._json<{ connected_clients: number }>('/aperio/health', {
           headers: { authorization: `Bearer ${this.server._token}` },
         })
-        return health.connected_clients === 2
+        return health.connected_clients === 1
       },
-      { timeoutMs: 15_000, label: 'exactly the two replacement connections' },
+      { timeoutMs: 15_000, label: 'exactly the one replacement connection' },
     )
   }
 }

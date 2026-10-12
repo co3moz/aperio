@@ -328,9 +328,14 @@ pub(crate) fn a_target_is_read_the_same_way_wherever_it_is_written() {
 
 #[test]
 pub(crate) fn test_build_specs_connections() {
-  // Default is a single connection; parallelism is opt-in via `connections: N`.
+  // Unwritten, a service of its own opens one connection and may grow to a
+  // few under load; `connections: N` fixes the count.
   let specs_default = build_specs(&base_settings(), "base-id").unwrap();
-  assert_eq!(specs_default[0].connections, 1);
+  assert_eq!(specs_default[0].connections_min, 1);
+  assert_eq!(
+    specs_default[0].connections,
+    crate::client::specs::DEFAULT_CONNECTIONS_MAX
+  );
 
   // A default applies to every service and an entry's own value wins. What
   // the server permits is applied at connect time, not here.

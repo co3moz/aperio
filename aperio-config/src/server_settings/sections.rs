@@ -23,8 +23,10 @@ pub struct Limits {
   /// Proxied WebSockets open at once; beyond it an upgrade is answered `503`.
   /// `0` = no cap. Default `10000`.
   pub websockets: u32,
-  /// Tunnel connections at once. A client holds one per service unless it
-  /// multiplexes, and a reload briefly wants two. Default `64`.
+  /// Tunnel connections at once. A client holds one per connection it runs:
+  /// one for several services sharing it, which is their default, one per
+  /// service that does not, and a few more for a pool under load while there
+  /// is room. A reload briefly wants two. Default `64`.
   pub tunnels: u32,
   /// Parallel connections one client may open for one service; a token may
   /// lower it, never raise it. Default `16`.

@@ -82,7 +82,8 @@ pub(crate) fn test_spec(ws_url: &str, target: &str) -> ServiceSpec {
     max_concurrent: None,
     adaptive_concurrency: false,
     connections: 1,
-    multiplex: false,
+    multiplex: Multiplex::No,
+    pool_by_default: false,
     multiplex_group: None,
     metrics_labels: Default::default(),
     startup_delay: 0,
@@ -962,6 +963,79 @@ async fn test_run_service_http_500_rejection() {
     .unwrap();
 }
 
+/// A server that answers every tunnel upgrade with `503`, the way it does when
+/// its tunnel limit or an organization's client quota is reached.
+async fn full_server() -> String {
+  let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = listener.local_addr().unwrap().port();
+  tokio::spawn(async move {
+    while let Ok((mut sock, _)) = listener.accept().await {
+      let mut buf = [0u8; 1024];
+      let _ = sock.read(&mut buf).await;
+      let _ = sock
+        .write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n")
+        .await;
+      let _ = sock.flush().await;
+    }
+  });
+  format!("ws://127.0.0.1:{port}/")
+}
+
+/// Connection `index` of an elastic pool of one to four, against a full
+/// server. The ceiling is already known, so a connection past the first does
+/// not sit through the wait for the server to announce it.
+fn pool_connection_against_full_server(
+  ws_url: &str,
+  index: u32,
+) -> (watch::Sender<bool>, tokio::task::JoinHandle<()>) {
+  let mut spec = test_spec(ws_url, "http://127.0.0.1:9");
+  spec.connections_min = 1;
+  spec.connections = 4;
+  let ceiling = ConnectionCeiling::new();
+  ceiling.tx.send_replace(Some(4));
+  let (cancel_tx, cancel_rx) = watch::channel(false);
+  let health = BackendHealth::for_spec(&spec);
+  let svc = tokio::spawn(run_service(
+    vec![ServiceRuntime::new(spec, health)],
+    test_shared(),
+    cancel_rx,
+    index == 1,
+    index,
+    ceiling,
+  ));
+  (cancel_tx, svc)
+}
+
+#[tokio::test]
+async fn a_connection_a_pool_grew_stands_down_when_the_server_is_full() {
+  init_tracing();
+  // It exists because the pool had load to spread, not because the file asked
+  // for it, so a server with no room gets the slot back at once instead of a
+  // retry every few seconds for as long as the load lasts.
+  let ws_url = full_server().await;
+  let (_cancel, svc) = pool_connection_against_full_server(&ws_url, 2);
+  tokio::time::timeout(Duration::from_secs(5), svc)
+    .await
+    .expect("an extra connection refused as full ends on its own")
+    .unwrap();
+}
+
+#[tokio::test]
+async fn the_floor_of_a_pool_keeps_retrying_when_the_server_is_full() {
+  init_tracing();
+  // The floor is what the service runs on, so it waits for room like any
+  // connection the file asked for.
+  let ws_url = full_server().await;
+  let (cancel_tx, svc) = pool_connection_against_full_server(&ws_url, 1);
+  tokio::time::sleep(Duration::from_millis(1500)).await;
+  assert!(!svc.is_finished(), "the floor connection gave up");
+  cancel_tx.send(true).unwrap();
+  tokio::time::timeout(Duration::from_secs(5), svc)
+    .await
+    .expect("exits")
+    .unwrap();
+}
+
 #[tokio::test]
 async fn test_run_service_health_probe_flap() {
   init_tracing();
@@ -1276,13 +1350,13 @@ fn two_multiplexed(ws_url: &str) -> Vec<ServiceSpec> {
   let mut web = test_spec(ws_url, "http://127.0.0.1:9");
   web.name = Some("web".to_string());
   web.hostnames = vec!["web.example.com".to_string()];
-  web.multiplex = true;
+  web.multiplex = Multiplex::Asked;
   web.multiplex_group = Some(0);
   let mut api = test_spec(ws_url, "http://127.0.0.1:10");
   api.name = Some("api".to_string());
   api.hostnames = vec!["api.example.com".to_string()];
   api.max_concurrent = Some(4);
-  api.multiplex = true;
+  api.multiplex = Multiplex::Asked;
   api.multiplex_group = Some(0);
   vec![web, api]
 }
