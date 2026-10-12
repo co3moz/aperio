@@ -49,6 +49,42 @@ pub(crate) enum Command {
     #[command(subcommand)]
     action: BackupAction,
   },
+  /// Programmatic admin keys, minted against the data directory: the first
+  /// key without a dashboard session or a cookie, in one step. A running
+  /// server takes a change up within a second.
+  Admin {
+    #[command(subcommand)]
+    action: AdminAction,
+  },
+}
+
+#[derive(Subcommand)]
+pub(crate) enum AdminAction {
+  /// Mint an admin key. Its secret goes to stdout alone, shown this once, so
+  /// `KEY=$(aperio-server admin create-key --name ci)` captures it.
+  CreateKey {
+    /// A label for the key, 1-64 characters.
+    #[arg(long)]
+    name: String,
+    /// viewer, operator or admin.
+    #[arg(long, default_value = "admin")]
+    role: String,
+    /// Where it acts: `*` for every organization, which with the admin role
+    /// is the server admin; `master`; or a child organization's handle or id.
+    #[arg(long, default_value = "*")]
+    org: String,
+    /// Lifetime: 30m, 12h, 90d. Default: never expires.
+    #[arg(long)]
+    expire: Option<String>,
+  },
+  /// List the admin keys, never their secrets.
+  ListKeys,
+  /// Revoke an admin key by id. A running server stops accepting it within a
+  /// second.
+  RevokeKey {
+    /// The key's id, as `list-keys` prints it.
+    id: String,
+  },
 }
 
 #[derive(Subcommand)]
@@ -302,6 +338,117 @@ fn sections_present(document: &crate::api::export::ImportDump) -> Vec<String> {
   has(document.inbox.is_some(), "inbox");
   has(document.admin_keys.is_some(), "admin_keys");
   out
+}
+
+/// `*`, `master`, or a child organization by handle or id, as a key scope.
+fn key_scope(data_dir: &str, org: &str) -> Result<crate::store::grants::GrantOrg, String> {
+  use crate::store::grants::GrantOrg;
+  match GrantOrg::parse(org) {
+    GrantOrg::Child(raw) => {
+      let store = crate::store::orgs::OrgStore::load(data_dir);
+      store
+        .list()
+        .iter()
+        .find(|o| o.id == raw || o.name == raw)
+        .map(|o| GrantOrg::Child(o.id.clone()))
+        .ok_or_else(|| {
+          format!(
+            "no organization `{raw}`: name `*`, `master`, or a child organization's handle or id"
+          )
+        })
+    }
+    scope => Ok(scope),
+  }
+}
+
+/// `aperio-server admin create-key`.
+pub(crate) fn admin_create_key(name: &str, role: &str, org: &str, expire: Option<&str>) -> i32 {
+  let name = name.trim();
+  if name.is_empty() || name.len() > 64 {
+    eprintln!("--name must be 1-64 characters");
+    return 1;
+  }
+  let Some(role) = crate::store::users::Role::parse(role) else {
+    eprintln!("--role must be viewer, operator or admin");
+    return 1;
+  };
+  let ttl = match expire.map(aperio_config::units::Span::parse) {
+    None => None,
+    Some(Ok(span)) if span.is_zero() => None,
+    Some(Ok(span)) => Some(span.0.as_secs().max(1)),
+    Some(Err(e)) => {
+      eprintln!("--expire: {e}");
+      return 1;
+    }
+  };
+  let data_dir = crate::boot::data_dir();
+  let scope = match key_scope(&data_dir, org) {
+    Ok(scope) => scope,
+    Err(e) => {
+      eprintln!("{e}");
+      return 1;
+    }
+  };
+  let mut store = crate::store::admin_keys::AdminKeyStore::load(&data_dir);
+  let Some((record, secret)) = store.create(name.to_string(), role, scope, ttl) else {
+    eprintln!("the key could not be saved to the database");
+    return 1;
+  };
+  eprintln!(
+    "Admin key '{}' created: {}:{}, id {}. A running server takes it up within a second. \
+     The secret, shown this once:",
+    record.name,
+    record.scope().as_str(),
+    record.role.as_str(),
+    record.id
+  );
+  println!("{secret}");
+  0
+}
+
+/// `aperio-server admin list-keys`.
+pub(crate) fn admin_list_keys() -> i32 {
+  let store = crate::store::admin_keys::AdminKeyStore::load(&crate::boot::data_dir());
+  if store.list().is_empty() {
+    println!("No admin keys.");
+    return 0;
+  }
+  for key in store.list() {
+    let expiry = match key.expires_at {
+      _ if key.is_expired() => "expired".to_string(),
+      Some(at) => format!("expires at {at}"),
+      None => "never expires".to_string(),
+    };
+    println!(
+      "{}  {}  {}:{}  {}...  {}",
+      key.id,
+      key.name,
+      key.scope().as_str(),
+      key.role.as_str(),
+      key.key_prefix,
+      expiry
+    );
+  }
+  0
+}
+
+/// `aperio-server admin revoke-key`.
+pub(crate) fn admin_revoke_key(id: &str) -> i32 {
+  let mut store = crate::store::admin_keys::AdminKeyStore::load(&crate::boot::data_dir());
+  match store.revoke(id) {
+    Ok(()) => {
+      println!("Revoked {id}. A running server stops accepting it within a second.");
+      0
+    }
+    Err(crate::store::NotWritten::NoSuchRecord) => {
+      eprintln!("no admin key with id {id}");
+      1
+    }
+    Err(crate::store::NotWritten::NotPersisted) => {
+      eprintln!("the revocation could not be saved to the database; the key is still in force");
+      1
+    }
+  }
 }
 
 #[cfg(test)]

@@ -10,7 +10,14 @@ Each command performs exactly one call, prints the server's JSON answer (pretty-
 
 ## Authentication
 
-The admin API is authenticated with a **programmatic admin key**, a credential that carries a role (`viewer` / `operator` / `admin`) and an organization, presented as `Authorization: Bearer`. Create one in the dashboard (*Settings*, then the *Admin Keys* section of the *Users* pane), or over the API itself:
+The admin API is authenticated with a **programmatic admin key**, a credential that carries a role (`viewer` / `operator` / `admin`) and an organization, presented as `Authorization: Bearer`. The first one takes a single step on the server's host, no session or cookie involved:
+
+```bash
+# on the aperio-server host (or `docker exec` into it); the secret alone goes to stdout
+KEY=$(aperio-server admin create-key --name ci)
+```
+
+That is the server admin, `--role admin --org '*'`; narrow it with `--role` and `--org`. A running server takes it up within a second. After that, create keys in the dashboard (*Settings*, then the *Admin Keys* section of the *Users* pane), or over the API itself:
 
 ```bash
 # from anywhere, against the server's admin API

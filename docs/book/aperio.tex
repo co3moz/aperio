@@ -3255,6 +3255,9 @@ aperio-client check
 aperio-server settings show
 aperio-server check server-init.yaml
 
+# on the aperio-server host, running or not: the first admin key
+aperio-server admin create-key --name ci
+
 # from anywhere, with an admin key
 aperio-client api self-health
 aperio-client api topology

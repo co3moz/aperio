@@ -55,22 +55,52 @@ pub(crate) async fn admin_keys_list_handler(
   if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
-  let store = state.admin_key_store.lock().await;
-  let views: Vec<AdminKeyView> = store
-    .list()
-    .iter()
-    .map(|k| AdminKeyView {
-      id: k.id.clone(),
-      name: k.name.clone(),
-      key_prefix: k.key_prefix.clone(),
-      role: k.role,
-      org_id: scope_view(&k.scope()),
-      created_at: k.created_at,
-      expires_at: k.expires_at,
-      expired: k.is_expired(),
-    })
-    .collect();
+  let (views, adopted) = {
+    let mut store = state.admin_key_store.lock().await;
+    // The page lists what is in force, a key minted from the command line a
+    // moment ago included.
+    store.reread();
+    let views: Vec<AdminKeyView> = store
+      .list()
+      .iter()
+      .map(|k| AdminKeyView {
+        id: k.id.clone(),
+        name: k.name.clone(),
+        key_prefix: k.key_prefix.clone(),
+        role: k.role,
+        org_id: scope_view(&k.scope()),
+        created_at: k.created_at,
+        expires_at: k.expires_at,
+        expired: k.is_expired(),
+      })
+      .collect();
+    (views, store.take_adopted())
+  };
+  audit_adopted(&state, adopted).await;
   Json(views).into_response()
+}
+
+/// Writes the audit events for keys `aperio-server admin create-key` added
+/// to the data directory while the server ran. That process holds no audit
+/// chain, so the server records them the first time it reads them, under
+/// the command that made them.
+pub(crate) async fn audit_adopted(state: &AppState, keys: Vec<crate::store::admin_keys::AdminKey>) {
+  for key in keys {
+    state
+      .audit(
+        "admin_key_created",
+        "aperio-server admin create-key",
+        "local",
+        &format!(
+          "name={} id={} role={} org={}",
+          key.name,
+          key.id,
+          key.role.as_str(),
+          key.scope().as_str()
+        ),
+      )
+      .await;
+  }
 }
 
 /// Payload for creating an admin key. Unknown fields are refused, so a
@@ -163,11 +193,12 @@ pub(crate) async fn admin_keys_create_handler(
     )
       .into_response();
   }
-  let created = state
-    .admin_key_store
-    .lock()
-    .await
-    .create(name, role, scope, payload.ttl_seconds);
+  let (created, adopted) = {
+    let mut store = state.admin_key_store.lock().await;
+    let created = store.create(name, role, scope, payload.ttl_seconds);
+    (created, store.take_adopted())
+  };
+  audit_adopted(&state, adopted).await;
   let Some((record, secret)) = created else {
     return crate::api::tokens::not_persisted();
   };

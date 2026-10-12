@@ -267,8 +267,13 @@ pub(crate) async fn resolve_caller(state: &AppState, headers: &HeaderMap) -> Opt
     }
   }
   let presented = extract_token(headers)?;
-  let store = state.admin_key_store.lock().await;
-  let key = store.verify(&presented)?;
+  let (key, adopted) = {
+    let mut store = state.admin_key_store.lock().await;
+    let key = store.verify(&presented).cloned();
+    (key, store.take_adopted())
+  };
+  crate::api::admin_keys::audit_adopted(state, adopted).await;
+  let key = key?;
   Some(Caller {
     identity: Identity::Key {
       name: key.name.clone(),

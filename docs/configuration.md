@@ -818,8 +818,11 @@ aperio-server settings reset security.admin_allowed_ips
 | `aperio-server schema` | Print the settings document's JSON Schema. |
 | `aperio-server audit verify` | Verify the audit log's tamper-evident hash chain. |
 | `aperio-server backup decrypt <input> [output]` | Decrypt a backup snapshot with `APERIO_BACKUP_KEY` / `APERIO_BACKUP_KEY_FILE`. |
+| `aperio-server admin create-key --name <name> [--role admin] [--org '*'] [--expire 90d]` | Mint a programmatic admin key and print its secret on stdout, once. The defaults make the server admin (`*: admin`); `--org` takes `master` or a child organization's handle or id. |
+| `aperio-server admin list-keys` | List the admin keys, never their secrets. |
+| `aperio-server admin revoke-key <id>` | Revoke an admin key. |
 
-The commands that touch the data directory (`settings`, `apply`, `audit verify`) read `APERIO_DATA_DIR` like the server does, and are meant for a stopped server.
+The commands that touch the data directory (`settings`, `apply`, `audit verify`, `admin`) read `APERIO_DATA_DIR` like the server does. `settings` and `apply` are meant for a stopped server. `admin` is not: a running server reads the key table again at most once a second, so a key minted or revoked here is in force within a second, and the first time the server reads a key minted here it writes the `admin_key_created` audit event, naming this command as the actor.
 
 ### Settings reference
 

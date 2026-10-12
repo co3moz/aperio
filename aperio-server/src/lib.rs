@@ -105,7 +105,7 @@ pub fn run() {
   ensure_crypto_provider();
 
   use clap::Parser;
-  use cli::{AuditAction, BackupAction, Command, SettingsAction};
+  use cli::{AdminAction, AuditAction, BackupAction, Command, SettingsAction};
   let cli = cli::Cli::parse();
   let code = match cli.command {
     None | Some(Command::Run) => {
@@ -138,6 +138,16 @@ pub fn run() {
     Some(Command::Backup {
       action: BackupAction::Decrypt { input, output },
     }) => decrypt_backup(&input, output.as_deref()),
+    Some(Command::Admin { action }) => match action {
+      AdminAction::CreateKey {
+        name,
+        role,
+        org,
+        expire,
+      } => cli::admin_create_key(&name, &role, &org, expire.as_deref()),
+      AdminAction::ListKeys => cli::admin_list_keys(),
+      AdminAction::RevokeKey { id } => cli::admin_revoke_key(&id),
+    },
   };
   std::process::exit(code);
 }

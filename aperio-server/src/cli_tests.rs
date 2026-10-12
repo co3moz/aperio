@@ -18,6 +18,22 @@ fn no_command_is_run_and_the_commands_parse() {
     vec!["aperio-server", "run"],
     vec!["aperio-server", "settings", "show", "--full"],
     vec!["aperio-server", "settings", "reset", "proxy.trusted"],
+    vec!["aperio-server", "admin", "create-key", "--name", "ci"],
+    vec![
+      "aperio-server",
+      "admin",
+      "create-key",
+      "--name",
+      "ci",
+      "--role",
+      "operator",
+      "--org",
+      "acme",
+      "--expire",
+      "90d",
+    ],
+    vec!["aperio-server", "admin", "list-keys"],
+    vec!["aperio-server", "admin", "revoke-key", "some-id"],
     vec!["aperio-server", "apply", "server.yaml"],
     vec!["aperio-server", "check", "server.yaml"],
     vec!["aperio-server", "schema"],
@@ -55,4 +71,28 @@ fn reset_clears_an_optional_setting_and_refuses_an_unknown_path() {
   assert_eq!(r.routing.random_subdomain, None);
   assert!(reset_path(&s, "routing.no_such_key").is_err());
   assert!(reset_path(&s, "nonsense").is_err());
+}
+
+#[test]
+fn a_key_scope_is_star_master_or_an_organization_by_handle_or_id() {
+  use crate::store::grants::GrantOrg;
+  let dir = crate::test_support::test_temp_root()
+    .join(format!("cli-scope-{}", uuid::Uuid::new_v4()))
+    .to_string_lossy()
+    .to_string();
+  let org = crate::store::orgs::OrgStore::load(&dir)
+    .create("acme", Vec::new(), None)
+    .unwrap();
+  assert_eq!(key_scope(&dir, "*").unwrap(), GrantOrg::All);
+  assert_eq!(key_scope(&dir, "master").unwrap(), GrantOrg::Master);
+  assert_eq!(
+    key_scope(&dir, "acme").unwrap(),
+    GrantOrg::Child(org.id.clone())
+  );
+  assert_eq!(
+    key_scope(&dir, &org.id).unwrap(),
+    GrantOrg::Child(org.id.clone())
+  );
+  assert!(key_scope(&dir, "nope").is_err());
+  let _ = std::fs::remove_dir_all(&dir);
 }
