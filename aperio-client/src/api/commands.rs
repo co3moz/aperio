@@ -341,22 +341,11 @@ pub(crate) enum ClientCmd {
     /// Client connection id
     id: String,
   },
-  /// Overrule a client's hostname/path bind server-side
-  Override(ClientOverrideArgs),
   /// The configuration a connected client resolved, as it is running it
   Config {
     /// Client connection id
     id: String,
   },
-}
-
-#[derive(Args)]
-pub(crate) struct ClientOverrideArgs {
-  /// Client connection id
-  pub(crate) id: String,
-  /// Clear both overrides (otherwise --hostname / --path set them)
-  #[arg(long)]
-  pub(crate) clear: bool,
 }
 
 #[derive(Subcommand)]

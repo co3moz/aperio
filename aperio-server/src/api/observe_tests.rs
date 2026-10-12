@@ -96,7 +96,7 @@ async fn self_health_returns_snapshot_for_master_admin() {
   // Seed a connected client so `connected_clients` is exercised as non-zero.
   state.clients.write().await.insert(
     "c1".to_string(),
-    crate::test_support::mock_client(None, None, None, None),
+    crate::test_support::mock_client(None, None),
   );
 
   let headers = admin_headers(&state).await;

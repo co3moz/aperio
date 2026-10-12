@@ -1470,13 +1470,6 @@ through a generated subdomain answer with \code{X-Robots-Tag: noindex}
 and a disallow-all \code{robots.txt}. Explicitly named hostnames are
 treated as deliberate and are never marked.
 
-\section{Dashboard overrule}
-
-An operator can point a hostname or path at a specific connected client
-from the dashboard, overriding what the client declared. It is in-memory
-and disappears when the client reconnects, which makes it the right tool
-for a one-off investigation and the wrong tool for configuration.
-
 \section{Passive outlier ejection}
 
 On in the \code{safe} resilience profile, the default, and in
@@ -2353,7 +2346,7 @@ data at four resolutions.}
         range does not pretend to a resolution it does not have.
   \item[Clients] Every tunnel connection with its binds, version, health,
         concurrency and flags (draining, ejected, cache off). The kill
-        switch and bind overrule live here.
+        switch lives here.
   \item[Tunnels] The private services clients declare for
         \code{aperio-client bind}, each with the client that declared it
         and a ready \code{binds:} block to copy.
@@ -2395,7 +2388,7 @@ data at four resolutions.}
 \end{description}
 
 \screenshot{dashboard-clients.png}{Clients: every connection with its binds,
-health, version and flags. The kill switch and the bind overrule are here,
+health, version and flags. The kill switch is here,
 and the uptime panel underneath tracks availability per service.}
 
 \screenshot{dashboard-tunnels.png}{Tunnels: the private services clients
@@ -4220,7 +4213,7 @@ complete list, it is authoritative, and it always matches the running build.
 \rowsep
 \code{GET /aperio/api/requests/:id}, \code{POST /aperio/api/requests/:id/replay} & Request inspector \& replay. & dashboard session \\
 \rowsep
-\code{POST /aperio/api/clients/:id/override}, \code{POST /aperio/api/clients/:id/enabled} & Temporary bind overrule / enable-disable toggle. & dashboard session \\
+\code{POST /aperio/api/clients/:id/enabled} & Enable-disable toggle. & dashboard session \\
 \rowsep
 \code{GET /aperio/api/activity} & Request volume per bucket over the requested span (\code{range=15m}, \code{2h} or \code{1d}), for the activity chart's long views. & dashboard session \\
 \code{GET /aperio/api/explain} & Dry run: which rule would answer a request to a hostname and path, and what every other stage saw. Spends no rate limit and wakes nothing. & dashboard session (operator+) \\
@@ -4420,7 +4413,7 @@ Everything above, plus the administrative actions that have no webhook:
 \code{user\_grant\_added}, \code{user\_grant\_removed},
 \code{grants\_widened\_on\_upgrade},
 \code{org\_panel\_set},
-\code{client\_overrule}, \code{config\_reloaded},
+\code{config\_reloaded},
 \code{scaling\_failed}, \code{scaling\_disarmed}, \code{tunnel\_denied},
 \code{totp\_enabled}.
 

@@ -108,7 +108,7 @@ async fn the_allocation_keeps_a_draining_listeners_reservation() {
   allocate(&state, vec![allocation]).await;
   let (_, headers) = user(&state, "publisher", &org, Role::Admin).await;
   let (tx, mut rx) = tokio::sync::mpsc::channel(16);
-  let mut client = crate::test_support::mock_client(None, None, None, None);
+  let mut client = crate::test_support::mock_client(None, None);
   client.tx = tx;
   client.perms.org_id = Some(org.clone());
   client.sole_mut().tunnels = vec![crate::protocol::TunnelDecl {

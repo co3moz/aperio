@@ -1232,7 +1232,6 @@ Three things hold for the whole `/aperio/api/` surface. The credential is a dash
 | `GET /aperio/api/bandwidth` | Bytes in/out per token and hostname, bucketed per day or month (unit=day|month, count). | a dashboard session or admin key (viewer+) |
 | `GET /aperio/api/clients/{id}/config` | Effective configuration of one connection as a YAML document, plus every setting whose effective value differs from what was configured (a bandwidth budget divided across parallel connections, a cache opt-in the server ignores, an active overrule). | a dashboard session or admin key (viewer+) |
 | `POST /aperio/api/clients/{id}/enabled` | Kill switch: enable/disable routing to one client without dropping its tunnel. | a dashboard session or admin key (operator+) |
-| `POST /aperio/api/clients/{id}/override` | Temporarily overrule a client's hostname/path bind server-side (empty values clear the override). | a dashboard session or admin key (operator+) |
 | `GET /aperio/api/config/schema/{kind}` | JSON Schema of a configuration file, for editors and the dashboard's config builder. | a dashboard session or admin key (viewer+) |
 | `GET /aperio/api/explain` | Dry run: which rule would answer a request to this hostname and path, and what every other stage saw. | a dashboard session or admin key (operator+) |
 | `GET /aperio/api/export/traffic.csv` | Per-period traffic history as CSV (requests, bytes, latency) for the caller's org. | a dashboard session or admin key (viewer+) |

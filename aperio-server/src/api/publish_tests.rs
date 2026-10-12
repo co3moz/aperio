@@ -115,18 +115,18 @@ async fn subscribers_are_grouped_by_process_and_scoped_to_the_organization() {
     .unwrap()
     .id;
 
-  let mut a1 = mock_client(Some("a.example.com"), None, None, None);
+  let mut a1 = mock_client(Some("a.example.com"), None);
   a1.instance_group = Some("proc-1".into());
   a1.subscriptions = vec!["deploy/#".into()];
-  let mut a2 = mock_client(Some("b.example.com"), None, None, None);
+  let mut a2 = mock_client(Some("b.example.com"), None);
   a2.instance_group = Some("proc-1".into());
   a2.subscriptions = vec!["deploy/#".into(), "alerts/+".into()];
-  let mut other = mock_client(Some("c.example.com"), None, None, None);
+  let mut other = mock_client(Some("c.example.com"), None);
   other.instance_group = Some("proc-2".into());
   other.subscriptions = vec!["tenant/#".into()];
   other.perms.org_id = Some(org.clone());
   // A connection with no subscription is not a subscriber.
-  let quiet = mock_client(Some("d.example.com"), None, None, None);
+  let quiet = mock_client(Some("d.example.com"), None);
   {
     let mut clients = state.clients.write().await;
     clients.insert("c1".into(), a1);

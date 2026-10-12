@@ -7,7 +7,7 @@ use super::*;
 use crate::test_support::*;
 
 fn on(host: &str) -> ClientHandle {
-  mock_client(Some(host), None, None, None)
+  mock_client(Some(host), None)
 }
 
 fn public(mut c: ClientHandle) -> ClientHandle {

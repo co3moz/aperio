@@ -253,8 +253,6 @@ fn mock_client() -> ClientHandle {
       declared_hostnames: Vec::new(),
       assigned_hostnames: Vec::new(),
       random_hostname: None,
-      override_path_bind: None,
-      override_hostname_binds: Vec::new(),
       capture: true,
       connections: None,
       connections_min: None,

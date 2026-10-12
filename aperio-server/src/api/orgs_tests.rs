@@ -824,7 +824,7 @@ async fn hostnames_apply_to_live_connections() {
 
   // One connection serving a hostname the new fence keeps, one it excludes.
   for (id, host) in [("keep", "ok.acme.com"), ("evict", "old.example.com")] {
-    let mut c = crate::test_support::mock_client(Some(host), None, None, None);
+    let mut c = crate::test_support::mock_client(Some(host), None);
     c.perms.org_id = Some(org_id.clone());
     c.sole_mut().declared_hostnames = vec![host.to_string()];
     c.sole_mut().assigned_hostnames = vec![host.to_string()];
@@ -1351,7 +1351,7 @@ async fn a_panel_cannot_take_a_name_somebody_else_is_serving() {
   let acme_admin = granted_user(&state, "acme-admin", vec![(&acme, Role::Admin)]).await;
   state.clients.write().await.insert(
     "master-client".to_string(),
-    mock_client(Some("www.shop.test"), None, None, None),
+    mock_client(Some("www.shop.test"), None),
   );
   let resp = set_panel(
     &state,
@@ -1374,7 +1374,7 @@ async fn a_panel_cannot_take_a_name_somebody_else_is_serving() {
   assert_eq!(resp.status(), StatusCode::CONFLICT);
 
   // Its own connection is Acme's to take off the air.
-  let mut own = mock_client(Some("app.shop.test"), None, None, None);
+  let mut own = mock_client(Some("app.shop.test"), None);
   own.perms.org_id = Some(acme.clone());
   state
     .clients

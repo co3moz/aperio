@@ -148,21 +148,6 @@ pub(crate) fn build_call(
       format!("/aperio/api/clients/{}/enabled", id),
       json!({ "enabled": false }),
     ),
-    ApiCommand::Client(ClientCmd::Override(a)) => {
-      // Each field fully replaces its override; an empty string clears it.
-      let (hostname, path) = if a.clear {
-        (Some(String::new()), Some(String::new()))
-      } else {
-        (scope.hostname(), scope.path())
-      };
-      let mut body = Map::new();
-      put_opt(&mut body, "hostname_bind", hostname);
-      put_opt(&mut body, "path_bind", path);
-      Call::post(
-        format!("/aperio/api/clients/{}/override", a.id),
-        Value::Object(body),
-      )
-    }
     ApiCommand::Client(ClientCmd::Config { id }) => {
       Call::get(format!("/aperio/api/clients/{}/config", id))
     }

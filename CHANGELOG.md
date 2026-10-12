@@ -111,6 +111,8 @@ project follows semantic versioning per release tag.
 
 ### Removed
 
+- **The dashboard's hostname overrule is gone, and with it `POST /aperio/api/clients/{id}/override` and `aperio-client api client override`.** **Breaking:** a hostname or path a client serves now comes from the client's own declaration or from its token, and nothing else; the in-memory override that replaced them until the next reconnect was a sixth source a reader of the routing table had to remember. Retarget a hostname by changing the client's `hostname:`, which a config reload applies, or its token's `hostnames`, which apply when the client next connects. The `client_overrule` audit event is no longer written.
+
 - **Expose listeners written in the server's file are gone with the file.** Listeners are managed resources, created from the dashboard's Tunnels page or the API and carried in an export's `exposes` section. The shared-secret claim (`key:` on the server, `expose:` on a tunnel) and the token-name claim went with them: a client's `expose:` key on a tunnel matches nothing now. **Breaking:** recreate each `expose:` entry as a listener before upgrading.
 
 - **The OpenTelemetry fallbacks to `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` and the `OTEL_EXPORTER_OTLP_*PROTOCOL` variables.** The server reads `otel.endpoint`, `otel.service_name` and `otel.protocol` from its settings and nothing from the environment.

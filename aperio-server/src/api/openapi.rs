@@ -80,7 +80,6 @@ use utoipa::OpenApi;
     crate::api::clients::logs_handler,
     crate::api::clients::live_stream_handler,
     crate::api::clients::client_config_handler,
-    crate::api::clients::client_override_handler,
     crate::api::clients::client_enabled_handler,
     crate::api::inspector::request_detail_handler,
     crate::api::inspector::request_replay_handler,

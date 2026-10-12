@@ -15,7 +15,7 @@ pub(crate) async fn insert_client(
   id: &str,
   f: impl FnOnce(&mut crate::state::ClientHandle),
 ) {
-  let mut handle = mock_client(Some("svc.example.com"), Some("/api"), None, None);
+  let mut handle = mock_client(Some("svc.example.com"), Some("/api"));
   f(&mut handle);
   state.clients.write().await.insert(id.to_string(), handle);
 }
@@ -52,10 +52,6 @@ pub(crate) fn log(id: &str, org: Option<&str>) -> RequestLog {
 
 // ---------------------------------------------------------------------------
 // client_config_handler
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// client_override_handler
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------

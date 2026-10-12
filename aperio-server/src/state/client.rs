@@ -79,8 +79,6 @@ pub(crate) const SERVICE_SCOPED_DERIVED: &[&str] = &[
   "assigned_path",
   "assigned_hostnames",
   "random_hostname",
-  "override_path_bind",
-  "override_hostname_binds",
   "inflight_limiter",
   // The band `adaptive_concurrency` moves the limiter inside, which is one
   // service's band: two services on a connection announce their own numbers
@@ -269,8 +267,6 @@ impl ServiceState {
       declared_hostnames: Vec::new(),
       assigned_hostnames: Vec::new(),
       random_hostname: None,
-      override_path_bind: None,
-      override_hostname_binds: Vec::new(),
       capture: true,
       connections: None,
       connections_min: None,
@@ -350,22 +346,15 @@ impl ServiceState {
     false
   }
 
-  /// Path bind used for routing: dashboard override wins over the declared
-  /// value, which wins over the token-granted value.
+  /// Path bind used for routing: the declared value wins over the
+  /// token-granted one.
   pub(crate) fn effective_path_bind(&self) -> Option<&String> {
-    self
-      .override_path_bind
-      .as_ref()
-      .or(self.declared_path.as_ref())
-      .or(self.assigned_path.as_ref())
+    self.declared_path.as_ref().or(self.assigned_path.as_ref())
   }
 
-  /// Hostnames used for routing. A dashboard override replaces the whole
-  /// set; otherwise the union of assigned and declared hostnames applies.
+  /// Hostnames used for routing: what the token granted and what the client
+  /// declared, together. Nothing else names a hostname a client serves.
   pub(crate) fn effective_hostnames(&self) -> Vec<&String> {
-    if !self.override_hostname_binds.is_empty() {
-      return self.override_hostname_binds.iter().collect();
-    }
     let mut set: Vec<&String> = self.assigned_hostnames.iter().collect();
     if let Some(d) = &self.declared_hostname
       && !set.contains(&d)
@@ -435,15 +424,6 @@ pub(crate) struct ServiceState {
   /// The randomly assigned hostname within `assigned_hostnames`, tracked
   /// separately so a runtime pattern change can swap it in place.
   pub(crate) random_hostname: Option<String>,
-  /// Temporary path bind override set from the dashboard. Not persisted:
-  /// lost when the client reconnects or the server restarts.
-  pub(crate) override_path_bind: Option<String>,
-  /// Temporary hostname binds set from the dashboard, replacing every declared
-  /// and assigned name while set. A list rather than a single name so an
-  /// operator can retarget the hostname the client declared without dropping
-  /// the random subdomain the server handed it (or the other way round). Not
-  /// persisted: lost when the client reconnects or the server restarts.
-  pub(crate) override_hostname_binds: Vec<String>,
   /// The concurrency limit currently *enforced* for this service, which is
   /// also what is displayed.
   ///

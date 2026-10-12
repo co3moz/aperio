@@ -1,6 +1,6 @@
 //! What the config view says a service is actually running: the declared
-//! value beside the effective one wherever they differ, an active overrule,
-//! and the optional knobs a richly configured service sets.
+//! value beside the effective one wherever they differ, where each hostname
+//! came from, and the optional knobs a richly configured service sets.
 
 use super::super::clients_tests::*;
 use super::*;
@@ -162,13 +162,15 @@ async fn client_config_renders_an_empty_hostname_list() {
 }
 
 #[tokio::test]
-async fn client_config_reports_an_active_overrule_and_hides_other_orgs() {
+async fn client_config_labels_each_hostname_and_hides_other_orgs() {
   let state = Arc::new(test_state());
   insert_client(&state, "c1", |h| {
     h.sole_mut().declared_hostname = Some("app.example.com".to_string());
     h.sole_mut().declared_hostnames = vec!["app.example.com".to_string()];
-    h.sole_mut().assigned_hostnames = vec!["app.example.com".to_string()];
-    h.sole_mut().override_hostname_binds = vec!["moved.example.com".to_string()];
+    h.sole_mut().assigned_hostnames = vec![
+      "app.example.com".to_string(),
+      "granted.example.com".to_string(),
+    ];
   })
   .await;
   insert_client(&state, "other", |h| {
@@ -186,24 +188,15 @@ async fn client_config_reports_an_active_overrule_and_hides_other_orgs() {
   .await;
   let body: serde_json::Value = json_body(resp).await;
   let yaml = body["yaml"].as_str().unwrap();
-  // Routing follows the overrule, so the document does too.
+  // Each name says where it came from, the client or its token.
   assert!(
-    yaml.contains("  - \"moved.example.com\"  # dashboard overrule"),
+    yaml.contains("  - \"app.example.com\"  # requested by the client"),
     "got:\n{yaml}"
   );
   assert!(
-    !yaml.contains("  - \"app.example.com\""),
-    "the overruled name no longer routes:\n{yaml}"
+    yaml.contains("  - \"granted.example.com\"  # granted by the token"),
+    "got:\n{yaml}"
   );
-  let note = body["notes"]
-    .as_array()
-    .unwrap()
-    .iter()
-    .find(|n| n["field"] == "hostname")
-    .unwrap()
-    .clone();
-  assert_eq!(note["declared"], "app.example.com");
-  assert_eq!(note["effective"], "moved.example.com");
 
   // A client of another organization is a 404, like everywhere else.
   let resp = client_config_handler(
@@ -217,9 +210,9 @@ async fn client_config_reports_an_active_overrule_and_hides_other_orgs() {
 }
 
 #[tokio::test]
-async fn client_config_renders_every_optional_knob_and_server_overrule() {
+async fn client_config_renders_every_optional_knob_and_server_refusal() {
   // One maximal connection, so every branch of the yaml renderer runs: the
-  // dashboard overrules, the refused announcements, and each optional line.
+  // refused announcements and each optional line.
   let state = Arc::new(test_state());
   insert_client(&state, "c1", |h| {
     h.sole_mut().declared_hostname = Some("app.example.com".to_string());
@@ -229,9 +222,7 @@ async fn client_config_renders_every_optional_knob_and_server_overrule() {
       "wild-fox.example.com".to_string(),
     ];
     h.sole_mut().random_hostname = Some("wild-fox.example.com".to_string());
-    h.sole_mut().override_hostname_binds = vec!["forced.example.com".to_string()];
     h.sole_mut().declared_path = Some("/api".to_string());
-    h.sole_mut().override_path_bind = Some("/forced".to_string());
     h.sole_mut().public_denied_warned = true;
     h.sole_mut().visitor_auth_denied_warned = true;
     h.sole_mut().priority = 2;
@@ -287,19 +278,13 @@ async fn client_config_renders_every_optional_knob_and_server_overrule() {
     assert!(yaml.contains(line), "missing `{line}` in:\n{yaml}");
   }
 
-  // The three server-side refusals and the two overrules are all notes.
+  // The server-side refusals are notes; a hostname or path is the client's
+  // and its token's, so there is nothing of theirs to note.
   let notes = body["notes"].as_array().unwrap();
   let fields: Vec<&str> = notes.iter().filter_map(|n| n["field"].as_str()).collect();
-  for field in ["access", "hostname", "path"] {
-    assert!(fields.contains(&field), "{fields:?}");
-  }
-  let hostname_note = notes.iter().find(|n| n["field"] == "hostname").unwrap();
-  assert_eq!(hostname_note["effective"], "forced.example.com");
+  assert!(fields.contains(&"access"), "{fields:?}");
   assert!(
-    hostname_note["declared"]
-      .as_str()
-      .unwrap()
-      .contains("wild-fox.example.com"),
-    "the assigned hostname is part of what the overrule replaced"
+    !fields.contains(&"hostname") && !fields.contains(&"path"),
+    "{fields:?}"
   );
 }

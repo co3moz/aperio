@@ -212,17 +212,10 @@ fn effective_path_bind_precedence() {
     h.sole().effective_path_bind(),
     Some(&"/declared".to_string())
   );
-
-  // Dashboard override wins over everything.
-  h.sole_mut().override_path_bind = Some("/override".to_string());
-  assert_eq!(
-    h.sole().effective_path_bind(),
-    Some(&"/override".to_string())
-  );
 }
 
 #[test]
-fn matches_host_uses_override_then_union() {
+fn matches_host_is_the_union_of_what_was_granted_and_declared() {
   let mut h = base_handle();
   h.sole_mut().assigned_hostnames = vec!["a.example.com".to_string()];
   h.sole_mut().declared_hostname = Some("b.example.com".to_string());
@@ -230,19 +223,6 @@ fn matches_host_uses_override_then_union() {
   assert!(h.sole().matches_host("a.example.com"));
   assert!(h.sole().matches_host("b.example.com"));
   assert!(!h.sole().matches_host("c.example.com"));
-
-  // An override replaces the whole set.
-  h.sole_mut().override_hostname_binds = vec!["c.example.com".to_string()];
-  assert!(h.sole().matches_host("c.example.com"));
-  assert!(!h.sole().matches_host("a.example.com"));
-
-  // Several overridden names all route: an operator retargeting the hostname
-  // the client declared can keep the random subdomain alive alongside it.
-  h.sole_mut().override_hostname_binds =
-    vec!["c.example.com".to_string(), "a.example.com".to_string()];
-  assert!(h.sole().matches_host("c.example.com"));
-  assert!(h.sole().matches_host("a.example.com"));
-  assert!(!h.sole().matches_host("b.example.com"));
 }
 
 #[test]
@@ -336,7 +316,7 @@ fn test_ip_in_ranges_matches_plain_and_cidr() {
 async fn two_client_pool() -> std::sync::Arc<AppState> {
   let state = std::sync::Arc::new(crate::test_support::test_state());
   for id in ["a", "b"] {
-    let mut c = crate::test_support::mock_client(Some("app.example.com"), None, None, None);
+    let mut c = crate::test_support::mock_client(Some("app.example.com"), None);
     c.reported_instance_id = Some(id.to_string());
     state.clients.write().await.insert(id.to_string(), c);
   }
@@ -426,7 +406,7 @@ async fn a_connection_awaiting_its_first_ping_is_a_pending_declaration() {
     "no clients, nothing is arriving"
   );
 
-  let mut c = crate::test_support::mock_client(None, None, None, None);
+  let mut c = crate::test_support::mock_client(None, None);
   c.last_ping_at = None;
   state.clients.write().await.insert("a".to_string(), c);
   assert!(route_declaration_pending(&state).await);
@@ -450,7 +430,7 @@ async fn a_connection_awaiting_its_first_ping_is_a_pending_declaration() {
 #[tokio::test]
 async fn a_token_granted_bind_does_not_end_the_declaration_wait() {
   let state = crate::test_support::test_state();
-  let mut c = crate::test_support::mock_client(None, None, None, None);
+  let mut c = crate::test_support::mock_client(None, None);
   c.last_ping_at = None;
   c.sole_mut().assigned_hostnames = vec!["granted.example.com".to_string()];
   state.clients.write().await.insert("a".to_string(), c);
@@ -473,7 +453,7 @@ async fn a_token_granted_bind_does_not_end_the_declaration_wait() {
 #[tokio::test]
 async fn a_connection_silent_past_the_down_threshold_is_not_arriving() {
   let state = crate::test_support::test_state();
-  let mut c = crate::test_support::mock_client(None, None, None, None);
+  let mut c = crate::test_support::mock_client(None, None);
   c.last_ping_at = None;
   c.connected_at = Instant::now()
     .checked_sub(state.config().client_down_threshold + Duration::from_secs(1))
@@ -487,7 +467,7 @@ async fn a_selection_carries_both_names_a_client_can_be_shown_under() {
   // The capture, and everything else that shows a client to a person, reads
   // these off the selection rather than taking the clients lock again.
   let state = std::sync::Arc::new(crate::test_support::test_state());
-  let mut c = crate::test_support::mock_client(Some("app.example.com"), None, None, None);
+  let mut c = crate::test_support::mock_client(Some("app.example.com"), None);
   c.sole_mut().service_name = Some("web".to_string());
   c.sole_mut().service_custom_name = Some("web (blue)".to_string());
   state.clients.write().await.insert("a".to_string(), c);
@@ -673,9 +653,9 @@ async fn the_traversal_gate_pairs_each_gate_with_its_own_hostname() {
 #[test]
 pub(crate) fn test_find_affinity_match() {
   let mut clients = HashMap::new();
-  let mut a = mock_client(None, None, None, None);
+  let mut a = mock_client(None, None);
   a.reported_instance_id = Some("instance-a".to_string());
-  let b = mock_client(None, None, None, None);
+  let b = mock_client(None, None);
   clients.insert("conn-a".to_string(), a);
   clients.insert("conn-b".to_string(), b);
   let pool = refs(&["conn-a", "conn-b"]);
@@ -701,8 +681,8 @@ pub(crate) fn test_find_affinity_match() {
 #[test]
 pub(crate) fn test_apply_lb_strategy_primary_standby() {
   let mut clients = HashMap::new();
-  let primary = mock_client(None, None, None, None);
-  let mut standby = mock_client(None, None, None, None);
+  let primary = mock_client(None, None);
+  let mut standby = mock_client(None, None);
   standby.sole_mut().priority = 1;
   clients.insert("primary".to_string(), primary);
   clients.insert("standby".to_string(), standby);
@@ -736,7 +716,7 @@ pub(crate) fn test_apply_lb_strategy_primary_standby() {
 #[test]
 pub(crate) fn test_select_client_pool_excludes_unhealthy() {
   let mut clients = HashMap::new();
-  let mut stale = mock_client(None, None, None, None);
+  let mut stale = mock_client(None, None);
   // Last heartbeat far in the past -> down
   stale.last_ping_at = Some(Instant::now() - Duration::from_secs(120));
   clients.insert("stale".to_string(), stale);
@@ -745,7 +725,7 @@ pub(crate) fn test_select_client_pool_excludes_unhealthy() {
   assert!(select_client_pool(&clients, "/", None, Duration::from_secs(15)).is_none());
 
   // A fresh client joins -> traffic goes only to it
-  let mut fresh = mock_client(None, None, None, None);
+  let mut fresh = mock_client(None, None);
   fresh.last_ping_at = Some(Instant::now());
   clients.insert("fresh".to_string(), fresh);
   let (pool, _) = select_client_pool(&clients, "/", None, Duration::from_secs(15)).unwrap();
@@ -760,15 +740,9 @@ pub(crate) fn test_select_client_pool_excludes_unhealthy() {
 #[test]
 pub(crate) fn test_select_client_pool_hostname_routing() {
   let mut clients = HashMap::new();
-  clients.insert(
-    "a".to_string(),
-    mock_client(Some("a.example.com"), None, None, None),
-  );
-  clients.insert(
-    "b".to_string(),
-    mock_client(Some("b.example.com"), None, None, None),
-  );
-  clients.insert("unbound".to_string(), mock_client(None, None, None, None));
+  clients.insert("a".to_string(), mock_client(Some("a.example.com"), None));
+  clients.insert("b".to_string(), mock_client(Some("b.example.com"), None));
+  clients.insert("unbound".to_string(), mock_client(None, None));
 
   // Host matches a.example.com → only client "a"
   let (pool, key) =
@@ -798,11 +772,11 @@ pub(crate) fn test_select_client_pool_hostname_and_path_combined() {
   let mut clients = HashMap::new();
   clients.insert(
     "host-api".to_string(),
-    mock_client(Some("a.example.com"), Some("/api"), None, None),
+    mock_client(Some("a.example.com"), Some("/api")),
   );
   clients.insert(
     "host-root".to_string(),
-    mock_client(Some("a.example.com"), None, None, None),
+    mock_client(Some("a.example.com"), None),
   );
 
   // Path under /api on the bound host → path-bound client wins
@@ -823,20 +797,4 @@ pub(crate) fn test_select_client_pool_hostname_and_path_combined() {
   let (pool, _) =
     select_client_pool(&clients, "/other", Some("a.example.com"), TEST_THRESHOLD).unwrap();
   assert_eq!(ids(&pool), vec!["host-root".to_string()]);
-}
-
-#[test]
-pub(crate) fn test_select_client_pool_override_wins() {
-  let mut clients = HashMap::new();
-  // Client reported no hostname, dashboard overruled it to a.example.com
-  clients.insert(
-    "overruled".to_string(),
-    mock_client(None, None, Some("a.example.com"), None),
-  );
-
-  let (pool, _) = select_client_pool(&clients, "/", Some("a.example.com"), TEST_THRESHOLD).unwrap();
-  assert_eq!(ids(&pool), vec!["overruled".to_string()]);
-
-  // With the override active, the client is no longer an unbound fallback
-  assert!(select_client_pool(&clients, "/", Some("x.example.com"), TEST_THRESHOLD).is_none());
 }

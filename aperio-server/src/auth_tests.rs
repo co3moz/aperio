@@ -531,7 +531,7 @@ pub(super) async fn login_server_visitor_password_global() {
 pub(super) async fn login_visitor_credentials_host_scoped() {
   let state = test_state();
   // A connected client bound to `site.test` sets a per-service visitor password.
-  let mut client = mock_client(Some("site.test"), None, None, None);
+  let mut client = mock_client(Some("site.test"), None);
   client.sole_mut().visitor_auth = Some("guest:letmein".to_string());
   state.clients.write().await.insert("c1".to_string(), client);
   let state = Arc::new(state);
@@ -555,7 +555,7 @@ pub(super) async fn login_admits_any_user_a_clients_policy_names() {
   // the policy listed was refused at this form, on a route the gate had sent
   // the visitor to. The gate was unopenable by anyone it was written for.
   let state = test_state();
-  let mut client = mock_client(Some("site.test"), None, None, None);
+  let mut client = mock_client(Some("site.test"), None);
   client.sole_mut().visitor_auth_policy = Some(crate::visitor_auth::Policy::compile(
     &serde_yaml::from_str("{method: basic, users: [\"alice:one\", \"bob:two\"]}").unwrap(),
   ));
@@ -1002,7 +1002,7 @@ async fn a_sites_gate_signs_its_visitors_in_for_its_hostname_over_a_clients() {
   let state = test_state_with(cfg);
   // A client on the same hostname with a password of its own: the site's
   // word is the last one, so it is the site's credential the form takes.
-  let mut client = mock_client(Some("site.test"), None, None, None);
+  let mut client = mock_client(Some("site.test"), None);
   client.sole_mut().visitor_auth = Some("guest:letmein".to_string());
   state.clients.write().await.insert("c1".to_string(), client);
   let state = Arc::new(state);

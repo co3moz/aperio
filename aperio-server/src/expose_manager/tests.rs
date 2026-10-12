@@ -58,7 +58,7 @@ async fn install(state: &Arc<AppState>, rules: Vec<ExposeResource>) -> Result<()
 }
 async fn client(state: &Arc<AppState>, version: u32) -> mpsc::Receiver<Message> {
   let (tx, rx) = mpsc::channel(128);
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.tx = tx;
   c.client_protocol = Some(version);
   c.sole_mut().tunnels = vec![TunnelDecl {
@@ -527,7 +527,7 @@ async fn udp_packet_and_per_ip_limits_bound_admission() {
 async fn udp_flood_with_slow_tunnel_stays_bounded_and_another_listener_progresses() {
   let state = Arc::new(test_state());
   let (blocked_tx, _blocked_rx) = mpsc::channel(1);
-  let mut slow = mock_client(None, None, None, None);
+  let mut slow = mock_client(None, None);
   slow.tx = blocked_tx;
   slow.sole_mut().tunnels = vec![TunnelDecl {
     name: Some("slow".into()),

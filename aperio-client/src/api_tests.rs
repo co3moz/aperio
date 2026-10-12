@@ -274,15 +274,6 @@ fn test_tunnel_create_and_delete() {
 }
 
 #[test]
-fn test_client_override_clear_sends_empty_strings() {
-  let call = call_for(&["client", "override", "c1", "--clear"]).unwrap();
-  assert_eq!(call.path, "/aperio/api/clients/c1/override");
-  let body = call.body.unwrap();
-  assert_eq!(body["hostname_bind"], "");
-  assert_eq!(body["path_bind"], "");
-}
-
-#[test]
 fn test_client_enable_disable() {
   let enable = call_for(&["client", "enable", "c1"]).unwrap();
   assert_eq!(enable.path, "/aperio/api/clients/c1/enabled");

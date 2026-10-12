@@ -94,7 +94,7 @@ async fn insert(
   cid: &str,
   mutate: impl FnOnce(&mut crate::state::ClientHandle),
 ) {
-  let mut c = crate::test_support::mock_client(None, None, None, None);
+  let mut c = crate::test_support::mock_client(None, None);
   mutate(&mut c);
   state.clients.write().await.insert(cid.to_string(), c);
 }

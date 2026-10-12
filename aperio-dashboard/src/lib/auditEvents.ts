@@ -69,7 +69,6 @@ export const AUDIT_EVENT_GROUPS: AuditEventGroup[] = [
       'client_draining',
       'client_enabled',
       'client_disabled',
-      'client_overrule',
       'tunnel_created',
       'tunnel_deleted',
       'tunnel_denied',

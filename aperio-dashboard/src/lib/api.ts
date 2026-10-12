@@ -43,10 +43,6 @@ export interface ClientDetail {
   /** The random subdomain the server assigned, if any. */
   random_hostname: string | null
   token_name: string | null
-  override_path_bind: string | null
-  /** Temporary dashboard overrule: while non-empty these replace every
-   *  declared and assigned hostname for routing. */
-  override_hostname_binds: string[]
   last_ping_seconds_ago: number | null
   max_concurrent: number | null
   version: string | null
@@ -972,11 +968,6 @@ export const api = {
   /** JSON Schema of a configuration file, driving the config builder. */
   configSchema: (kind: 'client' | 'server') =>
     request<JsonSchema>(`/config/schema/${kind}`),
-  overrideClient: (id: string, hostnameBinds: string[], pathBind: string, service = 0) =>
-    mutate(
-      `/clients/${encodeURIComponent(id)}/override?service=${service}`,
-      json('POST', { hostname_binds: hostnameBinds, path_bind: pathBind }),
-    ),
   setClientEnabled: (id: string, enabled: boolean, service = 0) =>
     mutate(
       `/clients/${encodeURIComponent(id)}/enabled?service=${service}`,

@@ -220,7 +220,7 @@ async fn check_share_access_without_any_credential_is_none() {
 
 async fn state_owning(host: &str) -> std::sync::Arc<AppState> {
   let state = test_state();
-  let client = mock_client(Some(host), None, None, None);
+  let client = mock_client(Some(host), None);
   state.clients.write().await.insert("c1".to_string(), client);
   std::sync::Arc::new(state)
 }
@@ -429,7 +429,7 @@ async fn share_create_refuses_a_hostname_another_organization_serves() {
     .id;
   state.clients.write().await.insert(
     "master-conn".to_string(),
-    mock_client(Some("app.example.com"), None, None, None),
+    mock_client(Some("app.example.com"), None),
   );
   let token = seed_session(
     &state,

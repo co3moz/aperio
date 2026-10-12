@@ -191,7 +191,7 @@ async fn ticker_fires_and_resolves_both_rules() {
     .clients
     .write()
     .await
-    .insert("svc1".to_string(), mock_client(None, None, None, None));
+    .insert("svc1".to_string(), mock_client(None, None));
 
   // Read by the ticker on this thread: the runtime is current-thread.
   crate::live::set_yaml(

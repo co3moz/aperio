@@ -101,12 +101,6 @@ pub(crate) struct ClientDetail {
   pub(crate) token_name: Option<String>,
   /// Organization this client belongs to, from its token (None = master).
   pub(crate) org_id: Option<String>,
-  /// Temporary server-side path bind override (dashboard overrule).
-  pub(crate) override_path_bind: Option<String>,
-  /// Temporary server-side hostname binds (dashboard overrule). Empty = none;
-  /// otherwise this list is what the connection is routed on, in place of
-  /// every declared and assigned name.
-  pub(crate) override_hostname_binds: Vec<String>,
   /// Seconds elapsed since the last heartbeat Ping was received.
   pub(crate) last_ping_seconds_ago: Option<u64>,
   /// Concurrency limit announced by the client (None = unlimited).

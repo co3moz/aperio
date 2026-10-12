@@ -333,12 +333,7 @@ pub(crate) fn test_state() -> AppState {
 }
 
 /// A mock tunnel client handle (master perms, admin enabled, healthy).
-pub(crate) fn mock_client(
-  hostname_bind: Option<&str>,
-  path_bind: Option<&str>,
-  override_hostname: Option<&str>,
-  override_path: Option<&str>,
-) -> ClientHandle {
+pub(crate) fn mock_client(hostname_bind: Option<&str>, path_bind: Option<&str>) -> ClientHandle {
   let (tx, _rx) = mpsc::channel::<Message>(1);
   ClientHandle {
     declared_name: None,
@@ -369,9 +364,8 @@ pub(crate) fn mock_client(
       server_side_refused: None,
       policy_conflict: None,
       // A mock that names no hostname stands for a client serving every
-      // hostname, which since 0.13.0 has to be said: `hostname: "*"`. An
-      // overruled hostname is the dashboard's, and makes it a bound one.
-      catch_all: hostname_bind.is_none() && override_hostname.is_none(),
+      // hostname, which since 0.13.0 has to be said: `hostname: "*"`.
+      catch_all: hostname_bind.is_none(),
       serves_http: false,
       route_noticed: false,
       metrics_labels: Vec::new(),
@@ -383,11 +377,6 @@ pub(crate) fn mock_client(
       declared_hostnames: Vec::new(),
       assigned_hostnames: Vec::new(),
       random_hostname: None,
-      override_path_bind: override_path.map(|s| s.to_string()),
-      override_hostname_binds: override_hostname
-        .map(|s| s.to_string())
-        .into_iter()
-        .collect(),
       capture: true,
       connections: None,
       connections_min: None,

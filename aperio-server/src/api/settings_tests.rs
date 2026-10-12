@@ -375,7 +375,7 @@ async fn changing_subdomain_suffix_reassigns_connected_clients() {
     .clients
     .write()
     .await
-    .insert("c1".to_string(), mock_client(None, None, None, None));
+    .insert("c1".to_string(), mock_client(None, None));
 
   apply_settings(&state, doc("routing:\n  random_subdomain: example.com\n"))
     .await
@@ -405,7 +405,7 @@ async fn enabling_compression_offers_it_to_connected_clients() {
     .clients
     .write()
     .await
-    .insert("c1".to_string(), mock_client(None, None, None, None));
+    .insert("c1".to_string(), mock_client(None, None));
 
   apply_settings(&state, doc("advanced:\n  compression: true\n"))
     .await

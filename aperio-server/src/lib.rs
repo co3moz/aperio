@@ -387,8 +387,6 @@ pub mod testkit {
           declared_hostnames: vec!["probe.example.com".to_string()],
           assigned_hostnames: Vec::new(),
           random_hostname: None,
-          override_path_bind: None,
-          override_hostname_binds: Vec::new(),
           capture: true,
           connections: None,
           connections_min: None,

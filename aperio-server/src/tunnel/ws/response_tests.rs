@@ -167,7 +167,7 @@ async fn stalled_consumer_never_blocks_the_read_loop() {
     .clients
     .write()
     .await
-    .insert("owner".into(), mock_client(None, None, None, None));
+    .insert("owner".into(), mock_client(None, None));
 
   // A visitor that has stopped reading: the consumer channel is never
   // drained. A short stall timeout stands in for gateway_response_timeout.
@@ -225,7 +225,7 @@ async fn backlog_cap_drops_a_producer_that_cannot_be_paused() {
     .clients
     .write()
     .await
-    .insert("owner".into(), mock_client(None, None, None, None));
+    .insert("owner".into(), mock_client(None, None));
 
   // A stalled consumer and a pre-v3 producer (detached flow: pause cannot be
   // delivered): the only guard left is the hard byte cap.

@@ -25,7 +25,7 @@ pub(crate) use numbers::*;
 use aperio_config::format_bandwidth;
 
 use crate::protocol::PROTOCOL_VERSION;
-use crate::routing::{extract_client_ip, normalize_hostname_bind, normalize_path_bind};
+use crate::routing::extract_client_ip;
 use crate::state::{ClientDetail, EnhancedServerStats, RequestLog};
 use crate::store::stats::{self};
 

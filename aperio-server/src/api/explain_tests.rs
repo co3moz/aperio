@@ -71,10 +71,11 @@ async fn a_tenant_cannot_ask_about_another_orgs_hostname() {
 async fn the_maintenance_flag_is_named_as_the_thing_answering() {
   // The case this exists for: a 503 with nothing on screen explaining it.
   let state = Arc::new(test_state());
-  state.clients.write().await.insert(
-    "c1".to_string(),
-    mock_client(Some("app.example.com"), None, None, None),
-  );
+  state
+    .clients
+    .write()
+    .await
+    .insert("c1".to_string(), mock_client(Some("app.example.com"), None));
   state.maintenance.lock().await.insert(
     "*.example.com".to_string(),
     MaintenanceFlag {
@@ -116,7 +117,7 @@ async fn a_client_that_could_serve_but_will_not_is_named_with_the_reason() {
   // The question behind most 504s: the client is connected, so why is it not
   // taking the request.
   let state = Arc::new(test_state());
-  let mut handle = mock_client(Some("app.example.com"), None, None, None);
+  let mut handle = mock_client(Some("app.example.com"), None);
   handle.draining = true;
   state.clients.write().await.insert("c1".to_string(), handle);
   let headers = admin_headers(&state).await;
@@ -137,10 +138,11 @@ async fn a_client_that_could_serve_but_will_not_is_named_with_the_reason() {
 #[tokio::test]
 async fn a_reachable_route_reports_the_clients_that_would_take_it() {
   let state = Arc::new(test_state());
-  state.clients.write().await.insert(
-    "c1".to_string(),
-    mock_client(Some("app.example.com"), None, None, None),
-  );
+  state
+    .clients
+    .write()
+    .await
+    .insert("c1".to_string(), mock_client(Some("app.example.com"), None));
   let headers = admin_headers(&state).await;
   let body =
     json_body(explain(&state, headers, q("https://app.example.com/api", None)).await).await;
@@ -230,10 +232,11 @@ async fn a_static_route_answers_before_any_client_does() {
     "- hostname: app.example.com\n  path: /old\n  redirect: {url: \"https://new.example.com\", permanent: true}\n",
   );
   let state = Arc::new(test_state_with(cfg));
-  state.clients.write().await.insert(
-    "c1".to_string(),
-    mock_client(Some("app.example.com"), None, None, None),
-  );
+  state
+    .clients
+    .write()
+    .await
+    .insert("c1".to_string(), mock_client(Some("app.example.com"), None));
   let headers = admin_headers(&state).await;
   let body = json_body(explain(&state, headers, q("app.example.com/old", None)).await).await;
 
@@ -288,10 +291,11 @@ async fn the_visitor_gate_is_reported_when_one_is_configured() {
   let mut cfg = test_config();
   cfg.visitor_auth = crate::test_support::basic_gate("user:password");
   let state = Arc::new(test_state_with(cfg));
-  state.clients.write().await.insert(
-    "c1".to_string(),
-    mock_client(Some("app.example.com"), None, None, None),
-  );
+  state
+    .clients
+    .write()
+    .await
+    .insert("c1".to_string(), mock_client(Some("app.example.com"), None));
   let headers = admin_headers(&state).await;
   let body = json_body(explain(&state, headers, q("app.example.com", None)).await).await;
   let gate = step(&body, "visitor_gate");
@@ -386,13 +390,13 @@ async fn every_ineligible_reason_is_named() {
   let state = Arc::new(test_state());
   {
     let mut clients = state.clients.write().await;
-    let mut draining = mock_client(Some("app.example.com"), None, None, None);
+    let mut draining = mock_client(Some("app.example.com"), None);
     draining.draining = true;
     clients.insert("c-drain".to_string(), draining);
-    let mut sick = mock_client(Some("app.example.com"), None, None, None);
+    let mut sick = mock_client(Some("app.example.com"), None);
     sick.sole_mut().backend_healthy = false;
     clients.insert("c-sick".to_string(), sick);
-    let mut wrong_path = mock_client(Some("app.example.com"), Some("/api"), None, None);
+    let mut wrong_path = mock_client(Some("app.example.com"), Some("/api"));
     wrong_path.sole_mut().declared_path = Some("/api".to_string());
     clients.insert("c-path".to_string(), wrong_path);
   }
@@ -482,7 +486,7 @@ async fn the_values_a_sentence_interpolates_come_back_as_data() {
   let state = Arc::new(test_state());
   {
     let mut clients = state.clients.write().await;
-    let mut draining = mock_client(Some("app.example.com"), None, None, None);
+    let mut draining = mock_client(Some("app.example.com"), None);
     draining.draining = true;
     clients.insert("c-drain".to_string(), draining);
   }
@@ -533,7 +537,7 @@ async fn a_client_is_named_by_its_service_rather_than_its_id() {
   let state = Arc::new(test_state());
   {
     let mut clients = state.clients.write().await;
-    let mut named = mock_client(Some("app.example.com"), None, None, None);
+    let mut named = mock_client(Some("app.example.com"), None);
     named.sole_mut().service_name = Some("payments".to_string());
     clients.insert("11111111-aaaa".to_string(), named);
   }
@@ -564,7 +568,7 @@ async fn two_connections_of_one_service_are_counted_not_repeated() {
   {
     let mut clients = state.clients.write().await;
     for id in ["aaaaaaaabbbb", "ccccccccdddd"] {
-      let mut c = mock_client(Some("app.example.com"), None, None, None);
+      let mut c = mock_client(Some("app.example.com"), None);
       c.sole_mut().service_name = Some("payments".to_string());
       clients.insert(id.to_string(), c);
     }
@@ -602,7 +606,7 @@ async fn an_ineligible_client_is_named_the_same_way() {
   let state = Arc::new(test_state());
   {
     let mut clients = state.clients.write().await;
-    let mut draining = mock_client(Some("app.example.com"), None, None, None);
+    let mut draining = mock_client(Some("app.example.com"), None);
     draining.draining = true;
     draining.sole_mut().service_custom_name = Some("checkout (blue)".to_string());
     clients.insert("22222222-bbbb".to_string(), draining);
@@ -641,7 +645,7 @@ async fn a_tenant_is_not_told_who_else_serves_a_hostname_its_fence_covers() {
     .id;
   {
     let mut clients = state.clients.write().await;
-    let mut foreign = mock_client(Some("app.example.com"), None, None, None);
+    let mut foreign = mock_client(Some("app.example.com"), None);
     foreign.sole_mut().service_name = Some("axum".to_string());
     clients.insert("master-conn".to_string(), foreign);
   }
@@ -680,7 +684,7 @@ async fn a_foreign_client_that_cannot_serve_keeps_its_reason_to_itself() {
     .id;
   {
     let mut clients = state.clients.write().await;
-    let mut foreign = mock_client(Some("app.example.com"), None, None, None);
+    let mut foreign = mock_client(Some("app.example.com"), None);
     foreign.draining = true;
     foreign.sole_mut().service_name = Some("axum".to_string());
     clients.insert("master-conn".to_string(), foreign);
@@ -714,7 +718,7 @@ async fn a_tenant_sees_its_own_clients_named_and_qualified() {
     .id;
   {
     let mut clients = state.clients.write().await;
-    let mut mine = mock_client(Some("acme.example"), None, None, None);
+    let mut mine = mock_client(Some("acme.example"), None);
     mine.sole_mut().service_name = Some("axum".to_string());
     mine.perms.org_id = Some(org.clone());
     clients.insert("tenant-conn".to_string(), mine);
@@ -750,10 +754,11 @@ async fn every_limit_the_proxy_can_refuse_with_is_explained() {
   let state = Arc::new(test_state());
   // A client, so the stages that only exist once routing has picked somebody
   // are reached: without one the report stops at the 504.
-  state.clients.write().await.insert(
-    "c1".to_string(),
-    mock_client(Some("app.example.com"), None, None, None),
-  );
+  state
+    .clients
+    .write()
+    .await
+    .insert("c1".to_string(), mock_client(Some("app.example.com"), None));
   let headers = admin_headers(&state).await;
   let body = json_body(explain(&state, headers, q("app.example.com", None)).await).await;
 
@@ -993,7 +998,7 @@ async fn the_cache_stage_does_not_call_a_post_cacheable() {
   let mut cfg = test_config();
   cfg.cache_enabled = true;
   let state = Arc::new(test_state_with(cfg));
-  let mut client = mock_client(Some("app.example.com"), None, None, None);
+  let mut client = mock_client(Some("app.example.com"), None);
   client.services[0].cache = true;
   state.clients.write().await.insert("c1".to_string(), client);
   let headers = admin_headers(&state).await;
@@ -1041,10 +1046,11 @@ async fn a_route_nothing_declares_is_refused_under_the_closed_posture() {
   let mut cfg = test_config();
   cfg.default_access = crate::settings::DefaultAccess::Deny;
   let state = Arc::new(test_state_with(cfg));
-  state.clients.write().await.insert(
-    "cccccccc-dddd".to_string(),
-    mock_client(None, None, None, None),
-  );
+  state
+    .clients
+    .write()
+    .await
+    .insert("cccccccc-dddd".to_string(), mock_client(None, None));
 
   let headers = admin_headers(&state).await;
   let body = json_body(explain(&state, headers, q("localhost/", None)).await).await;
@@ -1070,7 +1076,7 @@ async fn declaring_the_service_open_restores_the_route() {
   let state = Arc::new(test_state_with(cfg));
   {
     let mut clients = state.clients.write().await;
-    let mut open = mock_client(None, None, None, None);
+    let mut open = mock_client(None, None);
     open.sole_mut().public = true;
     clients.insert("cccccccc-eeee".to_string(), open);
   }
@@ -1089,7 +1095,7 @@ async fn a_sites_access_is_the_gate_reported_over_what_a_client_declares() {
     "- hostname: app.example.com\n  access: {method: aperio}\n- hostname: open.example.com\n  access: public\n",
   );
   let state = Arc::new(test_state_with(cfg));
-  let mut c = mock_client(Some("app.example.com"), None, None, None);
+  let mut c = mock_client(Some("app.example.com"), None);
   c.sole_mut().public = true;
   state.clients.write().await.insert("c1".to_string(), c);
   let headers = admin_headers(&state).await;

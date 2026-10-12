@@ -191,11 +191,7 @@ pub(crate) async fn topology_handler(
   let mut served: std::collections::HashSet<String> = std::collections::HashSet::new();
   for c in &clients {
     served.extend(c.hostname_binds.iter().cloned());
-    served.extend(c.override_hostname_binds.iter().cloned());
     if let Some(p) = &c.path_bind {
-      served.insert(p.clone());
-    }
-    if let Some(p) = &c.override_path_bind {
       served.insert(p.clone());
     }
   }

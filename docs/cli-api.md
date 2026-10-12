@@ -148,8 +148,6 @@ While a host is flagged, visitors get the maintenance page instead of the backen
 ```bash
 aperio-client api client disable <client-id>      # kill switch: out of the routing pool
 aperio-client api client enable  <client-id>
-aperio-client api client override <client-id> --hostname other.example.com
-aperio-client api client override <client-id> --clear
 aperio-client api client config <client-id>       # the config it resolved, as it is running it
 ```
 

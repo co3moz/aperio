@@ -14,7 +14,7 @@ async fn one_uptime_tick_observes_and_accrues() {
   let state = std::sync::Arc::new(test_state());
   state.clients.write().await.insert(
     "c1".to_string(),
-    crate::test_support::mock_client(Some("up.example.com"), None, None, None),
+    crate::test_support::mock_client(Some("up.example.com"), None),
   );
   uptime_tick_once(&state).await;
   let snap = state.uptime.lock().await.snapshot();

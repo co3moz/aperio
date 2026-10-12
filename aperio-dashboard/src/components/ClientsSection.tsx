@@ -1,8 +1,7 @@
-import { ArrowDownIcon, ArrowUpIcon, PinIcon, SearchIcon, SlidersHorizontalIcon } from 'lucide-react'
+import { ArrowDownIcon, ArrowUpIcon, PinIcon, SearchIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { AddClientWizard } from './AddClientWizard'
-import { GLOSSARY, Term } from './Term'
 import { ClientConfigDialog } from './ClientConfigDialog'
 import { groupClientsByInstance } from '@/lib/clientGroups'
 import { EmptyRow, RecordEmpty, RecordList, RecordRow, SectionHeader, StatusDot, rowKeys } from './shared'
@@ -21,17 +20,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import {
   Table,
@@ -42,36 +31,17 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { api, ApiError, type ClientDetail } from '@/lib/api'
+import { api, type ClientDetail } from '@/lib/api'
 import { formatBandwidth, formatBytes, formatCount, formatLastPing, formatUptime, NO_VALUE } from '@/lib/format'
 import { useI18n } from '@/i18n'
 import { useHasRole } from '@/lib/session'
 
-// Renders hostname binds; a temporary dashboard override replaces the whole
-// set and is shown highlighted with the client-reported values struck through.
-// Only the first bind is shown (the server lists the client's own declared
+// Renders hostname binds. Only the first bind is shown (the server lists the client's own declared
 // hostnames first, so that is the name the operator chose); the rest collapse
 // into a `+N` badge that lists them on hover, keeping the column readable for
 // a client bound to a handful of hostnames.
-function BindList({ binds, override }: { binds: string[]; override: string[] }) {
+function BindList({ binds }: { binds: string[] }) {
   const { t } = useI18n()
-  if (override.length > 0) {
-    return (
-      <div className="flex flex-wrap items-center gap-1">
-        {binds.length > 0 && (
-          <span className="text-xs text-muted-foreground line-through">{binds.join(', ')}</span>
-        )}
-        {override.map((o) => (
-          <Tooltip key={o}>
-            <TooltipTrigger render={<span />}>
-              <TintBadge tint="amber">{o}</TintBadge>
-            </TooltipTrigger>
-            <TooltipContent>{t(GLOSSARY.override.definition)}</TooltipContent>
-          </Tooltip>
-        ))}
-      </div>
-    )
-  }
   if (binds.length === 0) return <span className="text-muted-foreground">{NO_VALUE}</span>
   const [primary, ...rest] = binds
   return (
@@ -119,155 +89,6 @@ function HintBadge({
       </TooltipTrigger>
       <TooltipContent className="max-w-72">{hint}</TooltipContent>
     </Tooltip>
-  )
-}
-
-/** One editable hostname row of the overrule dialog. */
-interface BindRow {
-  /** Stable key for React across edits (the row's position at open time). */
-  key: number
-  /** Where this hostname came from, shown as the row's label. */
-  origin: 'declared' | 'random' | 'token'
-  value: string
-}
-
-// The binds an overrule starts from, one row each: the hostnames the client
-// declared come first (retargeting one of those is the common case), then the
-// random subdomain on its own row, then anything the token granted. Editing an
-// active override starts from the override's own entries instead.
-function initialRows(client: ClientDetail): BindRow[] {
-  const origin = (h: string): BindRow['origin'] =>
-    client.declared_hostnames.includes(h)
-      ? 'declared'
-      : h === client.random_hostname
-        ? 'random'
-        : 'token'
-  const source =
-    client.override_hostname_binds.length > 0
-      ? client.override_hostname_binds
-      : [
-          ...client.declared_hostnames,
-          ...(client.random_hostname ? [client.random_hostname] : []),
-          ...client.hostname_binds.filter(
-            (h) => !client.declared_hostnames.includes(h) && h !== client.random_hostname,
-          ),
-        ]
-  const rows = source.map((value, key) => ({ key, origin: origin(value), value }))
-  // A client with no hostname bind at all still gets one row to type into.
-  return rows.length > 0 ? rows : [{ key: 0, origin: 'declared' as const, value: '' }]
-}
-
-// Dialog for the overrule flow: sets or clears the temporary hostname/path
-// binds of a connected client.
-function OverruleDialog({ client, onDone }: { client: ClientDetail; onDone: () => void }) {
-  const { t } = useI18n()
-  const [open, setOpen] = useState(false)
-  const [rows, setRows] = useState<BindRow[]>([])
-  const [path, setPath] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const hasOverride = Boolean(
-    client.override_hostname_binds.length > 0 || client.override_path_bind,
-  )
-  const rowLabel = {
-    declared: t('declared by the client'),
-    random: t('random subdomain, assigned by the server'),
-    token: t('granted by the token'),
-  }
-
-  const openDialog = (next: boolean) => {
-    if (next) {
-      setRows(initialRows(client))
-      setPath(client.override_path_bind ?? client.path_bind ?? '')
-      setError(null)
-    }
-    setOpen(next)
-  }
-
-  const setRow = (key: number, value: string) =>
-    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, value } : r)))
-
-  const addRow = () =>
-    setRows((rs) => [...rs, { key: Math.max(-1, ...rs.map((r) => r.key)) + 1, origin: 'declared', value: '' }])
-
-  const submit = async () => {
-    setBusy(true)
-    setError(null)
-    // Blank rows are dropped: emptying every hostname row clears the override
-    // and hands routing back to what the client itself declared.
-    const hostnames = rows.map((r) => r.value.trim()).filter(Boolean)
-    try {
-      await api.overrideClient(client.id, hostnames, path.trim(), client.service_index)
-      setOpen(false)
-      const cleared = hostnames.length === 0 && !path.trim()
-      toast.success(
-        cleared
-          ? t('Override cleared for {id}', { id: client.id.slice(0, 8) })
-          : t('Override applied for {id}', { id: client.id.slice(0, 8) }),
-      )
-      onDone()
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={openDialog}>
-      <DialogTrigger render={<Button size="xs" variant="outline" />}>
-        <SlidersHorizontalIcon /> {hasOverride ? t('Edit') : t('Redirect hostname')}
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{t('Redirect client {id}…', { id: client.id.slice(0, 8) })}</DialogTitle>
-          <DialogDescription>
-            {t('Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.')}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4">
-          <div className="grid gap-2">
-            <Label htmlFor={`ovr-host-${client.id}-${rows[0]?.key ?? 0}`}>
-              <Term k="bind">{t('Hostname binds')}</Term>
-            </Label>
-            {rows.map((row) => (
-              <div key={row.key} className="grid gap-1">
-                <Input
-                  id={`ovr-host-${client.id}-${row.key}`}
-                  value={row.value}
-                  onChange={(e) => setRow(row.key, e.target.value)}
-                  placeholder="app.example.com"
-                />
-                <span className="text-xs text-muted-foreground">{rowLabel[row.origin]}</span>
-              </div>
-            ))}
-            <Button size="xs" variant="outline" className="justify-self-start" onClick={addRow}>
-              {t('Add hostname')}
-            </Button>
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor={`ovr-path-${client.id}`}>
-              <Term k="bind">{t('Path bind')}</Term>
-            </Label>
-            <Input
-              id={`ovr-path-${client.id}`}
-              value={path}
-              onChange={(e) => setPath(e.target.value)}
-              placeholder="/api"
-            />
-          </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
-            {t('Cancel')}
-          </Button>
-          <Button onClick={submit} disabled={busy}>
-            {busy && <Spinner />} {t('Apply')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   )
 }
 
@@ -714,13 +535,10 @@ export function ClientsSection({
                   </TableCell>
                   <TableCell className="font-mono text-sm">{c.ip}</TableCell>
                   <TableCell>
-                    <BindList binds={c.hostname_binds} override={c.override_hostname_binds} />
+                    <BindList binds={c.hostname_binds} />
                   </TableCell>
                   <TableCell>
-                    <BindList
-                      binds={c.path_bind ? [c.path_bind] : []}
-                      override={c.override_path_bind ? [c.override_path_bind] : []}
-                    />
+                    <BindList binds={c.path_bind ? [c.path_bind] : []} />
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
@@ -771,9 +589,6 @@ export function ClientsSection({
                       <Button size="xs" variant="outline" onClick={() => onTunnels(c.id)} onKeyDown={(e) => e.stopPropagation()}>{t('Tunnels')}</Button>
                       {canMutate ? (
                         <>
-                          {g.connections.length === 1 && (
-                            <OverruleDialog client={c} onDone={onChanged} />
-                          )}
                           <EnableToggle connections={g.connections} onDone={onChanged} />
                         </>
                       ) : (

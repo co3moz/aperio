@@ -140,32 +140,6 @@ fn client_config_view(
     );
   }
   let declared_hostnames = declared_hostnames_of(service);
-  if !service.override_hostname_binds.is_empty() {
-    let mut before = declared_hostnames.clone();
-    for h in &service.assigned_hostnames {
-      if !before.contains(h) {
-        before.push(h.clone());
-      }
-    }
-    server_note(
-      "hostname",
-      &before.join(", "),
-      &service.override_hostname_binds.join(", "),
-      "a dashboard overrule is in effect; it is in-memory only and reverts when the client reconnects",
-    );
-  }
-  if let Some(path) = &service.override_path_bind {
-    server_note(
-      "path",
-      service
-        .declared_path
-        .as_deref()
-        .or(service.assigned_path.as_deref())
-        .unwrap_or(""),
-      path,
-      "a dashboard overrule is in effect; it is in-memory only and reverts when the client reconnects",
-    );
-  }
 
   let mut y = String::new();
   y.push_str(&format!(
@@ -203,8 +177,7 @@ fn client_config_view(
     }
   }
 
-  // Hostnames, each labeled with where it came from; an active overrule
-  // replaces the set, exactly as routing does.
+  // Hostnames, each labeled with where it came from.
   let effective_hosts: Vec<String> = service.effective_hostnames().into_iter().cloned().collect();
   if effective_hosts.is_empty() {
     push_line(&mut y, &notes, "hostname", "[]");
@@ -212,9 +185,7 @@ fn client_config_view(
     push_line(&mut y, &notes, "hostname", "");
     // `hostname:` above ends with the note comment, so the list follows it.
     for host in &effective_hosts {
-      let origin = if !service.override_hostname_binds.is_empty() {
-        "dashboard overrule"
-      } else if declared_hostnames.contains(host) {
+      let origin = if declared_hostnames.contains(host) {
         "requested by the client"
       } else if service.random_hostname.as_deref() == Some(host.as_str()) {
         "random subdomain, assigned by the server"

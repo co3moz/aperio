@@ -5,8 +5,8 @@
 //! function and reads top to bottom.
 
 use crate::api::clients::{
-  client_enabled_handler, client_override_handler, live_stream_handler, logs_handler,
-  stats_handler, stats_history_handler, uptime_handler,
+  client_enabled_handler, live_stream_handler, logs_handler, stats_handler, stats_history_handler,
+  uptime_handler,
 };
 use crate::api::inspector::{request_detail_handler, request_replay_handler};
 use crate::api::maintenance::{maintenance_list_handler, maintenance_set_handler};
@@ -98,10 +98,6 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
       .route(
         "/api/clients/{id}/config",
         get(crate::api::clients::client_config_handler),
-      )
-      .route(
-        "/api/clients/{id}/override",
-        axum::routing::post(client_override_handler),
       )
       .route(
         "/api/clients/{id}/enabled",

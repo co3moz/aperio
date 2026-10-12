@@ -737,8 +737,6 @@ pub(crate) async fn handle_socket(
           declared_hostnames: Vec::new(),
           assigned_hostnames,
           random_hostname: random_hostname.clone(),
-          override_path_bind: None,
-          override_hostname_binds: Vec::new(),
           capture: true,
           connections: None,
           connections_min: None,

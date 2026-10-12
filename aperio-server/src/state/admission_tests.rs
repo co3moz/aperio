@@ -161,7 +161,7 @@ async fn the_org_client_quota_counts_that_orgs_clients_and_stops_at_the_cap() {
   };
 
   let connect = async |id: &str, owner: Option<&str>| {
-    let mut c = crate::test_support::mock_client(None, None, None, None);
+    let mut c = crate::test_support::mock_client(None, None);
     c.perms.org_id = owner.map(str::to_string);
     state.clients.write().await.insert(id.to_string(), c);
   };
@@ -883,19 +883,19 @@ async fn a_connection_silent_for_four_thresholds_is_reaped_and_a_late_one_is_not
     .expect("the clock has been running that long");
   {
     let mut clients = state.clients.write().await;
-    let mut ghost = crate::test_support::mock_client(None, None, None, None);
+    let mut ghost = crate::test_support::mock_client(None, None);
     ghost.last_ping_at = Some(long_ago);
     clients.insert("ghost".to_string(), ghost);
-    let mut late = crate::test_support::mock_client(None, None, None, None);
+    let mut late = crate::test_support::mock_client(None, None);
     late.last_ping_at = Some(lately);
     clients.insert("late".to_string(), late);
     // Never pinged, connected just now: its reference is the connect time.
     clients.insert(
       "fresh".to_string(),
-      crate::test_support::mock_client(None, None, None, None),
+      crate::test_support::mock_client(None, None),
     );
     // Never pinged, connected long ago: silent since it connected.
-    let mut stale = crate::test_support::mock_client(None, None, None, None);
+    let mut stale = crate::test_support::mock_client(None, None);
     stale.last_ping_at = None;
     stale.connected_at = long_ago;
     clients.insert("stale".to_string(), stale);

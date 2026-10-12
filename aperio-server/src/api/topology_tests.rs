@@ -62,7 +62,7 @@ async fn a_tenant_sees_its_clients_and_none_of_the_servers_own_routing() {
     .create("acme", Vec::new(), None)
     .unwrap()
     .id;
-  let mut handle = mock_client(Some("acme.example.com"), None, None, None);
+  let mut handle = mock_client(Some("acme.example.com"), None);
   handle.perms.org_id = Some(org.clone());
   state.clients.write().await.insert("c1".to_string(), handle);
 
@@ -107,7 +107,7 @@ async fn a_granted_bind_no_client_serves_is_reported_as_offline() {
   }
   state.clients.write().await.insert(
     "c1".to_string(),
-    mock_client(Some("live.example.com"), None, None, None),
+    mock_client(Some("live.example.com"), None),
   );
 
   let graph = topology_handler(State(state.clone()), admin_headers(&state).await)
@@ -206,10 +206,10 @@ async fn expose_ports_report_who_serves_them() {
     encrypt: false,
     idle_timeout: None,
   };
-  let mut by_name = mock_client(Some("a.example.com"), None, None, None);
+  let mut by_name = mock_client(Some("a.example.com"), None);
   by_name.sole_mut().tunnels = vec![decl("pg_main")];
   // A draining client serves nothing, whatever it declares.
-  let mut draining = mock_client(Some("c.example.com"), None, None, None);
+  let mut draining = mock_client(Some("c.example.com"), None);
   draining.sole_mut().tunnels = vec![decl("nothing_declares_this")];
   draining.draining = true;
   {

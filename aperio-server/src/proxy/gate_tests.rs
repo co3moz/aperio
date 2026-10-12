@@ -93,7 +93,7 @@ async fn visitor_gate_per_route_visitor_auth() {
   // A client declaring a per-service visitor password supersedes the server
   // gate: without a host session (and no share), the visitor is denied.
   let state = Arc::new(test_state_with(test_config()));
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.sole_mut().visitor_auth = Some("pw".to_string());
   state.clients.write().await.insert("c1".to_string(), c);
   let uri: axum::http::Uri = "/svc".parse().unwrap();
@@ -331,7 +331,7 @@ async fn closed_by_default_still_serves_what_declares_itself_open() {
   let mut cfg = test_config();
   cfg.default_access = crate::settings::DefaultAccess::Deny;
   let state = Arc::new(test_state_with(cfg));
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.sole_mut().public = true;
   state.clients.write().await.insert("c1".to_string(), c);
 
@@ -602,7 +602,7 @@ async fn a_route_nothing_is_connected_to_is_undeclared_rather_than_refused() {
 
   // And a client that *is* connected and declares itself open is served, so
   // the posture is not simply deferring everything.
-  let mut c = mock_client(Some("awake.e2e.local"), None, None, None);
+  let mut c = mock_client(Some("awake.e2e.local"), None);
   c.sole_mut().public = true;
   state.clients.write().await.insert("c1".to_string(), c);
   let gate = check_visitor_gate(
@@ -857,7 +857,7 @@ async fn one_written_policy_behaves_the_same_whichever_side_wrote_it() {
 
   // Written on a client that serves the route.
   let client_side = Arc::new(test_state_with(test_config()));
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.sole_mut().visitor_auth_policy = Some(crate::visitor_auth::Policy::compile(
     &serde_yaml::from_str(yaml).unwrap(),
   ));
@@ -944,7 +944,7 @@ pub(crate) async fn visitor_gate_traversal_sees_a_policy_the_scalar_cannot_hold(
     assert!(policy.gates(), "{spelling} is a gate");
 
     let state = Arc::new(test_state_with(test_config()));
-    let mut c = mock_client(None, None, None, None);
+    let mut c = mock_client(None, None);
     c.sole_mut().visitor_auth = None; // exactly the shape the bug turned on
     c.sole_mut().visitor_auth_policy = Some(policy);
     state.clients.write().await.insert("c1".to_string(), c);
@@ -983,7 +983,7 @@ pub(crate) async fn a_query_token_cookie_is_scoped_to_the_route_that_admitted_it
     "{method: bearer, secret: a-long-route-secret, query: true}",
   )
   .expect("a valid auth: value");
-  let mut c = mock_client(Some("app.e2e.local"), Some("/metrics"), None, None);
+  let mut c = mock_client(Some("app.e2e.local"), Some("/metrics"));
   c.sole_mut().visitor_auth_policy = Some(crate::visitor_auth::Policy::compile(&setting));
   state.clients.write().await.insert("c1".to_string(), c);
 
@@ -1441,7 +1441,7 @@ async fn beside_a_bearer_the_aperio_gate_keeps_the_wider_reading() {
 async fn a_client_declared_forward_is_asked_of_the_client_over_the_tunnel() {
   let state = Arc::new(test_state_with(test_config()));
   let (tx, mut rx) = tokio::sync::mpsc::channel::<axum::extract::ws::Message>(8);
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.tx = tx;
   let setting: aperio_config::AuthSetting = serde_yaml::from_str(
     "{method: forward, url: 'http://127.0.0.1:7070/check', via: client, response_headers: [x-auth-user], cache: 0, timeout: 1}",
@@ -1521,7 +1521,7 @@ fn site_state(sites: &str) -> Arc<AppState> {
   let mut cfg = test_config();
   cfg.sites = crate::test_support::sites(sites);
   let state = Arc::new(test_state_with(cfg));
-  let mut c = mock_client(Some("app.example.com"), None, None, None);
+  let mut c = mock_client(Some("app.example.com"), None);
   c.sole_mut().public = true;
   state
     .clients
@@ -1568,7 +1568,7 @@ async fn a_public_site_opens_a_route_a_client_gates() {
   let mut cfg = test_config();
   cfg.sites = crate::test_support::sites("- hostname: app.example.com\n  access: public\n");
   let state = Arc::new(test_state_with(cfg));
-  let mut c = mock_client(Some("app.example.com"), None, None, None);
+  let mut c = mock_client(Some("app.example.com"), None);
   c.sole_mut().visitor_auth = Some("client:pw".to_string());
   state.clients.write().await.insert("c1".to_string(), c);
   assert!(matches!(

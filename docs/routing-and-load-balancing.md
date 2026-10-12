@@ -62,10 +62,6 @@ With `routing.random_subdomain="*.example.com"` on the server (fronted by a wild
 
 The value is a pattern: the `*` in the leftmost label is replaced with a random label. `example.com` is shorthand for `*.example.com`, and `*-test.example.com` yields `<random>-test.example.com`, same subdomain level, so one wildcard TLS certificate covers the generated hostnames.
 
-## Dashboard overrule
-
-The dashboard can temporarily override any client's binds ("Overrule"), handy for redirecting a hostname live. Overrides live only in server memory: a reconnect or restart reverts to the client's own configuration.
-
 Related: [In-Flight Failover](failover.md) covers what happens when the chosen client dies mid-request.
 
 ## Passive outlier ejection

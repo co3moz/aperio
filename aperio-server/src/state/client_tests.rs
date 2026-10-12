@@ -11,31 +11,21 @@ use super::*;
 fn test_client_effective_binds_precedence() {
   use crate::test_support::mock_client;
   // declared path only.
-  let c = mock_client(Some("a.local"), Some("/api"), None, None);
+  let c = mock_client(Some("a.local"), Some("/api"));
   assert_eq!(c.sole().effective_path_bind(), Some(&"/api".to_string()));
   assert!(c.sole().matches_host("a.local"));
   assert!(!c.sole().effective_hostnames().is_empty());
 
-  // override path wins over declared.
-  let c = mock_client(Some("a.local"), Some("/api"), None, Some("/ovr"));
-  assert_eq!(c.sole().effective_path_bind(), Some(&"/ovr".to_string()));
-
-  // assigned path used when nothing declared/overridden.
-  let mut c = mock_client(None, None, None, None);
+  // assigned path used when nothing is declared.
+  let mut c = mock_client(None, None);
   c.sole_mut().assigned_path = Some("/assigned".to_string());
   assert_eq!(
     c.sole().effective_path_bind(),
     Some(&"/assigned".to_string())
   );
 
-  // hostname override replaces the whole set.
-  let c = mock_client(Some("a.local"), None, Some("override.local"), None);
-  assert_eq!(c.effective_hostnames(), vec![&"override.local".to_string()]);
-  assert!(c.sole().matches_host("override.local"));
-  assert!(!c.sole().matches_host("a.local"));
-
   // union of assigned + declared + extra declared hostnames, de-duplicated.
-  let mut c = mock_client(Some("declared.local"), None, None, None);
+  let mut c = mock_client(Some("declared.local"), None);
   c.sole_mut().assigned_hostnames =
     vec!["assigned.local".to_string(), "declared.local".to_string()];
   c.sole_mut().declared_hostnames = vec!["extra.local".to_string(), "assigned.local".to_string()];
@@ -46,7 +36,7 @@ fn test_client_effective_binds_precedence() {
   assert_eq!(hosts.len(), 3, "duplicates collapse");
 
   // no binds at all.
-  let c = mock_client(None, None, None, None);
+  let c = mock_client(None, None);
   assert!(c.sole().effective_hostnames().is_empty());
   assert!(c.sole().effective_path_bind().is_none());
 }
@@ -55,7 +45,7 @@ fn test_client_effective_binds_precedence() {
 fn test_client_health_and_ejection() {
   use crate::test_support::mock_client;
   let now = Instant::now();
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
 
   // Fresh connection is healthy within the threshold.
   assert!(c.is_healthy(Duration::from_secs(3600)));
@@ -76,7 +66,7 @@ fn test_client_health_and_ejection() {
   assert!(!c.sole_mut().record_failure(now, window, 3, eject_for));
 
   // Stale failures outside the window are pruned before counting.
-  let mut c2 = mock_client(None, None, None, None);
+  let mut c2 = mock_client(None, None);
   let old = now - Duration::from_secs(120);
   c2.sole_mut().recent_failures.push_back(old);
   c2.sole_mut().recent_failures.push_back(old);
@@ -265,8 +255,8 @@ fn struct_fields(source: &str, name: &str) -> Vec<String> {
 /// the two could disagree.
 #[test]
 fn the_one_service_written_to_is_the_one_read_back() {
-  let mut handle = crate::test_support::mock_client(Some("first.example"), None, None, None);
-  let second = crate::test_support::mock_client(Some("second.example"), None, None, None);
+  let mut handle = crate::test_support::mock_client(Some("first.example"), None);
+  let second = crate::test_support::mock_client(Some("second.example"), None);
   handle.services.extend(second.services);
   assert_eq!(handle.services.len(), 2, "the case worth testing");
 
@@ -289,7 +279,7 @@ fn the_one_service_written_to_is_the_one_read_back() {
 /// that only holds in production is an invariant the tests will break first.
 #[test]
 fn a_handle_is_never_built_without_a_service() {
-  let handle = crate::test_support::mock_client(None, None, None, None);
+  let handle = crate::test_support::mock_client(None, None);
   assert!(!handle.services.is_empty());
 }
 
@@ -303,8 +293,8 @@ fn a_handle_is_never_built_without_a_service() {
 /// because nothing else builds a two-service handle.
 #[test]
 fn each_service_answers_the_routing_questions_for_itself() {
-  let mut handle = crate::test_support::mock_client(Some("first.example"), Some("/a"), None, None);
-  let second = crate::test_support::mock_client(Some("second.example"), Some("/b"), None, None);
+  let mut handle = crate::test_support::mock_client(Some("first.example"), Some("/a"));
+  let second = crate::test_support::mock_client(Some("second.example"), Some("/b"));
   handle.services.extend(second.services);
 
   assert!(handle.services[0].matches_host("first.example"));
@@ -333,7 +323,7 @@ fn services_named(names: &[Option<&str>]) -> Vec<ServiceState> {
   names
     .iter()
     .map(|n| {
-      let mut s = crate::test_support::mock_client(None, None, None, None)
+      let mut s = crate::test_support::mock_client(None, None)
         .services
         .remove(0);
       s.service_name = n.map(str::to_string);
@@ -435,8 +425,8 @@ fn a_service_that_stopped_being_declared_is_simply_unclaimed() {
 /// in it rather than a display bug.
 #[test]
 fn a_connection_reports_the_hostnames_of_all_its_services() {
-  let mut handle = crate::test_support::mock_client(Some("first.example"), None, None, None);
-  let second = crate::test_support::mock_client(Some("second.example"), None, None, None);
+  let mut handle = crate::test_support::mock_client(Some("first.example"), None);
+  let second = crate::test_support::mock_client(Some("second.example"), None);
   handle.services.extend(second.services);
 
   let hosts: Vec<&str> = handle
@@ -457,7 +447,7 @@ fn a_connection_reports_the_hostnames_of_all_its_services() {
 
 /// A two-service handle: the first serves `first`, the second `second`.
 fn multiplexed_handle(first: &str, second: &str) -> ClientHandle {
-  let mut handle = crate::test_support::mock_client(Some(first), None, None, None);
+  let mut handle = crate::test_support::mock_client(Some(first), None);
   handle.services[0].declared_hostnames = vec![first.to_string()];
   // Built the way `on_ping` builds one: a fresh service sharing the
   // connection's pacer cell, then given its own binds.

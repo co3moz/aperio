@@ -44,15 +44,10 @@ interface RouteNode {
 }
 
 /** Routes a client serves: its hostname binds and/or path bind; a client
- *  with no bind serves the catch-all route. Overrides win, like routing. */
+ *  with no bind serves the catch-all route. */
 function clientRoutes(c: ClientDetail): string[] {
-  const routes: string[] = []
-  if (c.override_hostname_binds.length > 0) {
-    routes.push(...c.override_hostname_binds)
-  } else {
-    routes.push(...c.hostname_binds)
-  }
-  const path = c.override_path_bind ?? c.path_bind
+  const routes: string[] = [...c.hostname_binds]
+  const path = c.path_bind
   if (path) routes.push(path)
   if (routes.length === 0) routes.push('*')
   return routes

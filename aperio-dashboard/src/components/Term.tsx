@@ -31,10 +31,6 @@ export const GLOSSARY = {
     definition: 'An expose entry opens a raw public port on the server that relays into a tunnel a client declared, with no second client needed.',
     docs: 'emergency-tunnels.md#public-expose',
   },
-  override: {
-    definition: 'A hostname override redirects a live client to other hostnames from the dashboard; it lives in memory and a reconnect or restart reverts it.',
-    docs: 'dashboard.md#clients-table',
-  },
 } as const
 
 export type TermKey = keyof typeof GLOSSARY

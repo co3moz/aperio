@@ -32,7 +32,6 @@ fn test_openapi_document_is_complete_and_serializable() {
     "/aperio/api/stream",
     "/aperio/api/session",
     "/aperio/api/clients/{id}/config",
-    "/aperio/api/clients/{id}/override",
     "/aperio/api/clients/{id}/enabled",
     "/aperio/api/tokens",
     "/aperio/api/tokens/{id}",

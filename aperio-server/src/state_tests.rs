@@ -481,7 +481,7 @@ async fn test_disconnect_token_clients() {
   use crate::test_support::mock_client;
   let state = crate::test_support::test_state();
 
-  let mut c = mock_client(Some("a.local"), None, None, None);
+  let mut c = mock_client(Some("a.local"), None);
   c.perms = ClientPerms {
     allow_server_side: false,
     master: false,
@@ -750,7 +750,7 @@ async fn an_unfenced_org_still_needs_a_client_serving_the_hostname() {
   let (state, id) = state_with_org(&[]).await;
   assert!(!state.org_may_claim_hostname(Some(&id), "x.com").await);
 
-  let mut handle = crate::test_support::mock_client(Some("x.com"), None, None, None);
+  let mut handle = crate::test_support::mock_client(Some("x.com"), None);
   handle.perms = ClientPerms {
     org_id: Some(id.clone()),
     ..ClientPerms::master()
@@ -854,7 +854,7 @@ async fn subscribed(
 ) -> tokio::sync::mpsc::Receiver<axum::extract::ws::Message> {
   use crate::test_support::mock_client;
   let (tx, rx) = tokio::sync::mpsc::channel::<axum::extract::ws::Message>(16);
-  let mut handle = mock_client(None, None, None, None);
+  let mut handle = mock_client(None, None);
   handle.tx = tx;
   handle.instance_group = Some(connection_id.to_string());
   handle.perms = ClientPerms {

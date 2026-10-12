@@ -129,7 +129,7 @@ async fn connect_consumer(url: &str) -> WsClient {
 }
 
 async fn seed_client(state: &AppState, id: &str, f: impl FnOnce(&mut ClientHandle)) {
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   f(&mut c);
   state.clients.write().await.insert(id.to_string(), c);
 }
@@ -575,7 +575,7 @@ async fn tcp_relay_full_roundtrip() {
   // frames the relay pushes toward the client.
   let (ctx, mut crx) = mpsc::channel::<Message>(16);
   {
-    let mut c = mock_client(None, None, None, None);
+    let mut c = mock_client(None, None);
     c.tx = ctx;
     c.sole_mut().tcp_enabled = true;
     state.clients.write().await.insert("c1".into(), c);
@@ -639,7 +639,7 @@ async fn udp_relay_full_roundtrip() {
   let state = Arc::new(test_state());
   let (ctx, mut crx) = mpsc::channel::<Message>(16);
   {
-    let mut c = mock_client(None, None, None, None);
+    let mut c = mock_client(None, None);
     c.tx = ctx;
     c.sole_mut().tunnels = vec![udp_tunnel("127.0.0.1:9")];
     state.clients.write().await.insert("c1".into(), c);

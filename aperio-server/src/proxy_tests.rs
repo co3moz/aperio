@@ -246,7 +246,7 @@ pub(crate) async fn record_outlier_failure_guarded_by_config() {
     .clients
     .write()
     .await
-    .insert("c1".to_string(), mock_client(None, None, None, None));
+    .insert("c1".to_string(), mock_client(None, None));
   record_outlier_failure(&state, "c1", None).await;
 
   // Enabled → records against the serving client (and tolerates a missing id).
@@ -258,7 +258,7 @@ pub(crate) async fn record_outlier_failure_guarded_by_config() {
     .clients
     .write()
     .await
-    .insert("c1".to_string(), mock_client(None, None, None, None));
+    .insert("c1".to_string(), mock_client(None, None));
   record_outlier_failure(&state, "c1", None).await;
   record_outlier_failure(&state, "missing", None).await;
 }
@@ -279,7 +279,7 @@ pub(crate) async fn mark_connected(state: &AppState) {
 /// Inserts a client whose receiver is retained so dispatched frames can be
 /// observed and answered. Returns the receiver.
 pub(crate) async fn insert_live_client(state: &AppState, id: &str) -> mpsc::Receiver<Message> {
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   state.clients.write().await.insert(id.to_string(), c);
@@ -398,7 +398,7 @@ pub(crate) async fn handler_serves_cache_hit_without_tunnel() {
   let state = connected(cfg);
   mark_connected(&state).await;
   // Client marked cacheable; its receiver stays dropped since we never dispatch.
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.sole_mut().cache = true;
   state.clients.write().await.insert("c1".to_string(), c);
   // Pre-seed a fresh cache entry for GET /cached.
@@ -558,7 +558,7 @@ pub(crate) async fn handler_stores_cacheable_response() {
   cfg.cache_enabled = true;
   let state = connected(cfg);
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.sole_mut().cache = true;
@@ -585,7 +585,7 @@ pub(crate) async fn handler_negatively_caches_404() {
   cfg.cache_enabled = true;
   let state = connected(cfg);
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.sole_mut().cache = true;
@@ -599,7 +599,7 @@ pub(crate) async fn handler_negatively_caches_404() {
 pub(crate) async fn handler_webhook_inbox_records_post() {
   let state = connected(test_config());
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.sole_mut().webhook_inbox = true;
@@ -724,7 +724,7 @@ pub(crate) async fn handler_streamed_upload_round_trip() {
   let state = connected(test_config());
   mark_connected(&state).await;
   // A protocol-v2 client streams large uploads as RequestStart + chunk frames.
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.client_protocol = Some(2);
@@ -793,7 +793,7 @@ pub(crate) async fn handler_holds_a_request_until_the_client_declares_its_route(
   mark_connected(&state).await;
 
   // A connection that has opened but not declared: no binds, no Ping.
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.last_ping_at = None;
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
@@ -839,7 +839,7 @@ pub(crate) async fn a_wrong_declaration_does_not_hold_a_request_open_ended() {
   let state = connected(cfg);
   mark_connected(&state).await;
 
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.last_ping_at = None;
   c.sole_mut().catch_all = false;
   state.clients.write().await.insert("c1".to_string(), c);
@@ -875,7 +875,7 @@ pub(crate) async fn handler_swr_serves_stale_and_revalidates() {
   cfg.cache_enabled = true;
   let state = connected(cfg);
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.sole_mut().cache = true;
@@ -912,7 +912,7 @@ pub(crate) async fn handler_swr_serves_stale_and_revalidates() {
 pub(crate) async fn handler_denied_visitor_stealth_504() {
   let state = connected(test_config());
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   // The caller (127.0.0.1) is not in the client's allowlist → rejected, and no
   // `denied:` redirect is declared → stealth 504 (identical to unclaimed).
   c.sole_mut().allowed_ips = vec!["10.0.0.0/8".to_string()];
@@ -925,7 +925,7 @@ pub(crate) async fn handler_denied_visitor_stealth_504() {
 pub(crate) async fn handler_denied_visitor_redirect_302() {
   let state = connected(test_config());
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   c.sole_mut().allowed_ips = vec!["10.0.0.0/8".to_string()];
   c.sole_mut().denied = Some("https://denied.example/blocked".to_string());
   state.clients.write().await.insert("c1".to_string(), c);
@@ -983,7 +983,7 @@ pub(crate) async fn handler_inflight_limiter_admits_request() {
   use tokio::sync::Semaphore;
   let state = connected(test_config());
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.sole_mut().max_concurrent = Some(2);
@@ -1000,7 +1000,7 @@ pub(crate) async fn handler_single_flight_follower_serves_from_cache() {
   cfg.cache_enabled = true;
   let state = connected(cfg);
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.sole_mut().cache = true;
@@ -1087,7 +1087,7 @@ pub(crate) async fn handler_dispatch_send_failure_returns_502() {
     .clients
     .write()
     .await
-    .insert("c1".to_string(), mock_client(None, None, None, None));
+    .insert("c1".to_string(), mock_client(None, None));
   let resp = run(state, get("/dead")).await;
   assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
 }
@@ -1100,7 +1100,7 @@ pub(crate) async fn handler_inflight_limiter_timeout_returns_429() {
   cfg.gateway_timeout = std::time::Duration::from_millis(50);
   let state = connected(cfg);
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, _rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.sole_mut().max_concurrent = Some(1);
@@ -1155,7 +1155,7 @@ pub(crate) async fn handler_token_daily_quota_returns_429() {
     .lock()
     .await
     .insert(token.id.clone(), (today, 1000));
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, _rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.perms.token_id = Some(token.id.clone());
@@ -1278,7 +1278,7 @@ pub(crate) async fn handler_fully_filtered_cookie_dropped() {
 pub(crate) async fn handler_response_timeout_override_and_header_strip() {
   let state = connected(test_config());
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.sole_mut().response_timeout = Some(5); // per-service response-timeout override
@@ -1317,7 +1317,7 @@ pub(crate) async fn handler_streamed_upload_truncates_oversized_body() {
   cfg.max_body_size = 256 * 1024; // below the streamed body size
   let state = connected(cfg);
   mark_connected(&state).await;
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, rx) = mpsc::channel::<Message>(256);
   c.tx = tx;
   c.client_protocol = Some(2);
@@ -1361,7 +1361,7 @@ pub(crate) async fn handler_org_month_quota_returns_429() {
     None,
     Some(&org.id),
   );
-  let mut c = mock_client(None, None, None, None);
+  let mut c = mock_client(None, None);
   let (tx, _rx) = mpsc::channel::<Message>(64);
   c.tx = tx;
   c.perms.org_id = Some(org.id.clone());

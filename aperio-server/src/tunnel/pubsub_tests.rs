@@ -26,7 +26,7 @@ async fn subscriber(
   filters: &[&str],
 ) -> Receiver<Message> {
   let (tx, rx) = tokio::sync::mpsc::channel::<Message>(8);
-  let mut handle = mock_client(None, None, None, None);
+  let mut handle = mock_client(None, None);
   handle.tx = tx;
   handle.instance_group = process.map(str::to_string);
   handle.perms = ClientPerms {
@@ -245,7 +245,7 @@ async fn unusable_filters_are_reported_and_the_rest_still_apply() {
   // named refusal.
   let state = Arc::new(test_state());
   let (tx, mut rx) = tokio::sync::mpsc::channel::<Message>(8);
-  let mut handle = mock_client(None, None, None, None);
+  let mut handle = mock_client(None, None);
   handle.tx = tx;
   handle.instance_group = Some("p".to_string());
   state.clients.write().await.insert("c".to_string(), handle);
@@ -293,7 +293,7 @@ async fn a_client_at_the_filter_limit_is_told_rather_than_silently_capped() {
   let filters: Vec<String> = (0..MAX_FILTERS_PER_CLIENT)
     .map(|i| format!("topic/{i}"))
     .collect();
-  let mut handle = mock_client(None, None, None, None);
+  let mut handle = mock_client(None, None);
   handle.instance_group = Some("p".to_string());
   state.clients.write().await.insert("c".to_string(), handle);
 
@@ -312,7 +312,7 @@ async fn a_slow_subscriber_does_not_hold_up_the_others() {
   let state = Arc::new(test_state());
   let (full_tx, _full_rx) = tokio::sync::mpsc::channel::<Message>(1);
   full_tx.try_send(Message::Text("occupied".into())).unwrap();
-  let mut stuck = mock_client(None, None, None, None);
+  let mut stuck = mock_client(None, None);
   stuck.tx = full_tx;
   stuck.instance_group = Some("stuck".to_string());
   stuck.subscriptions = vec!["#".to_string()];
@@ -462,7 +462,7 @@ async fn a_subscription_outside_the_token_is_refused_by_name() {
   // Silently dropping the filter would leave the client believing it is
   // subscribed and waiting for messages that never come.
   let state = Arc::new(test_state());
-  let mut handle = mock_client(None, None, None, None);
+  let mut handle = mock_client(None, None);
   handle.instance_group = Some("p".to_string());
   handle.perms = scoped(&["deploy/#"]);
   state.clients.write().await.insert("c".to_string(), handle);
@@ -659,7 +659,7 @@ async fn a_client_that_stops_acknowledging_costs_a_bounded_amount() {
   let state = Arc::new(test_state());
   // A generous channel so the sends themselves are not what limits this.
   let (tx, _rx) = tokio::sync::mpsc::channel::<Message>(MAX_PENDING_PER_PROCESS * 2);
-  let mut handle = mock_client(None, None, None, None);
+  let mut handle = mock_client(None, None);
   handle.tx = tx;
   handle.instance_group = Some("p".to_string());
   handle.subscriptions = vec!["#".to_string()];
