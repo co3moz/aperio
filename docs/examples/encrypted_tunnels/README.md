@@ -1,12 +1,3 @@
-# Emergency Tunnels, end-to-end encrypted
+# Encrypted tunnels
 
-> **Concept:** [Emergency Tunnels](../../emergency-tunnels.md).
-
-
-By default the server decodes and re-encodes tunnel frames, so a compromised server could read relayed bytes. A TCP tunnel declared with `encrypt: true` closes that hole: the two **clients** run an ephemeral X25519 key exchange and seal everything with ChaCha20-Poly1305, the server relays only ciphertext.
-
-The optional `psk` protects against an *actively* hostile server (a man-in-the-middle of the key exchange): it is mixed into the key derivation on both ends and never transmitted, so a MITM without it derives mismatched keys and the stream dies instead of leaking data. Coordinate the PSK out-of-band and set the same value on both sides. `encrypt` is TCP-only.
-
-Files: `aperio.yaml` (declaring side) and `aperio-binder.yaml` (binder side). The shared server needs nothing beyond its token: `APERIO_SERVER_TOKEN=apr_emergency_e2e_change_me aperio-server`.
-
-> **Before running:** Replace the example PSK with the same long random value on both clients. Replace the binder token with the declaring client's token or a same-organization token with `allow_bind`. Keep the PSK out of committed configuration; see [Tunnels](../../emergency-tunnels.md#end-to-end-encryption).
+A tunnel the two clients encrypt end to end, so the server relays ciphertext. Set the same long random `psk` on both sides and keep it out of committed files. See [Encryption](../../tunnels.md#encryption).

@@ -1,42 +1,11 @@
-# Organizations (multi-tenancy)
+# Organizations
 
-> **Concept:** [Organizations](../../organizations.md).
-
-One Aperio server, several isolated tenants. Each organization has its own tunnel clients, API tokens, dashboard users, traffic, statistics, and audit trail, and one tenant never sees another's. A tunnel client belongs to the organization of the **token** it authenticates with, so making a client "belong to Acme" is entirely a matter of which token it uses.
-
-Nothing tenant-specific lives in the config files: organizations are created at runtime by the built-in `aperio` server admin. The server is a normal master setup, started with nothing but its token; the client file simply uses a token that was minted under a child organization.
-
-## Set it up
-
-Start the server with `APERIO_SERVER_TOKEN=apr_orgs_master_change_me aperio-server`, and set the same variable in your shell. Sign in as the built-in admin to save a session cookie:
+A client whose token was minted in a child organization, so it and its traffic belong to that tenant. Create the organization and the token first:
 
 ```bash
-curl -fsS -X POST -u "aperio:$APERIO_SERVER_TOKEN" \
-  -c cookies.txt https://tunnel.example.com/aperio/auth
+aperio-client api org create --name acme
+aperio-client api org select <acme-id>
+aperio-client api token create --name acme_app --hostname app.acme.example.com --allow-public
 ```
 
-Use that cookie for the following calls. Replace `<acme-id>` with the ID returned by step 1:
-
-```bash
-# 1. Create the child organization.
-curl -b cookies.txt -X POST -H 'Content-Type: application/json' \
-  --data '{"name":"acme","custom_name":"Acme"}' \
-  https://tunnel.example.com/aperio/api/orgs
-
-# 2. Select it, so what you create next belongs to Acme.
-curl -b cookies.txt -X POST -H 'Content-Type: application/json' \
-  --data '{"id":"<acme-id>"}' https://tunnel.example.com/aperio/api/orgs/select
-
-# 3. Mint a scoped token in Acme and hand it to the client (this file's server.token).
-curl -b cookies.txt -X POST -H 'Content-Type: application/json' \
-  --data '{"name":"acme-app","hostnames":["app.acme.example.com"],"allow_public":true}' \
-  https://tunnel.example.com/aperio/api/tokens
-```
-
-Copy the returned token secret into `aperio.yaml` as `server.token`. `allow_public` is required because that client's service declares `access: public`; see [Closed by default](../../configuration.md#closed-by-default).
-
-The client connects with that token, and everywhere (live view, traffic log, stats, uptime, topology) it shows under Acme. A named admin you create in Acme signs in to a self-contained view of Acme alone, never master.
-
-## Quotas
-
-A child organization can carry quotas (max connected clients, tokens, users, and proxied bytes per calendar month), set from the dashboard (Organizations, the gauge icon) or `PUT /aperio/api/orgs/{id}/quota`. They are enforced at creation and, for the byte cap, on each proxied request. `GET /aperio/api/orgs/{id}/usage` reports current-month usage and emits an `org_usage` webhook a billing system can consume.
+Put the token in `aperio.yaml`. See [Organizations](../../tokens-and-organizations.md#organizations).

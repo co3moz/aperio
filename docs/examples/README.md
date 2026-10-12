@@ -1,58 +1,42 @@
-# Configuration Examples
+# Examples
 
-Each folder contains a client `aperio.yaml` for one scenario and, where the scenario changes a server setting, a `server-init.yaml` carrying those settings. Replace example tokens, hostnames, and backend addresses before running them. Binder, publisher, and organization examples need separate tokens with the permissions described in their READMEs.
-
-Since 0.10.0 the server is **closed by default**. Most examples set `access: public` so visitors can reach the service. The `oidc` and `share_links` examples keep the visitor gate enabled; `visitor_auth` shows both protected and public services. Remove `access: public`, or write a method block in it, when a service should require a login. See [Tokens & Authentication](../tokens-and-auth.md) for the access rules.
-
-> **Note:** These are configuration templates. OIDC needs an identity provider, autoscaling needs a scaling endpoint, and MQTT needs a broker. Check each scenario's README and linked guide for its prerequisites. `aperio-server check server-init.yaml` validates a settings document; `aperio-client check` also tests connectivity and therefore needs the real server and backend.
-
-## Running the server
-
-The server takes its master token from the environment and keeps every other setting in its database. Start it with the token the folder's `aperio.yaml` uses:
+Each folder is one scenario: a client `aperio.yaml`, and a `server-init.yaml` when the scenario needs server settings. Replace the placeholder tokens (`apr_<scenario>_change_me`), hostnames and addresses first.
 
 ```bash
-APERIO_SERVER_TOKEN=apr_simple_change_me aperio-server
+APERIO_SERVER_TOKEN=apr_simple_change_me APERIO_INIT_FILE=server-init.yaml aperio-server
+aperio-client            # in the folder, reads ./aperio.yaml
 ```
 
-A folder with a `server-init.yaml` adds `APERIO_INIT_FILE=server-init.yaml` to that line. The file is read once, on the first start into an empty data directory; after that the settings live in the database and change from the dashboard (**Settings**), so editing the file and restarting changes nothing. See [Configuration](../configuration.md#server-settings).
-
-## Conventions
-
-- Client config files put exposed backends under `services:`, including single-service examples. Top-level `target:` and related service keys are no longer accepted in config files. CLI one-liners and `APERIO_TARGET` still support one target. See [Configuration](../configuration.md#multiple-services).
-- `https://tunnel.example.com` is a placeholder server URL. Replace it with your server's public URL.
-- `apr_<scenario>_change_me` is a placeholder token. For a basic example, replace it with the same long random master token in both files. Organization, binder, and publisher examples use separately issued tokens; follow their READMEs. Do not commit real tokens; use environment-variable expansion such as `${APERIO_SERVER_TOKEN}` for secrets.
-- Each folder covers one scenario. Some include multiple services to show how the settings differ.
+`server-init.yaml` is read once, into an empty data directory; after that the settings are changed from the dashboard. Routes are closed by default, so most examples say `access: public`. `aperio-server check server-init.yaml` and `aperio-client check` test a folder before you run it.
 
 | Folder | Scenario |
 | --- | --- |
-| [simple](simple/) | The minimal pair: one client, one backend, one token. |
-| [multiple_services](multiple_services/) | One client exposing several backends, each with its own binds and tuning. |
-| [static_site](static_site/) | Publish local directories of static files (`serve:`), no backend, one site, or several on their own hostnames. |
-| [health_check](health_check/) | Backend health probes: a failing backend leaves rotation without dropping the tunnel, independently per service. |
-| [headers](headers/) | Header add/remove rules on the client and the server side, and per service. |
-| [load_balancing](load_balancing/) | Primary/standby failover tiers via `priority`, including a machine that is primary for some routes and standby for others. |
-| [sticky_sessions](sticky_sessions/) | Pin each visitor to the client that first served them. |
-| [failover](failover/) | In-flight failover: re-dispatch requests when a client dies mid-request. |
-| [autoscaling](autoscaling/) | Scale out through an endpoint you control, scale in by idling out, and cold-start from zero. |
-| [cache](cache/) | Server-side GET response cache, opted in per service. |
-| [resilience](resilience/) | Serve cached (even stale) responses while no healthy client is connected. |
-| [messaging](messaging/) | Clients signalling each other over the tunnel they already hold: subscribe, publish, and run a command on receipt. |
-| [emergency_tunnels](emergency_tunnels/) | Break-glass TCP/UDP tunnels to private services (`tunnels:` / `binds:`). |
-| [encrypted_tunnels](encrypted_tunnels/) | End-to-end encrypted tunnels with a pre-shared key. |
-| [mqtt](mqtt/) | An MQTT broker reachable by every client of an organization, and by nothing else. |
-| [public_expose](public_expose/) | Expose a declared tunnel on a public server port, claimed by its organization. |
-| [routes](routes/) | Sites that answer by themselves: redirects and fixed responses served by the server alone. |
-| [traffic_rules](traffic_rules/) | Server-side request rules on a site: rate limits, WAF-lite, fallbacks, a hostname's own error pages. |
-| [visitor_auth](visitor_auth/) | Visitor login gates: server-wide password, client-set override, and `public:`. |
-| [allowed_ips](allowed_ips/) | Restrict a service to specific visitor IPs/CIDRs, per service. |
-| [random_subdomain](random_subdomain/) | Preview environments on random subdomains, kept out of search engines. |
-| [grpc](grpc/) | Expose a gRPC backend over an HTTP/2 (`h2c://`) target, alongside ordinary HTTP. |
-| [behind_proxy](behind_proxy/) | Run the server behind a reverse proxy / CDN with correct client IPs. |
-| [observability](observability/) | Prometheus metrics, access log, OpenTelemetry traces, and alerting. |
-| [oidc](oidc/) | Put an identity-provider (SSO) login in front of everything the tunnel serves. |
-| [share_links](share_links/) | Temporary, scoped visitor access to a gated site, no accounts. |
-| [organizations](organizations/) | Multi-tenancy: isolate one server into separate organizations. |
-| [dashboard](dashboard/) | The admin dashboard: signing in with the master token or a named user, IP fencing, headless off. |
-| [tuning](tuning/) | Capacity knobs: concurrency, parallel connections, bandwidth, timeouts, per service and shared. |
-
-Tip: point your editor at the generated JSON Schemas for completion and validation while editing these files, see [Configuration → Editor autocompletion](../configuration.md#editor-autocompletion-json-schema).
+| [simple](simple/) | Simple |
+| [multiple_services](multiple_services/) | Multiple services |
+| [static_site](static_site/) | Static sites |
+| [grpc](grpc/) | gRPC |
+| [headers](headers/) | Headers |
+| [health_check](health_check/) | Health checks |
+| [load_balancing](load_balancing/) | Primary and standby |
+| [sticky_sessions](sticky_sessions/) | Sticky sessions |
+| [failover](failover/) | Failover |
+| [cache](cache/) | Response cache |
+| [resilience](resilience/) | Serving from the cache while offline |
+| [tuning](tuning/) | Tuning |
+| [routes](routes/) | Sites that answer by themselves |
+| [traffic_rules](traffic_rules/) | Traffic rules |
+| [random_subdomain](random_subdomain/) | Random subdomains |
+| [visitor_auth](visitor_auth/) | Visitor gates |
+| [allowed_ips](allowed_ips/) | Allowed IPs |
+| [oidc](oidc/) | Single sign-on |
+| [share_links](share_links/) | Share links |
+| [organizations](organizations/) | Organizations |
+| [emergency_tunnels](emergency_tunnels/) | Tunnels |
+| [encrypted_tunnels](encrypted_tunnels/) | Encrypted tunnels |
+| [mqtt](mqtt/) | An MQTT broker between clients |
+| [public_expose](public_expose/) | Public listener |
+| [messaging](messaging/) | Messages between clients |
+| [autoscaling](autoscaling/) | Autoscaling |
+| [behind_proxy](behind_proxy/) | Behind a proxy or CDN |
+| [observability](observability/) | Observability |
+| [dashboard](dashboard/) | The dashboard |
