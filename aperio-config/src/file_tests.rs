@@ -1,133 +1,8 @@
-//! The document's own keys: which single-service keys a file writes (the ones
-//! removed in 0.9.0, still reported so an upgrade can name them), that the
-//! schema marks them deprecated, and how `connections:` reads in both of its
-//! spellings.
+//! The document's own shapes: how `connections:` reads in both of its
+//! spellings, how `access:` reads its three, and the visitor-gate grammar the
+//! two ends share.
 
 use super::*;
-
-// ---------------------------------------------------------------------------
-// Single-service keys in a config file (deprecated; removed in 0.9.0).
-// ---------------------------------------------------------------------------
-
-#[test]
-fn a_file_reports_the_single_service_keys_it_writes() {
-  let cfg: FileConfig = serde_yaml::from_str(
-    r#"
-server:
-  url: wss://tunnel.example.com
-  token: apr_x
-target: http://localhost:3000
-hostname: app.example.com
-path: /api
-"#,
-  )
-  .unwrap();
-  // In file order, so the warning reads the way the file does.
-  assert_eq!(
-    cfg.single_service_keys(),
-    vec!["target", "hostname", "path"]
-  );
-}
-
-#[test]
-fn a_services_file_reports_nothing() {
-  // The keys that stay legitimately top-level in the multi-service shape are
-  // per-entry *fallbacks*, so none of them may trip the deprecation warning.
-  let cfg: FileConfig = serde_yaml::from_str(
-    r#"
-server:
-  url: wss://tunnel.example.com
-  token: apr_x
-max_concurrent: 8
-trim_bind: true
-pass_hostname: true
-serve_spa: true
-services:
-  - target: http://localhost:3000
-    hostname: app.example.com
-"#,
-  )
-  .unwrap();
-  assert!(cfg.single_service_keys().is_empty());
-}
-
-#[test]
-fn an_empty_single_service_key_is_not_written() {
-  // `target: ""` is how a value gets cleared in a templated file; reporting
-  // it would tell someone to migrate a key they already removed.
-  let cfg: FileConfig = serde_yaml::from_str("target: \"  \"\nserve: \"\"\n").unwrap();
-  assert!(cfg.single_service_keys().is_empty());
-}
-
-#[test]
-fn the_schema_marks_the_single_service_keys_deprecated() {
-  // The dashboard's config builder hides a deprecated key unless an imported
-  // file already writes it, and editors grey it out. Both read this flag, so
-  // the form stops offering the shape we want retired.
-  let schema = serde_json::to_value(schemars::schema_for!(FileConfig)).unwrap();
-  let props = schema["properties"].as_object().unwrap();
-  for key in SINGLE_SERVICE_KEYS {
-    assert_eq!(
-      props[*key].get("deprecated"),
-      Some(&serde_json::Value::Bool(true)),
-      "`{key}` must be marked deprecated in the emitted schema"
-    );
-  }
-  // The block spelling of the same claim, and only its `endpoint`: the other
-  // children stay top-level defaults, so flagging them would be wrong.
-  let defs = schema["$defs"].as_object().unwrap();
-  let top = defs["TopHealthConfig"]["properties"].as_object().unwrap();
-  assert_eq!(
-    top["endpoint"].get("deprecated"),
-    Some(&serde_json::Value::Bool(true))
-  );
-  assert_eq!(top["interval"].get("deprecated"), None);
-  // And never on a services: entry, which is where it is now supposed to go.
-  let entry = defs["HealthConfig"]["properties"].as_object().unwrap();
-  assert_eq!(entry["endpoint"].get("deprecated"), None);
-  // A key that is still the right way to write something must not be.
-  assert_eq!(props["services"].get("deprecated"), None);
-  assert_eq!(props["trim_bind"].get("deprecated"), None);
-}
-
-#[test]
-fn a_top_level_health_endpoint_counts_as_a_single_service_key() {
-  // Both spellings, and only the endpoint: the rest of the block is a real
-  // per-entry default and reporting it would be advice to delete a working key.
-  let block: FileConfig =
-    serde_yaml::from_str("health:\n  endpoint: /health\n  interval: 30\n").unwrap();
-  assert_eq!(block.single_service_keys(), vec!["target_health"]);
-
-  let flat: FileConfig = serde_yaml::from_str("target_health: /health\n").unwrap();
-  assert_eq!(flat.single_service_keys(), vec!["target_health"]);
-
-  let defaults_only: FileConfig =
-    serde_yaml::from_str("health:\n  interval: 30\n  wait_for_backend: true\n").unwrap();
-  assert!(defaults_only.single_service_keys().is_empty());
-}
-
-#[test]
-fn the_top_level_health_block_still_parses_every_field() {
-  // The top level has its own type now so `endpoint` can be marked withdrawn
-  // there and not on a services: entry. Same fields, so a file written either
-  // way must load identically, a schema-only split must not become a parse
-  // change.
-  let cfg: FileConfig = serde_yaml::from_str(
-    "health:\n  endpoint: /h\n  interval: 7\n  timeout: 3\n  threshold: 4\n  wait_for_backend: true\n",
-  )
-  .unwrap();
-  let health = cfg.health.clone().unwrap();
-  assert_eq!(health.endpoint.as_deref(), Some("/h"));
-  assert_eq!(health.interval, Some(7));
-  assert_eq!(health.timeout, Some(3));
-  assert_eq!(health.threshold, Some(4));
-  assert_eq!(health.wait_for_backend, Some(true));
-
-  let mut folded = cfg;
-  folded.fold_groups();
-  assert_eq!(folded.target_health.as_deref(), Some("/h"));
-  assert_eq!(folded.health_interval, Some(7));
-}
 
 // ---------------------------------------------------------------------------
 // connections: fixed or elastic (planned_features #48)
@@ -498,4 +373,49 @@ fn via_belongs_to_forward_and_a_client_forward_says_client() {
   assert!(!forward_via_client(
     &auth_of("{method: forward, url: 'http://x/'}").methods()[0]
   ));
+}
+
+// ---------------------------------------------------------------------------
+// access: public, one method, or a list
+// ---------------------------------------------------------------------------
+
+#[test]
+fn access_reads_public_a_block_and_a_list() {
+  let public: Access = serde_yaml::from_str("public").unwrap();
+  assert_eq!(public, Access::Public);
+  // `public` is the open gate the handshake already knows as `method: none`.
+  assert_eq!(public.auth_setting().methods()[0].method, "none");
+
+  let one: Access = serde_yaml::from_str("{method: basic, users: 'a:b'}").unwrap();
+  assert!(matches!(one, Access::One(ref m) if m.method == "basic"));
+
+  let any: Access =
+    serde_yaml::from_str("[{method: basic, users: 'a:b'}, {method: bearer, secret: s}]").unwrap();
+  assert!(matches!(any, Access::Any(ref list) if list.len() == 2));
+}
+
+#[test]
+fn access_names_what_it_takes_when_given_anything_else() {
+  // The scalar `user:password` of the old `auth:` is not a policy any more:
+  // a word other than `public` is refused with the two shapes that are.
+  let err = serde_yaml::from_str::<Access>("admin:secret")
+    .unwrap_err()
+    .to_string();
+  assert!(err.contains("write `public`"), "{err}");
+  // A mistake inside a block is reported by the block's own field, not as an
+  // untagged enum matching nothing.
+  let err = serde_yaml::from_str::<Access>("{method: basic, userz: 'a:b'}")
+    .unwrap_err()
+    .to_string();
+  assert!(err.contains("userz"), "{err}");
+}
+
+#[test]
+fn access_writes_back_as_it_was_read() {
+  for text in ["public", "{method: basic, users: 'a:b'}"] {
+    let read: Access = serde_yaml::from_str(text).unwrap();
+    let written = serde_yaml::to_string(&read).unwrap();
+    let again: Access = serde_yaml::from_str(&written).unwrap();
+    assert_eq!(read, again, "{text}");
+  }
 }

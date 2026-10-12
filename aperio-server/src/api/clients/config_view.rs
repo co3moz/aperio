@@ -48,10 +48,24 @@ fn yaml_str(v: &str) -> String {
 /// Appends `key: value`, with the note for that key (when there is one) as a
 /// trailing comment, so the document still explains itself once copied out.
 fn push_line(out: &mut String, notes: &[ConfigNoteView], key: &str, value: &str) {
+  push_field(out, notes, "", key, key, value);
+}
+
+/// The same for a key inside a block: `field` is its dotted path, which is
+/// what a note names it by.
+fn push_field(
+  out: &mut String,
+  notes: &[ConfigNoteView],
+  indent: &str,
+  key: &str,
+  field: &str,
+  value: &str,
+) {
+  out.push_str(indent);
   out.push_str(key);
   out.push_str(": ");
   out.push_str(value);
-  if let Some(note) = notes.iter().find(|n| n.field == key) {
+  if let Some(note) = notes.iter().find(|n| n.field == field) {
     let declared = if note.declared.is_empty() {
       "not set".to_string()
     } else {
@@ -103,7 +117,7 @@ fn client_config_view(
   };
   if service.cache && !cache_enabled {
     server_note(
-      "cache",
+      "cache.enabled",
       "true",
       "false",
       "the server's response cache is disabled (cache.enabled off), so the opt-in does nothing",
@@ -111,18 +125,18 @@ fn client_config_view(
   }
   if service.public_denied_warned {
     server_note(
+      "access",
       "public",
-      "true",
-      "false",
+      "the server's gate",
       "this client's token does not permit publishing public services, so the visitor auth gate stays on",
     );
   }
   if service.visitor_auth_denied_warned {
     server_note(
-      "auth",
-      "set",
-      "ignored",
-      "the token does not permit controlling the visitor gate, the value was not user:password, or the server sets access.ignore_client_auth",
+      "access",
+      "a policy",
+      "the server's gate",
+      "the token does not permit controlling the visitor gate, or the server sets access.ignore_client_auth",
     );
   }
   let declared_hostnames = declared_hostnames_of(service);
@@ -216,8 +230,28 @@ fn client_config_view(
   if let Some(path) = service.effective_path_bind() {
     push_line(&mut y, &notes, "path", &yaml_str(path));
   }
-  if let Some(n) = service.max_concurrent {
-    push_line(&mut y, &notes, "max_concurrent", &n.to_string());
+  if service.max_concurrent.is_some() || service.max_request_body.is_some() {
+    y.push_str("limits:\n");
+    if let Some(n) = service.max_concurrent {
+      push_field(
+        &mut y,
+        &notes,
+        "  ",
+        "concurrent_requests",
+        "limits.concurrent_requests",
+        &n.to_string(),
+      );
+    }
+    if let Some(n) = service.max_request_body {
+      push_field(
+        &mut y,
+        &notes,
+        "  ",
+        "request_body",
+        "limits.request_body",
+        &n.to_string(),
+      );
+    }
   }
   match service.bandwidth_bps.load(Ordering::Relaxed) {
     0 => {}
@@ -232,11 +266,10 @@ fn client_config_view(
     push_line(&mut y, &notes, "priority", &service.priority.to_string());
   }
   if service.public {
-    push_line(&mut y, &notes, "public", "true");
-  }
-  if service.visitor_auth.is_some() {
+    push_line(&mut y, &notes, "access", "public");
+  } else if service.visitor_auth.is_some() || service.visitor_auth_policy.is_some() {
     // The credentials themselves never leave the server.
-    y.push_str("auth: \"<set by the client>\"\n");
+    push_line(&mut y, &notes, "access", "\"<a policy set by the client>\"");
   }
   if !service.allowed_ips.is_empty() {
     push_line(
@@ -257,20 +290,20 @@ fn client_config_view(
   if let Some(denied) = &service.denied {
     push_line(&mut y, &notes, "denied", &yaml_str(denied));
   }
-  if service.cache {
-    push_line(&mut y, &notes, "cache", "true");
-  }
-  if service.resilience {
-    push_line(&mut y, &notes, "resilience", "true");
+  if service.cache || service.resilience {
+    y.push_str("cache:\n");
+    if service.cache {
+      push_field(&mut y, &notes, "  ", "enabled", "cache.enabled", "true");
+    }
+    if service.resilience {
+      push_field(&mut y, &notes, "  ", "offline", "cache.offline", "true");
+    }
   }
   if service.webhook_inbox {
     push_line(&mut y, &notes, "webhook_inbox", "true");
   }
-  if let Some(n) = service.max_request_body {
-    push_line(&mut y, &notes, "max_request_body", &n.to_string());
-  }
   if let Some(n) = service.response_timeout {
-    push_line(&mut y, &notes, "response_timeout", &n.to_string());
+    push_line(&mut y, &notes, "response_timeout", &format!("{n}s"));
   }
   if service.tcp_enabled {
     y.push_str("tcp_target: \"<set by the client>\"\n");
@@ -279,7 +312,8 @@ fn client_config_view(
     y.push_str("tunnels:\n");
     for t in &service.tunnels {
       y.push_str(&format!(
-        "  - target: {}\n    protocol: {}\n",
+        "  {}:\n    target: {}\n    protocol: {}\n",
+        crate::tunnel::registry::name_of(t),
         yaml_str(&t.target),
         yaml_str(&t.protocol)
       ));

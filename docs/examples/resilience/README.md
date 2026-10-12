@@ -3,7 +3,7 @@
 > **Concept:** [Response Caching](../../caching.md).
 
 
-With `resilience: true` and `cache: true`, the server can answer cacheable requests while no healthy client is connected. Expired entries carry `x-aperio-stale: true` and remain usable only within `cache.max_stale`. Once a client reconnects, cache misses can reach the backend again; valid cache hits still come from the cache.
+With `cache: {enabled: true, offline: true}`, the server can answer cacheable requests while no healthy client is connected. Expired entries carry `x-aperio-stale: true` and remain usable only within `cache.max_stale`. Once a client reconnects, cache misses can reach the backend again; valid cache hits still come from the cache.
 
 This turns a redeploy or a flaky uplink into a non-event for cacheable pages. See [Client Resilience](../../client-resilience.md).
 

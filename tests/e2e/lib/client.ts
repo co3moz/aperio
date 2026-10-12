@@ -43,8 +43,8 @@ export async function terminate(proc: ChildProcess | undefined): Promise<void> {
  * are the reason it was worth porting second:
  *
  *  - a **config file** instead of env, because a `tunnels:` list and a
- *    `bind-tunnels:` map are not flat scalars,
- *  - **argv**, because `--bind-tunnels <id>` and the legacy `tcp <port>` form
+ *    `binds:` map are not flat scalars,
+ *  - **argv**, because `bind <name>` and the legacy `tcp <port>` form
  *    are not settings at all,
  *  - the **log**, because what a binder did is stated in what it printed and
  *    nowhere else.
@@ -149,7 +149,7 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
     _config(): string | null {
       return null
     }
-    /** Everything before the config flag: a subcommand, `--bind-tunnels`, … */
+    /** Everything before the config flag: a subcommand, `bind`, … */
     _args(): string[] {
       return []
     }
@@ -220,15 +220,11 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
       // `method: none` and would open the very gate the test is about. The
       // other is testing the server's gate or the closed posture itself, and
       // says so by overriding `_public()`.
-      // `APERIO_VISITOR_AUTH` is the env name for yaml `auth:`, and the
-      // spelling matters: `APERIO_AUTH` was checked here and is not a
-      // setting, so a fixture configuring its gate through the environment
-      // read as having none and was handed `APERIO_PUBLIC` instead, which is
-      // precisely the gate-opening this check exists to prevent. No fixture
-      // sets it today, so nothing was wrong yet; the first one to try would
-      // have been tested against an open door.
+      // `APERIO_ACCESS` is the variable for `access:`, and a fixture that
+      // configures its gate through the environment must not also be handed
+      // `public`, which would open the very gate the test is about.
       const declaresOwnGate =
-        'APERIO_VISITOR_AUTH' in declared || /(^|\n)\s*auth:/.test(yaml ?? '')
+        'APERIO_ACCESS' in declared || /(^|\n)\s*access:/.test(yaml ?? '')
       const isPublic = this._public() && !declaresOwnGate
       this._proc = spawn(CLIENT_BIN, args, {
         cwd: this._cwd(),
@@ -237,7 +233,7 @@ export function AperioClientBase(options: Parameters<typeof Test>[0] = {}) {
           // Keep log-based assertions independent of the invoking shell.
           RUST_LOG: 'info',
           APERIO_CONNECTIONS: '1',
-          ...(isPublic ? { APERIO_PUBLIC: '1' } : {}),
+          ...(isPublic ? { APERIO_ACCESS: 'public' } : {}),
           APERIO_SERVER_URL: this._serverUrl(),
           APERIO_SERVER_TOKEN: this._serverToken(),
           ...declared,

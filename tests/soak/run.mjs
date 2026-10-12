@@ -204,7 +204,7 @@ async function main() {
     // visitor gate, and the server has been closed by default since 0.10.0:
     // a route that declares nothing is refused, and the soak then fails as a
     // tunnel that never became routable.
-    APERIO_PUBLIC: '1',
+    APERIO_ACCESS: 'public',
     APERIO_CONNECTIONS: '1',
   })
   await routable(serverPort, host)

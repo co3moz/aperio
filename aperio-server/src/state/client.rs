@@ -472,7 +472,7 @@ pub(crate) struct ServiceState {
   /// operator would be reading a backend error instead of a permission one.
   pub(crate) server_side_refused: Option<String>,
   /// False when the service asked not to be recorded for the request
-  /// inspector (`capture: false` in its aperio.yaml), announced via Ping.
+  /// inspector (`inspector: false` in its aperio.yaml), announced via Ping.
   pub(crate) capture: bool,
   /// Parallel tunnel connections the client runs for this service
   /// (`connections:`), announced via Ping. Display-only: the server treats
@@ -496,7 +496,7 @@ pub(crate) struct ServiceState {
   /// True when the client announced a TCP target (experimental TCP tunneling).
   pub(crate) tcp_enabled: bool,
   /// Latest backend health verdict reported by the client's own probe
-  /// (APERIO_TARGET_HEALTH). False = excluded from routing while the
+  /// (`health.endpoint`). False = excluded from routing while the
   /// tunnel connection itself stays up.
   pub(crate) backend_healthy: bool,
   /// False only while a configured health check has not completed its first
@@ -544,7 +544,7 @@ pub(crate) struct ServiceState {
   /// so a heartbeat every few seconds cannot flood the log.
   pub(crate) scaling_invalid_warned: bool,
   /// Tunnels declared by the client via Ping (`tunnels:` list): normally
-  /// unexposed local services a peer client may bind with `--bind-tunnels`
+  /// unexposed local services a peer client may bind with `aperio-client bind`
   /// (same token, explicit client id required).
   pub(crate) tunnels: Vec<crate::protocol::TunnelDecl>,
   /// The client opted its service into the server-side response cache

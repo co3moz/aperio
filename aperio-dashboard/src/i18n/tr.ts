@@ -40,8 +40,8 @@ export const tr: Record<string, string> = {
   'Allowed source IPs / CIDRs': "İzinli kaynak IP'ler / CIDR'lar",
   'Announced link capacity; the server paces frames to this client accordingly':
     'Bildirilen hat kapasitesi; sunucu bu istemciye kareleri buna göre gönderir',
-  'Another live connection reports the same client id ({id}), bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
-    "Başka bir canlı bağlantı aynı istemci kimliğini ({id}) bildiriyor, bu kimlikle yapılan bind-tunnels ve failover aramaları belirsizleşir; her istemciye kendi --client-id'sini verin",
+  'Another live connection reports the same client id ({id}), so failover lookups by this id are ambiguous; give each client its own --client-id':
+    "Başka bir canlı bağlantı aynı istemci kimliğini ({id}) bildiriyor, bu yüzden bu kimlikle yapılan failover aramaları belirsizleşir; her istemciye kendi --client-id'sini verin",
   'Aperio Reverse Tunneling System • Server Uptime: {uptime}':
     'Aperio Ters Tünelleme Sistemi • Sunucu Çalışma Süresi: {uptime}',
   Appearance: 'Görünüm',
@@ -682,7 +682,8 @@ export const tr: Record<string, string> = {
   'ejected': 'çıkarıldı',
   'draining': 'boşaltılıyor',
   'cache off': 'önbellek kapalı',
-  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect, enable the server cache or drop the flag': 'Bu servis önbelleğe almayı açtı (cache: true) ama sunucu yanıt önbelleği kapalı (APERIO_CACHE off), bu yüzden ayarın etkisi yok, sunucu önbelleğini aç veya bayrağı kaldır.',
+  'This service opted into caching (cache.enabled) but the server response cache is disabled (cache.enabled off on the server), so the opt-in has no effect; enable the server cache or drop the setting':
+    'Bu servis önbelleği açtı (cache.enabled) ama sunucunun yanıt önbelleği kapalı (sunucuda cache.enabled kapalı), bu yüzden bir etkisi yok; sunucu önbelleğini açın ya da ayarı kaldırın',
   'Add hostname': 'Hostname ekle',
   'Hostname binds': 'Hostname bağlamaları',
   'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
@@ -781,7 +782,8 @@ export const tr: Record<string, string> = {
   'Server self-health': 'Sunucu öz-sağlığı',
   'Server-side GET cache occupancy and hit rate.': 'Sunucu tarafı GET önbelleğinin doluluğu ve isabet oranı.',
   'Services that ask for capacity when they need it. A request for a hostname nothing is serving triggers a cold start instead of a 504, and a saturated pool asks for one more instance. Declared by the client in its scaling: block; scaling back in is the client’s own idle_timeout.': "İhtiyaç duyduklarında kapasite isteyen servisler. Hiçbir şeyin sunmadığı bir hostname'e gelen istek 504 yerine soğuk başlatma tetikler, doymuş bir havuz ise bir örnek daha ister. İstemci bunu scaling: bloğunda tanımlar; geri ölçeklenme istemcinin kendi idle_timeout değeriyle olur.",
-  'Set max_concurrent on the client to make utilization measurable.': 'Kullanımın ölçülebilmesi için istemcide max_concurrent ayarlayın.',
+  'Set limits.concurrent_requests on the client to make utilization measurable.':
+    'Kullanımın ölçülebilmesi için istemcide limits.concurrent_requests ayarlayın.',
   'Sign in at /aperio/oidc/login?org={id}. Leave issuer empty to clear.': '/aperio/oidc/login?org={id} adresinden giriş yapın. Temizlemek için issuer alanını boş bırakın.',
   'Size': 'Boyut',
   'State': 'Durum',
@@ -829,15 +831,9 @@ export const tr: Record<string, string> = {
   'Services': 'Servisler',
   'Each entry is one exposed backend with its own bind and tuning.': 'Her girdi, kendi bağı ve ayarları olan bir yayınlanmış arka uçtur.',
   'Private TCP/UDP services a peer client can bind locally, and the peers this client binds.': 'Başka bir istemcinin yerel olarak bağlayabileceği özel TCP/UDP servisleri ve bu istemcinin bağladığı eşler.',
-  'Access control': 'Erişim denetimi',
-  'Who may reach the exposed service.': 'Yayınlanan servise kimlerin erişebileceği.',
   'Capacity & pacing': 'Kapasite ve hız',
   'How much work this client accepts and how fast the server may push to it.': 'Bu istemcinin ne kadar iş kabul ettiği ve sunucunun ona ne hızda gönderebileceği.',
-  'Backend health': 'Arka uç sağlığı',
-  'Probing the backend so an unhealthy one leaves the routing pool without dropping the tunnel. Set here it applies to every entry under services:, and any entry may override it.': 'Arka ucu yoklar, böylece sağlıksız olan tüneli düşürmeden yönlendirme havuzundan çıkar. Burada ayarlanınca services: altındaki her girdi için geçerlidir ve her girdi bunu ezebilir.',
   'Asking for capacity when it is needed, and retiring when idle.': 'Gerektiğinde kapasite istemek, boşta kalınca kapanmak.',
-  'Response handling': 'Yanıt işleme',
-  'Caching, resilience, and the headers this client rewrites.': "Önbellekleme, dayanıklılık ve bu istemcinin yeniden yazdığı header'lar.",
   'Logging': 'Günlükleme',
   'What this client writes and in which format.': 'Bu istemcinin ne yazdığı ve hangi biçimde yazdığı.',
   'Core': 'Çekirdek',
@@ -911,8 +907,8 @@ export const tr: Record<string, string> = {
   'TOTP QR code': 'TOTP QR kodu',
   'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.': 'Yavaş bir ziyaretçinin indirmesinin ne kadarını sunucunun, istemciden üretimi duraklatmasını istemeden önce tamponladığı.',
   'Service defaults': 'Servis varsayılanları',
-  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here, they only ever worked without a services: list, and appear only for a file that already writes them.': 'services: altındaki her girdiye uygulanır ve girdi başına geçersiz kılınabilir. Üst düzeyde tek bir arka ucu adlandıran anahtarlar burada kullanımdan kaldırıldı, zaten yalnızca services: listesi yokken işe yarıyorlardı, ve yalnızca bunları hâlihazırda yazan bir dosya için görünürler.',
-  '`{keys}` name one service at the top level, and this file also has a services: list, the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` üst düzeyde tek bir servisi adlandırıyor ve bu dosyada ayrıca bir services: listesi var, istemci listeyi okur, bunları yok sayar. Ait oldukları girdinin içine taşıyın.',
+  'What every service gets unless its own entry says otherwise. The environment and the command line write here too.':
+    'Kendi girdisi aksini söylemedikçe her servisin aldığı değerler. Ortam değişkenleri ve komut satırı da buraya yazar.',
   'Every healthy client of the route takes requests in turn, evenly. The default, and what you want when the clients are interchangeable.': 'Rotanın sağlıklı her istemcisi sırayla ve eşit olarak istek alır. Varsayılan; istemciler birbirinin yerine geçebiliyorsa istediğiniz budur.',
   'Only the clients on the lowest priority tier receive traffic; a higher tier takes over when every client above it is unhealthy, draining or gone, and hands back when one returns. Tiers come from each client’s priority (0 = primary).': 'Yalnızca en düşük öncelik katmanındaki istemciler trafik alır; üstündeki her istemci sağlıksız, boşaltılıyor ya da yokken bir üst katman devralır, biri döndüğünde geri verir. Katmanlar her istemcinin priority değerinden gelir (0 = birincil).',
   'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.': 'Bir ziyaretçi, kendisine ilk hizmet veren istemciyi o istemci sağlıklı kaldığı sürece korur. Ziyaretçi başına durumu bellekte tutan arka uçlar için; havuz istek başına değil ziyaretçi başına dağıtır.',
@@ -939,7 +935,8 @@ export const tr: Record<string, string> = {
   'Messages': 'Mesajlar',
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'Bu client\'ın dinlediği topic\'ler ve aynı makinedeki bir uygulamanın gönderip almak için bağlandığı yer.',
   'Cold start & scale-out records': 'Soğuk başlatma ve ölçek genişletme kayıtları',
-  'Private services reachable with --bind-tunnels': '--bind-tunnels ile erişilen özel servisler',
+  'Private services reachable with aperio-client bind':
+    'aperio-client bind ile erişilen özel servisler',
   'Display name': 'Görünen ad',
   'Handle': 'Kimlik',
   'Only what it is called. The handle {handle} is what addresses it and never changes.': 'Yalnızca nasıl anıldığı. Onu adresleyen {handle} kimliği hiç değişmez.',

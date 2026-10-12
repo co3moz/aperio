@@ -221,7 +221,6 @@ async fn expose_ports_report_who_serves_them() {
     protocol: "tcp".to_string(),
     encrypt: false,
     idle_timeout: None,
-    expose: None,
   };
   let mut by_name = mock_client(Some("a.example.com"), None, None, None);
   by_name.sole_mut().tunnels = vec![decl("pg_main")];

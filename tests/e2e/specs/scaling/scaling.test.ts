@@ -115,9 +115,10 @@ class ArmingClient extends AperioClientBase({
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
       'services:',
-      `  - target: ${this.backend._url}`,
+      `  web:`,
+      `    target: ${this.backend._url}`,
       `    hostname: ${this._host}`,
-      '    max_concurrent: 10',
+      '    limits: { concurrent_requests: 10 }',
       'scaling:',
       `  url: ${this.hook._url()}`,
       '  min: 0',
@@ -153,7 +154,8 @@ export class StrictArmingClient extends AperioClientBase({
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
       'services:',
-      `  - target: ${this.backend._url}`,
+      `  web:`,
+      `    target: ${this.backend._url}`,
       '    hostname: ssrf.e2e.local',
       'scaling:',
       `  url: ${this.hook._url()}`,
@@ -219,7 +221,7 @@ export class ColdStartSpec extends Test({
           // this itself: the posture is closed by default (#108) and a woken
           // service declares what it is exactly as it would have done had it
           // never slept.
-          APERIO_PUBLIC: '1',
+          APERIO_ACCESS: 'public',
           APERIO_SERVER_URL: this.server._url,
           APERIO_SERVER_TOKEN: this.server._token,
           APERIO_TARGET: this.backend._url,

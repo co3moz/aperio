@@ -41,7 +41,7 @@ function UtilizationBar({ record }: { record: ScalingRecord }) {
           {t('not measurable')}
         </TooltipTrigger>
         <TooltipContent>
-          {t('Set max_concurrent on the client to make utilization measurable.')}
+          {t('Set limits.concurrent_requests on the client to make utilization measurable.')}
         </TooltipContent>
       </Tooltip>
     )

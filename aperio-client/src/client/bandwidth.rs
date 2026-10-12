@@ -197,22 +197,7 @@ pub(crate) fn validate_tunnels(
         ));
       }
     }
-    if decl.expose.is_some() {
-      // A public port relays TCP; a combined tunnel qualifies for its tcp half.
-      if !aperio_config::protocol_serves(&protocol, "tcp") {
-        return Err(format!(
-          "CRITICAL ERROR: tunnel '{}' sets expose, which is only supported for tcp tunnels",
-          target
-        ));
-      }
-      if decl.encrypt {
-        return Err(format!(
-          "CRITICAL ERROR: tunnel '{}' sets expose together with encrypt: true; a public port cannot run the client-side encryption handshake",
-          target
-        ));
-      }
-    }
-    // The name is the handle a binder and an `expose:` entry address, so it is
+    // The name is the handle a binder and an expose listener address, so it is
     // settled here and announced, rather than being re-derived by whoever
     // needs it. An explicit name is validated; a derived one cannot fail.
     if let Some(name) = decl.name.as_deref() {
@@ -231,7 +216,6 @@ pub(crate) fn validate_tunnels(
       psk: decl.psk.clone(),
       proxy_protocol: decl.proxy_protocol,
       idle_timeout: decl.idle_timeout,
-      expose: decl.expose.clone(),
     };
     let name = aperio_config::tunnel_name(&normalized);
     if !names.insert(name.clone()) {

@@ -40,8 +40,8 @@ export const de: Record<string, string> = {
   'Allowed source IPs / CIDRs': 'Erlaubte Quell-IPs / CIDRs',
   'Announced link capacity; the server paces frames to this client accordingly':
     'Gemeldete Leitungskapazität; der Server taktet Frames an diesen Client entsprechend',
-  'Another live connection reports the same client id ({id}), bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
-    'Eine andere aktive Verbindung meldet dieselbe Client-ID ({id}), bind-tunnels- und Failover-Abfragen über diese ID sind mehrdeutig; geben Sie jedem Client eine eigene --client-id',
+  'Another live connection reports the same client id ({id}), so failover lookups by this id are ambiguous; give each client its own --client-id':
+    'Eine andere aktive Verbindung meldet dieselbe Client-ID ({id}), daher sind Failover-Abfragen über diese ID mehrdeutig; geben Sie jedem Client eine eigene --client-id',
   'Aperio Reverse Tunneling System • Server Uptime: {uptime}':
     'Aperio Reverse-Tunneling-System • Server-Laufzeit: {uptime}',
   Appearance: 'Darstellung',
@@ -680,7 +680,8 @@ export const de: Record<string, string> = {
   'ejected': 'ausgeschlossen',
   'draining': 'wird geleert',
   'cache off': 'Cache aus',
-  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect, enable the server cache or drop the flag': 'Dieser Dienst hat Caching aktiviert (cache: true), aber der Server-Antwort-Cache ist deaktiviert (APERIO_CACHE aus) – die Aktivierung hat keine Wirkung; aktivieren Sie den Server-Cache oder entfernen Sie das Flag.',
+  'This service opted into caching (cache.enabled) but the server response cache is disabled (cache.enabled off on the server), so the opt-in has no effect; enable the server cache or drop the setting':
+    'Dieser Dienst hat Caching aktiviert (cache.enabled), aber der Antwort-Cache des Servers ist deaktiviert (cache.enabled auf dem Server aus), daher hat das keine Wirkung; aktivieren Sie den Server-Cache oder entfernen Sie die Einstellung',
   'Add hostname': 'Hostname hinzufügen',
   'Hostname binds': 'Hostname-Bindings',
   'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
@@ -779,7 +780,8 @@ export const de: Record<string, string> = {
   'Server self-health': 'Server-Selbstdiagnose',
   'Server-side GET cache occupancy and hit rate.': 'Belegung und Trefferquote des serverseitigen GET-Caches.',
   'Services that ask for capacity when they need it. A request for a hostname nothing is serving triggers a cold start instead of a 504, and a saturated pool asks for one more instance. Declared by the client in its scaling: block; scaling back in is the client’s own idle_timeout.': 'Dienste, die Kapazität anfordern, wenn sie sie brauchen. Eine Anfrage an einen Hostname, den niemand bedient, löst einen Kaltstart statt eines 504 aus, und ein ausgelasteter Pool fordert eine weitere Instanz an. Der Client deklariert das in seinem scaling:-Block; das Herunterskalieren übernimmt sein eigenes idle_timeout.',
-  'Set max_concurrent on the client to make utilization measurable.': 'Setzen Sie max_concurrent im Client, damit die Auslastung messbar wird.',
+  'Set limits.concurrent_requests on the client to make utilization measurable.':
+    'Setzen Sie limits.concurrent_requests im Client, damit die Auslastung messbar wird.',
   'Sign in at /aperio/oidc/login?org={id}. Leave issuer empty to clear.': 'Anmeldung unter /aperio/oidc/login?org={id}. Issuer leer lassen, um zu löschen.',
   'Size': 'Größe',
   'State': 'Zustand',
@@ -827,15 +829,9 @@ export const de: Record<string, string> = {
   'Services': 'Dienste',
   'Each entry is one exposed backend with its own bind and tuning.': 'Jeder Eintrag ist ein veröffentlichtes Backend mit eigener Bindung und Feinabstimmung.',
   'Private TCP/UDP services a peer client can bind locally, and the peers this client binds.': 'Private TCP/UDP-Dienste, die ein anderer Client lokal binden kann, und die Gegenstellen, die dieser Client bindet.',
-  'Access control': 'Zugriffskontrolle',
-  'Who may reach the exposed service.': 'Wer den veröffentlichten Dienst erreichen darf.',
   'Capacity & pacing': 'Kapazität & Takt',
   'How much work this client accepts and how fast the server may push to it.': 'Wie viel Arbeit dieser Client annimmt und wie schnell der Server an ihn liefern darf.',
-  'Backend health': 'Backend-Zustand',
-  'Probing the backend so an unhealthy one leaves the routing pool without dropping the tunnel. Set here it applies to every entry under services:, and any entry may override it.': 'Prüft das Backend, damit ein ungesundes den Routing-Pool verlässt, ohne den Tunnel zu trennen. Hier gesetzt gilt es für jeden Eintrag unter services:, und jeder Eintrag darf es überschreiben.',
   'Asking for capacity when it is needed, and retiring when idle.': 'Kapazität anfordern, wenn sie gebraucht wird, und im Leerlauf abbauen.',
-  'Response handling': 'Antwortverarbeitung',
-  'Caching, resilience, and the headers this client rewrites.': 'Caching, Ausfallsicherheit und die Header, die dieser Client umschreibt.',
   'Logging': 'Protokollierung',
   'What this client writes and in which format.': 'Was dieser Client schreibt und in welchem Format.',
   'Core': 'Kern',
@@ -909,8 +905,8 @@ export const de: Record<string, string> = {
   'TOTP QR code': 'TOTP-QR-Code',
   'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.': 'Wie viel vom Download eines langsamen Besuchers der Server puffert, bevor er den Client bittet, die Erzeugung zu pausieren.',
   'Service defaults': 'Service-Standards',
-  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here, they only ever worked without a services: list, and appear only for a file that already writes them.': 'Gilt für jeden Eintrag unter services: und ist pro Eintrag überschreibbar. Die Schlüssel, die ein einzelnes Backend auf oberster Ebene benennen, sind hier veraltet, sie wirkten immer nur ohne services:-Liste, und erscheinen nur für eine Datei, die sie bereits schreibt.',
-  '`{keys}` name one service at the top level, and this file also has a services: list, the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` benennen einen einzelnen Dienst auf oberster Ebene, und diese Datei hat zusätzlich eine services:-Liste, der Client liest die Liste und ignoriert sie. Verschiebe sie in den Eintrag, zu dem sie gehören.',
+  'What every service gets unless its own entry says otherwise. The environment and the command line write here too.':
+    'Was jeder Dienst erhält, sofern sein eigener Eintrag nichts anderes sagt. Die Umgebung und die Kommandozeile schreiben ebenfalls hierher.',
   'Every healthy client of the route takes requests in turn, evenly. The default, and what you want when the clients are interchangeable.': 'Jeder gesunde Client der Route nimmt reihum gleich viele Anfragen. Der Standard, und das Richtige, wenn die Clients austauschbar sind.',
   'Only the clients on the lowest priority tier receive traffic; a higher tier takes over when every client above it is unhealthy, draining or gone, and hands back when one returns. Tiers come from each client’s priority (0 = primary).': 'Nur die Clients der niedrigsten Prioritätsstufe erhalten Verkehr; eine höhere Stufe übernimmt, sobald jeder Client darüber ungesund, im Drain oder weg ist, und gibt zurück, sobald einer wiederkommt. Die Stufen kommen aus der priority jedes Clients (0 = primär).',
   'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.': 'Ein Besucher behält den Client, der ihn zuerst bedient hat, solange dieser gesund bleibt. Für Backends, die Zustand pro Besucher im Speicher halten; der Pool verteilt nach Besucher statt nach Anfrage.',
@@ -937,7 +933,8 @@ export const de: Record<string, string> = {
   'Messages': 'Nachrichten',
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'Topics, auf die dieser Client hört, und wo eine Anwendung auf derselben Maschine andockt, um zu senden und zu empfangen.',
   'Cold start & scale-out records': 'Kaltstart- und Scale-out-Einträge',
-  'Private services reachable with --bind-tunnels': 'Private Dienste, erreichbar mit --bind-tunnels',
+  'Private services reachable with aperio-client bind':
+    'Private Dienste, erreichbar mit aperio-client bind',
   'Display name': 'Anzeigename',
   'Handle': 'Kennung',
   'Only what it is called. The handle {handle} is what addresses it and never changes.': 'Nur wie sie heißt. Die Kennung {handle} adressiert sie und ändert sich nie.',

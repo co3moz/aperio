@@ -5,19 +5,20 @@ server:
 
 # Optional: a client may declare only tunnels, with no public service at all.
 services:
-  - target: http://localhost:3000
-    public: true
+  web:
+    target: http://localhost:3000
+    access: public
 
-# Private local services another client may reach via --bind-tunnels; never
-# exposed to the public web. The `name` is the handle binders address, so it
-# survives restarts, parallel connections and a services: list.
+# Private local services another client may reach with `aperio-client
+# bind`; never exposed to the public web. The key each is written under is
+# the name binders address, so it survives restarts and parallel connections.
 tunnels:
-  - name: mongo
+  mongo:
     target: 127.0.0.1:27017     # MongoDB
     protocol: tcp               # tcp is the default
-  - name: ssh
+  ssh:
     target: 127.0.0.1:22
-  - name: dns
+  dns:
     target: 127.0.0.1:53        # internal DNS resolver
     protocol: tcp/udp           # one tunnel, one local port, both transports
-    idle_timeout: 10            # the udp half: relay expiry in seconds (default 60)
+    idle_timeout: 10s           # the udp half: relay expiry (default 60s)

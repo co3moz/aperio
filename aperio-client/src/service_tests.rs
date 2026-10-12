@@ -245,7 +245,6 @@ fn test_label_variants() {
     psk: None,
     proxy_protocol: false,
     idle_timeout: None,
-    expose: None,
   }];
   assert_eq!(spec.label(), "(tunnels only)");
 }
@@ -326,7 +325,6 @@ async fn test_run_service_message_loop() {
       psk: None,
       proxy_protocol: false,
       idle_timeout: None,
-      expose: None,
     },
     TunnelDecl {
       custom_name: None,
@@ -337,7 +335,6 @@ async fn test_run_service_message_loop() {
       psk: None,
       proxy_protocol: false,
       idle_timeout: None,
-      expose: None,
     },
   ];
 

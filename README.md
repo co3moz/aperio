@@ -31,12 +31,12 @@ docker run -d -p 8080:8080 -v "$(pwd)/data:/app/data" \
   ghcr.io/co3moz/aperio-server:latest
 
 # Client (next to your service). This Linux example uses host networking.
-# APERIO_PUBLIC opens the route to visitors; routes are closed by default.
+# APERIO_ACCESS=public opens the route to visitors; routes are closed by default.
 docker run -d --network host \
   -e APERIO_SERVER_TOKEN="a-long-random-string" \
   -e APERIO_SERVER_URL="http://your-server-ip:8080" \
   -e APERIO_TARGET="http://localhost:3000" \
-  -e APERIO_PUBLIC=1 \
+  -e APERIO_ACCESS=public \
   ghcr.io/co3moz/aperio-client:latest
 ```
 
@@ -49,7 +49,7 @@ After configuring DNS and TLS for `tunnel.example.com`, you can run the client d
 ```bash
 curl -sSf https://raw.githubusercontent.com/co3moz/aperio/master/install.sh | sh
 aperio-client 3000 --server-url https://tunnel.example.com \
-  --server-token a-long-random-string --public
+  --server-token a-long-random-string --access public
 ```
 
 With Homebrew:
@@ -81,7 +81,7 @@ Dashboard at `/aperio` (user `aperio`, password = your token). Full walkthrough:
 | **HTTP** | HTTP/1.1 and HTTP/2 (h2c and h2), streamed request and response bodies, `Range` requests, trailers |
 | **WebSocket** | passed through end to end, with per-stream flow control |
 | **gRPC** | over h2c/h2, `te: trailers` forwarded, `grpc-status` relayed back |
-| **TCP** | declared tunnels bound from another client (`--bind-tunnels`) or opened on a public port (`expose:`) |
+| **TCP** | declared tunnels bound from another client (`aperio-client bind`) or opened on a public port (`expose:`) |
 | **UDP** | the same, as a best-effort datagram relay; `tcp/udp` declares one tunnel on both |
 | **Static files** | a directory served with no backend at all: SPA fallback, custom 404, streaming |
 | **Messages** | clients of one organization publish and subscribe over the tunnel they already hold, with an MQTT or plain-HTTP local face |

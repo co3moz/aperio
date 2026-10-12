@@ -40,10 +40,10 @@ function dockerCommand(serverUrl: string, token: string, s: WizardState): string
     'docker run -d --name aperio-client --restart unless-stopped --network host \\',
     `  -e APERIO_SERVER_URL=${serverUrl} \\`,
     `  -e APERIO_SERVER_TOKEN=${token} \\`,
-    `  -e APERIO_CLIENT_TARGET=${s.target} \\`,
+    `  -e APERIO_TARGET=${s.target} \\`,
   ]
-  if (s.hostname) lines.push(`  -e APERIO_HOSTNAME_BIND=${s.hostname} \\`)
-  if (s.path) lines.push(`  -e APERIO_PATH_BIND=${s.path} \\`)
+  if (s.hostname) lines.push(`  -e APERIO_HOSTNAME=${s.hostname} \\`)
+  if (s.path) lines.push(`  -e APERIO_PATH=${s.path} \\`)
   lines.push(`  ${CLIENT_IMAGE}`)
   return lines.join('\n')
 }

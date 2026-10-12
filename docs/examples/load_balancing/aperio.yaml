@@ -5,16 +5,16 @@ server:
   token: apr_load_balancing_multi_change_me
 
 services:
-  - name: web
-    public: true
+  web:
+    access: public
     target: http://localhost:3000
     hostname: app.example.com
     priority: 0                 # machine B: 1
     health:
       endpoint: /health
 
-  - name: api
-    public: true
+  api:
+    access: public
     target: http://localhost:4000
     hostname: api.example.com
     priority: 1                 # machine B: 0

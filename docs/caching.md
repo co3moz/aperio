@@ -14,8 +14,8 @@ A response is only cached when three independent conditions all agree:
 1. **The server operator enabled the cache**, the `cache.enabled` setting
    (dashboard **Settings → Caching**). This provisions the shared in-memory
    cache and its memory budget.
-2. **The service owner opted the service in**, `cache: true` in the client
-   config (per `services:` entry, or as a top-level default for the entries, or `APERIO_CACHE=1` in the
+2. **The service owner opted the service in**, `cache: {enabled: true}` in the client
+   config (per `services:` entry, or under `defaults:` for every entry, or `APERIO_CACHE_ENABLED=1` in the
    client). Only the service owner knows whether *their* responses are safe to
    cache, so this consent lives with the client and is announced over the
    tunnel.
@@ -26,7 +26,7 @@ This separation is deliberate: the operator provides the capability, the service
 owner declares eligibility, and the response itself has the final say. None of
 the three can cache on its own.
 
-> **If a service sets `cache: true` but the server cache is off**, the opt-in
+> **If a service sets `cache.enabled` but the server cache is off**, the opt-in
 > silently does nothing. Aperio surfaces this so it is not a mystery: the server
 > logs a one-time warning per client (`… requested response caching … but the
 > server cache is disabled (APERIO_CACHE off); the opt-in is ignored`), and the
@@ -85,7 +85,7 @@ that has since appeared. A response carrying `Vary`, `Set-Cookie` or a
 
 ## Serve-stale resilience
 
-`resilience: true` on a service (needs `cache: true` and the server cache) lets
+`cache.offline: true` on a service (needs `cache.enabled` and the server cache) lets
 cached responses keep answering visitors **while no healthy client is
 connected**, instead of failing with `504`. Fresh-or-expired entries answer up
 to the `cache.max_stale` (env `cache.max_stale`) window past their lifetime, marked
@@ -108,9 +108,9 @@ env var in parentheses.
 | yaml key | Where | Effect | Default |
 |---|---|---|---|
 | `cache.enabled` | server | Enable the shared response cache. | `false` |
-| `cache` (env `APERIO_CACHE`) | client, per service or top level | Opt a service in; written at the top level it is the default for every `services:` entry. | `0` |
+| `cache.enabled` (env `APERIO_CACHE_ENABLED`) | client, per service or under `defaults:` | Opt a service in; under `defaults:` it reaches every service. | `false` |
 | `cache.max_bytes` (env `cache.size`) | server | Total in-memory budget; inserting past it evicts the entries closest to expiry, and a body larger than a quarter of the budget is never cached. | `67108864` (64 MB) |
-| `resilience` (env `APERIO_RESILIENCE`) | client, per service | Serve stale while no client is connected. | `0` |
+| `cache.offline` (env `APERIO_CACHE_OFFLINE`) | client, per service or under `defaults:` | Serve stale while no client is connected. | `false` |
 | `cache.max_stale` (env `cache.max_stale`) | server | Serve-stale window in seconds; `0` disables it. | `3600` |
 | `cache.negative_ttl` (env `cache.negative_ttl`) | server | Seconds to hold a `404`/`410` so a hot missing URL cannot hammer the backend; `0` disables it. | `0` |
 

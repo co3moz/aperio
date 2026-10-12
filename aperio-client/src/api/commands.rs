@@ -209,7 +209,7 @@ pub(crate) struct TokenCreateArgs {
   #[arg(long = "allow-otel")]
   pub(crate) allow_otel: bool,
   /// Allow clients using this token to bind the tunnels other clients of the
-  /// organization declare (--bind-tunnels)
+  /// organization declare (aperio-client bind)
   #[arg(long = "allow-bind")]
   pub(crate) allow_bind: bool,
   /// Allow services using this token to ask the server to reach their target

@@ -1,4 +1,4 @@
-# Tunnels (bind-tunnels & public expose)
+# Tunnels (bind & public expose)
 
 Reaching services you deliberately do **not** expose: a database, an internal admin port, an SSH daemon. A running client declares them as *tunnels*; nothing about them is routed or exposed publicly. When you need one, a broken deployment, a dead VPN, a 3 a.m. incident, you bind it from anywhere with a second client authorized to do so.
 
@@ -17,12 +17,12 @@ server:
 services:                         # optional, a client may declare only tunnels
   - target: http://localhost:3000
 tunnels:
-  - name: mongo                   # the handle binders address
+  mongo:
     target: 127.0.0.1:27017       # MongoDB, never exposed
     protocol: tcp                 # tcp (default) or udp
-  - name: ssh
+  ssh:
     target: 127.0.0.1:22
-  - name: dns
+  dns:
     target: 127.0.0.1:53          # e.g. an internal DNS resolver
     protocol: tcp/udp             # one tunnel, both transports
     idle_timeout: 10              # the udp half: relay expiry in seconds (default 60)
@@ -47,7 +47,7 @@ This is what makes a name usable as an address. Without it you had to already kn
 From any machine, start a client in bind mode:
 
 ```bash
-aperio-client --bind-tunnels mongo \
+aperio-client bind mongo \
   --server-url https://tunnel.example.com \
   --server-token apr_xxxxxxxxxxxxxxxx
 ```
@@ -66,7 +66,7 @@ The binder's own `aperio.yaml` says what to bind and where. A bare number is the
 server:
   url: https://tunnel.example.com
   token: apr_xxxxxxxxxxxxxxxx     # in the declaring client's organization, with allow_bind
-bind-tunnels:
+binds:
   mongo: 15000                    # listen on 127.0.0.1:15000
   dns: 5300
   pg_main:
@@ -75,7 +75,7 @@ bind-tunnels:
     psk: a-long-random-string     # only for an encrypt: true tunnel
 ```
 
-`aperio-client --bind-tunnels` with no value binds every entry. With no `bind-tunnels:` section at all it binds everything the token may reach, which is safe precisely because the server decides what is on that list.
+`aperio-client bind` with no name binds every entry. With no `binds:` section at all it binds everything the token may reach, which is safe precisely because the server decides what is on that list.
 
 **Local ports.** A `port:` wins. Otherwise the declared target's port is reused, as it always was, unless that port is privileged (below 1024) or the target has none to parse, in which case a port derived from the tunnel name is used: stable across restarts, so whatever connects to it never needs reconfiguring. Every chosen port is logged at startup.
 
@@ -99,7 +99,7 @@ A TCP tunnel delivers bytes to the backend over a fresh local connection, so the
 
 ```yaml
 tunnels:
-  - name: web
+  web:
     target: 127.0.0.1:8080
     proxy_protocol: true
 ```
@@ -115,12 +115,13 @@ By default the server decodes and re-encodes tunnel frames, so a compromised ser
 ```yaml
 # Declaring side (aperio.yaml)
 tunnels:
-  - target: 127.0.0.1:5432
+  web:
+    target: 127.0.0.1:5432
     encrypt: true
     psk: a-long-random-string     # optional, never sent anywhere
 
 # Binder side (aperio.yaml)
-bind-tunnels:
+binds:
   pg_main:
     psk: a-long-random-string     # must match the declaring side
 ```
@@ -136,7 +137,7 @@ A `protocol: udp` (or `tcp/udp`) declaration binds a local **UDP** socket on the
 A tunnel normally needs a binder peer. An expose listener cuts the binder out:
 the server itself opens a public TCP or UDP port and relays every accepted
 connection or datagram session into a declared tunnel, useful for exposing SSH
-or a game server without running `--bind-tunnels` anywhere.
+or a game server without running `aperio-client bind` anywhere.
 
 Listeners are managed resources: create one from the dashboard's Tunnels page,
 or with the API, naming the tunnel and the organization whose client may claim
@@ -166,14 +167,14 @@ aperio-client api expose create --file ssh-expose.json
 ```yaml
 # client aperio.yaml
 tunnels:
-  - name: ssh
+  ssh:
     target: 127.0.0.1:22
 ```
 
 The claim is settled by **identity**: the port accepts the named tunnel only
 from a client of the named organization. A tunnel name is unique inside an
 organization and nowhere else, which is exactly why the organization has to be
-part of the claim. The same `<org>@<name>` spelling works as a `bind-tunnels:`
+part of the claim. The same `<org>@<name>` spelling works as a `binds:`
 key, so a binder that can see two organizations can say which `postgres` it
 means.
 

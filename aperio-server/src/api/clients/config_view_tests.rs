@@ -115,7 +115,7 @@ async fn client_config_renders_yaml_with_declared_vs_effective_notes() {
     "got:\n{yaml}"
   );
   assert!(
-    yaml.contains("cache: true  # declared true: the server's response cache is disabled"),
+    yaml.contains("  enabled: true  # declared true: the server's response cache is disabled"),
     "a server-side adjustment is annotated too:\n{yaml}"
   );
 
@@ -125,7 +125,10 @@ async fn client_config_renders_yaml_with_declared_vs_effective_notes() {
   assert_eq!(bw["declared"], "10mbit");
   assert_eq!(bw["effective"], "1mbit");
   assert_eq!(bw["source"], "client");
-  let cache = notes.iter().find(|n| n["field"] == "cache").unwrap();
+  let cache = notes
+    .iter()
+    .find(|n| n["field"] == "cache.enabled")
+    .unwrap();
   assert_eq!(cache["effective"], "false");
   assert_eq!(cache["source"], "server");
 }
@@ -249,7 +252,6 @@ async fn client_config_renders_every_optional_knob_and_server_overrule() {
       protocol: "tcp".to_string(),
       encrypt: true,
       idle_timeout: None,
-      expose: None,
     }];
   })
   .await;
@@ -268,16 +270,18 @@ async fn client_config_renders_every_optional_knob_and_server_overrule() {
 
   for line in [
     "priority: 2",
-    "public: true",
-    "auth: \"<set by the client>\"",
+    "access: public",
     "allowed_ips: [\"10.0.0.0/8\", \"203.0.113.7\"]",
     "denied: \"https://example.com/no\"",
-    "resilience: true",
+    "cache:",
+    "  offline: true",
     "webhook_inbox: true",
-    "max_request_body: 1048576",
-    "response_timeout: 120",
+    "limits:",
+    "  request_body: 1048576",
+    "response_timeout: 120s",
     "tcp_target: \"<set by the client>\"",
     "tunnels:",
+    "  pg:",
     "    encrypt: true",
   ] {
     assert!(yaml.contains(line), "missing `{line}` in:\n{yaml}");
@@ -286,7 +290,7 @@ async fn client_config_renders_every_optional_knob_and_server_overrule() {
   // The three server-side refusals and the two overrules are all notes.
   let notes = body["notes"].as_array().unwrap();
   let fields: Vec<&str> = notes.iter().filter_map(|n| n["field"].as_str()).collect();
-  for field in ["public", "auth", "hostname", "path"] {
+  for field in ["access", "hostname", "path"] {
     assert!(fields.contains(&field), "{fields:?}");
   }
   let hostname_note = notes.iter().find(|n| n["field"] == "hostname").unwrap();

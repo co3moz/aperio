@@ -53,7 +53,6 @@ async fn ping_master_applies_all_binds() {
       protocol: "tcp".into(),
       encrypt: false,
       idle_timeout: None,
-      expose: None,
     }];
     d.cache = true;
     d.resilience = true;

@@ -86,7 +86,6 @@ fn decl(name: &str, protocol: &str) -> TunnelDecl {
     protocol: protocol.to_string(),
     encrypt: false,
     idle_timeout: None,
-    expose: None,
   }
 }
 

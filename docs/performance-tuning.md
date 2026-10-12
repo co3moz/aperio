@@ -15,7 +15,7 @@ the slowest-endpoints report, and the [k6 soak test](../tests/soak/k6.js)).
   backend. Raise it for a high-RPS backend that can absorb the concurrency;
   leave it at 1 for a single-threaded dev server. Each connection is a full
   client in the routing pool.
-- **`max_concurrent` (per service).** The client's own in-flight cap. The server
+- **`limits.concurrent_requests` (per service).** The client's own in-flight cap. The server
   queues requests beyond it (bounded by the gateway timeout) instead of flooding
   the backend, the backpressure valve that protects a fragile origin.
 
@@ -47,7 +47,7 @@ first place to look, and each has a switch:
 | `access_events` (env `logging.access_events`) | One structured log event per successful request | The per-request line; a refused or failed request still logs, at `warn` |
 | `capture` (per service, client-side) | The same recording, for one service only | Only that service's requests become uninspectable |
 
-`capture: false` is the one to reach for first: it is per service, so the
+`inspector: false` is the one to reach for first: it is per service, so the
 one endpoint carrying the load can opt out while everything else stays
 inspectable. The dashboard marks such a client **no capture**, and a server
 with the inspector off altogether marks its clients **inspector off**, so the
@@ -83,7 +83,7 @@ One `curl -i` while a load test runs is enough to tell them apart:
 | `ip` | Per-visitor token bucket | `limits.ip_rate` (`burst` / `per_second`) |
 | `server-concurrency` | The server's global in-flight ceiling | `limits.concurrent_requests` |
 | `route` | A `rate_limits:` rule, or a `routes:` policy entry's inline `rate_limit:`, matched the hostname and path | the matching rule in the `rate_limits` or `routes` setting |
-| `client-concurrency` | The serving client's own limit, nothing freed before the gateway timeout | `max_concurrent` in that client's `aperio.yaml` |
+| `client-concurrency` | The serving client's own limit, nothing freed before the gateway timeout | `limits.concurrent_requests` in that client's `aperio.yaml` |
 | `token-rate` | The access token's requests-per-second ceiling | `max_rps` on the token |
 | `token-quota` | The access token's daily byte quota | `daily_max_bytes` on the token |
 | `org-quota` | The organization's monthly byte quota | the organization's quota |
@@ -129,7 +129,7 @@ client that knows its own link capacity.
 
 ## The response cache
 
-`cache.enabled` plus a service's `cache: true` lets the server answer repeated
+`cache.enabled` plus a service's `cache.enabled` lets the server answer repeated
 cacheable GETs from memory, skipping the tunnel round-trip entirely, the single
 biggest latency win for read-heavy, cacheable content.
 

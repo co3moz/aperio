@@ -31,7 +31,8 @@ server:
   url: https://tunnel.example.com
   token: apr_...
 services:
-  - target: http://localhost:3000
+  app:
+    target: http://localhost:3000
     hostname: app.example.com
 
 scaling:
@@ -45,7 +46,9 @@ scaling:
   cooldown: 60s             # minimum gap between two calls for one bind
 
 idle_timeout: 5m            # the scale-in half: retire when nothing arrives
-max_concurrent: 10          # what one instance can handle, and how saturation is measured
+defaults:
+  limits:
+    concurrent_requests: 10   # what one instance can handle, and how saturation is measured
 ```
 
 Every field of the block has its environment spelling, for a client configured
@@ -83,13 +86,13 @@ A `POST` with a JSON body, and your secret as `Authorization: Bearer` when you s
 
 ## What actually triggers a scale-out
 
-Not the request count. Each client already carries a concurrency limiter sized by its announced `max_concurrent`, and the server queues on it rather than flooding a backend, so permits in use is exactly "work the pool is doing right now". Utilization is:
+Not the request count. Each client already carries a concurrency limiter sized by its announced `limits.concurrent_requests`, and the server queues on it rather than flooding a backend, so permits in use is exactly "work the pool is doing right now". Utilization is:
 
 ```
-utilization = inflight / sum(max_concurrent)   # over routable, primary-tier clients
+utilization = inflight / sum(concurrent_requests)   # over routable, primary-tier clients
 ```
 
-The server scales out when that stays at or above `target_utilization` for the whole `window`. A single spike does not qualify, which is what keeps a bursty service from oscillating. Four instances of `max_concurrent: 10` are saturated at 32 concurrent requests, not at "request number 41".
+The server scales out when that stays at or above `target_utilization` for the whole `window`. A single spike does not qualify, which is what keeps a bursty service from oscillating. Four instances of `concurrent_requests: 10` are saturated at 32 concurrent requests, not at "request number 41".
 
 Two exclusions matter: standby-tier clients (`priority > 0`) never count as capacity, because they exist to be idle and counting them would mask saturation of the primaries; and clients that are draining, disabled, or failing their backend probe are not capacity either. A service whose clients announce no `max_concurrent` has no measurable utilization and is never scaled out (cold starts still work).
 
@@ -159,7 +162,7 @@ Records are scoped to the organization of the token that armed them. Revoking th
 | `outbound.block_private` | `outbound.block_private` | With no allowlist: refuse destinations that resolve to internal addresses. | `0` |
 | `scaling.record_ttl` | `scaling.record_ttl` | Seconds before an unrefreshed record is dropped. | `2592000` (30 d) |
 
-Client side, in `aperio.yaml`: the `scaling:` block above, `idle_timeout` (also `APERIO_IDLE_TIMEOUT`), and `max_concurrent`, which is what makes utilization measurable.
+Client side, in `aperio.yaml`: the `scaling:` block above, `idle_timeout` (also `APERIO_IDLE_TIMEOUT`), and `limits.concurrent_requests`, which is what makes utilization measurable.
 
 ## Related
 

@@ -2,64 +2,21 @@
   "client": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "FileConfig",
-    "description": "The Aperio client configuration file (`aperio.yaml` or `~/.aperio.yaml`).\nEvery key is optional and can equally be set with a CLI flag or an `APERIO_*`\nenvironment variable; this file is the lowest-friction way to keep them.",
+    "description": "The Aperio client configuration file (`aperio.yaml` or `~/.aperio.yaml`).\n\nLayers, lowest first: built-in defaults, `~/.aperio.yaml`, `./aperio.yaml`\n(or `--config`), the environment, the command line. A later layer wins,\nkey by key. Every scalar key has an environment variable, and a key nothing\nreads is an error that names the key it was probably meant to be.",
     "type": "object",
     "properties": {
-      "adaptive_concurrency": {
-        "description": "Lower the announced `max_concurrent` while requests queue up waiting for\na local permit, and climb back when they stop. The server already queues\nrather than dispatching past the announced number, so this is how a\nclient that has become slow stops being sent work it cannot do; the\nserver then holds the request, picks another client, or asks for capacity\nthrough autoscaling, all of which beat a refusal. Needs `max_concurrent`\nto be set, since that is the number being moved. Default: `false`\n(env: APERIO_ADAPTIVE_CONCURRENCY).",
-        "type": [
-          "boolean",
-          "null"
-        ],
-        "examples": [
-          true
-        ]
-      },
       "allow_server_forward": {
-        "description": "Answer a `forward` check (`via: client`) whose endpoint the *server*\nwrote, in its own `auth:`, rather than one of this client's services.\nSuch a check makes this client call a URL the server chose, from this\nclient's network, so it is refused unless this is set; the checks this\nclient's own `auth:` declares are always answered. Default: `false`.",
+        "description": "Answer a `forward` check (`via: client`) whose endpoint the *server*\nwrote, in its own visitor gate, rather than one of this client's\nservices. Such a check makes this client call a URL the server chose,\nfrom this client's network, so it is refused unless this is set; the\nchecks this client's own `access:` declares are always answered.\nDefault: `false`.",
         "type": [
           "boolean",
           "null"
         ],
         "examples": [
           true
-        ]
-      },
-      "allowed_ips": {
-        "description": "Visitor IPs/CIDRs allowed to reach this service (plain IPs or CIDR\nranges); empty/unset = everyone. Enforced by the server before dispatch.",
-        "type": [
-          "array",
-          "null"
-        ],
-        "examples": [
-          [
-            "203.0.113.7",
-            "10.0.0.0/8"
-          ]
-        ],
-        "items": {
-          "type": "string"
-        }
-      },
-      "auth": {
-        "description": "Gate this client behind your own visitor login instead of the server's.\nA `user:password` scalar, one `{method: ...}` block, or a list of them.",
-        "anyOf": [
-          {
-            "$ref": "#/$defs/AuthSetting"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "examples": [
-          "admin:s3cret",
-          {
-            "method": "none"
-          }
         ]
       },
       "bandwidth": {
-        "description": "Total link capacity of this client: a budget divided across every service\nand every parallel connection, so the sum the server is allowed to push\nnever exceeds it. Bit suffixes (`kbit`/`mbit`/`gbit`) count as /8, byte\nsuffixes (`kb`/`mb`/`gb`, or bare `k`/`m`/`g`) as x1000.",
+        "description": "Total link capacity of this client: a budget divided across every\nservice and every parallel connection, so the sum the server is allowed\nto push never exceeds it. Bit suffixes (`kbit`/`mbit`/`gbit`) count as\n/8, byte suffixes (`kb`/`mb`/`gb`, or bare `k`/`m`/`g`) as x1000.",
         "type": [
           "string",
           "null"
@@ -70,64 +27,27 @@
           "2MB"
         ]
       },
-      "bind-tunnels": {
-        "description": "Tunnels this process binds to local ports, keyed by the tunnel's name.\nA key naming a peer's client id instead binds every tunnel that peer\ndeclares, which is the older spelling and still works.",
+      "binds": {
+        "description": "Tunnels `aperio-client bind` listens for on this machine, keyed by the\ntunnel's name: a local port, or `{port, address, token, psk}`.",
         "type": [
           "object",
           "null"
         ],
         "additionalProperties": {
-          "$ref": "#/$defs/BindTunnelValue"
+          "$ref": "#/$defs/BindValue"
         },
         "examples": [
           {
             "dns": {
               "port": 15353,
-              "token": "apr_binder_token"
+              "token": "${BINDER_TOKEN}"
             },
             "pg_main": 15432
           }
         ]
       },
-      "cache": {
-        "description": "Let the server cache GET responses (per their `Cache-Control`);\neffective only when the server has `cache.enabled`. Default: `false`.",
-        "type": [
-          "boolean",
-          "null"
-        ],
-        "examples": [
-          true
-        ]
-      },
-      "capture": {
-        "description": "Record transactions for the dashboard's request inspector (services may\noverride). Default: `true`.",
-        "type": [
-          "boolean",
-          "null"
-        ],
-        "examples": [
-          false
-        ]
-      },
-      "circuit_breaker": {
-        "description": "Circuit breaker for the backend. The default for every `services:` entry\nthat does not set its own.",
-        "anyOf": [
-          {
-            "$ref": "#/$defs/CircuitBreakerConfig"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "examples": [
-          {
-            "failures": 5,
-            "open_for": 30
-          }
-        ]
-      },
       "client_id": {
-        "description": "Fixed instance UUID kept across restarts, so failover and `--bind-tunnels`\ncan recognize this client; a random one is used when unset.",
+        "description": "Fixed instance id, a UUID kept across restarts, so failover can\nrecognize this process when it comes back. A random one is used when\nunset.",
         "type": [
           "string",
           "null"
@@ -136,73 +56,28 @@
           "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
         ]
       },
-      "connect_timeout": {
-        "description": "Seconds to wait for the TCP connection to this backend before giving\nup, separate from `timeout`, which covers the whole request. A backend\nacross a VPN needs longer than one on loopback, and one number for both\nmeans either slow failure detection everywhere or spurious failures for\nthe far one. Default: unset (the whole-request `timeout` applies)\n(env: APERIO_CONNECT_TIMEOUT).",
-        "type": [
-          "integer",
-          "null"
-        ],
-        "format": "uint64",
-        "examples": [
-          2
-        ],
-        "minimum": 0
-      },
-      "connections": {
-        "description": "Parallel tunnel connections opened for the exposed service (the server's\n`max_connections_per_service` is the ceiling); the server load-balances\nacross them like separate clients, so a single dropped connection leaves\nno visitor-facing gap.\nA number opens exactly that many at startup; `{min: 1, max: 8}` opens the\nfloor and grows towards the ceiling while requests queue up, then shrinks\nback when they stop. Default: `1`.",
+      "defaults": {
+        "description": "What every service gets unless its own entry says otherwise: the same\nkeys a `services:` entry takes, apart from where its traffic comes from\nand goes to. The environment and the command line write here too, so\n`APERIO_TIMEOUT=60s` is `defaults.timeout`.",
         "anyOf": [
           {
-            "$ref": "#/$defs/Connections"
+            "$ref": "#/$defs/ServicePolicy"
           },
           {
             "type": "null"
           }
         ],
         "examples": [
-          2,
           {
-            "max": 8,
-            "min": 1
+            "access": "public",
+            "health": {
+              "interval": "5s"
+            },
+            "timeout": "60s"
           }
         ]
       },
-      "custom_name": {
-        "description": "What to call the service on screen when one is named on the command line\nor in the environment (`APERIO_CUSTOM_NAME`). A `services:` entry carries\nits own `custom_name:`, which is where a config file says it.",
-        "type": [
-          "string",
-          "null"
-        ],
-        "examples": [
-          "Public Web"
-        ]
-      },
-      "denied": {
-        "description": "Redirect URL for visitors rejected by `allowed_ips` when no candidate\nof the route admits them (unset = stealth; services may override).",
-        "type": [
-          "string",
-          "null"
-        ],
-        "examples": [
-          "https://example.com/not-for-you"
-        ]
-      },
-      "depends_on": {
-        "description": "Names of services in this same file that must have a live tunnel before\nthis one opens its own. Waits for them, then proceeds regardless after a\nbounded grace period, because a dependency that never arrives must not\nkeep a service that could serve traffic off the air forever.",
-        "type": [
-          "array",
-          "null"
-        ],
-        "examples": [
-          [
-            "api"
-          ]
-        ],
-        "items": {
-          "type": "string"
-        }
-      },
       "device_key": {
-        "description": "Trust-on-first-use device key announced with the tunnel token, so a\nserver with token pinning on can bind that token to this machine\n(env: APERIO_DEVICE_KEY).",
+        "description": "Trust-on-first-use device key announced with the tunnel token, so a\nserver with token pinning on can bind that token to this machine.",
         "type": [
           "string",
           "null"
@@ -212,7 +87,7 @@
         ]
       },
       "device_key_file": {
-        "description": "File holding the device key; a random one is generated and persisted\nthere on first run. Ignored when `device_key` is set directly\n(env: APERIO_DEVICE_KEY_FILE).",
+        "description": "File holding the device key; a random one is generated and kept there\non the first run. Ignored when `device_key` is set directly.",
         "type": [
           "string",
           "null"
@@ -221,133 +96,37 @@
           "/var/lib/aperio/device.key"
         ]
       },
-      "egress_proxy": {
-        "description": "HTTP proxy to dial the tunnel server through, for a network that allows\nno direct outbound connection: `host:port`, or `http://host:port`, with\nan optional `user:password@` in front. The client sends `CONNECT` and\nthen runs TLS inside the tunnel the proxy opens, so the proxy sees the\nserver's hostname and nothing else. Applies to the tunnel connection\nonly; requests to your own backend never go through it\n(env: APERIO_EGRESS_PROXY). Unset: dial the server directly.",
-        "type": [
-          "string",
-          "null"
-        ],
-        "examples": [
-          "proxy.corp:3128",
-          "http://user:password@proxy.corp:3128"
-        ]
-      },
-      "headers": {
-        "description": "Request/response header add-remove rules applied by this client to\nproxied HTTP traffic (services may override with their own `headers`).",
-        "anyOf": [
-          {
-            "$ref": "#/$defs/HeaderRules"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "examples": [
-          {
-            "request": {
-              "add": {
-                "X-Forwarded-Env": "staging"
-              },
-              "remove": [
-                "X-Internal-Debug"
-              ]
-            },
-            "response": {
-              "add": {
-                "X-Served-By": "aperio"
-              },
-              "remove": [
-                "X-Powered-By"
-              ]
-            }
-          }
-        ]
-      },
-      "health": {
-        "description": "Backend health probing (`endpoint`, `interval`, `timeout`, `threshold`,\n`wait_for_backend`). Preferred over the flat `target_health` / `health_*`\nkeys, which still work; `services:` entries may override it per service.",
-        "anyOf": [
-          {
-            "$ref": "#/$defs/TopHealthConfig"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "examples": [
-          {
-            "interval": 10,
-            "threshold": 2,
-            "timeout": 5
-          }
-        ]
-      },
-      "health_interval": {
-        "description": "Seconds between backend health probes.",
-        "type": [
-          "integer",
-          "null"
-        ],
-        "format": "uint64",
-        "examples": [
-          10
-        ],
-        "minimum": 0
-      },
-      "health_threshold": {
-        "description": "Failed probes in a row before the backend is reported unhealthy.",
-        "type": [
-          "integer",
-          "null"
-        ],
-        "format": "uint32",
-        "examples": [
-          3
-        ],
-        "minimum": 0
-      },
-      "health_timeout": {
-        "description": "Seconds to wait for each health probe before counting it as failed.",
-        "type": [
-          "integer",
-          "null"
-        ],
-        "format": "uint64",
-        "examples": [
-          5
-        ],
-        "minimum": 0
-      },
-      "hostname": {
-        "description": "**Not accepted in a config file since 0.9.0; CLI and environment only.** Public hostname(s)\nto claim for this client's traffic. A bind belongs to the service it\nbinds, so write it on the `services:` entry; `--hostname` and\n`APERIO_HOSTNAME` are unaffected.",
-        "anyOf": [
-          {
-            "$ref": "#/$defs/Hostnames"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "deprecated": true,
-        "examples": [
-          "app.example.com",
-          [
-            "app.example.com",
-            "www.example.com"
-          ]
-        ]
-      },
       "idle_timeout": {
-        "description": "Shut this client down after it has served no request for this long, e.g.\n`5m` (unset = never). The scale-in half of `scaling`: the server never\nstops anything, an idle client retires itself. The shutdown is graceful\n(the server stops routing to it first, in-flight requests finish), and\nthe timer only starts once the client has served its first request, so a\nslow cold start cannot make it exit before it is ever used.",
-        "type": [
-          "string",
-          "null"
+        "description": "Shut this client down after it has served no request for this long\n(unset = never). The scale-in half of `scaling`: the server never stops\nanything, an idle client retires itself. The shutdown is graceful (the\nserver stops routing to it first, in-flight requests finish), and the\ntimer only starts once the client has served its first request, so a\nslow cold start cannot make it exit before it is ever used.",
+        "anyOf": [
+          {
+            "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+              },
+              {
+                "type": "integer",
+                "minimum": 0
+              }
+            ],
+            "examples": [
+              "30s",
+              "5m",
+              "1h"
+            ]
+          },
+          {
+            "type": "null"
+          }
         ],
         "examples": [
           "5m"
         ]
       },
       "include": {
-        "description": "Other config files to read before this one, each path relative to the\nfile that names it. Their keys are used unless this file sets them, and\nsequences of mappings (`services:`, `subscribe:`, `expose:`) concatenate\nwith the includes first, so a fragment adds services rather than\nreplacing them. Later includes win over earlier ones, and this file wins\nover all of them. Chains may nest up to five deep; a cycle is an error.",
+        "description": "Other config files to read before this one, each path relative to the\nfile that names it. Mappings merge key by key and anything else is\nreplaced, the same rule as every other layer: a fragment can add a\nservice, and this file wins over all of its includes. Later includes\nwin over earlier ones. Chains may nest up to five deep; a cycle is an\nerror.",
         "type": [
           "array",
           "null"
@@ -362,19 +141,8 @@
           "type": "string"
         }
       },
-      "ip_family": {
-        "description": "IP family used to dial the tunnel server: `auto` (tries both), `ipv4`,\nor `ipv6`. Set `ipv4` when the server hostname resolves to an IPv6\naddress the host cannot reach (env: APERIO_IP_FAMILY). Default: `auto`.",
-        "type": [
-          "string",
-          "null"
-        ],
-        "examples": [
-          "auto",
-          "ipv4"
-        ]
-      },
       "log_format": {
-        "description": "Log output format: `json`, or `pretty`/`text` for the human-readable\nform. Unset auto-detects, a TTY gets `pretty` and a pipe gets `json`\n(env: APERIO_LOG_FORMAT).",
+        "description": "Log output format: `json`, or `pretty`/`text` for the human-readable\nform. Unset auto-detects, a TTY gets `pretty` and a pipe gets `json`.",
         "type": [
           "string",
           "null"
@@ -385,7 +153,7 @@
         ]
       },
       "log_level": {
-        "description": "Log verbosity of this client (env: LOG_LEVEL; `RUST_LOG` overrides\nboth). Default: `info`.",
+        "description": "Log verbosity of this client (`RUST_LOG` overrides it). Default: `info`.",
         "type": [
           "string",
           "null"
@@ -395,124 +163,53 @@
           "debug"
         ]
       },
-      "max_concurrent": {
-        "description": "Most requests handled at once before the server queues the rest.",
-        "type": [
-          "integer",
-          "null"
-        ],
-        "format": "uint32",
-        "examples": [
-          8
-        ],
-        "minimum": 0
-      },
       "max_message_size": {
-        "description": "Largest single tunnel frame, in bytes, the client will accept.\nDefault: `33554432` (32 MB).",
-        "type": [
-          "integer",
-          "null"
-        ],
-        "format": "uint",
-        "examples": [
-          33554432
-        ],
-        "minimum": 0
-      },
-      "max_redirects": {
-        "description": "How many backend redirects to follow transparently before passing one\nthrough. Default: `5`.",
-        "type": [
-          "integer",
-          "null"
-        ],
-        "format": "uint",
-        "examples": [
-          5
-        ],
-        "minimum": 0
-      },
-      "max_request_body": {
-        "description": "Largest request body, in bytes, visitors may upload to this service;\nthe server rejects bigger uploads with 413 before they enter the tunnel.",
-        "type": [
-          "integer",
-          "null"
-        ],
-        "format": "uint64",
-        "examples": [
-          1048576
-        ],
-        "minimum": 0
-      },
-      "max_response_body": {
-        "description": "Largest response body, in bytes, the client will relay to a visitor.\nDefault: `52428800` (50 MB).",
-        "type": [
-          "integer",
-          "null"
-        ],
-        "format": "uint",
-        "examples": [
-          10485760
-        ],
-        "minimum": 0
-      },
-      "messages_listen": {
-        "description": "Local address the message face listens on, so an application on this\nmachine can subscribe (SSE) and publish (POST) without speaking the\ntunnel protocol. Unset = no local listener.",
-        "type": [
-          "string",
-          "null"
+        "description": "Largest single tunnel frame this client accepts. Default: `32MB`.",
+        "anyOf": [
+          {
+            "description": "A size: 512KB, 10MB or 1GB (binary units). A bare number is bytes.",
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\s*[0-9]+\\s*([kKmMgG]([iI]?[bB])?|[bB])?\\s*$"
+              },
+              {
+                "type": "integer",
+                "minimum": 0
+              }
+            ],
+            "examples": [
+              "512KB",
+              "10MB",
+              "1GB"
+            ]
+          },
+          {
+            "type": "null"
+          }
         ],
         "examples": [
-          "127.0.0.1:1888"
+          "32MB"
         ]
       },
-      "messages_mqtt_listen": {
-        "description": "Local address an MQTT listener answers on, for an application that would\nrather use the MQTT client library it already has. MQTT 3.1.1, QoS 0;\nthe protocol never leaves this machine. Unset = no MQTT listener.",
-        "type": [
-          "string",
-          "null"
+      "messages": {
+        "description": "The local message faces, for an application on this machine.",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/MessagesSection"
+          },
+          {
+            "type": "null"
+          }
         ],
-        "examples": [
-          "127.0.0.1:1883"
-        ]
-      },
-      "metrics_labels": {
-        "description": "Static Prometheus labels attached to this client's own metric series,\ne.g. `{env: prod, region: eu-west}`, so one Prometheus can serve several\nenvironments without relabelling rules. At most 8 labels; names must be\n`[a-zA-Z_][a-zA-Z0-9_]*` and the server drops anything else, including\nthe names it writes itself (`client_id`, `job`, `instance`, …).",
-        "type": [
-          "object",
-          "null"
-        ],
-        "additionalProperties": {
-          "type": "string"
-        },
         "examples": [
           {
-            "env": "prod",
-            "region": "eu-west"
+            "listen": "127.0.0.1:1888"
           }
         ]
       },
-      "min_tls_version": {
-        "description": "Lowest TLS version accepted from an `https://` backend: `1.2` or `1.3`.\nPer service because a fleet with one legacy backend should not have to\nlower the floor for all of them. Default: rustls's own floor\n(env: APERIO_MIN_TLS_VERSION).",
-        "type": [
-          "string",
-          "null"
-        ],
-        "examples": [
-          "1.3"
-        ]
-      },
-      "multiplex": {
-        "description": "Carry every service that sets this on one WebSocket, instead of opening a\nconnection per service. The default for the whole file, so forty services\nturn it on once; an entry may still say `multiplex: false` to keep a\nconnection of its own.\n\nWhat it saves is per service and it is the whole cost of a connection: one\nsocket, one TLS session, one reader, one writer and one heartbeat, rather\nthan that many of each on both ends. What it costs is that the services\nthen share a link, so a large response occupies the writer the others send\nthrough, and a dropped connection takes all of them down together.\n\nTwo services are needed for it to do anything, and they must agree on\n`server:` and `token:`, since a connection carries one of each. Every\nmultiplexed service needs a `name:`, which is what the server keeps its\nrouting, ejection and statistics under and what addresses it in the\ndashboard. Needs a server speaking tunnel protocol 8 or newer (Aperio\n0.10.0); against an older one the services are held back and the client\nsays so, rather than being quietly served one at a time. `connections:` is\nnot honored for a multiplexed service, one connection is what multiplexing\nmeans, and the client reports the difference in the dashboard's config\nview. Default: `false` (env: APERIO_MULTIPLEX).",
-        "type": [
-          "boolean",
-          "null"
-        ],
-        "examples": [
-          true
-        ]
-      },
       "name": {
-        "description": "What to call this client on screen and in the server's logs, e.g.\n`eu_server_1`. Lowercase letters, digits and `_`, like a service name.\n\nA label, not an address: `client_id` above stays the identity that\nfailover and `bind_tunnels:` recognize this process by, because those\nneed something unique and a name is not. Three replicas an operator\nwould happily call `eu_server` are three processes, and sharing a name\nmust not make the server treat them as one. Unset shows the id, as\nbefore (env: APERIO_NAME).",
+        "description": "What to call this client on screen and in the server's logs, e.g.\n`eu_server_1`. Lowercase letters, digits and `_`, like a service name.\n\nA label, not an address: `client_id` stays the identity that failover\nrecognizes this process by, because that needs something unique and a\nname is not. Unset shows the id.",
         "type": [
           "string",
           "null"
@@ -522,7 +219,7 @@
         ]
       },
       "otel_bridge": {
-        "description": "Accept OpenTelemetry exports from things running next to this client and\ncarry them to the server, which forwards them to the collector it is\nconfigured for. The point is an edge host that is allowed exactly one\noutbound connection, the tunnel: no new firewall rule, no collector\ncredential at the edge.",
+        "description": "Accept OpenTelemetry exports from things running next to this client and\ncarry them to the server, which forwards them to the collector it is\nconfigured for. The point is an edge host that is allowed exactly one\noutbound connection, the tunnel: no new firewall rule, no collector\ncredential at the edge. Applied at startup; a change needs a restart.",
         "anyOf": [
           {
             "$ref": "#/$defs/OtelBridge"
@@ -538,29 +235,8 @@
           }
         ]
       },
-      "pass_hostname": {
-        "description": "Forward the visitor's original Host header to the backend instead of the\ntarget's. Default: `false`.",
-        "type": [
-          "boolean",
-          "null"
-        ],
-        "examples": [
-          false
-        ]
-      },
-      "path": {
-        "description": "**Not accepted in a config file since 0.9.0; CLI and environment only.** Public path prefix\nto claim for this client's traffic. Write it on the `services:` entry\nit binds; `--path` and `APERIO_PATH` are unaffected.",
-        "type": [
-          "string",
-          "null"
-        ],
-        "deprecated": true,
-        "examples": [
-          "/api"
-        ]
-      },
       "pid_file": {
-        "description": "Path to write this process's pid to at startup, removed on a clean exit.\nFor an init system that wants one; a process supervisor usually knows the\npid without being told. Default: unset (env: APERIO_PID_FILE).",
+        "description": "Path to write this process's pid to at startup, removed on a clean exit.\nFor an init system that wants one; a process supervisor usually knows the\npid without being told.",
         "type": [
           "string",
           "null"
@@ -569,77 +245,33 @@
           "/run/aperio-client.pid"
         ]
       },
-      "priority": {
-        "description": "Failover tier for this client (0 = primary, higher numbers are standbys).\nDefault: `0`.",
-        "type": [
-          "integer",
-          "null"
-        ],
-        "format": "uint32",
-        "examples": [
-          0
-        ],
-        "minimum": 0
-      },
-      "public": {
-        "description": "Serve without the server's visitor login (needs a token that allows it).\nDefault: `false`.",
-        "type": [
-          "boolean",
-          "null"
-        ],
-        "examples": [
-          true
-        ]
-      },
       "reload_drain": {
-        "description": "Seconds to let in-flight requests finish when a configuration reload\nstops a service, before its tunnel connection is dropped. The client\nannounces `Draining` first, so the server sends it nothing new while it\nfinishes. `0` drops the connection immediately, which is what happened\nbefore this existed. Default: `10`\n(env: APERIO_RELOAD_DRAIN).",
-        "type": [
-          "integer",
-          "null"
-        ],
-        "format": "uint64",
-        "examples": [
-          10
-        ],
-        "minimum": 0
-      },
-      "resilience": {
-        "description": "Keep serving this service's cached responses (marked, even past their\nlifetime) while no healthy client is connected, instead of failing with\n504 (needs `cache: true` and the server-side cache enabled).\nDefault: `false`.",
-        "type": [
-          "boolean",
-          "null"
-        ],
-        "examples": [
-          true
-        ]
-      },
-      "response_timeout": {
-        "description": "Seconds the server should wait for this service to answer a dispatched\nrequest before failing it, a per-service override of the server's global\ngateway response timeout (defaults applied per service).",
-        "type": [
-          "integer",
-          "null"
-        ],
-        "format": "uint64",
-        "examples": [
-          120
-        ],
-        "minimum": 0
-      },
-      "retry": {
-        "description": "Retry policy for backend requests that fail before a response arrives.\nThe default for every `services:` entry that does not set its own.",
+        "description": "How long in-flight requests may finish when a configuration reload\nstops a service, before its tunnel connection is dropped. The client\nannounces `Draining` first, so the server sends it nothing new while it\nfinishes. `0s` drops the connection immediately. Default: `10s`.",
         "anyOf": [
           {
-            "$ref": "#/$defs/RetryConfig"
+            "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+              },
+              {
+                "type": "integer",
+                "minimum": 0
+              }
+            ],
+            "examples": [
+              "30s",
+              "5m",
+              "1h"
+            ]
           },
           {
             "type": "null"
           }
         ],
         "examples": [
-          {
-            "attempts": 3,
-            "backoff": 100
-          }
+          "10s"
         ]
       },
       "scaling": {
@@ -661,37 +293,8 @@
           }
         ]
       },
-      "security_headers": {
-        "description": "Security response-header preset: `true` injects HSTS,\n`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and\n`Referrer-Policy`; a mapping picks headers individually (services may\noverride with their own `security_headers`).",
-        "anyOf": [
-          {
-            "$ref": "#/$defs/SecurityHeaders"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "examples": [
-          true,
-          {
-            "frame_options": "SAMEORIGIN",
-            "hsts": true
-          }
-        ]
-      },
-      "serve": {
-        "description": "**Not accepted in a config file since 0.9.0; CLI and environment only.** Serve a local\ndirectory of static files instead of forwarding to a backend. Write it\nas a `services:` entry's `serve:`; the CLI's `--serve` and\n`APERIO_SERVE` are unaffected.",
-        "type": [
-          "string",
-          "null"
-        ],
-        "deprecated": true,
-        "examples": [
-          "./dist"
-        ]
-      },
       "serve_404": {
-        "description": "Static-file mode: HTML file served with status 404 for misses the SPA\nfallback does not cover (env: APERIO_SERVE_404). Process-wide, like\n`serve_spa`.",
+        "description": "Static-file services: HTML file served with status 404 for misses the\nSPA fallback does not cover. Applies to every `serve:` directory of\nthis client.",
         "type": [
           "string",
           "null"
@@ -701,7 +304,7 @@
         ]
       },
       "serve_spa": {
-        "description": "Static-file mode: answer a navigation (`Accept: text/html`) that matches\nno file with the root `index.html` and status 200, so a client-side\nrouter owns its routes. A missing asset still 404s\n(env: APERIO_SERVE_SPA). Process-wide: it applies to every served\ndirectory of this client. Default: `false`.",
+        "description": "Static-file services: answer a navigation (`Accept: text/html`) that\nmatches no file with the root `index.html` and status 200, so a\nclient-side router owns its routes. A missing asset still 404s. Applies\nto every `serve:` directory of this client. Default: `false`.",
         "type": [
           "boolean",
           "null"
@@ -711,10 +314,10 @@
         ]
       },
       "server": {
-        "description": "The Aperio server to reach and the token to authenticate the tunnel with.",
+        "description": "The Aperio server to reach, the token to authenticate the tunnel with,\nand how to get there.",
         "anyOf": [
           {
-            "$ref": "#/$defs/ServerValue"
+            "$ref": "#/$defs/ServerSection"
           },
           {
             "type": "null"
@@ -722,56 +325,33 @@
         ],
         "examples": [
           {
-            "token": "apr_xxxxxxxxxxxxxxxx",
+            "token": "${APERIO_SERVER_TOKEN}",
             "url": "https://tunnel.example.com"
           }
         ]
       },
-      "server_side": {
-        "description": "Let the server reach this service's target itself instead of relaying\nthrough this client, when the server's `server_side_targets:` permits\nthat address (needs a token that allows it). Written at the top level it\nis the default for every `services:` entry; per entry it governs that one\nservice. Cannot be combined with `serve:`. Default: `false`.",
-        "type": [
-          "boolean",
-          "null"
-        ],
-        "examples": [
-          true
-        ]
-      },
       "services": {
-        "description": "Expose several backends from one client, each on its own tunnel connection\n(replaces the single top-level `target`).",
+        "description": "The backends this client exposes, keyed by name. Each opens its own\ntunnel connection (or shares one, with `multiplex`).",
         "type": [
-          "array",
+          "object",
           "null"
         ],
-        "examples": [
-          [
-            {
-              "hostname": "app.example.com",
-              "name": "web",
-              "target": "http://localhost:3000"
-            },
-            {
-              "hostname": "api.example.com",
-              "name": "api",
-              "target": "http://localhost:4000"
-            }
-          ]
-        ],
-        "items": {
+        "additionalProperties": {
           "$ref": "#/$defs/ServiceEntry"
-        }
-      },
-      "startup_delay": {
-        "description": "Seconds to wait before this service opens its tunnel. For a backend that\nis starting alongside the client and is not ready to answer the moment\nthe process is. Default: `0` (env: APERIO_STARTUP_DELAY).",
-        "type": [
-          "integer",
-          "null"
-        ],
-        "format": "uint64",
+        },
         "examples": [
-          5
-        ],
-        "minimum": 0
+          {
+            "api": {
+              "hostname": "api.example.com",
+              "target": "http://localhost:4000",
+              "timeout": "2m"
+            },
+            "web": {
+              "hostname": "app.example.com",
+              "target": "http://localhost:3000"
+            }
+          }
+        ]
       },
       "subscribe": {
         "description": "Topic filters this client subscribes to, for messages from the other\nclients of its organization. MQTT filter syntax: `+` is one level, `#`\nis the rest. `$aperio/...` carries the server's own events.\n\nAn entry is a bare filter, or an object that also names a command to run\nwhen a message arrives.",
@@ -784,7 +364,7 @@
             "deploy/web",
             {
               "run": "./deploy.sh",
-              "timeout": 120,
+              "timeout": "2m",
               "topic": "deploy/api"
             }
           ]
@@ -793,138 +373,50 @@
           "$ref": "#/$defs/SubscribeValue"
         }
       },
-      "target": {
-        "description": "**Not accepted in a config file since 0.9.0; CLI and environment only.** Local backend to\nexpose. Write it as a `services:` entry instead; single-service mode\nstays available as the CLI's positional target and `APERIO_TARGET`.\n`h2c://` / `h2://` targets are dialed over HTTP/2 (gRPC).",
-        "type": [
-          "string",
-          "null"
-        ],
-        "deprecated": true,
-        "examples": [
-          "http://localhost:3000",
-          "3000",
-          "h2c://127.0.0.1:50051"
-        ]
-      },
-      "target_health": {
-        "description": "**Not accepted in a config file since 0.9.0; CLI and environment only.** Backend health\nendpoint to probe; also the old flat spelling of `health.endpoint`.\nWrite it on the `services:` entry whose backend it probes.",
-        "type": [
-          "string",
-          "null"
-        ],
-        "deprecated": true,
-        "examples": [
-          "/health"
-        ]
-      },
-      "tcp_target": {
-        "description": "**Not accepted in a config file since 0.9.0; CLI and environment only.** Raw TCP backend to\nexpose instead of HTTP. Write it as a `services:` entry's `tcp_target:`;\n`--tcp-target` and `APERIO_TCP_TARGET` are unaffected.",
-        "type": [
-          "string",
-          "null"
-        ],
-        "deprecated": true,
-        "examples": [
-          "127.0.0.1:5432"
-        ]
-      },
-      "timeout": {
-        "description": "Seconds to wait for the backend to respond before failing a request.\nDefault: `30`.",
-        "type": [
-          "integer",
-          "null"
-        ],
-        "format": "uint64",
-        "examples": [
-          30
-        ],
-        "minimum": 0
-      },
-      "tls_cipher_suites": {
-        "description": "Exact cipher suites offered when dialing the tunnel server, by their\nIANA names, comma-separated. Unset leaves rustls'\npreference order alone, which is almost always better; name them only\nwhen something external requires it. An unknown name is refused at\nstartup (env: APERIO_TLS_CIPHER_SUITES).",
-        "type": [
-          "string",
-          "null"
-        ],
-        "examples": [
-          "TLS13_AES_256_GCM_SHA384,TLS13_CHACHA20_POLY1305_SHA256"
-        ]
-      },
-      "tls_min_version": {
-        "description": "Lowest TLS version offered when dialing the tunnel server over `wss://`:\n`1.2` or `1.3`. Unset leaves rustls' own set (1.2 and 1.3) in place,\nwhich is the right default; pin it when a policy has to name the floor\nrather than inherit it. A value this client cannot offer is refused at\nstartup rather than ignored (env: APERIO_TLS_MIN_VERSION).",
-        "type": [
-          "string",
-          "null"
-        ],
-        "examples": [
-          "1.3"
-        ]
-      },
-      "token": {
-        "description": "Deprecated spelling of `server.token`, kept so a token written at the\ntop level still authenticates rather than being silently ignored.",
-        "type": [
-          "string",
-          "null"
-        ],
-        "examples": [
-          "apr_xxxxxxxxxxxxxxxx"
-        ]
-      },
-      "trim_bind": {
-        "description": "Strip the path prefix before forwarding, so the backend sees `/` not the\nbind. Default: `true` when a path bind is set.",
-        "type": [
-          "boolean",
-          "null"
-        ],
-        "examples": [
-          true
-        ]
-      },
       "tunnels": {
-        "description": "Private local services a peer client may reach via `--bind-tunnels`; never\nexposed to the public web.",
+        "description": "Private local services a peer client may reach with `aperio-client\nbind`, keyed by the name binders use. Never exposed to the public web.",
         "type": [
-          "array",
+          "object",
           "null"
         ],
+        "additionalProperties": {
+          "$ref": "#/$defs/TunnelEntry"
+        },
         "examples": [
-          [
-            {
-              "name": "pg_main",
-              "target": "127.0.0.1:5432"
-            },
-            {
-              "name": "dns",
+          {
+            "dns": {
               "protocol": "tcp/udp",
               "target": "127.0.0.1:53"
+            },
+            "pg_main": {
+              "target": "127.0.0.1:5432"
             }
-          ]
-        ],
-        "items": {
-          "$ref": "#/$defs/TunnelDecl"
-        }
-      },
-      "wait_for_backend": {
-        "description": "Hold the service out of routing until the backend first accepts a\nconnection, avoiding connection-refused errors while it boots\n(superseded by `target_health` when that is set). Deprecated spelling of\n`health.wait_for_backend`.",
-        "type": [
-          "boolean",
-          "null"
-        ],
-        "examples": [
-          true
-        ]
-      },
-      "webhook_inbox": {
-        "description": "Persist inbound POST requests (third-party webhooks) into the server's\nwebhook inbox, for browsing and re-firing (services may override).\nDefault: `false`.",
-        "type": [
-          "boolean",
-          "null"
-        ],
-        "examples": [
-          true
+          }
         ]
       }
     },
+    "additionalProperties": false,
     "$defs": {
+      "Access": {
+        "description": "`public`, one method block, or a list of them (any one admits).",
+        "anyOf": [
+          {
+            "description": "Anyone, with no login (needs a token that allows it).",
+            "type": "string",
+            "const": "public"
+          },
+          {
+            "$ref": "#/$defs/AuthMethodSpec"
+          },
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AuthMethodSpec"
+            }
+          }
+        ],
+        "x-env": "whole"
+      },
       "AuthMethodSpec": {
         "description": "One entry of an `auth:` policy: which method gates the route, and the\nsettings that method needs.\n\n`method` is deliberately a string here rather than an enum: an unknown one\nshould be refused by name, with the available methods listed, and a serde\n\"unknown variant\" error inside an untagged enum says only that nothing\nmatched. The same reason `alert_rules` parses its `metric` by hand.",
         "type": "object",
@@ -1155,28 +647,8 @@
           "method"
         ]
       },
-      "AuthSetting": {
-        "description": "How a visitor gate is written, on either side of the tunnel.\n\nThree spellings of one thing. The scalar `auth: \"user:password\"` predates\nthe grammar and keeps working, folding to a single `basic` method; one\nblock names a method with its settings; a list is admitted when **any** of\nits methods admits the visitor, which is what \"a browser signs in, a script\npresents a key\" needs and what a single choice cannot say.\n\nThe variants are ordered for `untagged`: a YAML scalar can only be the\nfirst, a mapping only the second, a sequence only the third, so a value is\nnever read as the wrong shape.",
-        "anyOf": [
-          {
-            "description": "`auth: \"user:password\"`, the spelling that predates the method grammar.",
-            "type": "string"
-          },
-          {
-            "description": "One method: `auth: {method: none}`. Boxed because a method entry grew\nfields as methods were added, and an unboxed variant makes every\n`AuthSetting`, including the one-word scalar, as large as the largest\nmethod's settings.",
-            "$ref": "#/$defs/AuthMethodSpec"
-          },
-          {
-            "description": "Several methods, any one of which admits the visitor.",
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/AuthMethodSpec"
-            }
-          }
-        ]
-      },
-      "BindTunnelEntry": {
-        "description": "What to bind, and where to bind it: one named tunnel (or, in the older\nspelling, every tunnel of one peer client).",
+      "BindEntry": {
+        "description": "Where and how to bind one named tunnel.",
         "type": "object",
         "properties": {
           "address": {
@@ -1187,23 +659,6 @@
             ],
             "examples": [
               "127.0.0.1"
-            ]
-          },
-          "override": {
-            "description": "Map a declared tunnel target to a specific local port instead of reusing\nthe target's. Only meaningful for an entry keyed by a peer's client id,\nwhich binds every tunnel that peer declares; a name-keyed entry is one\ntunnel and uses `port`.",
-            "type": "object",
-            "additionalProperties": {
-              "type": "integer",
-              "format": "uint16",
-              "maximum": 65535,
-              "minimum": 0
-            },
-            "default": {},
-            "examples": [
-              {
-                "pg_main": 15432,
-                "redis": 16379
-              }
             ]
           },
           "port": {
@@ -1220,30 +675,30 @@
             "minimum": 0
           },
           "psk": {
-            "description": "Pre-shared key for this peer's end-to-end encrypted tunnels; must match\nthe `psk` the declaring client configured. Never sent to the server.",
+            "description": "Pre-shared key of an end-to-end encrypted tunnel; must match the `psk`\nthe declaring client wrote. Never sent to the server.",
             "type": [
               "string",
               "null"
             ],
             "examples": [
-              "a-long-shared-secret-both-sides-hold"
+              "${TUNNEL_PSK}"
             ]
           },
           "token": {
-            "description": "Token to authenticate the binding with; falls back to this client's\nserver token. Only needed when the tunnel is reached with a different\ncredential than the one this client connects with.",
+            "description": "Token to bind with, when the tunnel is reached with a different\ncredential than `server.token`.",
             "type": [
               "string",
               "null"
             ],
             "examples": [
-              "apr_xxxxxxxxxxxxxxxx"
+              "${BINDER_TOKEN}"
             ]
           }
         },
         "additionalProperties": false
       },
-      "BindTunnelValue": {
-        "description": "One `bind-tunnels:` entry, keyed by the tunnel's name (or, in the older\nspelling, by a peer client's id).\n\nA bare port number is the short form of `{ port: <n> }`, since naming the\nlocal port is the only thing most entries do.",
+      "BindValue": {
+        "description": "One `binds:` entry, keyed by the tunnel's name (`pg_main`, or\n`acme@pg_main` for another organization's).\n\nA bare port number is the short form of `{port: <n>}`, since naming the\nlocal port is the only thing most entries do.",
         "anyOf": [
           {
             "description": "`pg_main: 15432`, the local port, everything else defaulted.",
@@ -1254,12 +709,12 @@
           },
           {
             "description": "The full entry.",
-            "$ref": "#/$defs/BindTunnelEntry"
+            "$ref": "#/$defs/BindEntry"
           }
         ]
       },
       "CircuitBreakerConfig": {
-        "description": "Refusing to dial a backend that keeps failing (`circuit_breaker:` on a\nservice, or at the top level as the default for every entry). Answers 502\nimmediately while open, so a dead backend stops being hammered and the\nvisitor stops waiting for a connection that will not come.",
+        "description": "Refusing to dial a backend that keeps failing. Answers 502 immediately\nwhile open, so a dead backend stops being hammered and the visitor stops\nwaiting for a connection that will not come.",
         "type": "object",
         "properties": {
           "failures": {
@@ -1275,16 +730,33 @@
             "minimum": 0
           },
           "open_for": {
-            "description": "Seconds the breaker stays open before one request is let through to\ntest the backend again. Default: `30`.",
-            "type": [
-              "integer",
-              "null"
+            "description": "How long the breaker stays open before one request is let through to\ntest the backend again. Default: `30s`.",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "format": "uint64",
             "examples": [
-              30
-            ],
-            "minimum": 0
+              "30s"
+            ]
           }
         },
         "additionalProperties": false
@@ -1317,10 +789,11 @@
             ],
             "minimum": 0
           }
-        }
+        },
+        "additionalProperties": false
       },
       "Connections": {
-        "description": "`connections:` as written in the file: a fixed count, or an elastic pool\nwith a floor and a ceiling.\n\nThe scalar keeps meaning exactly what it always did, N connections opened\nat startup and kept, so no existing file changes behavior. Elasticity is\nsomething an operator opts into by writing a range, which is the honest\ndefault: our own measurements have a peak, past which more connections cost\nmore than they return, so growing a pool without being asked would not be\na safe assumption.",
+        "description": "`connections:` as written in the file: a fixed count, or an elastic pool\nwith a floor and a ceiling.\n\nA number opens exactly that many connections at startup and keeps them.\nElasticity is something an operator opts into by writing a range, which is\nthe honest default: our own measurements have a peak, past which more\nconnections cost more than they return, so growing a pool without being\nasked would not be a safe assumption.",
         "anyOf": [
           {
             "description": "`connections: 4`, opened at startup and kept.",
@@ -1381,7 +854,8 @@
               "type": "string"
             }
           }
-        }
+        },
+        "additionalProperties": false
       },
       "HeaderRules": {
         "description": "Header add/remove rules for proxied HTTP traffic: `request` edits what the\nlocal backend receives, `response` edits what the visitor receives.\nHop-by-hop and tunnel-critical headers stay managed by Aperio regardless.",
@@ -1429,10 +903,11 @@
               }
             ]
           }
-        }
+        },
+        "additionalProperties": false
       },
       "HealthConfig": {
-        "description": "Backend health probing for one service: the endpoint the client checks and\nhow patient it is before pulling the backend out of routing.\n\nThe flat `target_health` / `health_interval` / `health_timeout` /\n`health_threshold` / `wait_for_backend` keys mean exactly the same thing\nand still work; this block is the form to write new configs in, and wins\nper field when both are present.",
+        "description": "Backend health probing for a service: the endpoint the client checks and\nhow patient it is before pulling the backend out of routing.",
         "type": "object",
         "properties": {
           "endpoint": {
@@ -1446,16 +921,33 @@
             ]
           },
           "interval": {
-            "description": "Seconds between probes. Default: `10`.",
-            "type": [
-              "integer",
-              "null"
+            "description": "Time between probes. Default: `10s`.",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "format": "uint64",
             "examples": [
-              10
-            ],
-            "minimum": 0
+              "10s"
+            ]
           },
           "threshold": {
             "description": "Failed probes in a row before the backend is reported unhealthy.\nDefault: `2`.",
@@ -1470,16 +962,33 @@
             "minimum": 0
           },
           "timeout": {
-            "description": "Seconds to wait for each probe before counting it as failed.\nDefault: `5`.",
-            "type": [
-              "integer",
-              "null"
+            "description": "How long to wait for each probe before counting it as failed.\nDefault: `5s`.",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "format": "uint64",
             "examples": [
-              5
-            ],
-            "minimum": 0
+              "5s"
+            ]
           },
           "wait_for_backend": {
             "description": "Hold the service out of routing until the backend first accepts a\nconnection, avoiding connection-refused errors while it boots\n(superseded by `endpoint` when that is set). Default: `false`.",
@@ -1495,7 +1004,7 @@
         "additionalProperties": false
       },
       "Hostnames": {
-        "description": "A service's public hostname(s): either a single `hostname: app.example.com`\nor a list `hostname: [app.example.com, www.example.com]`. Each must be\npermitted by the client's token.",
+        "description": "A service's public hostname(s): one, or a list routing to the same\nservice. Each must be permitted by the client's token.",
         "anyOf": [
           {
             "description": "A single hostname.",
@@ -1509,6 +1018,33 @@
             }
           }
         ]
+      },
+      "MessagesSection": {
+        "description": "The local message faces: where an application on this machine can\npublish and subscribe without speaking the tunnel protocol.",
+        "type": "object",
+        "properties": {
+          "listen": {
+            "description": "Local address the HTTP face listens on: subscribe with SSE, publish\nwith POST. Unset = no local listener.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "127.0.0.1:1888"
+            ]
+          },
+          "mqtt_listen": {
+            "description": "Local address an MQTT listener answers on, for an application that would\nrather use the MQTT client library it already has. MQTT 3.1.1, QoS 0;\nthe protocol never leaves this machine. Unset = no MQTT listener.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "127.0.0.1:1883"
+            ]
+          }
+        },
+        "additionalProperties": false
       },
       "OtelBridge": {
         "description": "The client's `otel_bridge:` block.\n\n`PartialEq` so a config reload can notice that this block changed: the\nbridge is the one facility a running client cannot rebuild, so the change\nis reported rather than silently ignored.",
@@ -1561,7 +1097,7 @@
         "additionalProperties": false
       },
       "RetryConfig": {
-        "description": "Retrying a backend request that failed before any response arrived\n(`retry:` on a service, or at the top level as the default for every\nentry).",
+        "description": "Retrying a backend request that failed before any response arrived.",
         "type": "object",
         "properties": {
           "all_methods": {
@@ -1586,17 +1122,35 @@
             ],
             "minimum": 0
           },
-          "backoff": {
-            "description": "Milliseconds to wait before the second attempt, doubled before each\nfurther one. Default: `100`.",
-            "type": [
-              "integer",
-              "null"
+          "delay": {
+            "description": "Wait before the second attempt, doubled before each further one.\nDefault: `100ms`.",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "format": "uint64",
             "examples": [
-              100
-            ],
-            "minimum": 0
+              "100ms",
+              "1s"
+            ]
           }
         },
         "additionalProperties": false
@@ -1606,20 +1160,58 @@
         "type": "object",
         "properties": {
           "cold_start": {
-            "description": "How long a visitor request may be held while a cold start completes,\ne.g. `45s` (0 = do not hold, answer immediately). Default: `45s`.",
-            "type": [
-              "string",
-              "null"
+            "description": "How long a visitor request may be held while a cold start completes\n(`0s` = do not hold, answer immediately). Default: `45s`.",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
             "examples": [
               "45s"
             ]
           },
           "cooldown": {
-            "description": "Minimum gap between two calls for this bind, e.g. `60s`.\nA new instance needs time to appear; without this the server would ask\nagain while it is still starting. Default: `60s`.",
-            "type": [
-              "string",
-              "null"
+            "description": "Minimum gap between two calls for this bind. A new instance needs time\nto appear; without this the server would ask again while it is still\nstarting. Default: `60s`.",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
             "examples": [
               "60s"
@@ -1668,16 +1260,36 @@
             ]
           },
           "window": {
-            "description": "How long utilization must stay above the target before scaling out,\ne.g. `15s`. Guards against reacting to a single spike. Default: `15s`.",
-            "type": [
-              "string",
-              "null"
+            "description": "How long utilization must stay above the target before scaling out.\nGuards against reacting to a single spike. Default: `15s`.",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
             "examples": [
               "15s"
             ]
           }
         },
+        "additionalProperties": false,
         "required": [
           "url"
         ]
@@ -1718,16 +1330,33 @@
             ]
           },
           "hsts_max_age": {
-            "description": "HSTS `max-age` in seconds. Default: `63072000` (2 years).",
-            "type": [
-              "integer",
-              "null"
+            "description": "HSTS `max-age`. Default: `730d` (two years).",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "format": "uint64",
             "examples": [
-              31536000
-            ],
-            "minimum": 0
+              "365d"
+            ]
           },
           "nosniff": {
             "description": "Inject `X-Content-Type-Options: nosniff`.",
@@ -1753,10 +1382,10 @@
         "additionalProperties": false
       },
       "SecurityHeaders": {
-        "description": "Security response-header preset: `security_headers: true` enables the\nstandard set (HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options:\nnosniff`, `Referrer-Policy: strict-origin-when-cross-origin`), a mapping\npicks headers individually. Explicit `headers:` rules always win over the\npreset.",
+        "description": "Security response-header preset: `true` enables the standard set (HSTS,\n`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,\n`Referrer-Policy: strict-origin-when-cross-origin`), a mapping picks\nheaders individually. Explicit `headers:` rules always win over the\npreset.",
         "anyOf": [
           {
-            "description": "`true` enables the standard preset, `false` disables it (e.g. for one\nservice when the top level enables it).",
+            "description": "`true` enables the standard preset, `false` disables it (e.g. for one\nservice when `defaults:` enables it).",
             "type": "boolean"
           },
           {
@@ -1765,72 +1394,106 @@
           }
         ]
       },
-      "ServerValue": {
-        "description": "The Aperio server this client connects to: either a bare URL string, or a\n`{ url, token }` section that also carries the tunnel token.",
-        "anyOf": [
-          {
-            "description": "Server URL only, the token then comes from `token:` or the environment.",
-            "type": "string"
-          },
-          {
-            "description": "Server URL together with the tunnel token.",
-            "type": "object",
-            "properties": {
-              "api_key": {
-                "description": "Admin API key used by `aperio-client api ...` calls (never for the\ntunnel itself).",
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "examples": [
-                  "apk_xxxxxxxxxxxxxxxx"
-                ]
-              },
-              "token": {
-                "description": "Tunnel token (master or a scoped dynamic token) that authorizes this client.",
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "examples": [
-                  "apr_xxxxxxxxxxxxxxxx"
-                ]
-              },
-              "url": {
-                "description": "URL of the Aperio server this client dials out to.",
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "examples": [
-                  "https://tunnel.example.com"
-                ]
-              },
-              "urls": {
-                "description": "Additional server URLs to fail over to, tried in order when `url` is\nunreachable, for a redundant control plane.",
-                "type": [
-                  "array",
-                  "null"
-                ],
-                "examples": [
-                  [
-                    "https://tunnel-b.example.com"
-                  ]
-                ],
-                "items": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        ]
-      },
-      "ServiceEntry": {
-        "description": "One exposed backend when a single client serves several at once; any unset\nfield falls back to the top-level value.",
+      "ServerSection": {
+        "description": "The Aperio server this client connects to, and how it gets there.",
         "type": "object",
         "properties": {
-          "adaptive_concurrency": {
-            "description": "Lower the announced `max_concurrent` while requests queue up waiting for\na local permit, and climb back when they stop. The server already queues\nrather than dispatching past the announced number, so this is how a\nclient that has become slow stops being sent work it cannot do; the\nserver then holds the request, picks another client, or asks for capacity\nthrough autoscaling, all of which beat a refusal. Needs `max_concurrent`\nto be set, since that is the number being moved. Default: `false`\n(env: APERIO_ADAPTIVE_CONCURRENCY).",
+          "api_key": {
+            "description": "Admin API key used by `aperio-client api ...` calls, never by the tunnel\nitself.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "apk_xxxxxxxxxxxxxxxx"
+            ]
+          },
+          "ip_family": {
+            "description": "IP family used to dial the server: `auto` (tries both), `ipv4`, or\n`ipv6`. Set `ipv4` when the server hostname resolves to an IPv6 address\nthis host cannot reach. Default: `auto`.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "auto",
+              "ipv4"
+            ]
+          },
+          "min_tls_version": {
+            "description": "Lowest TLS version offered when dialing the server over `wss://`: `1.2`\nor `1.3`. Unset leaves rustls' own set (1.2 and 1.3) in place, which is\nthe right default; pin it when a policy has to name the floor rather\nthan inherit it. A value this client cannot offer is refused at startup.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "1.3"
+            ]
+          },
+          "proxy": {
+            "description": "HTTP proxy to dial the server through, for a network that allows no\ndirect outbound connection: `host:port`, or `http://host:port`, with an\noptional `user:password@` in front. The client sends `CONNECT` and then\nruns TLS inside the tunnel the proxy opens, so the proxy sees the\nserver's hostname and nothing else. Your own backends are never reached\nthrough it. Unset: dial the server directly.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "proxy.corp:3128",
+              "http://user:password@proxy.corp:3128"
+            ]
+          },
+          "tls_cipher_suites": {
+            "description": "Exact cipher suites offered when dialing the server, by their IANA\nnames, comma-separated. Unset leaves rustls' preference order alone,\nwhich is almost always better. An unknown name is refused at startup.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "TLS13_AES_256_GCM_SHA384,TLS13_CHACHA20_POLY1305_SHA256"
+            ]
+          },
+          "token": {
+            "description": "Tunnel token (master or a scoped dynamic token) that authorizes this\nclient.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "${APERIO_SERVER_TOKEN}"
+            ]
+          },
+          "url": {
+            "description": "URL of the Aperio server this client dials out to.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "https://tunnel.example.com"
+            ]
+          },
+          "urls": {
+            "description": "Further server URLs to fail over to, tried in order when `url` is\nunreachable, for a redundant control plane.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "examples": [
+              [
+                "https://tunnel-b.example.com"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ServiceCache": {
+        "description": "The server-side response cache, as far as one service is concerned. The\nserver has to have `cache.enabled` for any of it to do something.",
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "description": "Let the server cache this service's GET responses, per their\n`Cache-Control`. Default: `false`.",
             "type": [
               "boolean",
               "null"
@@ -1839,8 +1502,43 @@
               true
             ]
           },
+          "offline": {
+            "description": "Keep serving this service's cached responses (marked, even past their\nlifetime) while no healthy client is connected, instead of failing with\n504. Needs `enabled`. Default: `false`.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "examples": [
+              true
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "ServiceEntry": {
+        "description": "One exposed backend. The key it is written under is its name: a-z, 0-9\nand `_`, the handle the dashboard and the logs use. Every key of\n`defaults:` is accepted here as well and wins over it.",
+        "type": "object",
+        "properties": {
+          "access": {
+            "description": "Who may reach the service: `public`, one method block, or a list of\nthem (any one admits). Unset, the server's own visitor gate and\n`access.default` decide.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Access"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "public",
+              {
+                "method": "basic",
+                "users": "admin:${ADMIN_PASSWORD}"
+              }
+            ]
+          },
           "allowed_ips": {
-            "description": "Visitor IPs/CIDRs allowed to reach this service (plain IPs or CIDR\nranges); empty/unset = everyone. Enforced by the server before dispatch.",
+            "description": "Visitor IPs/CIDRs allowed to reach the service; unset = everyone.\nEnforced by the server before dispatch.",
             "type": [
               "array",
               "null"
@@ -1855,57 +1553,36 @@
               "type": "string"
             }
           },
-          "auth": {
-            "description": "Gate this service behind your own visitor login instead of the server's.\nA `user:password` scalar, one `{method: ...}` block, or a list of them.",
-            "anyOf": [
-              {
-                "$ref": "#/$defs/AuthSetting"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "examples": [
-              "admin:s3cret",
-              {
-                "method": "none"
-              }
-            ]
-          },
           "bandwidth": {
-            "description": "This service's share of the link: the server never pushes it faster than\nthis, and the share is split across its `connections`. Settled against the\ntop-level `bandwidth` budget when there is one. Bit suffixes\n(`kbit`/`mbit`/`gbit`) count as /8, byte suffixes (`kb`/`mb`/`gb`, or bare\n`k`/`m`/`g`) as x1000.",
+            "description": "The service's share of the link: the server never pushes it faster\nthan this, and the share is split across its `connections`. Settled\nagainst the top-level `bandwidth` budget when there is one. Bit\nsuffixes (`kbit`/`mbit`/`gbit`) count as /8, byte suffixes\n(`kb`/`mb`/`gb`, or bare `k`/`m`/`g`) as x1000.",
             "type": [
               "string",
               "null"
             ],
             "examples": [
               "8mbit",
-              "500kbit",
-              "2MB"
+              "500kbit"
             ]
           },
           "cache": {
-            "description": "Let the server cache this service's GET responses (per their\n`Cache-Control`); effective only when the server has `cache.enabled`.",
-            "type": [
-              "boolean",
-              "null"
+            "description": "The server-side response cache, for this service.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ServiceCache"
+              },
+              {
+                "type": "null"
+              }
             ],
             "examples": [
-              true
-            ]
-          },
-          "capture": {
-            "description": "Record this service's transactions for the dashboard's request\ninspector. Turning it off for a service that carries\nheavy traffic buys back a mutex, two header clones and a capture entry\nper request, at the cost of not being able to inspect or replay its\nrequests afterwards. Default: `true`.",
-            "type": [
-              "boolean",
-              "null"
-            ],
-            "examples": [
-              false
+              {
+                "enabled": true,
+                "offline": true
+              }
             ]
           },
           "circuit_breaker": {
-            "description": "Circuit breaker for this service's backend; falls back to the top-level\n`circuit_breaker:`.",
+            "description": "Refusing to dial a backend that keeps failing.",
             "anyOf": [
               {
                 "$ref": "#/$defs/CircuitBreakerConfig"
@@ -1917,24 +1594,41 @@
             "examples": [
               {
                 "failures": 5,
-                "open_for": 30
+                "open_for": "30s"
               }
             ]
           },
           "connect_timeout": {
-            "description": "Seconds to wait for the TCP connection to this backend before giving\nup, separate from `timeout`, which covers the whole request. A backend\nacross a VPN needs longer than one on loopback, and one number for both\nmeans either slow failure detection everywhere or spurious failures for\nthe far one. Default: unset (the whole-request `timeout` applies)\n(env: APERIO_CONNECT_TIMEOUT).",
-            "type": [
-              "integer",
-              "null"
+            "description": "How long to wait for the TCP connection to the backend, separate from\n`timeout`, which covers the whole request. A backend across a VPN needs\nlonger than one on loopback. Unset: only `timeout` applies.",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "format": "uint64",
             "examples": [
-              2
-            ],
-            "minimum": 0
+              "2s"
+            ]
           },
           "connections": {
-            "description": "Parallel tunnel connections opened for this service; the\nserver's `max_connections_per_service` is the ceiling, announced on\nconnect, and a token may lower it further;\nthe server load-balances across them like separate clients, so a single\ndropped connection leaves no visitor-facing gap.\nA number opens exactly that many at startup; `{min: 1, max: 8}` opens the\nfloor and grows towards the ceiling while requests queue up, then shrinks\nback when they stop. Default: `1`.",
+            "description": "Parallel tunnel connections; the server's\n`limits.connections_per_service` is the ceiling, announced on connect,\nand a token may lower it further. The server load-balances across them\nlike separate clients, so a single dropped connection leaves no\nvisitor-facing gap. A number opens exactly that many at startup;\n`{min: 1, max: 8}` opens the floor and grows towards the ceiling while\nrequests queue up, then shrinks back when they stop. Default: `1`.",
             "anyOf": [
               {
                 "$ref": "#/$defs/Connections"
@@ -1952,18 +1646,17 @@
             ]
           },
           "custom_name": {
-            "description": "What to call this service on screen. Free text: any language, any\npunctuation, spaces. Nothing addresses it, so nothing breaks when it\nchanges.",
+            "description": "What to call the service on screen. Free text: any language, any\npunctuation, spaces. Nothing addresses it, so nothing breaks when it\nchanges.",
             "type": [
               "string",
               "null"
             ],
-            "default": null,
             "examples": [
               "Public Web"
             ]
           },
           "denied": {
-            "description": "Redirect URL for visitors rejected by `allowed_ips` when no candidate\nof the route admits them (unset = stealth: the same answer as an\nunclaimed route).",
+            "description": "Redirect URL for visitors refused by `allowed_ips` when no other\nclient of the route admits them. Unset = stealth: the same answer as\nan unclaimed route.",
             "type": [
               "string",
               "null"
@@ -1973,7 +1666,7 @@
             ]
           },
           "depends_on": {
-            "description": "Names of services in this same file that must have a live tunnel before\nthis one opens its own. Waits for them, then proceeds regardless after a\nbounded grace period, because a dependency that never arrives must not\nkeep a service that could serve traffic off the air forever.",
+            "description": "Services in this file that must have a live tunnel before this one\nopens its own. Waits for them, then proceeds regardless after a bounded\ngrace period, because a dependency that never arrives must not keep a\nservice that could serve traffic off the air forever.",
             "type": [
               "array",
               "null"
@@ -1988,7 +1681,7 @@
             }
           },
           "headers": {
-            "description": "Request/response header add-remove rules for this service (replaces the\ntop-level `headers` when set).",
+            "description": "Request and response header edits.",
             "anyOf": [
               {
                 "$ref": "#/$defs/HeaderRules"
@@ -2019,7 +1712,7 @@
             ]
           },
           "health": {
-            "description": "Backend health probing for this service (`endpoint`, `interval`,\n`timeout`, `threshold`, `wait_for_backend`). Preferred over the flat\n`target_health` / `health_*` keys, which still work.",
+            "description": "Backend health probing.",
             "anyOf": [
               {
                 "$ref": "#/$defs/HealthConfig"
@@ -2031,49 +1724,13 @@
             "examples": [
               {
                 "endpoint": "/health",
-                "interval": 10,
+                "interval": "10s",
                 "threshold": 2
               }
             ]
           },
-          "health_interval": {
-            "description": "Seconds between backend health probes. Deprecated spelling of\n`health.interval`.",
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "uint64",
-            "examples": [
-              10
-            ],
-            "minimum": 0
-          },
-          "health_threshold": {
-            "description": "Failed probes in a row before the backend is reported unhealthy.",
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "uint32",
-            "examples": [
-              3
-            ],
-            "minimum": 0
-          },
-          "health_timeout": {
-            "description": "Seconds to wait for each health probe before counting it as failed.\nDeprecated spelling of `health.timeout`.",
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "uint64",
-            "examples": [
-              5
-            ],
-            "minimum": 0
-          },
           "hostname": {
-            "description": "Public hostname(s) that should route to this service: a single string\nor a list. Each must be permitted by the client's token.",
+            "description": "Public hostname(s) that route to the service: one, or a list. Each must\nbe permitted by the client's token.",
             "anyOf": [
               {
                 "$ref": "#/$defs/Hostnames"
@@ -2090,56 +1747,35 @@
               ]
             ]
           },
-          "max_concurrent": {
-            "description": "Most requests this service handles at once before the server queues the rest.",
+          "inspector": {
+            "description": "Record this service's transactions for the server's request\ninspector. Turning it off for a service that carries heavy traffic buys\nback a mutex, two header clones and a capture entry per request, at the\ncost of not being able to inspect or replay its requests afterwards.\nDefault: `true`.",
             "type": [
-              "integer",
+              "boolean",
               "null"
             ],
-            "format": "uint32",
             "examples": [
-              8
-            ],
-            "minimum": 0
+              false
+            ]
           },
-          "max_redirects": {
-            "description": "How many backend redirects to follow transparently before passing one through.",
-            "type": [
-              "integer",
-              "null"
+          "limits": {
+            "description": "Bodies, concurrency and redirects.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ServiceLimits"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "format": "uint",
             "examples": [
-              5
-            ],
-            "minimum": 0
-          },
-          "max_request_body": {
-            "description": "Largest request body, in bytes, visitors may upload to this service;\nthe server rejects bigger uploads with 413 before they enter the tunnel.",
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "uint64",
-            "examples": [
-              1048576
-            ],
-            "minimum": 0
-          },
-          "max_response_body": {
-            "description": "Largest response body, in bytes, this service will relay to a visitor.",
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "uint",
-            "examples": [
-              10485760
-            ],
-            "minimum": 0
+              {
+                "concurrent_requests": 8,
+                "request_body": "10MB"
+              }
+            ]
           },
           "metrics_labels": {
-            "description": "Static Prometheus labels attached to this client's own metric series,\ne.g. `{env: prod, region: eu-west}`, so one Prometheus can serve several\nenvironments without relabelling rules. At most 8 labels; names must be\n`[a-zA-Z_][a-zA-Z0-9_]*` and the server drops anything else, including\nthe names it writes itself (`client_id`, `job`, `instance`, …).",
+            "description": "Static Prometheus labels on the service's metric series, e.g.\n`{env: prod, region: eu-west}`, so one Prometheus can serve several\nenvironments without relabelling rules. At most 8 labels; names must be\n`[a-zA-Z_][a-zA-Z0-9_]*` and the server drops anything else, including\nthe names it writes itself (`client_id`, `job`, `instance`, …).",
             "type": [
               "object",
               "null"
@@ -2155,7 +1791,7 @@
             ]
           },
           "min_tls_version": {
-            "description": "Lowest TLS version accepted from an `https://` backend: `1.2` or `1.3`.\nPer service because a fleet with one legacy backend should not have to\nlower the floor for all of them. Default: rustls's own floor\n(env: APERIO_MIN_TLS_VERSION).",
+            "description": "Lowest TLS version accepted from an `https://` backend: `1.2` or `1.3`.\nDefault: rustls' own floor.",
             "type": [
               "string",
               "null"
@@ -2165,7 +1801,7 @@
             ]
           },
           "multiplex": {
-            "description": "Carry this service on a WebSocket it shares with the other services that\nset it, instead of opening one of its own. Overrides the top-level\n`multiplex:`, so a file that turns it on for everything can still keep a\nsingle service on a connection of its own with `multiplex: false`.\nDefault: the top-level `multiplex:`.",
+            "description": "Carry the service on one WebSocket shared with every other service\nthat sets it, instead of a connection of its own.\n\nWhat it saves is the whole cost of a connection per service: one\nsocket, one TLS session, one reader, one writer and one heartbeat. What\nit costs is that the services then share a link, so a large response\noccupies the writer the others send through, and a dropped connection\ntakes all of them down together. Two services are needed for it to do\nanything, and `connections:` is not honored for a multiplexed service,\none connection is what multiplexing means. Default: `false`.",
             "type": [
               "boolean",
               "null"
@@ -2174,28 +1810,18 @@
               true
             ]
           },
-          "name": {
-            "description": "Handle for this service in client logs and the dashboard clients table.\nAn identifier: a-z, 0-9 and `_`. Use `custom_name` for something to read.",
-            "type": [
-              "string",
-              "null"
-            ],
-            "examples": [
-              "web"
-            ]
-          },
           "pass_hostname": {
-            "description": "Forward the visitor's original Host header instead of the target's.",
+            "description": "Forward the visitor's original Host header to the backend instead of\nthe target's. Default: `false`.",
             "type": [
               "boolean",
               "null"
             ],
             "examples": [
-              false
+              true
             ]
           },
           "path": {
-            "description": "Public path prefix that should route to this service.",
+            "description": "Public path prefix that routes to the service.",
             "type": [
               "string",
               "null"
@@ -2205,51 +1831,49 @@
             ]
           },
           "priority": {
-            "description": "Failover tier for this service (0 = primary, higher numbers are standbys).",
+            "description": "Failover tier (0 = primary, higher numbers are standbys). Default: `0`.",
             "type": [
               "integer",
               "null"
             ],
             "format": "uint32",
             "examples": [
-              0
+              0,
+              1
             ],
             "minimum": 0
-          },
-          "public": {
-            "description": "Serve this service without the server's visitor login (needs a token that allows it).",
-            "type": [
-              "boolean",
-              "null"
-            ],
-            "examples": [
-              true
-            ]
-          },
-          "resilience": {
-            "description": "Keep serving this service's cached responses (marked, even past their\nlifetime) while no healthy client is connected, instead of failing with\n504 (needs `cache: true` and the server-side cache enabled).",
-            "type": [
-              "boolean",
-              "null"
-            ],
-            "examples": [
-              true
-            ]
           },
           "response_timeout": {
-            "description": "Seconds the server should wait for this service to answer a dispatched\nrequest before failing it, a per-service override of the server's global\ngateway response timeout, for slow report/upload endpoints.",
-            "type": [
-              "integer",
-              "null"
+            "description": "How long the server waits for this service to answer a dispatched\nrequest before failing it: the service's own `gateway.response_timeout`,\nfor slow report and upload endpoints. Unset: the server's applies.",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "format": "uint64",
             "examples": [
-              120
-            ],
-            "minimum": 0
+              "2m"
+            ]
           },
           "retry": {
-            "description": "Retry policy for this service's backend requests; falls back to the\ntop-level `retry:`.",
+            "description": "Retrying backend requests that fail before a response arrives.",
             "anyOf": [
               {
                 "$ref": "#/$defs/RetryConfig"
@@ -2261,12 +1885,12 @@
             "examples": [
               {
                 "attempts": 3,
-                "backoff": 100
+                "delay": "100ms"
               }
             ]
           },
           "security_headers": {
-            "description": "Security response-header preset for this service (`true` or a granular\nmapping; replaces the top-level `security_headers` when set).",
+            "description": "Security response-header preset: `true` injects HSTS,\n`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and\n`Referrer-Policy`; a mapping picks headers individually.",
             "anyOf": [
               {
                 "$ref": "#/$defs/SecurityHeaders"
@@ -2284,7 +1908,7 @@
             ]
           },
           "serve": {
-            "description": "Serve a local directory of static files as this service instead of\nforwarding to a backend (mutually exclusive with `target`/`tcp_target`);\ndirectories serve their `index.html`.",
+            "description": "Serve a local directory of static files instead of forwarding to a\nbackend (instead of `target`); directories serve their `index.html`.",
             "type": [
               "string",
               "null"
@@ -2294,7 +1918,7 @@
             ]
           },
           "server_side": {
-            "description": "Let the server reach `target` itself instead of relaying through this\nclient, when the server's `server_side_targets:` permits that address\n(needs a token that allows it). Saves the two hops a relayed request\nmakes, the one to this client and the one from here to the target, and is\nonly useful when the target is somewhere the server can already reach.\nThe service is still declared, gated and routed here; only the last hop\nmoves. Refused rather than ignored when the target is not permitted, and\ncannot be combined with `serve:`, whose files are on this machine.\nDefault: false.",
+            "description": "Let the server reach `target` itself instead of relaying through this\nclient, when the server's `security.server_side_targets` permits that\naddress (needs a token that allows it). Saves the two hops a relayed\nrequest makes, and is only useful when the target is somewhere the\nserver can already reach. Refused rather than ignored when the target\nis not permitted, and cannot be combined with `serve:`, whose files are\non this machine. Default: `false`.",
             "type": [
               "boolean",
               "null"
@@ -2304,19 +1928,36 @@
             ]
           },
           "startup_delay": {
-            "description": "Seconds to wait before this service opens its tunnel. For a backend that\nis starting alongside the client and is not ready to answer the moment\nthe process is. Default: `0` (env: APERIO_STARTUP_DELAY).",
-            "type": [
-              "integer",
-              "null"
+            "description": "Wait this long before the service opens its tunnel, for a backend\nstarting alongside the client that is not ready the moment the process\nis. Default: `0s`.",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "format": "uint64",
             "examples": [
-              5
-            ],
-            "minimum": 0
+              "5s"
+            ]
           },
           "target": {
-            "description": "Local backend this service exposes through the tunnel; `h2c://` /\n`h2://` targets are dialed over HTTP/2 (gRPC backends, trailers relayed);\n`unix://` targets forward over a Unix domain socket.",
+            "description": "Local backend to expose: a port (`3000`), a host, or a URL. `h2c://` /\n`h2://` targets are dialed over HTTP/2 (gRPC backends, trailers\nrelayed); `unix://` targets forward over a Unix domain socket.",
             "type": [
               "string",
               "null"
@@ -2328,18 +1969,8 @@
               "unix:///var/run/app.sock"
             ]
           },
-          "target_health": {
-            "description": "Backend health endpoint the client probes to pull itself from rotation\nwhen down. Deprecated spelling of `health.endpoint`.",
-            "type": [
-              "string",
-              "null"
-            ],
-            "examples": [
-              "/health"
-            ]
-          },
           "tcp_target": {
-            "description": "Raw TCP backend for this service instead of HTTP (experimental).",
+            "description": "Raw TCP backend instead of HTTP (instead of `target`).",
             "type": [
               "string",
               "null"
@@ -2349,19 +1980,389 @@
             ]
           },
           "timeout": {
-            "description": "Seconds to wait for this backend to respond before failing the request.",
+            "description": "How long to wait for the backend to answer before failing the request.\nDefault: `30s`.",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "30s"
+            ]
+          },
+          "trim_bind": {
+            "description": "Strip the `path` prefix before forwarding, so the backend sees `/` and\nnot the bind. Default: `true` when `path` is set.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "examples": [
+              false
+            ]
+          },
+          "webhook_inbox": {
+            "description": "Persist inbound POST requests (third-party webhooks) into the server's\nwebhook inbox, for browsing and re-firing. Default: `false`.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "examples": [
+              true
+            ]
+          }
+        }
+      },
+      "ServiceLimits": {
+        "description": "How much a service takes on: bodies, concurrency, redirects. The same\nnames as the server's own `limits`, at the scope of one service.",
+        "type": "object",
+        "properties": {
+          "adaptive_concurrency": {
+            "description": "Lower the announced `concurrent_requests` while requests queue up\nwaiting for a local permit, and climb back when they stop. The server\nalready queues rather than dispatching past the announced number, so\nthis is how a client that has become slow stops being sent work it\ncannot do; the server then holds the request, picks another client, or\nasks for capacity through autoscaling, all of which beat a refusal.\nNeeds `concurrent_requests`, since that is the number being moved.\nDefault: `false`.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "examples": [
+              true
+            ]
+          },
+          "concurrent_requests": {
+            "description": "Most requests this service handles at once before the server queues the\nrest. Unset: no limit of its own.",
             "type": [
               "integer",
               "null"
             ],
-            "format": "uint64",
+            "format": "uint32",
             "examples": [
-              30
+              8
             ],
             "minimum": 0
           },
-          "trim_bind": {
-            "description": "Strip the path prefix before forwarding, so the backend sees `/` not the bind.",
+          "redirects": {
+            "description": "How many backend redirects to follow transparently before passing one\nthrough. Default: `5`.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint",
+            "examples": [
+              5
+            ],
+            "minimum": 0
+          },
+          "request_body": {
+            "description": "Largest request body visitors may upload to this service; the server\nrejects bigger uploads with 413 before they enter the tunnel. Unset:\nonly the server's own `limits.request_body` applies.",
+            "anyOf": [
+              {
+                "description": "A size: 512KB, 10MB or 1GB (binary units). A bare number is bytes.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*([kKmMgG]([iI]?[bB])?|[bB])?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "512KB",
+                  "10MB",
+                  "1GB"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "1MB",
+              "10MB"
+            ]
+          },
+          "response_body": {
+            "description": "Largest response body this client relays to a visitor. Default: `50MB`.",
+            "anyOf": [
+              {
+                "description": "A size: 512KB, 10MB or 1GB (binary units). A bare number is bytes.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*([kKmMgG]([iI]?[bB])?|[bB])?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "512KB",
+                  "10MB",
+                  "1GB"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "10MB"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "ServicePolicy": {
+        "description": "What a service does with its traffic, as opposed to where the traffic\ncomes from and goes to. This is the shape of `defaults:`, and every\n`services:` entry carries the same keys, so a value written once under\n`defaults:` reaches every service that does not write its own.",
+        "type": "object",
+        "properties": {
+          "access": {
+            "description": "Who may reach the service: `public`, one method block, or a list of\nthem (any one admits). Unset, the server's own visitor gate and\n`access.default` decide.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Access"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "public",
+              {
+                "method": "basic",
+                "users": "admin:${ADMIN_PASSWORD}"
+              }
+            ]
+          },
+          "allowed_ips": {
+            "description": "Visitor IPs/CIDRs allowed to reach the service; unset = everyone.\nEnforced by the server before dispatch.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "examples": [
+              [
+                "203.0.113.7",
+                "10.0.0.0/8"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "cache": {
+            "description": "The server-side response cache, for this service.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ServiceCache"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "enabled": true,
+                "offline": true
+              }
+            ]
+          },
+          "circuit_breaker": {
+            "description": "Refusing to dial a backend that keeps failing.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CircuitBreakerConfig"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "failures": 5,
+                "open_for": "30s"
+              }
+            ]
+          },
+          "connect_timeout": {
+            "description": "How long to wait for the TCP connection to the backend, separate from\n`timeout`, which covers the whole request. A backend across a VPN needs\nlonger than one on loopback. Unset: only `timeout` applies.",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "2s"
+            ]
+          },
+          "connections": {
+            "description": "Parallel tunnel connections; the server's\n`limits.connections_per_service` is the ceiling, announced on connect,\nand a token may lower it further. The server load-balances across them\nlike separate clients, so a single dropped connection leaves no\nvisitor-facing gap. A number opens exactly that many at startup;\n`{min: 1, max: 8}` opens the floor and grows towards the ceiling while\nrequests queue up, then shrinks back when they stop. Default: `1`.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Connections"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              2,
+              {
+                "max": 8,
+                "min": 1
+              }
+            ]
+          },
+          "denied": {
+            "description": "Redirect URL for visitors refused by `allowed_ips` when no other\nclient of the route admits them. Unset = stealth: the same answer as\nan unclaimed route.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "https://example.com/not-for-you"
+            ]
+          },
+          "headers": {
+            "description": "Request and response header edits.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HeaderRules"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "request": {
+                  "add": {
+                    "X-Forwarded-Env": "staging"
+                  },
+                  "remove": [
+                    "X-Internal-Debug"
+                  ]
+                },
+                "response": {
+                  "add": {
+                    "X-Served-By": "aperio"
+                  },
+                  "remove": [
+                    "X-Powered-By"
+                  ]
+                }
+              }
+            ]
+          },
+          "health": {
+            "description": "Backend health probing.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HealthConfig"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "endpoint": "/health",
+                "interval": "10s",
+                "threshold": 2
+              }
+            ]
+          },
+          "inspector": {
+            "description": "Record this service's transactions for the server's request\ninspector. Turning it off for a service that carries heavy traffic buys\nback a mutex, two header clones and a capture entry per request, at the\ncost of not being able to inspect or replay its requests afterwards.\nDefault: `true`.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "examples": [
+              false
+            ]
+          },
+          "limits": {
+            "description": "Bodies, concurrency and redirects.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ServiceLimits"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "concurrent_requests": 8,
+                "request_body": "10MB"
+              }
+            ]
+          },
+          "metrics_labels": {
+            "description": "Static Prometheus labels on the service's metric series, e.g.\n`{env: prod, region: eu-west}`, so one Prometheus can serve several\nenvironments without relabelling rules. At most 8 labels; names must be\n`[a-zA-Z_][a-zA-Z0-9_]*` and the server drops anything else, including\nthe names it writes itself (`client_id`, `job`, `instance`, …).",
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "examples": [
+              {
+                "env": "prod",
+                "region": "eu-west"
+              }
+            ]
+          },
+          "min_tls_version": {
+            "description": "Lowest TLS version accepted from an `https://` backend: `1.2` or `1.3`.\nDefault: rustls' own floor.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "1.3"
+            ]
+          },
+          "multiplex": {
+            "description": "Carry the service on one WebSocket shared with every other service\nthat sets it, instead of a connection of its own.\n\nWhat it saves is the whole cost of a connection per service: one\nsocket, one TLS session, one reader, one writer and one heartbeat. What\nit costs is that the services then share a link, so a large response\noccupies the writer the others send through, and a dropped connection\ntakes all of them down together. Two services are needed for it to do\nanything, and `connections:` is not honored for a multiplexed service,\none connection is what multiplexing means. Default: `false`.",
             "type": [
               "boolean",
               "null"
@@ -2370,18 +2371,173 @@
               true
             ]
           },
-          "wait_for_backend": {
-            "description": "Hold this service out of routing until the backend first accepts a\nconnection, avoiding connection-refused errors while it boots\n(superseded by `target_health` when that is set).",
+          "pass_hostname": {
+            "description": "Forward the visitor's original Host header to the backend instead of\nthe target's. Default: `false`.",
             "type": [
               "boolean",
               "null"
             ],
             "examples": [
               true
+            ]
+          },
+          "priority": {
+            "description": "Failover tier (0 = primary, higher numbers are standbys). Default: `0`.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "examples": [
+              0,
+              1
+            ],
+            "minimum": 0
+          },
+          "response_timeout": {
+            "description": "How long the server waits for this service to answer a dispatched\nrequest before failing it: the service's own `gateway.response_timeout`,\nfor slow report and upload endpoints. Unset: the server's applies.",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "2m"
+            ]
+          },
+          "retry": {
+            "description": "Retrying backend requests that fail before a response arrives.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RetryConfig"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              {
+                "attempts": 3,
+                "delay": "100ms"
+              }
+            ]
+          },
+          "security_headers": {
+            "description": "Security response-header preset: `true` injects HSTS,\n`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and\n`Referrer-Policy`; a mapping picks headers individually.",
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SecurityHeaders"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              true,
+              {
+                "frame_options": "SAMEORIGIN",
+                "hsts": true
+              }
+            ]
+          },
+          "server_side": {
+            "description": "Let the server reach `target` itself instead of relaying through this\nclient, when the server's `security.server_side_targets` permits that\naddress (needs a token that allows it). Saves the two hops a relayed\nrequest makes, and is only useful when the target is somewhere the\nserver can already reach. Refused rather than ignored when the target\nis not permitted, and cannot be combined with `serve:`, whose files are\non this machine. Default: `false`.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "examples": [
+              true
+            ]
+          },
+          "startup_delay": {
+            "description": "Wait this long before the service opens its tunnel, for a backend\nstarting alongside the client that is not ready the moment the process\nis. Default: `0s`.",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "5s"
+            ]
+          },
+          "timeout": {
+            "description": "How long to wait for the backend to answer before failing the request.\nDefault: `30s`.",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "30s"
+            ]
+          },
+          "trim_bind": {
+            "description": "Strip the `path` prefix before forwarding, so the backend sees `/` and\nnot the bind. Default: `true` when `path` is set.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "examples": [
+              false
             ]
           },
           "webhook_inbox": {
-            "description": "Persist inbound POST requests (third-party webhooks) hitting this\nservice into the server's webhook inbox, for browsing and re-firing.",
+            "description": "Persist inbound POST requests (third-party webhooks) into the server's\nwebhook inbox, for browsing and re-firing. Default: `false`.",
             "type": [
               "boolean",
               "null"
@@ -2402,7 +2558,6 @@
             "additionalProperties": {
               "type": "string"
             },
-            "default": {},
             "examples": [
               {
                 "DEPLOY_ENV": "staging",
@@ -2434,16 +2589,33 @@
             ]
           },
           "timeout": {
-            "description": "Seconds a run may take before it is killed. A command that hangs must\nnot hold the subscription's one slot forever. Default: `60`.",
-            "type": [
-              "integer",
-              "null"
+            "description": "How long a run may take before it is killed. A command that hangs must\nnot hold the subscription's one slot forever. Default: `60s`.",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "format": "uint64",
             "examples": [
-              60
-            ],
-            "minimum": 0
+              "2m"
+            ]
           },
           "topic": {
             "description": "The topic filter to subscribe to.",
@@ -2472,72 +2644,8 @@
           }
         ]
       },
-      "TopHealthConfig": {
-        "description": "The top level's `health:` block.\n\nThe same fields as [`HealthConfig`], a file written either way parses\nidentically, except that `endpoint` is on its way out here. The other\nchildren are real defaults: a `services:` entry that says nothing about\nits interval, timeout, threshold or boot wait inherits them. `endpoint` is\nnot, and never was: a probe path belongs to the backend it probes, so the\nresolver reads it strictly per entry and a top-level one is read by\nnothing at all once a `services:` list exists.",
-        "type": "object",
-        "properties": {
-          "endpoint": {
-            "description": "**Not accepted in a config file since 0.9.0; CLI and environment only.** Endpoint to probe.\nWrite it on the `services:` entry whose backend it probes; at the top\nlevel it is read only by a file that has no `services:` list.",
-            "type": [
-              "string",
-              "null"
-            ],
-            "deprecated": true,
-            "examples": [
-              "/health"
-            ]
-          },
-          "interval": {
-            "description": "Seconds between probes. Applies to every `services:` entry that does not\nset its own. Default: `10`.",
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "uint64",
-            "examples": [
-              10
-            ],
-            "minimum": 0
-          },
-          "threshold": {
-            "description": "Failed probes in a row before the backend is reported unhealthy. Applies\nto every `services:` entry that does not set its own. Default: `2`.",
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "uint32",
-            "examples": [
-              3
-            ],
-            "minimum": 0
-          },
-          "timeout": {
-            "description": "Seconds to wait for each probe before counting it as failed. Applies to\nevery `services:` entry that does not set its own. Default: `5`.",
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "uint64",
-            "examples": [
-              5
-            ],
-            "minimum": 0
-          },
-          "wait_for_backend": {
-            "description": "Hold the service out of routing until the backend first accepts a\nconnection, avoiding connection-refused errors while it boots. Applies\nto every `services:` entry that does not set its own. Default: `false`.",
-            "type": [
-              "boolean",
-              "null"
-            ],
-            "examples": [
-              true
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "TunnelDecl": {
-        "description": "A private local service (e.g. a database or SSH) this client makes reachable\nto a peer running `--bind-tunnels`, without ever exposing it to the public web.",
+      "TunnelEntry": {
+        "description": "One `tunnels:` entry: a private local service (a database, SSH) a peer\nclient may reach with `aperio-client bind`, never exposed to the public\nweb. The key it is written under is its name.",
         "type": "object",
         "properties": {
           "custom_name": {
@@ -2552,47 +2660,49 @@
           },
           "encrypt": {
             "description": "End-to-end encrypt this tunnel between the two clients (X25519 +\nChaCha20-Poly1305); the server only relays ciphertext. TCP only.\nDefault: `false`.",
-            "type": "boolean",
-            "default": false
-          },
-          "expose": {
-            "description": "Deprecated, and matches nothing since 0.13.0: it was the shared-secret\nclaim of an `expose:` entry in the server's configuration file, which\nthe server no longer reads. Expose listeners name the tunnel and its\norganization instead, and are managed through the server's API.",
             "type": [
-              "string",
+              "boolean",
               "null"
             ],
-            "deprecated": true,
             "examples": [
-              "k5fj2q-expose-secret"
+              true
             ]
           },
           "idle_timeout": {
-            "description": "UDP only: seconds a relay may sit with no datagrams in either direction\nbefore it expires; binders learn it via tunnel discovery. Default: `60`.",
-            "type": [
-              "integer",
-              "null"
+            "description": "UDP only: how long a relay may sit with no datagrams in either\ndirection before it expires; binders learn it via tunnel discovery.\nDefault: `60s`.",
+            "anyOf": [
+              {
+                "description": "A duration: 250ms, 30s, 5m, 2h, 1d or 1w. A bare number is seconds.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[0-9]+\\s*(ms|s|sec|secs|m|min|h|d|w)?\\s*$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "examples": [
+                  "30s",
+                  "5m",
+                  "1h"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "format": "uint64",
             "examples": [
-              300
-            ],
-            "minimum": 0
-          },
-          "name": {
-            "description": "Handle this tunnel is bound and exposed by, unique within the\norganization. Binders name it instead of naming a client id, so the\nhandle survives reconnects, parallel connections and a `services:` list.\nUnset derives one from the target, and a name shaped like a UUID is\nrejected so names can never collide with client ids.",
-            "type": [
-              "string",
-              "null"
-            ],
-            "examples": [
-              "pg_main",
-              "ssh_bastion"
+              "5m"
             ]
           },
           "protocol": {
             "description": "Transport of the tunnel: `tcp`, `udp` (best-effort datagram\nrelay), or `tcp/udp` for a service that is genuinely both (DNS, for\ninstance). A combined tunnel is one tunnel with one name and one local\nport on the binder, answering on both transports. Default: `tcp`.",
-            "type": "string",
-            "default": "tcp",
+            "type": [
+              "string",
+              "null"
+            ],
             "examples": [
               "tcp",
               "udp",
@@ -2601,31 +2711,33 @@
           },
           "proxy_protocol": {
             "description": "Write a PROXY protocol v2 header to this backend before any payload\nbyte, announcing the visitor's real address. TCP only. Without it the\nbackend sees a connection from the client process and the visitor's\naddress is lost at the last hop. Turn it on only when the backend is\nconfigured to expect the header (nginx `listen ... proxy_protocol`,\nHAProxy `accept-proxy`, MySQL `proxy-protocol-networks`): a backend that\nis not will read it as protocol garbage and drop the connection.\nDefault: `false`.",
-            "type": "boolean",
-            "default": false,
+            "type": [
+              "boolean",
+              "null"
+            ],
             "examples": [
               true
             ]
           },
           "psk": {
-            "description": "Pre-shared key mixed into the key derivation of an encrypted tunnel,\nprotecting against an actively hostile server. Never sent anywhere,\nthe binder configures the same value in its `bind-tunnels` entry.",
+            "description": "Pre-shared key mixed into the key derivation of an encrypted tunnel,\nprotecting against an actively hostile server. Never sent anywhere;\nthe binder writes the same value in its `binds:` entry.",
             "type": [
               "string",
               "null"
             ],
             "examples": [
-              "a-long-shared-secret-both-sides-hold"
-            ],
-            "writeOnly": true
+              "${TUNNEL_PSK}"
+            ]
           },
           "target": {
             "description": "Local address this client dials when a peer binds the tunnel.",
             "type": "string",
             "examples": [
-              "127.0.0.1:27017"
+              "127.0.0.1:5432"
             ]
           }
         },
+        "additionalProperties": false,
         "required": [
           "target"
         ]
@@ -3994,7 +4106,8 @@
               "type": "string"
             }
           }
-        }
+        },
+        "additionalProperties": false
       },
       "HeaderRules": {
         "description": "Header add/remove rules for proxied HTTP traffic: `request` edits what the\nlocal backend receives, `response` edits what the visitor receives.\nHop-by-hop and tunnel-critical headers stay managed by Aperio regardless.",
@@ -4042,7 +4155,8 @@
               }
             ]
           }
-        }
+        },
+        "additionalProperties": false
       },
       "IdentityHeaders": {
         "type": "object",

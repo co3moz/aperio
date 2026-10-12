@@ -27,8 +27,8 @@ visitor.**
 - **Client**, the `aperio-client` process running next to a service. Trusted;
   it dials **outbound** to the server, so the tunnel itself needs no inbound
   port. What the client does listen on is opt-in and local: the message faces
-  (`messages_listen` / `messages_mqtt_listen`, loopback unless the operator
-  binds them wider) and a `--bind-tunnels` run, which opens the local ports it
+  (`messages.listen` / `messages.mqtt_listen`, loopback unless the operator
+  binds them wider) and an `aperio-client bind` run, which opens the local ports it
   was asked to relay.
 - **Backend**, the local service the client forwards to. Trusted; reached only
   over the loopback/private address the client was pointed at.

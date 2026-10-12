@@ -40,8 +40,8 @@ export const ru: Record<string, string> = {
   'Allowed source IPs / CIDRs': 'Разрешённые исходные IP / CIDR',
   'Announced link capacity; the server paces frames to this client accordingly':
     'Заявленная пропускная способность; сервер дозирует кадры этому клиенту соответственно',
-  'Another live connection reports the same client id ({id}), bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
-    'Другое активное подключение сообщает тот же id клиента ({id}), поиск bind-tunnels и failover по этому id неоднозначен; дайте каждому клиенту свой --client-id',
+  'Another live connection reports the same client id ({id}), so failover lookups by this id are ambiguous; give each client its own --client-id':
+    'Другое активное подключение сообщает тот же id клиента ({id}), поэтому поиск failover по этому id неоднозначен; дайте каждому клиенту свой --client-id',
   'Aperio Reverse Tunneling System • Server Uptime: {uptime}':
     'Система обратных туннелей Aperio • Аптайм сервера: {uptime}',
   Appearance: 'Оформление',
@@ -678,7 +678,8 @@ export const ru: Record<string, string> = {
   'ejected': 'исключён',
   'draining': 'завершает работу',
   'cache off': 'кэш выкл',
-  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect, enable the server cache or drop the flag': 'Этот сервис включил кэширование (cache: true), но кэш ответов сервера отключён (APERIO_CACHE off), поэтому опция не действует, включите кэш сервера или уберите флаг.',
+  'This service opted into caching (cache.enabled) but the server response cache is disabled (cache.enabled off on the server), so the opt-in has no effect; enable the server cache or drop the setting':
+    'Этот сервис включил кеширование (cache.enabled), но кеш ответов сервера выключен (cache.enabled на сервере выключен), поэтому это ни на что не влияет; включите кеш сервера или уберите настройку',
   'Add hostname': 'Добавить hostname',
   'Hostname binds': 'Привязки hostname',
   'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
@@ -777,7 +778,8 @@ export const ru: Record<string, string> = {
   'Server self-health': 'Самодиагностика сервера',
   'Server-side GET cache occupancy and hit rate.': 'Заполненность и доля попаданий серверного GET-кэша.',
   'Services that ask for capacity when they need it. A request for a hostname nothing is serving triggers a cold start instead of a 504, and a saturated pool asks for one more instance. Declared by the client in its scaling: block; scaling back in is the client’s own idle_timeout.': 'Сервисы, запрашивающие мощность по мере надобности. Запрос к hostname, который никто не обслуживает, вызывает холодный старт вместо 504, а перегруженный пул просит ещё один экземпляр. Клиент объявляет это в блоке scaling:; обратное сжатие делает его собственный idle_timeout.',
-  'Set max_concurrent on the client to make utilization measurable.': 'Задайте max_concurrent на клиенте, чтобы загрузку можно было измерить.',
+  'Set limits.concurrent_requests on the client to make utilization measurable.':
+    'Задайте limits.concurrent_requests на клиенте, чтобы загрузку можно было измерить.',
   'Sign in at /aperio/oidc/login?org={id}. Leave issuer empty to clear.': 'Вход по адресу /aperio/oidc/login?org={id}. Оставьте издателя пустым, чтобы очистить.',
   'Size': 'Размер',
   'State': 'Состояние',
@@ -825,15 +827,9 @@ export const ru: Record<string, string> = {
   'Services': 'Сервисы',
   'Each entry is one exposed backend with its own bind and tuning.': 'Каждая запись, это опубликованный бэкенд со своей привязкой и настройками.',
   'Private TCP/UDP services a peer client can bind locally, and the peers this client binds.': 'Приватные TCP/UDP-сервисы, которые другой клиент может привязать локально, и узлы, которые привязывает этот клиент.',
-  'Access control': 'Контроль доступа',
-  'Who may reach the exposed service.': 'Кто может обращаться к опубликованному сервису.',
   'Capacity & pacing': 'Ёмкость и темп',
   'How much work this client accepts and how fast the server may push to it.': 'Сколько работы принимает этот клиент и как быстро сервер может её ему передавать.',
-  'Backend health': 'Состояние бэкенда',
-  'Probing the backend so an unhealthy one leaves the routing pool without dropping the tunnel. Set here it applies to every entry under services:, and any entry may override it.': 'Проверяет бэкенд, чтобы неисправный вышел из пула маршрутизации, не разрывая туннель. Заданное здесь применяется к каждой записи в services:, и любая запись может это переопределить.',
   'Asking for capacity when it is needed, and retiring when idle.': 'Запрашивать ёмкость при необходимости и сворачиваться при простое.',
-  'Response handling': 'Обработка ответов',
-  'Caching, resilience, and the headers this client rewrites.': 'Кеширование, отказоустойчивость и headers, которые переписывает этот клиент.',
   'Logging': 'Логирование',
   'What this client writes and in which format.': 'Что пишет этот клиент и в каком формате.',
   'Core': 'Основное',
@@ -907,8 +903,8 @@ export const ru: Record<string, string> = {
   'TOTP QR code': 'QR-код TOTP',
   'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.': 'Какую часть загрузки медленного посетителя сервер буферизует, прежде чем попросить клиента приостановить её создание.',
   'Service defaults': 'Значения по умолчанию для сервисов',
-  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here, they only ever worked without a services: list, and appear only for a file that already writes them.': 'Применяются к каждой записи в services: и переопределяются в записи. Ключи, задающие один бэкенд на верхнем уровне, здесь устарели, они и работали только при отсутствии списка services:, и показываются лишь для файла, который их уже пишет.',
-  '`{keys}` name one service at the top level, and this file also has a services: list, the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` задают один сервис на верхнем уровне, а в файле есть ещё и список services:, клиент читает список и игнорирует их. Перенесите их в ту запись, к которой они относятся.',
+  'What every service gets unless its own entry says otherwise. The environment and the command line write here too.':
+    'То, что получает каждый сервис, если его собственная запись не говорит иного. Окружение и командная строка тоже пишут сюда.',
   'Every healthy client of the route takes requests in turn, evenly. The default, and what you want when the clients are interchangeable.': 'Каждый исправный клиент маршрута берёт запросы по очереди, поровну. Значение по умолчанию и то, что нужно, когда клиенты взаимозаменяемы.',
   'Only the clients on the lowest priority tier receive traffic; a higher tier takes over when every client above it is unhealthy, draining or gone, and hands back when one returns. Tiers come from each client’s priority (0 = primary).': 'Трафик получают только клиенты самого низкого приоритетного уровня; уровень выше принимает нагрузку, когда все клиенты над ним неисправны, выводятся или исчезли, и отдаёт её обратно, когда один возвращается. Уровни берутся из priority каждого клиента (0 = основной).',
   'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.': 'Посетитель остаётся на том клиенте, который обслужил его первым, пока тот исправен. Для бэкендов, хранящих состояние посетителя в памяти; пул распределяет по посетителям, а не по запросам.',
@@ -935,7 +931,8 @@ export const ru: Record<string, string> = {
   'Messages': 'Сообщения',
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'Топики, которые слушает этот клиент, и куда подключается приложение на той же машине, чтобы отправлять и получать.',
   'Cold start & scale-out records': 'Записи о холодном старте и масштабировании',
-  'Private services reachable with --bind-tunnels': 'Приватные сервисы, доступные через --bind-tunnels',
+  'Private services reachable with aperio-client bind':
+    'Приватные сервисы, доступные через aperio-client bind',
   'Display name': 'Отображаемое имя',
   'Handle': 'Идентификатор',
   'Only what it is called. The handle {handle} is what addresses it and never changes.': 'Только то, как её называют. Идентификатор {handle} адресует её и никогда не меняется.',

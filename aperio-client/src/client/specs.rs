@@ -55,16 +55,15 @@ pub(crate) fn resolve_visitor_gate(
 
 /// Validates the resolved settings and builds the runnable service specs.
 ///
-/// Single-service mode uses the top-level `target`; a non-empty `services:`
-/// list in the local config file expands to one spec per entry, with unset
-/// per-entry knobs falling back to the top-level resolved values. A CLI
-/// positional target always wins and forces single-service mode. Returns an
-/// error message (used verbatim in logs) when a required value is missing or
-/// invalid.
+/// One spec per service, each from its own entry with `defaults:` already
+/// laid under it, so there is nothing left to fall back to here. The one
+/// service the command line or the environment describes runs under the
+/// client's own id; a file's services suffix it with their position. Returns
+/// an error message (used verbatim in logs) when a required value is missing
+/// or invalid.
 pub(crate) fn build_specs(
   settings: &ClientSettings,
   client_id_base: &str,
-  cli_target_given: bool,
 ) -> Result<Vec<ServiceSpec>, String> {
   let token = settings
     .token
@@ -79,9 +78,9 @@ pub(crate) fn build_specs(
   let ws_url =
     build_ws_url(&server_addr).map_err(|e| format!("Failed to build WebSocket URL: {}", e))?;
 
-  // Additional server URLs for cross-server failover (APERIO_SERVER_URLS,
-  // comma-separated). The primary (server_addr) is always the first candidate;
-  // the reconnect loop rotates to the next after a failed connection.
+  // Additional server URLs for cross-server failover. The primary is always
+  // the first candidate; the reconnect loop rotates to the next after a
+  // failed connection.
   let mut ws_urls = vec![ws_url.clone()];
   for extra in &settings.server_urls {
     match build_ws_url(extra) {
@@ -117,512 +116,266 @@ pub(crate) fn build_specs(
 
   let tunnels = validate_tunnels(&settings.tunnels)?;
 
-  // Visitor allowlists fail at startup, not silently on the server.
-  let validate_ips = |ips: &[String], what: &str| -> Result<(), String> {
-    for entry in ips {
-      if !crate::config::valid_ip_entry(entry) {
+  // A client may run with nothing exposed at all. The connection then serves
+  // no HTTP target and exists purely to carry something else: the `tunnels:`
+  // a peer binds in an emergency, or the messages this client publishes and
+  // subscribes to. Refusing to start would mean a publish-only client had to
+  // invent a service it does not have.
+  let carrier;
+  let services: &[crate::config::Service] = if settings.services.is_empty() {
+    let carries_messages = !settings.subscribe.is_empty()
+      || settings.messages_listen.is_some()
+      || settings.messages_mqtt_listen.is_some();
+    if tunnels.is_empty() && !carries_messages {
+      return Err(
+        "CRITICAL ERROR: there is nothing for this client to do (give a positional target, APERIO_TARGET, or a services:/tunnels:/subscribe: section)!".to_string(),
+      );
+    }
+    carrier = [crate::config::Service {
+      name: None,
+      entry: settings.defaults.clone(),
+    }];
+    &carrier
+  } else {
+    &settings.services
+  };
+  let single = services.len() == 1 && services[0].name.is_none();
+
+  // Parallel connections per service: bounded so a typo cannot exhaust the
+  // server's tunnel slots. A sanity bound, not a policy: the policy is the
+  // server's `limits.connections_per_service` (lowered further by a token's
+  // own `max_connections`), announced on the handshake and applied per
+  // connection; this only stops `connections: 100000` from spawning a hundred
+  // thousand tasks before the first one has connected to find out.
+  const CONNECTIONS_SANITY_BOUND: u32 = 256;
+
+  let mut specs: Vec<ServiceSpec> = Vec::with_capacity(services.len());
+  for (i, service) in services.iter().enumerate() {
+    let entry = &service.entry;
+    let p = &entry.policy;
+    let label = match &service.name {
+      Some(name) => format!("service '{name}'"),
+      None => "the service".to_string(),
+    };
+    // A service name is an identifier the dashboard, the logs and a future
+    // address form all share, so it is settled here rather than wherever it
+    // is first displayed. `custom_name:` is where anything human goes.
+    if let Some(name) = service.name.as_deref() {
+      aperio_config::validate_name("service", name).map_err(|e| format!("CRITICAL ERROR: {e}"))?;
+    }
+    let tcp_target = entry
+      .tcp_target
+      .clone()
+      .map(|s| s.trim().to_string())
+      .filter(|s| !s.is_empty());
+    let target = entry
+      .target
+      .as_deref()
+      .map(normalize_target)
+      .filter(|t| !t.is_empty());
+    let target = match target {
+      Some(t) => t,
+      // A raw TCP service, or the carrier, has no HTTP target.
+      None if tcp_target.is_some() || service.name.is_none() && settings.services.is_empty() => {
+        String::new()
+      }
+      None => {
         return Err(format!(
-          "CRITICAL ERROR: {} has an invalid allowed_ips entry '{}'; expected an IP, a CIDR range, or '*'",
-          what, entry
+          "CRITICAL ERROR: {label} has nothing to expose (set target, serve or tcp_target)!"
+        ));
+      }
+    };
+    // Unix socket targets must carry a path, and only exist on Unix.
+    if crate::proxy::unix::is_unix_target(&target) {
+      if cfg!(not(unix)) {
+        return Err(format!(
+          "CRITICAL ERROR: {label} uses a unix:// target, which is not supported on this platform"
+        ));
+      }
+      if crate::proxy::unix::unix_socket_path(&target).is_none() {
+        return Err(format!(
+          "CRITICAL ERROR: {label} has a unix:// target without a socket path (expected e.g. unix:///var/run/app.sock)"
         ));
       }
     }
-    Ok(())
-  };
-  validate_ips(&settings.allowed_ips, "the client configuration")?;
-  for entry in &settings.services {
-    if let Some(ips) = &entry.allowed_ips {
-      validate_ips(
-        ips,
-        &format!(
-          "service '{}'",
-          entry.name.clone().unwrap_or_else(|| "?".into())
-        ),
-      )?;
-    }
-  }
-
-  // Unix socket targets: must carry a path, and only exist on Unix platforms.
-  let validate_unix_target = |target: &str, what: &str| -> Result<(), String> {
-    if !crate::proxy::unix::is_unix_target(target) {
-      return Ok(());
-    }
-    if cfg!(not(unix)) {
+    // `server_side:` moves the last hop to the server, so `serve:` stops
+    // being reachable: the files are on this machine. Refused here rather
+    // than at the server, where the reason would arrive as a log line on
+    // somebody else's machine.
+    let server_side = p.server_side.unwrap_or(false);
+    if server_side && entry.serve.is_some() {
       return Err(format!(
-        "CRITICAL ERROR: {} uses a unix:// target, which is not supported on this platform",
-        what
+        "CRITICAL ERROR: {label} sets both server_side: and serve:; the files are on this \
+         machine, and a server reaching the target itself cannot serve them!"
       ));
     }
-    if crate::proxy::unix::unix_socket_path(target).is_none() {
-      return Err(format!(
-        "CRITICAL ERROR: {} has a unix:// target without a socket path (expected e.g. unix:///var/run/app.sock)",
-        what
-      ));
+    // Visitor allowlists fail at startup, not silently on the server.
+    let allowed_ips = p.allowed_ips.clone().unwrap_or_default();
+    for ip in &allowed_ips {
+      if !crate::config::valid_ip_entry(ip) {
+        return Err(format!(
+          "CRITICAL ERROR: {label} has an invalid allowed_ips entry '{ip}'; expected an IP, a CIDR range, or '*'"
+        ));
+      }
     }
-    Ok(())
-  };
-  if let Some(t) = &settings.target {
-    validate_unix_target(t, "the client configuration")?;
-  }
-  for entry in &settings.services {
-    if let Some(t) = &entry.target {
-      validate_unix_target(
-        t,
-        &format!(
-          "service '{}'",
-          entry.name.clone().unwrap_or_else(|| "?".into())
-        ),
-      )?;
-    }
-  }
-
-  // Denied-visitor redirects must be absolute http(s) URLs, anything else
-  // would silently degrade to stealth on the server.
-  let validate_denied = |denied: Option<&String>, what: &str| -> Result<(), String> {
-    if let Some(url) = denied {
+    // Denied-visitor redirects must be absolute http(s) URLs, anything else
+    // would silently degrade to stealth on the server.
+    let denied = p
+      .denied
+      .clone()
+      .map(|s| s.trim().to_string())
+      .filter(|s| !s.is_empty());
+    if let Some(url) = &denied {
       let ok =
         (url.starts_with("http://") || url.starts_with("https://")) && url::Url::parse(url).is_ok();
       if !ok {
         return Err(format!(
-          "CRITICAL ERROR: {} has an invalid denied: value '{}'; expected an absolute http(s) URL",
-          what, url
+          "CRITICAL ERROR: {label} has an invalid denied: value '{url}'; expected an absolute http(s) URL"
         ));
       }
     }
-    Ok(())
-  };
-  validate_denied(settings.denied.as_ref(), "the client configuration")?;
-  for entry in &settings.services {
-    validate_denied(
-      entry.denied.as_ref(),
-      &format!(
-        "service '{}'",
-        entry.name.clone().unwrap_or_else(|| "?".into())
-      ),
-    )?;
-  }
 
-  // Parallel connections per service: bounded so a typo cannot exhaust the
-  // server's tunnel slots (it also has its own max_tunnels guard). Defaults to
-  // 1; set `connections: N` (or APERIO_CONNECTIONS) to run N parallel
-  // connections so a single dropped one (e.g. a CDN recycling a long-lived
-  // WebSocket) is covered by a sibling with no visitor-facing gap.
-  // A sanity bound, not a policy. The policy is the server's
-  // `max_connections_per_service` (lowered further by a token's own
-  // `max_connections`), announced on the handshake and applied per connection;
-  // this only stops `connections: 100000` from spawning a hundred thousand
-  // tasks before the first one has connected to find out.
-  const CONNECTIONS_SANITY_BOUND: u32 = 256;
-  // Returns (floor, ceiling): equal for a fixed count, a range for an elastic
-  // pool.
-  let clamp_connections = |raw: Option<&aperio_config::Connections>, what: &str| -> (u32, u32) {
-    let (min, max) = match raw {
+    let declared = p.connections.as_ref();
+    let (connections_min, connections) = match declared {
       None => (1, 1),
+      Some(c) if c.max() > CONNECTIONS_SANITY_BOUND => {
+        warn!(
+          "{} requests {} connections; clamping to {}. The server decides the real \
+           ceiling and announces it on connect.",
+          label,
+          c.max(),
+          CONNECTIONS_SANITY_BOUND
+        );
+        (
+          c.min().min(CONNECTIONS_SANITY_BOUND),
+          CONNECTIONS_SANITY_BOUND,
+        )
+      }
       Some(c) => (c.min(), c.max()),
     };
-    if max > CONNECTIONS_SANITY_BOUND {
-      warn!(
-        "{} requests {} connections; clamping to {}. The server decides the real \
-         ceiling and announces it on connect.",
-        what, max, CONNECTIONS_SANITY_BOUND
-      );
-      return (min.min(CONNECTIONS_SANITY_BOUND), CONNECTIONS_SANITY_BOUND);
-    }
-    (min, max)
-  };
-  // A clamped count is announced so the dashboard shows what the config asked
-  // for next to what the client is really running.
-  let connections_note =
-    |raw: Option<&aperio_config::Connections>, effective: u32| -> Vec<ConfigNote> {
-      let asked = raw.map(|c| c.max()).unwrap_or(1).max(1);
-      (asked != effective)
-        .then(|| ConfigNote {
-          field: "connections".to_string(),
-          declared: asked.to_string(),
-          effective: effective.to_string(),
-          reason: format!("clamped to {CONNECTIONS_SANITY_BOUND} parallel connections"),
-        })
-        .into_iter()
-        .collect()
-    };
+    // A clamped count is announced so the dashboard shows what the config
+    // asked for next to what the client is really running.
+    let asked = declared.map(|c| c.max()).unwrap_or(1).max(1);
+    let config_notes: Vec<ConfigNote> = (asked != connections)
+      .then(|| ConfigNote {
+        field: "connections".to_string(),
+        declared: asked.to_string(),
+        effective: connections.to_string(),
+        reason: format!("clamped to {CONNECTIONS_SANITY_BOUND} parallel connections"),
+      })
+      .into_iter()
+      .collect();
 
-  if !settings.services.is_empty() && !cli_target_given {
-    // The services: list wins, and the keys that describe a single service at
-    // the top level are read by nothing. Saying so is the point: they were
-    // written to have an effect, they have none, and until now the client
-    // dropped them without a word.
-    let shadowed: Vec<&str> = [
-      ("target", settings.target.is_some()),
-      ("serve", settings.serve.is_some()),
-      ("hostname", !settings.hostnames.is_empty()),
-      ("path", settings.path.is_some()),
-      ("tcp_target", settings.tcp_target.is_some()),
-      ("target_health", settings.target_health.is_some()),
-    ]
-    .into_iter()
-    .filter(|(_, set)| *set)
-    .map(|(key, _)| key)
-    .collect();
-    if !shadowed.is_empty() {
-      warn!(
-        "Ignoring the top-level `{}`: a services: list is present and it is what runs. Move them into the entry they belong to.",
-        shadowed.join("`, `")
-      );
-    }
-  }
+    let access = p.access.as_ref().map(aperio_config::Access::auth_setting);
+    let (public, visitor_auth) =
+      resolve_visitor_gate(&format!("access for {label}"), access.as_ref(), false)?;
+    let health = p.health.clone().unwrap_or_default();
+    let retry = p.retry.clone().unwrap_or_default();
+    let breaker = p.circuit_breaker.clone().unwrap_or_default();
+    let limits = p.limits.clone().unwrap_or_default();
+    let cache = p.cache.clone().unwrap_or_default();
+    let path = entry
+      .path
+      .clone()
+      .map(|s| s.trim().to_string())
+      .filter(|s| !s.is_empty());
+    let secs = |span: Option<aperio_config::units::Span>| span.map(|s| s.as_secs());
 
-  if settings.services.is_empty() || cli_target_given {
-    if cli_target_given && !settings.services.is_empty() {
-      warn!(
-        "A positional target was given on the command line; ignoring the {} entry/entries of the services: list",
-        settings.services.len()
-      );
-    }
-    // A client may run with nothing exposed at all. The connection then
-    // serves no HTTP target and exists purely to carry something else: the
-    // `tunnels:` a peer binds in an emergency, or the messages this client
-    // publishes and subscribes to. Refusing to start would mean a
-    // publish-only client had to invent a service it does not have.
-    let carries_messages = !settings.subscribe.is_empty()
-      || settings.messages_listen.is_some()
-      || settings.messages_mqtt_listen.is_some();
-    let target = match settings.target.clone() {
-      Some(t) => t,
-      None if !tunnels.is_empty() || carries_messages => String::new(),
-      None => {
-        return Err(
-          "CRITICAL ERROR: there is nothing for this client to do (give a positional target, APERIO_TARGET, or a services:/tunnels:/subscribe: list)!".to_string(),
-        );
-      }
-    };
-    if settings.server_side && settings.serve.is_some() {
-      return Err(
-        "CRITICAL ERROR: server_side: and serve: cannot be combined; the files are on this \
-         machine, and a server reaching the target itself cannot serve them!"
-          .to_string(),
-      );
-    }
-    let (connections_min, connections) =
-      clamp_connections(settings.connections.as_ref(), "the service");
-    let (top_public, top_visitor_auth) =
-      resolve_visitor_gate("auth", settings.visitor_auth.as_ref(), settings.public)?;
-    let mut specs = vec![ServiceSpec {
-      name: None,
-      custom_name: settings.custom_name.clone(),
-      client_id: client_id_base.to_string(),
-      token,
+    specs.push(ServiceSpec {
+      name: service.name.clone(),
+      custom_name: entry
+        .custom_name
+        .clone()
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty()),
+      client_id: if single {
+        client_id_base.to_string()
+      } else {
+        format!("{}-{}", client_id_base, i)
+      },
+      token: token.clone(),
       instance_group: client_id_base.to_string(),
-      server_addr,
-      ws_url,
+      server_addr: server_addr.clone(),
+      ws_url: ws_url.clone(),
       ws_urls: ws_urls.clone(),
       client_name: settings.name.clone(),
-      // The env/file spelling of a `services:` entry's `server_side:`, for a
-      // file-less client: the same field, applied to the one service.
-      server_side_target: settings.server_side.then(|| target.clone()),
+      // The address travels with the ask, so the server is told where to go
+      // only by a service that asked it to go there.
+      server_side_target: server_side.then(|| target.clone()),
       allow_server_forward: settings.allow_server_forward,
       target,
-      hostnames: settings.hostnames.clone(),
-      path: settings.path.clone(),
-      trim_bind: if settings.path.is_some() {
-        settings.trim_bind.unwrap_or(true)
-      } else {
-        false
-      },
-      pass_hostname: settings.pass_hostname,
-      max_response_body: settings.max_response_body,
+      hostnames: entry
+        .hostname
+        .clone()
+        .map(aperio_config::Hostnames::into_vec)
+        .unwrap_or_default(),
+      trim_bind: path.is_some() && p.trim_bind.unwrap_or(true),
+      path,
+      pass_hostname: p.pass_hostname.unwrap_or(false),
+      max_response_body: limits
+        .response_body
+        .map(|b| b.0 as usize)
+        .unwrap_or(50 * 1024 * 1024),
       reload_drain_secs: settings.reload_drain_secs,
-      retry_attempts: settings.retry_attempts,
-      retry_backoff_ms: settings.retry_backoff_ms,
-      retry_all_methods: settings.retry_all_methods,
-      breaker_failures: settings.breaker_failures,
-      breaker_open_for_secs: settings.breaker_open_for_secs,
-      max_request_body: settings.max_request_body,
-      response_timeout: settings.response_timeout,
-      timeout_secs: settings.timeout_secs,
-      max_concurrent: settings.max_concurrent,
-      adaptive_concurrency: settings.adaptive_concurrency,
+      retry_attempts: retry.attempts.unwrap_or(1).clamp(1, 10),
+      retry_backoff_ms: retry.delay.map(|d| d.0.as_millis() as u64).unwrap_or(100),
+      retry_all_methods: retry.all_methods.unwrap_or(false),
+      breaker_failures: breaker.failures.unwrap_or(0),
+      breaker_open_for_secs: secs(breaker.open_for).unwrap_or(30).max(1),
+      max_request_body: limits.request_body.map(|b| b.0),
+      response_timeout: secs(p.response_timeout).filter(|s| *s > 0),
+      timeout_secs: secs(p.timeout).unwrap_or(30),
+      max_concurrent: limits.concurrent_requests.filter(|n| *n > 0),
+      adaptive_concurrency: limits.adaptive_concurrency.unwrap_or(false),
       connections,
       connections_min,
-      // A single service has nobody to share a connection with, so the flag
-      // has nothing to do here whichever way it is set.
-      multiplex: false,
+      // A lone service has nobody to share a connection with, so the flag has
+      // nothing to do there whichever way it is set.
+      multiplex: !single && p.multiplex.unwrap_or(false),
+      // Settled below, once every entry has been built: whether this service
+      // shares a connection depends on what the others asked for.
       multiplex_group: None,
-      metrics_labels: settings.metrics_labels.clone(),
-      startup_delay: settings.startup_delay.unwrap_or(0),
-      // A single service has nothing in the same file to depend on.
-      depends_on: Vec::new(),
-      connect_timeout: settings.connect_timeout,
-      min_tls_version: settings.min_tls_version.clone(),
+      metrics_labels: p.metrics_labels.clone().unwrap_or_default(),
+      startup_delay: secs(p.startup_delay).unwrap_or(0),
+      depends_on: entry.depends_on.clone().unwrap_or_default(),
+      connect_timeout: secs(p.connect_timeout).filter(|s| *s > 0),
+      min_tls_version: p.min_tls_version.clone(),
       pool_load: std::sync::Arc::new(service::PoolLoad::default()),
-      priority: settings.priority,
-      bandwidth_bps: budget_bps,
-      bandwidth_declared: settings.bandwidth.clone(),
-      config_notes: connections_note(settings.connections.as_ref(), connections),
+      priority: p.priority.unwrap_or(0),
+      // Only what this entry asked for: the top-level value is the budget
+      // these requests are settled against, not a fallback default.
+      bandwidth_bps: parse_bw(entry.bandwidth.as_deref()),
+      bandwidth_declared: entry.bandwidth.clone(),
+      config_notes,
       max_message_size: settings.max_message_size,
-      max_redirects: settings.max_redirects,
-      tcp_target: settings.tcp_target.clone(),
-      target_health: settings.target_health.clone(),
-      wait_for_backend: settings.wait_for_backend,
-      health_interval: settings.health_interval,
-      health_timeout: settings.health_timeout,
-      health_threshold: settings.health_threshold,
-      public: top_public,
-      visitor_auth: top_visitor_auth,
-      visitor_auth_policy: settings.visitor_auth.clone(),
-      allowed_ips: settings.allowed_ips.clone(),
-      resilience: settings.resilience,
-      capture: settings.capture,
-      webhook_inbox: settings.webhook_inbox,
-      denied: settings.denied.clone(),
-      scaling: settings.scaling.clone(),
-      tunnels,
-      headers: crate::config::merge_security_headers(
-        settings.headers.clone(),
-        settings.security_headers.as_ref(),
-      ),
-      cache: settings.cache,
-    }];
-    validate_tls_floors(&specs)?;
-    allocate_bandwidth(&mut specs, budget_bps);
-    return Ok(specs);
-  }
-
-  // Multi-service mode: one spec (and one tunnel connection) per entry.
-  // Binds (hostname/path/tcp_target/target_health) are strictly per entry;
-  // tuning knobs fall back to the top-level resolved values.
-  let mut specs: Vec<ServiceSpec> = settings
-    .services
-    .iter()
-    .enumerate()
-    .map(|(i, entry)| {
-      let describe = || {
-        entry
-          .name
-          .clone()
-          .unwrap_or_else(|| format!("services[{}]", i))
-      };
-      // A service name is an identifier the dashboard, the logs and a future
-      // address form all share, so it is settled here rather than wherever it
-      // is first displayed. `custom_name:` is where anything human goes.
-      if let Some(name) = entry.name.as_deref() {
-        aperio_config::validate_name("service", name)
-          .map_err(|e| format!("CRITICAL ERROR: {e}"))?;
-      }
-      let target = entry
-        .target
+      max_redirects: limits.redirects.unwrap_or(5),
+      tcp_target,
+      target_health: health
+        .endpoint
         .clone()
-        .filter(|t| !t.trim().is_empty())
-        .ok_or_else(|| {
-          format!(
-            "CRITICAL ERROR: service '{}' has no target (set target: or serve:)!",
-            describe()
-          )
-        })?;
-      // `server_side:` moves the last hop to the server, so `serve:` stops
-      // being reachable: the files are on this machine. Refused here rather
-      // than at the server, where the reason would arrive as a log line on
-      // somebody else's machine.
-      if entry.server_side.unwrap_or(false) && entry.serve.is_some() {
-        return Err(format!(
-          "CRITICAL ERROR: service '{}' sets both server_side: and serve:; the files are on \
-           this machine, and a server reaching the target itself cannot serve them!",
-          describe()
-        ));
-      }
-      let path = entry.path.clone();
-      let declared_connections = entry.connections.as_ref().or(settings.connections.as_ref());
-      let (connections_min, connections) =
-        clamp_connections(declared_connections, &format!("service '{}'", describe()));
-      let (entry_public, entry_visitor_auth) = resolve_visitor_gate(
-        &format!("auth for service '{}'", describe()),
-        entry.auth.as_ref().or(settings.visitor_auth.as_ref()),
-        entry.public.unwrap_or(settings.public),
-      )?;
-      Ok(ServiceSpec {
-        name: entry.name.clone(),
-        custom_name: entry
-          .custom_name
-          .clone()
-          .map(|n| n.trim().to_string())
-          .filter(|n| !n.is_empty()),
-        client_id: format!("{}-{}", client_id_base, i),
-        token: token.clone(),
-        instance_group: client_id_base.to_string(),
-        server_addr: server_addr.clone(),
-        ws_url: ws_url.clone(),
-        ws_urls: ws_urls.clone(),
-        client_name: settings.name.clone(),
-        // The address travels with the ask, so the server is told where to go
-        // only by a service that asked it to go there.
-        server_side_target: entry
-          .server_side
-          .unwrap_or(settings.server_side)
-          .then(|| target.clone()),
-        allow_server_forward: settings.allow_server_forward,
-        target,
-        hostnames: entry
-          .hostname
-          .clone()
-          .map(|h| {
-            h.into_vec()
-              .into_iter()
-              .map(|s| s.trim().to_ascii_lowercase())
-              .filter(|s| !s.is_empty())
-              .collect::<Vec<_>>()
-          })
-          .filter(|v| !v.is_empty())
-          .unwrap_or_default(),
-        trim_bind: if path.is_some() {
-          entry.trim_bind.or(settings.trim_bind).unwrap_or(true)
-        } else {
-          false
-        },
-        path,
-        pass_hostname: entry.pass_hostname.unwrap_or(settings.pass_hostname),
-        max_response_body: entry
-          .max_response_body
-          .unwrap_or(settings.max_response_body),
-        reload_drain_secs: settings.reload_drain_secs,
-        retry_attempts: entry
-          .retry
-          .as_ref()
-          .and_then(|r| r.attempts)
-          .map(|n| n.clamp(1, 10))
-          .unwrap_or(settings.retry_attempts),
-        retry_backoff_ms: entry
-          .retry
-          .as_ref()
-          .and_then(|r| r.backoff)
-          .unwrap_or(settings.retry_backoff_ms),
-        retry_all_methods: entry
-          .retry
-          .as_ref()
-          .and_then(|r| r.all_methods)
-          .unwrap_or(settings.retry_all_methods),
-        breaker_failures: entry
-          .circuit_breaker
-          .as_ref()
-          .and_then(|b| b.failures)
-          .unwrap_or(settings.breaker_failures),
-        breaker_open_for_secs: entry
-          .circuit_breaker
-          .as_ref()
-          .and_then(|b| b.open_for)
-          .map(|s| s.max(1))
-          .unwrap_or(settings.breaker_open_for_secs),
-        max_request_body: entry.max_request_body.or(settings.max_request_body),
-        response_timeout: entry.response_timeout.or(settings.response_timeout),
-        timeout_secs: entry.timeout.unwrap_or(settings.timeout_secs),
-        max_concurrent: entry
-          .max_concurrent
-          .or(settings.max_concurrent)
-          .filter(|n| *n > 0),
-        adaptive_concurrency: entry
-          .adaptive_concurrency
-          .unwrap_or(settings.adaptive_concurrency),
-        connections,
-        connections_min,
-        multiplex: entry.multiplex.unwrap_or(settings.multiplex),
-        // Settled below, once every entry has been built: whether this service
-        // shares a connection depends on what the others asked for.
-        multiplex_group: None,
-        metrics_labels: entry
-          .metrics_labels
-          .clone()
-          .unwrap_or_else(|| settings.metrics_labels.clone()),
-        startup_delay: entry.startup_delay.or(settings.startup_delay).unwrap_or(0),
-        // A file-wide `depends_on:` is the default for entries that name none
-        // of their own, and it reads as "everything else waits for these", so
-        // a service the list itself names is not one of the things that wait.
-        // Dropping only the self-reference is not enough: `depends_on: [a, b]`
-        // over services `a` and `b` would leave each waiting for the other,
-        // and a cycle refuses to start.
-        depends_on: match entry.depends_on.clone() {
-          Some(own) => own,
-          // An entry with no name does not inherit it either, and that is not
-          // a detail: `validate_depends_on` refuses a nameless spec that
-          // carries a list, so handing the default to one would turn a file
-          // that started yesterday into a client that refuses to start today.
-          // A nameless service is also nothing another can wait *for*, so
-          // there is no meaning being lost.
-          None => match entry.name.as_deref() {
-            None => Vec::new(),
-            Some(name) => {
-              let file_wide = settings.depends_on.clone().unwrap_or_default();
-              if file_wide.iter().any(|d| d == name) {
-                Vec::new()
-              } else {
-                file_wide
-              }
-            }
-          },
-        },
-        connect_timeout: entry.connect_timeout.or(settings.connect_timeout),
-        min_tls_version: entry
-          .min_tls_version
-          .clone()
-          .or_else(|| settings.min_tls_version.clone()),
-        pool_load: std::sync::Arc::new(service::PoolLoad::default()),
-        priority: entry.priority.unwrap_or(settings.priority),
-        // Only what this entry asked for: the top-level value is the budget
-        // these requests are settled against, not a fallback default.
-        bandwidth_bps: parse_bw(entry.bandwidth.as_deref()),
-        bandwidth_declared: entry.bandwidth.clone(),
-        config_notes: connections_note(declared_connections, connections),
-        max_message_size: settings.max_message_size,
-        max_redirects: entry.max_redirects.unwrap_or(settings.max_redirects),
-        tcp_target: entry
-          .tcp_target
-          .clone()
-          .map(|s| s.trim().to_string())
-          .filter(|s| !s.is_empty()),
-        target_health: entry
-          .target_health
-          .clone()
-          .map(|s| s.trim().to_string())
-          .filter(|s| !s.is_empty()),
-        wait_for_backend: entry.wait_for_backend.unwrap_or(settings.wait_for_backend),
-        health_interval: entry
-          .health_interval
-          .unwrap_or(settings.health_interval)
-          .max(1),
-        health_timeout: entry
-          .health_timeout
-          .unwrap_or(settings.health_timeout)
-          .max(1),
-        health_threshold: entry
-          .health_threshold
-          .unwrap_or(settings.health_threshold)
-          .max(1),
-        public: entry_public,
-        visitor_auth: entry_visitor_auth,
-        visitor_auth_policy: entry.auth.clone().or_else(|| settings.visitor_auth.clone()),
-        allowed_ips: entry
-          .allowed_ips
-          .clone()
-          .unwrap_or_else(|| settings.allowed_ips.clone()),
-        resilience: entry.resilience.unwrap_or(settings.resilience),
-        capture: entry.capture.unwrap_or(settings.capture),
-        webhook_inbox: entry.webhook_inbox.unwrap_or(settings.webhook_inbox),
-        scaling: settings.scaling.clone(),
-        denied: entry
-          .denied
-          .clone()
-          .map(|s| s.trim().to_string())
-          .filter(|s| !s.is_empty())
-          .or_else(|| settings.denied.clone()),
-        tunnels: tunnels.clone(),
-        headers: crate::config::merge_security_headers(
-          entry.headers.clone().or_else(|| settings.headers.clone()),
-          entry
-            .security_headers
-            .as_ref()
-            .or(settings.security_headers.as_ref()),
-        ),
-        cache: entry.cache.unwrap_or(settings.cache),
-      })
-    })
-    .collect::<Result<_, String>>()?;
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty()),
+      wait_for_backend: health.wait_for_backend.unwrap_or(false),
+      health_interval: secs(health.interval).unwrap_or(10).max(1),
+      health_timeout: secs(health.timeout).unwrap_or(5).max(1),
+      health_threshold: health.threshold.unwrap_or(2).max(1),
+      public,
+      visitor_auth,
+      visitor_auth_policy: access,
+      allowed_ips,
+      resilience: cache.offline.unwrap_or(false),
+      capture: p.inspector.unwrap_or(true),
+      webhook_inbox: p.webhook_inbox.unwrap_or(false),
+      denied,
+      scaling: settings.scaling.clone(),
+      tunnels: tunnels.clone(),
+      headers: crate::config::merge_security_headers(
+        p.headers.clone(),
+        p.security_headers.as_ref(),
+      ),
+      cache: cache.enabled.unwrap_or(false),
+    });
+  }
   validate_depends_on(&specs)?;
   validate_tls_floors(&specs)?;
   group_multiplexed(&mut specs)?;

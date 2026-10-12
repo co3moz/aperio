@@ -6,11 +6,11 @@ server:
   token: apr_traffic_rules_change_me
 
 services:
-  - name: api
-    public: true
+  api:
+    access: public
     target: http://localhost:4000
     hostname: api.example.com
-  - name: app
-    public: true
+  app:
+    access: public
     target: http://localhost:3000
     hostname: app.example.com

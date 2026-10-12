@@ -16,7 +16,7 @@ export class H2Client extends ClientFor(() => H2Server, () => H2Backend) {
     // `target_health: /` against an h2c target means the standard
     // grpc.health.v1.Health/Check RPC, not a GET, which a prior-knowledge
     // HTTP/2 server would refuse.
-    return { APERIO_TARGET: this.backend._target(), APERIO_TARGET_HEALTH: '/' }
+    return { APERIO_TARGET: this.backend._target(), APERIO_HEALTH_ENDPOINT: '/' }
   }
 }
 

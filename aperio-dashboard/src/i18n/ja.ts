@@ -40,8 +40,8 @@ export const ja: Record<string, string> = {
   'Allowed source IPs / CIDRs': '許可する送信元 IP / CIDR',
   'Announced link capacity; the server paces frames to this client accordingly':
     '申告された回線容量。サーバーはこれに合わせてこのクライアントへのフレーム送信を調整します',
-  'Another live connection reports the same client id ({id}), bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
-    '別のアクティブな接続が同じクライアント ID（{id}）を報告しています、この ID による bind-tunnels やフェイルオーバー検索が曖昧になります。各クライアントに固有の --client-id を設定してください',
+  'Another live connection reports the same client id ({id}), so failover lookups by this id are ambiguous; give each client its own --client-id':
+    '別のアクティブな接続が同じクライアント ID（{id}）を報告しているため、この ID によるフェイルオーバー検索が曖昧になります。各クライアントに固有の --client-id を設定してください',
   'Aperio Reverse Tunneling System • Server Uptime: {uptime}':
     'Aperio リバーストンネルシステム • サーバー稼働時間: {uptime}',
   Appearance: '外観',
@@ -676,7 +676,8 @@ export const ja: Record<string, string> = {
   'ejected': '除外',
   'draining': 'ドレイン中',
   'cache off': 'キャッシュ無効',
-  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect, enable the server cache or drop the flag': 'このサービスはキャッシュを有効化しました（cache: true）が、サーバーのレスポンスキャッシュが無効（APERIO_CACHE off）のため、この設定は効果がありません。サーバーキャッシュを有効にするか、フラグを外してください。',
+  'This service opted into caching (cache.enabled) but the server response cache is disabled (cache.enabled off on the server), so the opt-in has no effect; enable the server cache or drop the setting':
+    'このサービスはキャッシュを有効にしています（cache.enabled）が、サーバーのレスポンスキャッシュが無効（サーバーの cache.enabled がオフ）のため効果がありません。サーバーのキャッシュを有効にするか、設定を外してください',
   'Add hostname': 'Hostname を追加',
   'Hostname binds': 'Hostname バインド',
   'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
@@ -775,7 +776,8 @@ export const ja: Record<string, string> = {
   'Server self-health': 'サーバーのセルフヘルス',
   'Server-side GET cache occupancy and hit rate.': 'サーバー側 GET キャッシュの使用量とヒット率。',
   'Services that ask for capacity when they need it. A request for a hostname nothing is serving triggers a cold start instead of a 504, and a saturated pool asks for one more instance. Declared by the client in its scaling: block; scaling back in is the client’s own idle_timeout.': '必要になったときに容量を要求するサービスです。どのクライアントも提供していない Hostname へのリクエストは、504 ではなくコールドスタートを起こし、飽和したプールはインスタンスをもう 1 つ要求します。クライアントが scaling: ブロックで宣言し、縮小はクライアント自身の idle_timeout が担います。',
-  'Set max_concurrent on the client to make utilization measurable.': '使用率を測定できるよう、クライアントで max_concurrent を設定してください。',
+  'Set limits.concurrent_requests on the client to make utilization measurable.':
+    '使用率を測定できるよう、クライアントで limits.concurrent_requests を設定してください。',
   'Sign in at /aperio/oidc/login?org={id}. Leave issuer empty to clear.': '/aperio/oidc/login?org={id} からサインインします。消去するには発行者を空欄にしてください。',
   'Size': 'サイズ',
   'State': '状態',
@@ -823,15 +825,9 @@ export const ja: Record<string, string> = {
   'Services': 'サービス',
   'Each entry is one exposed backend with its own bind and tuning.': '各エントリは、独自のバインドと調整を持つ公開バックエンドです。',
   'Private TCP/UDP services a peer client can bind locally, and the peers this client binds.': '他のクライアントがローカルにバインドできるプライベート TCP/UDP サービスと、このクライアントがバインドする相手。',
-  'Access control': 'アクセス制御',
-  'Who may reach the exposed service.': '公開サービスに到達できる相手。',
   'Capacity & pacing': '容量とペース配分',
   'How much work this client accepts and how fast the server may push to it.': 'このクライアントが受け入れる仕事量と、サーバーが送り込める速度。',
-  'Backend health': 'バックエンドの健全性',
-  'Probing the backend so an unhealthy one leaves the routing pool without dropping the tunnel. Set here it applies to every entry under services:, and any entry may override it.': 'バックエンドを監視し、不健全なものがトンネルを切らずにルーティングプールから外れるようにします。ここで設定すると services: の全エントリに適用され、各エントリで上書きできます。',
   'Asking for capacity when it is needed, and retiring when idle.': '必要なときに容量を要求し、アイドル時には撤収します。',
-  'Response handling': 'レスポンス処理',
-  'Caching, resilience, and the headers this client rewrites.': 'キャッシュ、耐障害性、そしてこのクライアントが書き換える Header。',
   'Logging': 'ログ出力',
   'What this client writes and in which format.': 'このクライアントが何を、どの形式で書き出すか。',
   'Core': 'コア',
@@ -905,8 +901,8 @@ export const ja: Record<string, string> = {
   'TOTP QR code': 'TOTP QR コード',
   'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.': '低速な訪問者のダウンロードをサーバーがどれだけバッファしてから、クライアントに生成の一時停止を要求するか。',
   'Service defaults': 'サービスの既定値',
-  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here, they only ever worked without a services: list, and appear only for a file that already writes them.': 'services: の各エントリに適用され、エントリごとに上書きできます。トップレベルで単一のバックエンドを指定するキーはここでは非推奨です（もともと services: リストが無いときにしか効きませんでした）。すでにそれらを書いているファイルでのみ表示されます。',
-  '`{keys}` name one service at the top level, and this file also has a services: list, the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` はトップレベルで単一のサービスを指定していますが、このファイルには services: リストもあります。クライアントはリストを読み、これらを無視します。属するエントリの中へ移動してください。',
+  'What every service gets unless its own entry says otherwise. The environment and the command line write here too.':
+    '各サービスのエントリが別の値を書かない限り、すべてのサービスに適用されます。環境変数とコマンドラインもここに書き込みます。',
   'Every healthy client of the route takes requests in turn, evenly. The default, and what you want when the clients are interchangeable.': 'ルート上の正常なクライアントが順番に、均等にリクエストを受けます。既定値で、クライアントが入れ替え可能なときに選ぶものです。',
   'Only the clients on the lowest priority tier receive traffic; a higher tier takes over when every client above it is unhealthy, draining or gone, and hands back when one returns. Tiers come from each client’s priority (0 = primary).': '最も低い優先度ティアのクライアントだけがトラフィックを受けます。その上のクライアントがすべて不健全・ドレイン中・不在になると上位ティアが引き継ぎ、1 つでも戻れば返します。ティアは各クライアントの priority（0 = プライマリ）から決まります。',
   'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.': '訪問者は最初に応対したクライアントが健全な間ずっとそのクライアントを使い続けます。訪問者ごとの状態をメモリに持つバックエンド向けで、リクエスト単位ではなく訪問者単位で分散します。',
@@ -933,7 +929,8 @@ export const ja: Record<string, string> = {
   'Messages': 'メッセージ',
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'このクライアントが待ち受けるトピックと、同じマシン上のアプリケーションが送受信のために接続する場所。',
   'Cold start & scale-out records': 'コールドスタートとスケールアウトの記録',
-  'Private services reachable with --bind-tunnels': '--bind-tunnels で到達できるプライベートサービス',
+  'Private services reachable with aperio-client bind':
+    'aperio-client bind で到達できるプライベートサービス',
   'Display name': '表示名',
   'Handle': 'ハンドル',
   'Only what it is called. The handle {handle} is what addresses it and never changes.': '呼び名だけです。アドレスに使われるハンドル {handle} は変わりません。',

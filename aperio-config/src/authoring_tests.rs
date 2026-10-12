@@ -142,14 +142,3 @@ fn never_guesses_at_a_short_name() {
   assert_eq!(suggest("ttl", KEYS.iter().copied()), None);
   assert_eq!(suggest("tcp", KEYS.iter().copied()), None);
 }
-
-#[test]
-fn the_known_keys_come_from_the_schema_and_are_not_empty() {
-  let (top, service) = known_keys();
-  // Read from the generated schema rather than listed by hand, so a key added
-  // next release is understood without anyone remembering to add it here.
-  assert!(top.contains(&"services".to_string()), "{top:?}");
-  assert!(top.contains(&"connections".to_string()));
-  assert!(service.contains(&"target".to_string()), "{service:?}");
-  assert!(service.contains(&"depends_on".to_string()));
-}

@@ -126,7 +126,6 @@ async fn delegated_bounds_keep_a_draining_listeners_reservation() {
     protocol: "tcp".into(),
     encrypt: false,
     idle_timeout: None,
-    expose: None,
   }];
   state
     .clients

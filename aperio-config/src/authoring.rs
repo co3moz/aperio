@@ -5,10 +5,10 @@
 //!
 //! * **Template variables**, so one file can serve several environments
 //!   without being copied per environment, which is how two files drift.
-//! * **A suggestion for a key nobody recognizes**, because an unknown key is
-//!   silently ignored, and a setting that is silently ignored is the most
-//!   expensive kind of typo: the file says the thing is configured and the
-//!   behavior says it is not.
+//! * **A suggestion for a key nobody recognizes**, because a setting that is
+//!   silently ignored is the most expensive kind of typo: the file says the
+//!   thing is configured and the behavior says it is not. The check itself is
+//!   [`crate::layers::check_document`]; this is the guess it makes.
 
 /// Expands `${NAME}` and `${NAME:-default}` from the environment.
 ///
@@ -113,34 +113,6 @@ pub fn suggest<'a>(unknown: &str, known: impl IntoIterator<Item = &'a str>) -> O
     }
   }
   best.map(|(_, name)| name)
-}
-
-/// Top-level keys `aperio.yaml` accepts, and the keys a `services:` entry
-/// accepts, read from the generated schemas.
-///
-/// Read from the schema rather than listed here: a list would be correct on
-/// the day it was written and wrong at the next release, which is exactly the
-/// failure the suggestion is trying to prevent.
-pub fn known_keys() -> &'static (Vec<String>, Vec<String>) {
-  static KEYS: std::sync::OnceLock<(Vec<String>, Vec<String>)> = std::sync::OnceLock::new();
-  KEYS.get_or_init(|| {
-    let schema: serde_json::Value =
-      serde_json::from_str(&crate::schema_json()).unwrap_or(serde_json::Value::Null);
-    let names = |node: &serde_json::Value| -> Vec<String> {
-      node
-        .get("properties")
-        .and_then(|p| p.as_object())
-        .map(|o| o.keys().cloned().collect())
-        .unwrap_or_default()
-    };
-    let top = names(&schema);
-    let service = schema
-      .get("$defs")
-      .and_then(|d| d.get("ServiceEntry"))
-      .map(names)
-      .unwrap_or_default();
-    (top, service)
-  })
 }
 
 #[cfg(test)]

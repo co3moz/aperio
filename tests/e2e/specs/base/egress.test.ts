@@ -273,7 +273,7 @@ function ClientThrough(proxy: () => new () => { _port: number }, value: (port: n
       const host = this._hostname()
       return {
         ...(host ? { APERIO_HOSTNAME: host } : {}),
-        APERIO_EGRESS_PROXY: value(this.proxy._port),
+        APERIO_SERVER_PROXY: value(this.proxy._port),
       }
     }
   }

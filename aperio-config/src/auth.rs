@@ -6,15 +6,17 @@ use serde::{Deserialize, Serialize};
 /// `PartialEq` so a config reload can notice that this block changed: the
 /// bridge is the one facility a running client cannot rebuild, so the change
 /// is reported rather than silently ignored.
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct OtelBridge {
   /// Address for the OTLP/HTTP receiver, the one every SDK can reach with
   /// `OTEL_EXPORTER_OTLP_ENDPOINT`. Default: `127.0.0.1:4318`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["127.0.0.1:4318"]))]
   pub listen: Option<String>,
   /// Address for the OTLP/gRPC receiver, for SDKs pinned to that transport.
   /// Unset = no gRPC listener. Conventionally port 4317.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["127.0.0.1:4317"]))]
   pub listen_grpc: Option<String>,
   /// How exports reach the server: `tunnel` sends them as frames on the
@@ -25,12 +27,14 @@ pub struct OtelBridge {
   /// property that makes this worth having; `https` exists because a client
   /// whose telemetry is bursty may prefer it to stay off the tunnel entirely,
   /// where it would share flow control with proxied traffic.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["tunnel", "https"]))]
   pub transport: Option<String>,
   /// Exports to hold when the far end is not keeping up. Past this, the
   /// newest is dropped and counted, never waited on: an exporter that cannot
   /// hand off its batch blocks the application it is instrumenting, so
   /// telemetry must never be the reason a tunnel stalls. Default: `256`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [256]))]
   pub queue: Option<usize>,
 }

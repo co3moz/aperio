@@ -3,7 +3,7 @@
 A public expose binds a socket on the Aperio **server** and forwards accepted
 TCP streams or UDP peer sessions to a declared client tunnel. It needs no
 second binder client and can be managed without restarting the server.
-`--bind-tunnels` remains the way to bind a socket on another client's machine.
+`aperio-client bind` remains the way to bind a socket on another client's machine.
 
 Public visitors do not authenticate with an Aperio token. Keep the target's
 own authentication, restrict `allowed_ips` where appropriate, and configure
@@ -91,7 +91,7 @@ failure.
 
 ## CLI and API
 
-Use a scoped admin API key (`--api-key`, `APERIO_API_KEY`, or
+Use a scoped admin API key (`--server-api-key`, `APERIO_SERVER_API_KEY`, or
 `server.api_key`) for automation. A client tunnel token is not an expose
 management credential. Examples assume normal client server/key configuration:
 
@@ -199,7 +199,7 @@ client (use the actual DNS server address):
 
 ```yaml
 tunnels:
-  - name: dns
+  dns:
     protocol: tcp/udp
     target: 127.0.0.1:53
 ```

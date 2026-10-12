@@ -10,29 +10,499 @@
 //! Add an entry in the same commit that removes or renames a key. A key that
 //! is merely new needs nothing here.
 
-/// One removed key and what to do about it.
+/// One removed key or variable and what to do about it.
 pub struct Removed {
-  /// The key as a file wrote it, at the top level or inside a `services:`
-  /// entry.
+  /// The variable as the environment set it.
   pub key: &'static str,
   /// What replaced it, written as the thing to do.
   pub hint: &'static str,
 }
 
-/// Client keys (`aperio.yaml`) that no longer exist.
-pub const REMOVED_CLIENT_KEYS: &[Removed] = &[Removed {
-  key: "version",
-  hint: "removed in 0.13.0: a file no longer declares the release it was written for, \
-         since a client pairs only with a server of its own minor release. Delete the key.",
-}];
+/// Where a removed client key was written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyScope {
+  /// The top level of the file (a dotted path for a key inside a block).
+  Top,
+  /// A `services:` entry or `defaults:` (a dotted path for a key inside one
+  /// of their blocks).
+  Service,
+}
 
-/// The hint for a removed client key, if `key` is one.
-pub fn client_hint(key: &str) -> Option<&'static str> {
+/// A removed client key and where it was written.
+pub struct RemovedKey {
+  /// Where it was written.
+  pub scope: KeyScope,
+  /// The key, dotted when it is inside a block.
+  pub key: &'static str,
+  /// What replaced it, written as the thing to do.
+  pub hint: &'static str,
+}
+
+const MOVED_TO_DEFAULTS: &str = "is a service setting; since 0.13.0 a value every service shares is written under `defaults:`, and one service's under its `services:` entry.";
+const SINGLE_SERVICE: &str = "describes a single service, which a file has written as a `services:` entry since 0.9.0, keyed by name since 0.13.0 (`services: {web: {target: ..., hostname: ...}}`). The command line and the environment still take one service.";
+const ACCESS: &str = "was replaced by `access:` in 0.13.0: `access: public`, a method block such as `{method: basic, users: \"admin:${PASSWORD}\"}`, or a list of them.";
+const ACCESS_TOP: &str = "was replaced by `access:` in 0.13.0, written under `defaults:` for every service: `access: public`, or a method block such as `{method: basic, users: \"admin:${PASSWORD}\"}`.";
+const BINDS: &str =
+  "became `binds:` in 0.13.0, keyed by tunnel name only (`binds: {pg_main: 15432}`).";
+
+/// Client keys (`aperio.yaml`) that no longer exist, and what replaced them.
+pub const REMOVED_CLIENT_KEYS: &[RemovedKey] = &[
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "version",
+    hint: "was removed in 0.13.0: a file no longer declares the release it was written for, since a client pairs only with a server of its own minor release. Delete the key.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "token",
+    hint: "moved to `server.token` in 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "target",
+    hint: SINGLE_SERVICE,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "serve",
+    hint: SINGLE_SERVICE,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "tcp_target",
+    hint: SINGLE_SERVICE,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "hostname",
+    hint: SINGLE_SERVICE,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "path",
+    hint: SINGLE_SERVICE,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "custom_name",
+    hint: SINGLE_SERVICE,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "target_health",
+    hint: SINGLE_SERVICE,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "public",
+    hint: ACCESS_TOP,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "auth",
+    hint: ACCESS_TOP,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "capture",
+    hint: "was renamed `inspector` in 0.13.0, written under `defaults:` for every service.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "resilience",
+    hint: "became `cache.offline` in 0.13.0, written under `defaults:` for every service.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "max_concurrent",
+    hint: "became `limits.concurrent_requests` in 0.13.0, written under `defaults:` for every service.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "adaptive_concurrency",
+    hint: "became `limits.adaptive_concurrency` in 0.13.0, written under `defaults:` for every service.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "max_request_body",
+    hint: "became `limits.request_body` in 0.13.0, written under `defaults:` for every service.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "max_response_body",
+    hint: "became `limits.response_body` in 0.13.0, written under `defaults:` for every service.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "max_redirects",
+    hint: "became `limits.redirects` in 0.13.0, written under `defaults:` for every service.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "wait_for_backend",
+    hint: "became `health.wait_for_backend` in 0.13.0, written under `defaults:` for every service.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "health_interval",
+    hint: "became `health.interval` in 0.13.0, written under `defaults:` for every service.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "health_timeout",
+    hint: "became `health.timeout` in 0.13.0, written under `defaults:` for every service.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "health_threshold",
+    hint: "became `health.threshold` in 0.13.0, written under `defaults:` for every service.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "depends_on",
+    hint: "is written on the `services:` entry that waits since 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "timeout",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "connect_timeout",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "response_timeout",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "startup_delay",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "retry",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "circuit_breaker",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "health",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "headers",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "security_headers",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "allowed_ips",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "denied",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "cache",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "webhook_inbox",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "connections",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "multiplex",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "metrics_labels",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "pass_hostname",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "trim_bind",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "priority",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "server_side",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "min_tls_version",
+    hint: MOVED_TO_DEFAULTS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "ip_family",
+    hint: "moved to `server.ip_family` in 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "egress_proxy",
+    hint: "moved to `server.proxy` in 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "tls_min_version",
+    hint: "moved to `server.min_tls_version` in 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "tls_cipher_suites",
+    hint: "moved to `server.tls_cipher_suites` in 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "messages_listen",
+    hint: "moved to `messages.listen` in 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "messages_mqtt_listen",
+    hint: "moved to `messages.mqtt_listen` in 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "bind-tunnels",
+    hint: BINDS,
+  },
+  RemovedKey {
+    scope: KeyScope::Top,
+    key: "bind_tunnels",
+    hint: BINDS,
+  },
+  RemovedKey {
+    scope: KeyScope::Service,
+    key: "name",
+    hint: "was removed in 0.13.0: a service's name is the key it is written under (`services: {web: {...}}`).",
+  },
+  RemovedKey {
+    scope: KeyScope::Service,
+    key: "public",
+    hint: ACCESS,
+  },
+  RemovedKey {
+    scope: KeyScope::Service,
+    key: "auth",
+    hint: ACCESS,
+  },
+  RemovedKey {
+    scope: KeyScope::Service,
+    key: "capture",
+    hint: "was renamed `inspector` in 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Service,
+    key: "resilience",
+    hint: "became `cache.offline` in 0.13.0 (`cache: {enabled: true, offline: true}`).",
+  },
+  RemovedKey {
+    scope: KeyScope::Service,
+    key: "target_health",
+    hint: "became `health.endpoint` in 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Service,
+    key: "wait_for_backend",
+    hint: "became `health.wait_for_backend` in 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Service,
+    key: "health_interval",
+    hint: "became `health.interval` in 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Service,
+    key: "health_timeout",
+    hint: "became `health.timeout` in 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Service,
+    key: "health_threshold",
+    hint: "became `health.threshold` in 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Service,
+    key: "max_concurrent",
+    hint: "became `limits.concurrent_requests` in 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Service,
+    key: "adaptive_concurrency",
+    hint: "became `limits.adaptive_concurrency` in 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Service,
+    key: "max_request_body",
+    hint: "became `limits.request_body` in 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Service,
+    key: "max_response_body",
+    hint: "became `limits.response_body` in 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Service,
+    key: "max_redirects",
+    hint: "became `limits.redirects` in 0.13.0.",
+  },
+  RemovedKey {
+    scope: KeyScope::Service,
+    key: "retry.backoff",
+    hint: "became `retry.delay` in 0.13.0, with a unit: it was milliseconds, so `backoff: 100` is `delay: 100ms`.",
+  },
+];
+
+/// The hint for a removed client key, if `key` is one in `scope`.
+pub fn client_hint(scope: KeyScope, key: &str) -> Option<&'static str> {
   REMOVED_CLIENT_KEYS
     .iter()
-    .find(|r| r.key == key)
+    .find(|r| r.scope == scope && r.key == key)
     .map(|r| r.hint)
 }
+
+/// A key that still exists and changed shape: the old shape gets a sentence
+/// saying what the new one is, rather than a type error.
+pub fn shape_hint(key: &str, value: &serde_yaml::Value) -> Option<&'static str> {
+  match (key, value) {
+    ("server", serde_yaml::Value::String(_)) => {
+      Some("is a block since 0.13.0: `server: {url: https://..., token: ...}`.")
+    }
+    ("cache", serde_yaml::Value::Bool(_)) => Some(
+      "is a block since 0.13.0: `cache: {enabled: true}`, and what `resilience` did is `cache.offline`.",
+    ),
+    ("tunnels" | "services", serde_yaml::Value::Sequence(_)) => Some(
+      "is a map keyed by name since 0.13.0, not a list: write `<name>: {target: ...}` for each entry.",
+    ),
+    _ => None,
+  }
+}
+
+/// Client environment variables that no longer exist, and what replaced
+/// them. The client refuses to start while one is set: a variable that is
+/// silently ignored is a setting an operator believes is in force.
+pub const REMOVED_CLIENT_ENV: &[Removed] = &[
+  Removed {
+    key: "APERIO_PUBLIC",
+    hint: "was replaced by APERIO_ACCESS=public in 0.13.0.",
+  },
+  Removed {
+    key: "APERIO_VISITOR_AUTH",
+    hint: "was replaced by APERIO_ACCESS in 0.13.0, which takes `public` or a method block as yaml: APERIO_ACCESS='{method: basic, users: \"user:password\"}'.",
+  },
+  Removed {
+    key: "APERIO_TARGET_HEALTH",
+    hint: "was renamed APERIO_HEALTH_ENDPOINT in 0.13.0.",
+  },
+  Removed {
+    key: "APERIO_WAIT_FOR_BACKEND",
+    hint: "was renamed APERIO_HEALTH_WAIT_FOR_BACKEND in 0.13.0.",
+  },
+  Removed {
+    key: "APERIO_CAPTURE",
+    hint: "was renamed APERIO_INSPECTOR in 0.13.0.",
+  },
+  Removed {
+    key: "APERIO_RESILIENCE",
+    hint: "was renamed APERIO_CACHE_OFFLINE in 0.13.0.",
+  },
+  Removed {
+    key: "APERIO_CACHE",
+    hint: "was renamed APERIO_CACHE_ENABLED in 0.13.0.",
+  },
+  Removed {
+    key: "APERIO_API_KEY",
+    hint: "was renamed APERIO_SERVER_API_KEY in 0.13.0.",
+  },
+  Removed {
+    key: "APERIO_EGRESS_PROXY",
+    hint: "was renamed APERIO_SERVER_PROXY in 0.13.0.",
+  },
+  Removed {
+    key: "APERIO_IP_FAMILY",
+    hint: "was renamed APERIO_SERVER_IP_FAMILY in 0.13.0.",
+  },
+  Removed {
+    key: "APERIO_TLS_MIN_VERSION",
+    hint: "was renamed APERIO_SERVER_MIN_TLS_VERSION in 0.13.0.",
+  },
+  Removed {
+    key: "APERIO_TLS_CIPHER_SUITES",
+    hint: "was renamed APERIO_SERVER_TLS_CIPHER_SUITES in 0.13.0.",
+  },
+  Removed {
+    key: "APERIO_MAX_CONCURRENT",
+    hint: "was renamed APERIO_LIMITS_CONCURRENT_REQUESTS in 0.13.0.",
+  },
+  Removed {
+    key: "APERIO_ADAPTIVE_CONCURRENCY",
+    hint: "was renamed APERIO_LIMITS_ADAPTIVE_CONCURRENCY in 0.13.0.",
+  },
+  Removed {
+    key: "APERIO_MAX_REQUEST_BODY",
+    hint: "was renamed APERIO_LIMITS_REQUEST_BODY in 0.13.0.",
+  },
+  Removed {
+    key: "APERIO_MAX_RESPONSE_BODY",
+    hint: "was renamed APERIO_LIMITS_RESPONSE_BODY in 0.13.0.",
+  },
+  Removed {
+    key: "APERIO_MAX_REDIRECTS",
+    hint: "was renamed APERIO_LIMITS_REDIRECTS in 0.13.0.",
+  },
+  Removed {
+    key: "APERIO_RETRY_BACKOFF",
+    hint: "was replaced by APERIO_RETRY_DELAY in 0.13.0, with a unit: it was milliseconds, so 100 is 100ms.",
+  },
+  Removed {
+    key: "APERIO_BREAKER_FAILURES",
+    hint: "was renamed APERIO_CIRCUIT_BREAKER_FAILURES in 0.13.0.",
+  },
+  Removed {
+    key: "APERIO_BREAKER_OPEN_FOR",
+    hint: "was renamed APERIO_CIRCUIT_BREAKER_OPEN_FOR in 0.13.0.",
+  },
+  Removed {
+    key: "APERIO_DEPENDS_ON",
+    hint: "was removed in 0.13.0: a single service has nothing to wait for; write `depends_on:` on a `services:` entry.",
+  },
+];
 
 /// Server environment variables from before the settings moved into the
 /// database, and where each one went. The server refuses to start while one

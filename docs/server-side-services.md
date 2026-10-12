@@ -15,7 +15,7 @@ from the client to the target.
 ```yaml
 # aperio.yaml, on the client
 services:
-  - name: internal_api
+  internal_api:
     target: http://10.0.0.5:8080
     hostname: api.example.com
     server_side: true

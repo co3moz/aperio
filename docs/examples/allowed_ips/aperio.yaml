@@ -3,16 +3,16 @@ server:
   token: apr_allowed_ips_multi_change_me
 
 services:
-  - name: admin
-    public: true
+  admin:
+    access: public
     target: http://localhost:3000
     hostname: admin.example.com
     allowed_ips:
       - 203.0.113.7        # office egress IP
       - 10.0.0.0/8         # VPN range
 
-  - name: app
-    public: true
+  app:
+    access: public
     target: http://localhost:4000
     hostname: app.example.com
     # no allowed_ips: open to every visitor

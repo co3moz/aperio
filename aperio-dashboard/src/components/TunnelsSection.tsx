@@ -26,16 +26,16 @@ import { useI18n } from '@/i18n'
  *
  * A name is unique inside an organization and nowhere else, so the bare one
  * is only an address by accident, and this list shows every organization at
- * once when read from the master one. The same spelling is what `expose:` and
- * a `bind-tunnels:` key accept.
+ * once when read from the master one. The same spelling is what an expose
+ * listener and a `binds:` key accept.
  */
 function qualified(tunnel: DeclaredTunnel): string {
   return `${tunnel.org ?? 'master'}@${tunnel.name}`
 }
 
-/** The `bind-tunnels:` block that binds one tunnel, ready to paste. */
+/** The `binds:` block that binds one tunnel, ready to paste. */
 function bindSnippet(tunnel: DeclaredTunnel): string {
-  return ['bind-tunnels:', `  ${qualified(tunnel)}: ${localPortHint(tunnel)}`, ''].join('\n')
+  return ['binds:', `  ${qualified(tunnel)}: ${localPortHint(tunnel)}`, ''].join('\n')
 }
 
 /**

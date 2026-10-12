@@ -673,7 +673,7 @@ export function ClientsSection({
                         {c.instance_id_shared && (
                           <HintBadge
                             tint="amber"
-                            hint={t('Another live connection reports the same client id ({id}), bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id', { id: c.instance_id ?? '' })}
+                            hint={t('Another live connection reports the same client id ({id}), so failover lookups by this id are ambiguous; give each client its own --client-id', { id: c.instance_id ?? '' })}
                           >
                             {t('SHARED ID')}
                           </HintBadge>
@@ -701,7 +701,7 @@ export function ClientsSection({
                         {c.cache_ignored && (
                           <HintBadge
                             tint="amber"
-                            hint={t('This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect, enable the server cache or drop the flag')}
+                            hint={t('This service opted into caching (cache.enabled) but the server response cache is disabled (cache.enabled off on the server), so the opt-in has no effect; enable the server cache or drop the setting')}
                           >
                             {t('cache off')}
                           </HintBadge>

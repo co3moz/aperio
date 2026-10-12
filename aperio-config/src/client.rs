@@ -1,46 +1,78 @@
+//! The shapes an `aperio.yaml` is written in: a service, its policy, a tunnel,
+//! a bind, a subscription. [`crate::file`] is the list of top-level keys that
+//! holds them.
+
+use indexmap::IndexMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
+use crate::units::{ByteSize, Span};
 use crate::*;
 
-/// A private local service (e.g. a database or SSH) this client makes reachable
-/// to a peer running `--bind-tunnels`, without ever exposing it to the public web.
+/// A tunnel as it travels to the server: what the declaring client announces
+/// for each `tunnels:` entry. The file writes a [`TunnelEntry`] under its name;
+/// this is that entry with the name filled in and the secrets left behind.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
 pub struct TunnelDecl {
-  /// Handle this tunnel is bound and exposed by, unique within the
-  /// organization. Binders name it instead of naming a client id, so the
-  /// handle survives reconnects, parallel connections and a `services:` list.
-  /// Unset derives one from the target, and a name shaped like a UUID is
-  /// rejected so names can never collide with client ids.
+  /// Handle this tunnel is bound by, unique within the organization.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["pg_main", "ssh_bastion"]))]
   pub name: Option<String>,
+  /// What to call it on screen.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub custom_name: Option<String>,
+  /// Local address this client dials when a peer binds the tunnel.
+  pub target: String,
+  /// `tcp`, `udp` or `tcp/udp`.
+  #[serde(default = "default_tcp")]
+  pub protocol: String,
+  /// End-to-end encrypted between the two clients.
+  #[serde(default)]
+  pub encrypt: bool,
+  /// Pre-shared key of an encrypted tunnel. Never serialized: it stays on
+  /// this machine.
+  #[serde(default, skip_serializing)]
+  pub psk: Option<String>,
+  /// Write a PROXY protocol v2 header to the backend first.
+  #[serde(default)]
+  pub proxy_protocol: bool,
+  /// UDP only: seconds a relay may sit idle before it expires.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub idle_timeout: Option<u64>,
+}
+
+/// One `tunnels:` entry: a private local service (a database, SSH) a peer
+/// client may reach with `aperio-client bind`, never exposed to the public
+/// web. The key it is written under is its name.
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq, Eq, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TunnelEntry {
   /// What to call it on screen. Free text: any language, any punctuation,
   /// spaces. Nothing addresses it, so nothing breaks when it changes.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["Primary Postgres"]))]
   pub custom_name: Option<String>,
   /// Local address this client dials when a peer binds the tunnel.
-  #[schemars(extend("examples" = ["127.0.0.1:27017"]))]
+  #[schemars(extend("examples" = ["127.0.0.1:5432"]))]
   pub target: String,
   /// Transport of the tunnel: `tcp`, `udp` (best-effort datagram
   /// relay), or `tcp/udp` for a service that is genuinely both (DNS, for
   /// instance). A combined tunnel is one tunnel with one name and one local
   /// port on the binder, answering on both transports. Default: `tcp`.
-  #[serde(default = "default_tcp")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["tcp", "udp", "tcp/udp"]))]
-  pub protocol: String,
+  pub protocol: Option<String>,
   /// End-to-end encrypt this tunnel between the two clients (X25519 +
   /// ChaCha20-Poly1305); the server only relays ciphertext. TCP only.
   /// Default: `false`.
-  #[serde(default)]
-  pub encrypt: bool,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [true]))]
+  pub encrypt: Option<bool>,
   /// Pre-shared key mixed into the key derivation of an encrypted tunnel,
-  /// protecting against an actively hostile server. Never sent anywhere,
-  /// the binder configures the same value in its `bind-tunnels` entry.
-  #[serde(default, skip_serializing)]
-  #[schemars(extend("examples" = ["a-long-shared-secret-both-sides-hold"]))]
+  /// protecting against an actively hostile server. Never sent anywhere;
+  /// the binder writes the same value in its `binds:` entry.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["${TUNNEL_PSK}"]))]
   pub psk: Option<String>,
   /// Write a PROXY protocol v2 header to this backend before any payload
   /// byte, announcing the visitor's real address. TCP only. Without it the
@@ -50,27 +82,49 @@ pub struct TunnelDecl {
   /// HAProxy `accept-proxy`, MySQL `proxy-protocol-networks`): a backend that
   /// is not will read it as protocol garbage and drop the connection.
   /// Default: `false`.
-  #[serde(default)]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [true]))]
-  pub proxy_protocol: bool,
-  /// UDP only: seconds a relay may sit with no datagrams in either direction
-  /// before it expires; binders learn it via tunnel discovery. Default: `60`.
+  pub proxy_protocol: Option<bool>,
+  /// UDP only: how long a relay may sit with no datagrams in either
+  /// direction before it expires; binders learn it via tunnel discovery.
+  /// Default: `60s`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = [300]))]
-  pub idle_timeout: Option<u64>,
-  /// Deprecated, and matches nothing since 0.13.0: it was the shared-secret
-  /// claim of an `expose:` entry in the server's configuration file, which
-  /// the server no longer reads. Expose listeners name the tunnel and its
-  /// organization instead, and are managed through the server's API.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  #[schemars(extend("examples" = ["k5fj2q-expose-secret"], "deprecated" = true))]
-  pub expose: Option<String>,
+  #[schemars(extend("examples" = ["5m"]))]
+  pub idle_timeout: Option<Span>,
+}
+
+impl TunnelEntry {
+  /// The declaration this entry announces, under the name it was written
+  /// with.
+  pub fn decl(&self, name: &str) -> TunnelDecl {
+    TunnelDecl {
+      name: Some(name.to_string()),
+      custom_name: self
+        .custom_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map(str::to_string),
+      target: self.target.trim().to_string(),
+      protocol: self
+        .protocol
+        .as_deref()
+        .map(|p| p.trim().to_ascii_lowercase())
+        .filter(|p| !p.is_empty())
+        .unwrap_or_else(default_tcp),
+      encrypt: self.encrypt.unwrap_or(false),
+      psk: self.psk.clone(),
+      proxy_protocol: self.proxy_protocol.unwrap_or(false),
+      idle_timeout: self.idle_timeout.map(|s| s.as_secs()),
+    }
+  }
 }
 
 /// Header edits applied to one direction of proxied traffic (request or
 /// response): `add` sets headers (replacing any existing value of the same
 /// name), `remove` strips headers by name (case-insensitive).
 #[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct HeaderDirectives {
   /// Headers to set, name → value; replaces an existing header of the same name.
   #[serde(default)]
@@ -86,6 +140,7 @@ pub struct HeaderDirectives {
 /// local backend receives, `response` edits what the visitor receives.
 /// Hop-by-hop and tunnel-critical headers stay managed by Aperio regardless.
 #[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct HeaderRules {
   /// Edits applied to forwarded requests before they reach the local backend.
   #[schemars(extend("examples" = [{"add": {"X-Forwarded-Env": "staging"}, "remove": ["X-Internal-Debug"]}]))]
@@ -95,16 +150,16 @@ pub struct HeaderRules {
   pub response: Option<HeaderDirectives>,
 }
 
-/// Security response-header preset: `security_headers: true` enables the
-/// standard set (HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options:
-/// nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`), a mapping
-/// picks headers individually. Explicit `headers:` rules always win over the
+/// Security response-header preset: `true` enables the standard set (HSTS,
+/// `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+/// `Referrer-Policy: strict-origin-when-cross-origin`), a mapping picks
+/// headers individually. Explicit `headers:` rules always win over the
 /// preset.
-#[derive(Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
 #[serde(untagged)]
 pub enum SecurityHeaders {
   /// `true` enables the standard preset, `false` disables it (e.g. for one
-  /// service when the top level enables it).
+  /// service when `defaults:` enables it).
   Flag(bool),
   /// Granular per-header selection.
   Detailed(SecurityHeaderOptions),
@@ -112,15 +167,15 @@ pub enum SecurityHeaders {
 
 /// Individually selected security response headers; only the set fields are
 /// injected.
-#[derive(Deserialize, Default, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SecurityHeaderOptions {
   /// Inject `Strict-Transport-Security` (only meaningful behind HTTPS).
   #[schemars(extend("examples" = [true]))]
   pub hsts: Option<bool>,
-  /// HSTS `max-age` in seconds. Default: `63072000` (2 years).
-  #[schemars(extend("examples" = [31536000]))]
-  pub hsts_max_age: Option<u64>,
+  /// HSTS `max-age`. Default: `730d` (two years).
+  #[schemars(extend("examples" = ["365d"]))]
+  pub hsts_max_age: Option<Span>,
   /// `X-Frame-Options` value to inject.
   #[schemars(extend("examples" = ["DENY", "SAMEORIGIN"]))]
   pub frame_options: Option<String>,
@@ -157,7 +212,10 @@ impl SecurityHeaders {
       }
       SecurityHeaders::Detailed(opts) => {
         if opts.hsts.unwrap_or(false) || opts.hsts_max_age.is_some() {
-          let max_age = opts.hsts_max_age.unwrap_or(DEFAULT_HSTS_MAX_AGE);
+          let max_age = opts
+            .hsts_max_age
+            .map(|s| s.as_secs())
+            .unwrap_or(DEFAULT_HSTS_MAX_AGE);
           out.push((
             "Strict-Transport-Security".to_string(),
             format!("max-age={max_age}"),
@@ -213,13 +271,8 @@ impl SecurityHeaders {
   }
 }
 
-/// Backend health probing for one service: the endpoint the client checks and
+/// Backend health probing for a service: the endpoint the client checks and
 /// how patient it is before pulling the backend out of routing.
-///
-/// The flat `target_health` / `health_interval` / `health_timeout` /
-/// `health_threshold` / `wait_for_backend` keys mean exactly the same thing
-/// and still work; this block is the form to write new configs in, and wins
-/// per field when both are present.
 #[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct HealthConfig {
@@ -235,13 +288,13 @@ pub struct HealthConfig {
   /// separate port.
   #[schemars(extend("examples" = ["/health"]))]
   pub endpoint: Option<String>,
-  /// Seconds between probes. Default: `10`.
-  #[schemars(extend("examples" = [10]))]
-  pub interval: Option<u64>,
-  /// Seconds to wait for each probe before counting it as failed.
-  /// Default: `5`.
-  #[schemars(extend("examples" = [5]))]
-  pub timeout: Option<u64>,
+  /// Time between probes. Default: `10s`.
+  #[schemars(extend("examples" = ["10s"]))]
+  pub interval: Option<Span>,
+  /// How long to wait for each probe before counting it as failed.
+  /// Default: `5s`.
+  #[schemars(extend("examples" = ["5s"]))]
+  pub timeout: Option<Span>,
   /// Failed probes in a row before the backend is reported unhealthy.
   /// Default: `2`.
   #[schemars(extend("examples" = [3]))]
@@ -253,61 +306,175 @@ pub struct HealthConfig {
   pub wait_for_backend: Option<bool>,
 }
 
-/// The top level's `health:` block.
-///
-/// The same fields as [`HealthConfig`], a file written either way parses
-/// identically, except that `endpoint` is on its way out here. The other
-/// children are real defaults: a `services:` entry that says nothing about
-/// its interval, timeout, threshold or boot wait inherits them. `endpoint` is
-/// not, and never was: a probe path belongs to the backend it probes, so the
-/// resolver reads it strictly per entry and a top-level one is read by
-/// nothing at all once a `services:` list exists.
-#[derive(Deserialize, Serialize, Debug, Clone, Default, JsonSchema)]
+/// Retrying a backend request that failed before any response arrived.
+#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct TopHealthConfig {
-  /// **Not accepted in a config file since 0.9.0; CLI and environment only.** Endpoint to probe.
-  /// Write it on the `services:` entry whose backend it probes; at the top
-  /// level it is read only by a file that has no `services:` list.
-  #[schemars(extend("examples" = ["/health"], "deprecated" = true))]
-  pub endpoint: Option<String>,
-  /// Seconds between probes. Applies to every `services:` entry that does not
-  /// set its own. Default: `10`.
-  #[schemars(extend("examples" = [10]))]
-  pub interval: Option<u64>,
-  /// Seconds to wait for each probe before counting it as failed. Applies to
-  /// every `services:` entry that does not set its own. Default: `5`.
-  #[schemars(extend("examples" = [5]))]
-  pub timeout: Option<u64>,
-  /// Failed probes in a row before the backend is reported unhealthy. Applies
-  /// to every `services:` entry that does not set its own. Default: `2`.
+pub struct RetryConfig {
+  /// Total attempts, including the first. `1` disables retrying.
+  /// Default: `1`.
   #[schemars(extend("examples" = [3]))]
-  pub threshold: Option<u32>,
-  /// Hold the service out of routing until the backend first accepts a
-  /// connection, avoiding connection-refused errors while it boots. Applies
-  /// to every `services:` entry that does not set its own. Default: `false`.
+  pub attempts: Option<u32>,
+  /// Wait before the second attempt, doubled before each further one.
+  /// Default: `100ms`.
+  #[schemars(extend("examples" = ["100ms", "1s"]))]
+  pub delay: Option<Span>,
+  /// Retry non-idempotent methods (POST, PATCH) as well. Off by default,
+  /// because a retried write may reach the backend twice; the same reasoning
+  /// as the server's `failover.all_methods`. Default: `false`.
   #[schemars(extend("examples" = [true]))]
-  pub wait_for_backend: Option<bool>,
+  pub all_methods: Option<bool>,
 }
 
-impl TopHealthConfig {
-  /// True when nothing in the block was set (an empty `health:` mapping).
-  pub fn is_empty(&self) -> bool {
-    self.endpoint.is_none()
-      && self.interval.is_none()
-      && self.timeout.is_none()
-      && self.threshold.is_none()
-      && self.wait_for_backend.is_none()
+/// Refusing to dial a backend that keeps failing. Answers 502 immediately
+/// while open, so a dead backend stops being hammered and the visitor stops
+/// waiting for a connection that will not come.
+#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CircuitBreakerConfig {
+  /// Consecutive failures that open the breaker. `0` disables it.
+  /// Default: `0` (off).
+  #[schemars(extend("examples" = [5]))]
+  pub failures: Option<u32>,
+  /// How long the breaker stays open before one request is let through to
+  /// test the backend again. Default: `30s`.
+  #[schemars(extend("examples" = ["30s"]))]
+  pub open_for: Option<Span>,
+}
+
+/// How much a service takes on: bodies, concurrency, redirects. The same
+/// names as the server's own `limits`, at the scope of one service.
+#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ServiceLimits {
+  /// Largest request body visitors may upload to this service; the server
+  /// rejects bigger uploads with 413 before they enter the tunnel. Unset:
+  /// only the server's own `limits.request_body` applies.
+  #[schemars(extend("examples" = ["1MB", "10MB"]))]
+  pub request_body: Option<ByteSize>,
+  /// Largest response body this client relays to a visitor. Default: `50MB`.
+  #[schemars(extend("examples" = ["10MB"]))]
+  pub response_body: Option<ByteSize>,
+  /// Most requests this service handles at once before the server queues the
+  /// rest. Unset: no limit of its own.
+  #[schemars(extend("examples" = [8]))]
+  pub concurrent_requests: Option<u32>,
+  /// Lower the announced `concurrent_requests` while requests queue up
+  /// waiting for a local permit, and climb back when they stop. The server
+  /// already queues rather than dispatching past the announced number, so
+  /// this is how a client that has become slow stops being sent work it
+  /// cannot do; the server then holds the request, picks another client, or
+  /// asks for capacity through autoscaling, all of which beat a refusal.
+  /// Needs `concurrent_requests`, since that is the number being moved.
+  /// Default: `false`.
+  #[schemars(extend("examples" = [true]))]
+  pub adaptive_concurrency: Option<bool>,
+  /// How many backend redirects to follow transparently before passing one
+  /// through. Default: `5`.
+  #[schemars(extend("examples" = [5]))]
+  pub redirects: Option<usize>,
+}
+
+/// The server-side response cache, as far as one service is concerned. The
+/// server has to have `cache.enabled` for any of it to do something.
+#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ServiceCache {
+  /// Let the server cache this service's GET responses, per their
+  /// `Cache-Control`. Default: `false`.
+  #[schemars(extend("examples" = [true]))]
+  pub enabled: Option<bool>,
+  /// Keep serving this service's cached responses (marked, even past their
+  /// lifetime) while no healthy client is connected, instead of failing with
+  /// 504. Needs `enabled`. Default: `false`.
+  #[schemars(extend("examples" = [true]))]
+  pub offline: Option<bool>,
+}
+
+/// Who may reach a service: `public`, one method block, or a list of them.
+///
+/// The same method grammar as the server's own visitor gate
+/// (`access.gate`): `basic`, `bearer`, `jwt`, `forward` and `aperio`. A list
+/// admits a visitor when **any** of its methods does, which is what "a
+/// browser signs in, a script presents a key" needs. Unset, the server's own
+/// gate and `access.default` decide.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Access {
+  /// `public`: anyone, with no login (needs a token that allows it).
+  Public,
+  /// One method: `{method: basic, users: "admin:${PASS}"}`.
+  One(Box<AuthMethodSpec>),
+  /// Several methods, any one of which admits the visitor.
+  Any(Vec<AuthMethodSpec>),
+}
+
+impl JsonSchema for Access {
+  fn schema_name() -> std::borrow::Cow<'static, str> {
+    "Access".into()
+  }
+
+  fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let method = generator.subschema_for::<AuthMethodSpec>();
+    schemars::json_schema!({
+      "description": "`public`, one method block, or a list of them (any one admits).",
+      // Written whole in the environment (`APERIO_ACCESS=public`, or the
+      // block as yaml): a method's fields are not settings of their own.
+      "x-env": "whole",
+      "anyOf": [
+        { "type": "string", "const": "public", "description": "Anyone, with no login (needs a token that allows it)." },
+        method,
+        { "type": "array", "items": method }
+      ]
+    })
   }
 }
 
-impl HealthConfig {
-  /// True when nothing in the block was set (an empty `health:` mapping).
-  pub fn is_empty(&self) -> bool {
-    self.endpoint.is_none()
-      && self.interval.is_none()
-      && self.timeout.is_none()
-      && self.threshold.is_none()
-      && self.wait_for_backend.is_none()
+impl Serialize for Access {
+  fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+    match self {
+      Access::Public => s.serialize_str("public"),
+      Access::One(spec) => spec.serialize(s),
+      Access::Any(specs) => specs.serialize(s),
+    }
+  }
+}
+
+impl<'de> Deserialize<'de> for Access {
+  fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+    use serde::de::Error;
+    // Read loosely first and then strictly, so a mistake inside a method block
+    // is reported by the block's own fields ("unknown field `userz`") rather
+    // than as an untagged enum matching nothing.
+    match serde_json::Value::deserialize(d)? {
+      serde_json::Value::String(word) if word.trim() == "public" => Ok(Access::Public),
+      serde_json::Value::String(word) => Err(D::Error::custom(format!(
+        "`{word}` is not an access policy; write `public`, or a method block such as \
+         {{method: basic, users: \"user:password\"}}"
+      ))),
+      value @ serde_json::Value::Object(_) => serde_json::from_value(value)
+        .map(|spec| Access::One(Box::new(spec)))
+        .map_err(D::Error::custom),
+      value @ serde_json::Value::Array(_) => serde_json::from_value(value)
+        .map(Access::Any)
+        .map_err(D::Error::custom),
+      other => Err(D::Error::custom(format!(
+        "`{other}` is not an access policy; write `public`, a method block, or a list of them"
+      ))),
+    }
+  }
+}
+
+impl Access {
+  /// The policy in the method grammar the tunnel handshake carries:
+  /// `public` is the open gate, `method: none`.
+  pub fn auth_setting(&self) -> AuthSetting {
+    match self {
+      Access::Public => AuthSetting::One(Box::new(AuthMethodSpec {
+        method: "none".to_string(),
+        ..Default::default()
+      })),
+      Access::One(spec) => AuthSetting::One(spec.clone()),
+      Access::Any(specs) => AuthSetting::Any(specs.clone()),
+    }
   }
 }
 
@@ -318,6 +485,7 @@ impl HealthConfig {
 /// The record outlives the client process on purpose: the whole point of
 /// `min: 0` is that the server can call this URL when nothing is running.
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ScalingDecl {
   /// Endpoint the server POSTs to when it wants more capacity. HTTPS only
   /// unless the server allows plain HTTP; private and loopback addresses are
@@ -338,58 +506,92 @@ pub struct ScalingDecl {
   /// scale-out). Default: `0`.
   #[serde(default)]
   pub max: u32,
-  /// How long a visitor request may be held while a cold start completes,
-  /// e.g. `45s` (0 = do not hold, answer immediately). Default: `45s`.
+  /// How long a visitor request may be held while a cold start completes
+  /// (`0s` = do not hold, answer immediately). Default: `45s`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["45s"]))]
-  pub cold_start: Option<String>,
+  pub cold_start: Option<Span>,
   /// Pool utilization above which the server asks for one more instance,
   /// between 0 and 1. Default: `0.8`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [0.8]))]
   pub target_utilization: Option<f64>,
-  /// How long utilization must stay above the target before scaling out,
-  /// e.g. `15s`. Guards against reacting to a single spike. Default: `15s`.
+  /// How long utilization must stay above the target before scaling out.
+  /// Guards against reacting to a single spike. Default: `15s`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["15s"]))]
-  pub window: Option<String>,
-  /// Minimum gap between two calls for this bind, e.g. `60s`.
-  /// A new instance needs time to appear; without this the server would ask
-  /// again while it is still starting. Default: `60s`.
+  pub window: Option<Span>,
+  /// Minimum gap between two calls for this bind. A new instance needs time
+  /// to appear; without this the server would ask again while it is still
+  /// starting. Default: `60s`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["60s"]))]
-  pub cooldown: Option<String>,
+  pub cooldown: Option<Span>,
 }
 
-/// The Aperio server this client connects to: either a bare URL string, or a
-/// `{ url, token }` section that also carries the tunnel token.
-#[derive(Deserialize, JsonSchema)]
-#[serde(untagged)]
-pub enum ServerValue {
-  /// Server URL only, the token then comes from `token:` or the environment.
-  Url(String),
-  /// Server URL together with the tunnel token.
-  Section {
-    /// URL of the Aperio server this client dials out to.
-    #[schemars(extend("examples" = ["https://tunnel.example.com"]))]
-    url: Option<String>,
-    /// Tunnel token (master or a scoped dynamic token) that authorizes this client.
-    #[schemars(extend("examples" = ["apr_xxxxxxxxxxxxxxxx"]))]
-    token: Option<String>,
-    /// Admin API key used by `aperio-client api ...` calls (never for the
-    /// tunnel itself).
-    #[schemars(extend("examples" = ["apk_xxxxxxxxxxxxxxxx"]))]
-    api_key: Option<String>,
-    /// Additional server URLs to fail over to, tried in order when `url` is
-    /// unreachable, for a redundant control plane.
-    #[schemars(extend("examples" = [["https://tunnel-b.example.com"]]))]
-    urls: Option<Vec<String>>,
-  },
+/// The Aperio server this client connects to, and how it gets there.
+#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ServerSection {
+  /// URL of the Aperio server this client dials out to.
+  #[schemars(extend("examples" = ["https://tunnel.example.com"]))]
+  pub url: Option<String>,
+  /// Further server URLs to fail over to, tried in order when `url` is
+  /// unreachable, for a redundant control plane.
+  #[schemars(extend("examples" = [["https://tunnel-b.example.com"]]))]
+  pub urls: Option<Vec<String>>,
+  /// Tunnel token (master or a scoped dynamic token) that authorizes this
+  /// client.
+  #[schemars(extend("examples" = ["${APERIO_SERVER_TOKEN}"]))]
+  pub token: Option<String>,
+  /// Admin API key used by `aperio-client api ...` calls, never by the tunnel
+  /// itself.
+  #[schemars(extend("examples" = ["apk_xxxxxxxxxxxxxxxx"]))]
+  pub api_key: Option<String>,
+  /// IP family used to dial the server: `auto` (tries both), `ipv4`, or
+  /// `ipv6`. Set `ipv4` when the server hostname resolves to an IPv6 address
+  /// this host cannot reach. Default: `auto`.
+  #[schemars(extend("examples" = ["auto", "ipv4"]))]
+  pub ip_family: Option<String>,
+  /// HTTP proxy to dial the server through, for a network that allows no
+  /// direct outbound connection: `host:port`, or `http://host:port`, with an
+  /// optional `user:password@` in front. The client sends `CONNECT` and then
+  /// runs TLS inside the tunnel the proxy opens, so the proxy sees the
+  /// server's hostname and nothing else. Your own backends are never reached
+  /// through it. Unset: dial the server directly.
+  #[schemars(extend("examples" = ["proxy.corp:3128", "http://user:password@proxy.corp:3128"]))]
+  pub proxy: Option<String>,
+  /// Lowest TLS version offered when dialing the server over `wss://`: `1.2`
+  /// or `1.3`. Unset leaves rustls' own set (1.2 and 1.3) in place, which is
+  /// the right default; pin it when a policy has to name the floor rather
+  /// than inherit it. A value this client cannot offer is refused at startup.
+  #[schemars(extend("examples" = ["1.3"]))]
+  pub min_tls_version: Option<String>,
+  /// Exact cipher suites offered when dialing the server, by their IANA
+  /// names, comma-separated. Unset leaves rustls' preference order alone,
+  /// which is almost always better. An unknown name is refused at startup.
+  #[schemars(extend("examples" = ["TLS13_AES_256_GCM_SHA384,TLS13_CHACHA20_POLY1305_SHA256"]))]
+  pub tls_cipher_suites: Option<String>,
 }
 
-/// A service's public hostname(s): either a single `hostname: app.example.com`
-/// or a list `hostname: [app.example.com, www.example.com]`. Each must be
-/// permitted by the client's token.
+/// The local message faces: where an application on this machine can
+/// publish and subscribe without speaking the tunnel protocol.
+#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MessagesSection {
+  /// Local address the HTTP face listens on: subscribe with SSE, publish
+  /// with POST. Unset = no local listener.
+  #[schemars(extend("examples" = ["127.0.0.1:1888"]))]
+  pub listen: Option<String>,
+  /// Local address an MQTT listener answers on, for an application that would
+  /// rather use the MQTT client library it already has. MQTT 3.1.1, QoS 0;
+  /// the protocol never leaves this machine. Unset = no MQTT listener.
+  #[schemars(extend("examples" = ["127.0.0.1:1883"]))]
+  pub mqtt_listen: Option<String>,
+}
+
+/// A service's public hostname(s): one, or a list routing to the same
+/// service. Each must be permitted by the client's token.
 #[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
 #[serde(untagged)]
 pub enum Hostnames {
@@ -400,7 +602,7 @@ pub enum Hostnames {
 }
 
 impl Hostnames {
-  /// Flattens to a list of trimmed, non-empty hostnames.
+  /// Flattens to a list of trimmed, lowercased, non-empty hostnames.
   pub fn into_vec(self) -> Vec<String> {
     let raw = match self {
       Hostnames::One(h) => vec![h],
@@ -408,7 +610,7 @@ impl Hostnames {
     };
     raw
       .into_iter()
-      .map(|h| h.trim().to_string())
+      .map(|h| h.trim().to_ascii_lowercase())
       .filter(|h| !h.is_empty())
       .collect()
   }
@@ -417,13 +619,12 @@ impl Hostnames {
 /// `connections:` as written in the file: a fixed count, or an elastic pool
 /// with a floor and a ceiling.
 ///
-/// The scalar keeps meaning exactly what it always did, N connections opened
-/// at startup and kept, so no existing file changes behavior. Elasticity is
-/// something an operator opts into by writing a range, which is the honest
-/// default: our own measurements have a peak, past which more connections cost
-/// more than they return, so growing a pool without being asked would not be
-/// a safe assumption.
-#[derive(Deserialize, Clone, Debug, JsonSchema)]
+/// A number opens exactly that many connections at startup and keeps them.
+/// Elasticity is something an operator opts into by writing a range, which is
+/// the honest default: our own measurements have a peak, past which more
+/// connections cost more than they return, so growing a pool without being
+/// asked would not be a safe assumption.
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
 #[serde(untagged)]
 pub enum Connections {
   /// `connections: 4`, opened at startup and kept.
@@ -433,7 +634,8 @@ pub enum Connections {
 }
 
 /// The `{min, max}` spelling of `connections:`.
-#[derive(Deserialize, Clone, Debug, Default, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, Default, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ConnectionRange {
   /// Connections opened at startup and never dropped. Default: `1`.
   #[schemars(extend("examples" = [1]))]
@@ -468,227 +670,213 @@ impl Connections {
   }
 }
 
-/// One exposed backend when a single client serves several at once; any unset
-/// field falls back to the top-level value.
-#[derive(Deserialize, Default, Clone, JsonSchema)]
-pub struct ServiceEntry {
-  /// Handle for this service in client logs and the dashboard clients table.
-  /// An identifier: a-z, 0-9 and `_`. Use `custom_name` for something to read.
-  #[schemars(extend("examples" = ["web"]))]
-  pub name: Option<String>,
-  /// What to call this service on screen. Free text: any language, any
-  /// punctuation, spaces. Nothing addresses it, so nothing breaks when it
-  /// changes.
-  #[serde(default)]
-  #[schemars(extend("examples" = ["Public Web"]))]
-  pub custom_name: Option<String>,
-  /// Local backend this service exposes through the tunnel; `h2c://` /
-  /// `h2://` targets are dialed over HTTP/2 (gRPC backends, trailers relayed);
-  /// `unix://` targets forward over a Unix domain socket.
-  #[schemars(extend("examples" = ["http://localhost:3000", "3000", "h2c://127.0.0.1:50051", "unix:///var/run/app.sock"]))]
-  pub target: Option<String>,
-  /// Serve a local directory of static files as this service instead of
-  /// forwarding to a backend (mutually exclusive with `target`/`tcp_target`);
-  /// directories serve their `index.html`.
-  #[schemars(extend("examples" = ["./dist"]))]
-  pub serve: Option<String>,
-  /// Public hostname(s) that should route to this service: a single string
-  /// or a list. Each must be permitted by the client's token.
-  #[schemars(extend("examples" = ["app.example.com", ["app.example.com", "www.example.com"]]))]
-  pub hostname: Option<Hostnames>,
-  /// Public path prefix that should route to this service.
-  #[schemars(extend("examples" = ["/api"]))]
-  pub path: Option<String>,
-  /// Strip the path prefix before forwarding, so the backend sees `/` not the bind.
-  #[schemars(extend("examples" = [true]))]
-  pub trim_bind: Option<bool>,
-  /// Forward the visitor's original Host header instead of the target's.
-  #[schemars(extend("examples" = [false]))]
-  pub pass_hostname: Option<bool>,
-  /// Most requests this service handles at once before the server queues the rest.
-  #[schemars(extend("examples" = [8]))]
-  pub max_concurrent: Option<u32>,
-  /// Lower the announced `max_concurrent` while requests queue up waiting for
-  /// a local permit, and climb back when they stop. The server already queues
-  /// rather than dispatching past the announced number, so this is how a
-  /// client that has become slow stops being sent work it cannot do; the
-  /// server then holds the request, picks another client, or asks for capacity
-  /// through autoscaling, all of which beat a refusal. Needs `max_concurrent`
-  /// to be set, since that is the number being moved. Default: `false`
-  /// (env: APERIO_ADAPTIVE_CONCURRENCY).
-  #[schemars(extend("examples" = [true]))]
-  pub adaptive_concurrency: Option<bool>,
-  /// Parallel tunnel connections opened for this service; the
-  /// server's `max_connections_per_service` is the ceiling, announced on
-  /// connect, and a token may lower it further;
-  /// the server load-balances across them like separate clients, so a single
-  /// dropped connection leaves no visitor-facing gap.
-  /// A number opens exactly that many at startup; `{min: 1, max: 8}` opens the
-  /// floor and grows towards the ceiling while requests queue up, then shrinks
-  /// back when they stop. Default: `1`.
-  #[schemars(extend("examples" = [2, {"min": 1, "max": 8}]))]
-  pub connections: Option<Connections>,
-  /// Carry this service on a WebSocket it shares with the other services that
-  /// set it, instead of opening one of its own. Overrides the top-level
-  /// `multiplex:`, so a file that turns it on for everything can still keep a
-  /// single service on a connection of its own with `multiplex: false`.
-  /// Default: the top-level `multiplex:`.
-  #[schemars(extend("examples" = [true]))]
-  pub multiplex: Option<bool>,
-  /// Static Prometheus labels attached to this client's own metric series,
-  /// e.g. `{env: prod, region: eu-west}`, so one Prometheus can serve several
-  /// environments without relabelling rules. At most 8 labels; names must be
-  /// `[a-zA-Z_][a-zA-Z0-9_]*` and the server drops anything else, including
-  /// the names it writes itself (`client_id`, `job`, `instance`, …).
-  #[schemars(extend("examples" = [{"env": "prod", "region": "eu-west"}]))]
-  pub metrics_labels: Option<std::collections::BTreeMap<String, String>>,
-  /// Seconds to wait for the TCP connection to this backend before giving
-  /// up, separate from `timeout`, which covers the whole request. A backend
-  /// across a VPN needs longer than one on loopback, and one number for both
-  /// means either slow failure detection everywhere or spurious failures for
-  /// the far one. Default: unset (the whole-request `timeout` applies)
-  /// (env: APERIO_CONNECT_TIMEOUT).
-  #[schemars(extend("examples" = [2]))]
-  pub connect_timeout: Option<u64>,
-  /// Lowest TLS version accepted from an `https://` backend: `1.2` or `1.3`.
-  /// Per service because a fleet with one legacy backend should not have to
-  /// lower the floor for all of them. Default: rustls's own floor
-  /// (env: APERIO_MIN_TLS_VERSION).
-  #[schemars(extend("examples" = ["1.3"]))]
-  pub min_tls_version: Option<String>,
-  /// Seconds to wait before this service opens its tunnel. For a backend that
-  /// is starting alongside the client and is not ready to answer the moment
-  /// the process is. Default: `0` (env: APERIO_STARTUP_DELAY).
-  #[schemars(extend("examples" = [5]))]
-  pub startup_delay: Option<u64>,
-  /// Names of services in this same file that must have a live tunnel before
-  /// this one opens its own. Waits for them, then proceeds regardless after a
-  /// bounded grace period, because a dependency that never arrives must not
-  /// keep a service that could serve traffic off the air forever.
-  #[schemars(extend("examples" = [["api"]]))]
-  pub depends_on: Option<Vec<String>>,
-  /// Failover tier for this service (0 = primary, higher numbers are standbys).
-  #[schemars(extend("examples" = [0]))]
-  pub priority: Option<u32>,
-  /// This service's share of the link: the server never pushes it faster than
-  /// this, and the share is split across its `connections`. Settled against the
-  /// top-level `bandwidth` budget when there is one. Bit suffixes
-  /// (`kbit`/`mbit`/`gbit`) count as /8, byte suffixes (`kb`/`mb`/`gb`, or bare
-  /// `k`/`m`/`g`) as x1000.
-  #[schemars(extend("examples" = ["8mbit", "500kbit", "2MB"]))]
-  pub bandwidth: Option<String>,
-  /// Seconds to wait for this backend to respond before failing the request.
-  #[schemars(extend("examples" = [30]))]
-  pub timeout: Option<u64>,
-  /// Largest response body, in bytes, this service will relay to a visitor.
-  #[schemars(extend("examples" = [10485760]))]
-  pub max_response_body: Option<usize>,
-  /// Largest request body, in bytes, visitors may upload to this service;
-  /// the server rejects bigger uploads with 413 before they enter the tunnel.
-  #[schemars(extend("examples" = [1048576]))]
-  pub max_request_body: Option<u64>,
-  /// Seconds the server should wait for this service to answer a dispatched
-  /// request before failing it, a per-service override of the server's global
-  /// gateway response timeout, for slow report/upload endpoints.
-  #[schemars(extend("examples" = [120]))]
-  pub response_timeout: Option<u64>,
-  /// How many backend redirects to follow transparently before passing one through.
-  #[schemars(extend("examples" = [5]))]
-  pub max_redirects: Option<usize>,
-  /// Retry policy for this service's backend requests; falls back to the
-  /// top-level `retry:`.
-  #[schemars(extend("examples" = [{"attempts": 3, "backoff": 100}]))]
-  pub retry: Option<RetryConfig>,
-  /// Circuit breaker for this service's backend; falls back to the top-level
-  /// `circuit_breaker:`.
-  #[schemars(extend("examples" = [{"failures": 5, "open_for": 30}]))]
-  pub circuit_breaker: Option<CircuitBreakerConfig>,
-  /// Raw TCP backend for this service instead of HTTP (experimental).
-  #[schemars(extend("examples" = ["127.0.0.1:5432"]))]
-  pub tcp_target: Option<String>,
-  /// Backend health probing for this service (`endpoint`, `interval`,
-  /// `timeout`, `threshold`, `wait_for_backend`). Preferred over the flat
-  /// `target_health` / `health_*` keys, which still work.
-  #[schemars(extend("examples" = [{"endpoint": "/health", "interval": 10, "threshold": 2}]))]
-  pub health: Option<HealthConfig>,
-  /// Backend health endpoint the client probes to pull itself from rotation
-  /// when down. Deprecated spelling of `health.endpoint`.
-  #[schemars(extend("examples" = ["/health"]))]
-  pub target_health: Option<String>,
-  /// Hold this service out of routing until the backend first accepts a
-  /// connection, avoiding connection-refused errors while it boots
-  /// (superseded by `target_health` when that is set).
-  #[schemars(extend("examples" = [true]))]
-  pub wait_for_backend: Option<bool>,
-  /// Seconds between backend health probes. Deprecated spelling of
-  /// `health.interval`.
-  #[schemars(extend("examples" = [10]))]
-  pub health_interval: Option<u64>,
-  /// Seconds to wait for each health probe before counting it as failed.
-  /// Deprecated spelling of `health.timeout`.
-  #[schemars(extend("examples" = [5]))]
-  pub health_timeout: Option<u64>,
-  /// Failed probes in a row before the backend is reported unhealthy.
-  #[schemars(extend("examples" = [3]))]
-  pub health_threshold: Option<u32>,
-  /// Serve this service without the server's visitor login (needs a token that allows it).
-  #[schemars(extend("examples" = [true]))]
-  pub public: Option<bool>,
-  /// Let the server reach `target` itself instead of relaying through this
-  /// client, when the server's `server_side_targets:` permits that address
-  /// (needs a token that allows it). Saves the two hops a relayed request
-  /// makes, the one to this client and the one from here to the target, and is
-  /// only useful when the target is somewhere the server can already reach.
-  /// The service is still declared, gated and routed here; only the last hop
-  /// moves. Refused rather than ignored when the target is not permitted, and
-  /// cannot be combined with `serve:`, whose files are on this machine.
-  /// Default: false.
-  #[schemars(extend("examples" = [true]))]
-  pub server_side: Option<bool>,
-  /// Gate this service behind your own visitor login instead of the server's.
-  /// A `user:password` scalar, one `{method: ...}` block, or a list of them.
-  #[schemars(extend("examples" = ["admin:s3cret", {"method": "none"}]))]
-  pub auth: Option<AuthSetting>,
-  /// Visitor IPs/CIDRs allowed to reach this service (plain IPs or CIDR
-  /// ranges); empty/unset = everyone. Enforced by the server before dispatch.
+/// What a service does with its traffic, as opposed to where the traffic
+/// comes from and goes to. This is the shape of `defaults:`, and every
+/// `services:` entry carries the same keys, so a value written once under
+/// `defaults:` reaches every service that does not write its own.
+#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
+pub struct ServicePolicy {
+  /// Who may reach the service: `public`, one method block, or a list of
+  /// them (any one admits). Unset, the server's own visitor gate and
+  /// `access.default` decide.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["public", {"method": "basic", "users": "admin:${ADMIN_PASSWORD}"}]))]
+  pub access: Option<Access>,
+  /// Visitor IPs/CIDRs allowed to reach the service; unset = everyone.
+  /// Enforced by the server before dispatch.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [["203.0.113.7", "10.0.0.0/8"]]))]
   pub allowed_ips: Option<Vec<String>>,
-  /// Request/response header add-remove rules for this service (replaces the
-  /// top-level `headers` when set).
+  /// Redirect URL for visitors refused by `allowed_ips` when no other
+  /// client of the route admits them. Unset = stealth: the same answer as
+  /// an unclaimed route.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["https://example.com/not-for-you"]))]
+  pub denied: Option<String>,
+  /// How long to wait for the backend to answer before failing the request.
+  /// Default: `30s`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["30s"]))]
+  pub timeout: Option<Span>,
+  /// How long to wait for the TCP connection to the backend, separate from
+  /// `timeout`, which covers the whole request. A backend across a VPN needs
+  /// longer than one on loopback. Unset: only `timeout` applies.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["2s"]))]
+  pub connect_timeout: Option<Span>,
+  /// How long the server waits for this service to answer a dispatched
+  /// request before failing it: the service's own `gateway.response_timeout`,
+  /// for slow report and upload endpoints. Unset: the server's applies.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["2m"]))]
+  pub response_timeout: Option<Span>,
+  /// Bodies, concurrency and redirects.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [{"request_body": "10MB", "concurrent_requests": 8}]))]
+  pub limits: Option<ServiceLimits>,
+  /// Backend health probing.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [{"endpoint": "/health", "interval": "10s", "threshold": 2}]))]
+  pub health: Option<HealthConfig>,
+  /// Retrying backend requests that fail before a response arrives.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [{"attempts": 3, "delay": "100ms"}]))]
+  pub retry: Option<RetryConfig>,
+  /// Refusing to dial a backend that keeps failing.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [{"failures": 5, "open_for": "30s"}]))]
+  pub circuit_breaker: Option<CircuitBreakerConfig>,
+  /// Request and response header edits.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [{
     "request": {"add": {"X-Forwarded-Env": "staging"}, "remove": ["X-Internal-Debug"]},
     "response": {"add": {"X-Served-By": "aperio"}, "remove": ["X-Powered-By"]}
   }]))]
   pub headers: Option<HeaderRules>,
-  /// Security response-header preset for this service (`true` or a granular
-  /// mapping; replaces the top-level `security_headers` when set).
+  /// Security response-header preset: `true` injects HSTS,
+  /// `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and
+  /// `Referrer-Policy`; a mapping picks headers individually.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [true, {"hsts": true, "frame_options": "SAMEORIGIN"}]))]
   pub security_headers: Option<SecurityHeaders>,
-  /// Let the server cache this service's GET responses (per their
-  /// `Cache-Control`); effective only when the server has `cache.enabled`.
-  #[schemars(extend("examples" = [true]))]
-  pub cache: Option<bool>,
-  /// Keep serving this service's cached responses (marked, even past their
-  /// lifetime) while no healthy client is connected, instead of failing with
-  /// 504 (needs `cache: true` and the server-side cache enabled).
-  #[schemars(extend("examples" = [true]))]
-  pub resilience: Option<bool>,
-  /// Record this service's transactions for the dashboard's request
-  /// inspector. Turning it off for a service that carries
-  /// heavy traffic buys back a mutex, two header clones and a capture entry
-  /// per request, at the cost of not being able to inspect or replay its
-  /// requests afterwards. Default: `true`.
+  /// The server-side response cache, for this service.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [{"enabled": true, "offline": true}]))]
+  pub cache: Option<ServiceCache>,
+  /// Record this service's transactions for the server's request
+  /// inspector. Turning it off for a service that carries heavy traffic buys
+  /// back a mutex, two header clones and a capture entry per request, at the
+  /// cost of not being able to inspect or replay its requests afterwards.
+  /// Default: `true`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [false]))]
-  pub capture: Option<bool>,
-  /// Persist inbound POST requests (third-party webhooks) hitting this
-  /// service into the server's webhook inbox, for browsing and re-firing.
+  pub inspector: Option<bool>,
+  /// Persist inbound POST requests (third-party webhooks) into the server's
+  /// webhook inbox, for browsing and re-firing. Default: `false`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [true]))]
   pub webhook_inbox: Option<bool>,
-  /// Redirect URL for visitors rejected by `allowed_ips` when no candidate
-  /// of the route admits them (unset = stealth: the same answer as an
-  /// unclaimed route).
-  #[schemars(extend("examples" = ["https://example.com/not-for-you"]))]
-  pub denied: Option<String>,
+  /// Forward the visitor's original Host header to the backend instead of
+  /// the target's. Default: `false`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [true]))]
+  pub pass_hostname: Option<bool>,
+  /// Strip the `path` prefix before forwarding, so the backend sees `/` and
+  /// not the bind. Default: `true` when `path` is set.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [false]))]
+  pub trim_bind: Option<bool>,
+  /// Failover tier (0 = primary, higher numbers are standbys). Default: `0`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [0, 1]))]
+  pub priority: Option<u32>,
+  /// Parallel tunnel connections; the server's
+  /// `limits.connections_per_service` is the ceiling, announced on connect,
+  /// and a token may lower it further. The server load-balances across them
+  /// like separate clients, so a single dropped connection leaves no
+  /// visitor-facing gap. A number opens exactly that many at startup;
+  /// `{min: 1, max: 8}` opens the floor and grows towards the ceiling while
+  /// requests queue up, then shrinks back when they stop. Default: `1`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [2, {"min": 1, "max": 8}]))]
+  pub connections: Option<Connections>,
+  /// Carry the service on one WebSocket shared with every other service
+  /// that sets it, instead of a connection of its own.
+  ///
+  /// What it saves is the whole cost of a connection per service: one
+  /// socket, one TLS session, one reader, one writer and one heartbeat. What
+  /// it costs is that the services then share a link, so a large response
+  /// occupies the writer the others send through, and a dropped connection
+  /// takes all of them down together. Two services are needed for it to do
+  /// anything, and `connections:` is not honored for a multiplexed service,
+  /// one connection is what multiplexing means. Default: `false`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [true]))]
+  pub multiplex: Option<bool>,
+  /// Static Prometheus labels on the service's metric series, e.g.
+  /// `{env: prod, region: eu-west}`, so one Prometheus can serve several
+  /// environments without relabelling rules. At most 8 labels; names must be
+  /// `[a-zA-Z_][a-zA-Z0-9_]*` and the server drops anything else, including
+  /// the names it writes itself (`client_id`, `job`, `instance`, …).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [{"env": "prod", "region": "eu-west"}]))]
+  pub metrics_labels: Option<BTreeMap<String, String>>,
+  /// Lowest TLS version accepted from an `https://` backend: `1.2` or `1.3`.
+  /// Default: rustls' own floor.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["1.3"]))]
+  pub min_tls_version: Option<String>,
+  /// Wait this long before the service opens its tunnel, for a backend
+  /// starting alongside the client that is not ready the moment the process
+  /// is. Default: `0s`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["5s"]))]
+  pub startup_delay: Option<Span>,
+  /// Let the server reach `target` itself instead of relaying through this
+  /// client, when the server's `security.server_side_targets` permits that
+  /// address (needs a token that allows it). Saves the two hops a relayed
+  /// request makes, and is only useful when the target is somewhere the
+  /// server can already reach. Refused rather than ignored when the target
+  /// is not permitted, and cannot be combined with `serve:`, whose files are
+  /// on this machine. Default: `false`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [true]))]
+  pub server_side: Option<bool>,
+}
+
+/// One exposed backend. The key it is written under is its name: a-z, 0-9
+/// and `_`, the handle the dashboard and the logs use. Every key of
+/// `defaults:` is accepted here as well and wins over it.
+#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
+pub struct ServiceEntry {
+  /// Local backend to expose: a port (`3000`), a host, or a URL. `h2c://` /
+  /// `h2://` targets are dialed over HTTP/2 (gRPC backends, trailers
+  /// relayed); `unix://` targets forward over a Unix domain socket.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["http://localhost:3000", "3000", "h2c://127.0.0.1:50051", "unix:///var/run/app.sock"]))]
+  pub target: Option<String>,
+  /// Serve a local directory of static files instead of forwarding to a
+  /// backend (instead of `target`); directories serve their `index.html`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["./dist"]))]
+  pub serve: Option<String>,
+  /// Raw TCP backend instead of HTTP (instead of `target`).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["127.0.0.1:5432"]))]
+  pub tcp_target: Option<String>,
+  /// Public hostname(s) that route to the service: one, or a list. Each must
+  /// be permitted by the client's token.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["app.example.com", ["app.example.com", "www.example.com"]]))]
+  pub hostname: Option<Hostnames>,
+  /// Public path prefix that routes to the service.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["/api"]))]
+  pub path: Option<String>,
+  /// What to call the service on screen. Free text: any language, any
+  /// punctuation, spaces. Nothing addresses it, so nothing breaks when it
+  /// changes.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["Public Web"]))]
+  pub custom_name: Option<String>,
+  /// Services in this file that must have a live tunnel before this one
+  /// opens its own. Waits for them, then proceeds regardless after a bounded
+  /// grace period, because a dependency that never arrives must not keep a
+  /// service that could serve traffic off the air forever.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = [["api"]]))]
+  pub depends_on: Option<Vec<String>>,
+  /// The service's share of the link: the server never pushes it faster
+  /// than this, and the share is split across its `connections`. Settled
+  /// against the top-level `bandwidth` budget when there is one. Bit
+  /// suffixes (`kbit`/`mbit`/`gbit`) count as /8, byte suffixes
+  /// (`kb`/`mb`/`gb`, or bare `k`/`m`/`g`) as x1000.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["8mbit", "500kbit"]))]
+  pub bandwidth: Option<String>,
+  /// Everything `defaults:` can say, for this service alone.
+  #[serde(flatten)]
+  pub policy: ServicePolicy,
 }
 
 /// One `subscribe:` entry.
@@ -696,7 +884,7 @@ pub struct ServiceEntry {
 /// A bare filter is the short form: listen, and let whatever is attached to
 /// the local face receive it. The object form is for a client that should
 /// *act* on the message itself.
-#[derive(Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
 #[serde(untagged)]
 pub enum SubscribeValue {
   /// `- deploy/web`, listen and deliver, nothing else.
@@ -727,7 +915,7 @@ impl SubscribeValue {
 /// command. Concurrency is capped and the run is timed, so a publisher in a
 /// loop cannot fork a thousand processes or leave one wedged forever. And it
 /// is per topic, opt-in, in a file the operator wrote.
-#[derive(Deserialize, Clone, Debug, JsonSchema, Default)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema, Default)]
 #[serde(deny_unknown_fields)]
 pub struct SubscribeEntry {
   /// The topic filter to subscribe to.
@@ -736,6 +924,7 @@ pub struct SubscribeEntry {
   /// Command to run for each message, through the shell. The message body
   /// arrives on **stdin**, never as an argument; `APERIO_MESSAGE_TOPIC` and
   /// `APERIO_MESSAGE_ID` are set in the environment. Unset = deliver only.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["./deploy.sh", "systemctl reload nginx"]))]
   pub run: Option<String>,
   /// Extra environment variables for `run:`, on top of what the client sets.
@@ -744,76 +933,76 @@ pub struct SubscribeEntry {
   /// and `APERIO_MESSAGE_ID` are set after these and cannot be overridden,
   /// since a command reading them must be able to trust what it finds.
   #[schemars(extend("examples" = [{"DEPLOY_ENV": "staging", "SLACK_CHANNEL": "#ops"}]))]
-  #[serde(default)]
-  pub env: std::collections::HashMap<String, String>,
-  /// Seconds a run may take before it is killed. A command that hangs must
-  /// not hold the subscription's one slot forever. Default: `60`.
-  #[schemars(extend("examples" = [60]))]
-  pub timeout: Option<u64>,
+  #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+  pub env: HashMap<String, String>,
+  /// How long a run may take before it is killed. A command that hangs must
+  /// not hold the subscription's one slot forever. Default: `60s`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["2m"]))]
+  pub timeout: Option<Span>,
   /// Runs allowed at once for this subscription. Messages that
   /// arrive while the cap is reached are dropped with a warning rather than
   /// queued: a queue for a command that cannot keep up is the same problem
   /// one step later. Default: `1`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [1]))]
   pub max_concurrent: Option<u32>,
 }
 
-/// One `bind-tunnels:` entry, keyed by the tunnel's name (or, in the older
-/// spelling, by a peer client's id).
+/// One `binds:` entry, keyed by the tunnel's name (`pg_main`, or
+/// `acme@pg_main` for another organization's).
 ///
-/// A bare port number is the short form of `{ port: <n> }`, since naming the
+/// A bare port number is the short form of `{port: <n>}`, since naming the
 /// local port is the only thing most entries do.
-#[derive(Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
 #[serde(untagged)]
-pub enum BindTunnelValue {
+pub enum BindValue {
   /// `pg_main: 15432`, the local port, everything else defaulted.
   Port(u16),
   /// The full entry.
-  Entry(BindTunnelEntry),
+  Entry(BindEntry),
 }
 
-impl BindTunnelValue {
+impl BindValue {
   /// The entry form, so callers do not branch on the spelling.
-  pub fn entry(&self) -> BindTunnelEntry {
+  pub fn entry(&self) -> BindEntry {
     match self {
-      BindTunnelValue::Port(port) => BindTunnelEntry {
+      BindValue::Port(port) => BindEntry {
         port: Some(*port),
-        ..BindTunnelEntry::default()
+        ..BindEntry::default()
       },
-      BindTunnelValue::Entry(entry) => entry.clone(),
+      BindValue::Entry(entry) => entry.clone(),
     }
   }
 }
 
-/// What to bind, and where to bind it: one named tunnel (or, in the older
-/// spelling, every tunnel of one peer client).
-#[derive(Deserialize, Default, Clone, Debug, JsonSchema)]
+/// Where and how to bind one named tunnel.
+#[derive(Deserialize, Serialize, Default, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct BindTunnelEntry {
+pub struct BindEntry {
   /// Local port for this tunnel. Unset reuses the declared target's port when
   /// it is free and unprivileged, and otherwise picks a stable port derived
   /// from the tunnel's name (logged at startup).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [15432]))]
   pub port: Option<u16>,
   /// Local address the listener binds; anything but the default puts a
   /// deliberately unexposed service on the network and is warned about.
   /// Default: `127.0.0.1`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = ["127.0.0.1"]))]
   pub address: Option<String>,
-  /// Token to authenticate the binding with; falls back to this client's
-  /// server token. Only needed when the tunnel is reached with a different
-  /// credential than the one this client connects with.
-  #[schemars(extend("examples" = ["apr_xxxxxxxxxxxxxxxx"]))]
+  /// Token to bind with, when the tunnel is reached with a different
+  /// credential than `server.token`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["${BINDER_TOKEN}"]))]
   pub token: Option<String>,
-  /// Map a declared tunnel target to a specific local port instead of reusing
-  /// the target's. Only meaningful for an entry keyed by a peer's client id,
-  /// which binds every tunnel that peer declares; a name-keyed entry is one
-  /// tunnel and uses `port`.
-  #[serde(default, rename = "override")]
-  #[schemars(extend("examples" = [{"pg_main": 15432, "redis": 16379}]))]
-  pub overrides: HashMap<String, u16>,
-  /// Pre-shared key for this peer's end-to-end encrypted tunnels; must match
-  /// the `psk` the declaring client configured. Never sent to the server.
-  #[schemars(extend("examples" = ["a-long-shared-secret-both-sides-hold"]))]
+  /// Pre-shared key of an end-to-end encrypted tunnel; must match the `psk`
+  /// the declaring client wrote. Never sent to the server.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[schemars(extend("examples" = ["${TUNNEL_PSK}"]))]
   pub psk: Option<String>,
 }
+
+/// Services, tunnels and binds are maps keyed by name, kept in file order.
+pub type Named<T> = IndexMap<String, T>;

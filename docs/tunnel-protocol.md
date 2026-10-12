@@ -56,7 +56,7 @@ inside the tunnelled protocol itself.
 **Large bodies stream in chunks.** Response bodies over 32 KB and request
 bodies (uploads) over 256 KB are streamed through the tunnel as binary chunk
 frames, so memory stays bounded on both sides whatever the size. A backend
-response that grows past `APERIO_MAX_RESPONSE_BODY` (yaml `max_response_body`,
+response that grows past `APERIO_LIMITS_RESPONSE_BODY` (yaml `limits.response_body`,
 default 50 MB) before anything was sent is refused with a `502`; one already
 streaming is aborted (`ResponseAbort`), so the visitor sees a broken response
 rather than a quietly truncated success.
@@ -116,11 +116,11 @@ With `tunnel.compression: true` (yaml `tunnel_compression`) the server offers pe
 
 ## Emergency tunnels
 
-A raw TCP or UDP service (database, SSH, ...) declared in a client's `tunnels:` list can ride the same tunnel, bound locally by another client running `--bind-tunnels` with that tunnel's name. See [Tunnels](emergency-tunnels.md).
+A raw TCP or UDP service (database, SSH, ...) declared in a client's `tunnels:` list can ride the same tunnel, bound locally by another client running `aperio-client bind` with that tunnel's name. See [Tunnels](emergency-tunnels.md).
 
 ## Server-side response cache
 
-With `cache.enabled` on the server, services that opt in on the client side (`cache: true` per `services:` entry, or `APERIO_CACHE=1`) get a shared in-memory GET cache at the server's edge: a cache hit is answered immediately, without touching the tunnel or your backend at all.
+With `cache.enabled` on the server, services that opt in on the client side (`cache.enabled` per `services:` entry or under `defaults:`, or `APERIO_CACHE_ENABLED=1`) get a shared in-memory GET cache at the server's edge: a cache hit is answered immediately, without touching the tunnel or your backend at all.
 
 The cache is deliberately conservative and strictly `Cache-Control`-driven, your backend stays in full control via standard headers:
 

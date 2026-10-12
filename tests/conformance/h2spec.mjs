@@ -251,7 +251,7 @@ async function main() {
     // gate. The server has been closed by default since 0.10.0, so a route
     // that declares nothing is refused before a frame is ever exchanged, and
     // the grader then reports a transport problem it did not cause.
-    APERIO_PUBLIC: '1',
+    APERIO_ACCESS: 'public',
     APERIO_CONNECTIONS: '1',
   })
   await routable(serverPort)

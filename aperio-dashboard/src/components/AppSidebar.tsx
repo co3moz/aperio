@@ -92,7 +92,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSpec[] }[] = [
     pages: [
       { id: 'overview', label: 'Overview', icon: LayoutDashboardIcon, hint: 'Stats & live activity', docs: 'dashboard.md#live-overview' },
       { id: 'clients', label: 'Clients', icon: ServerIcon, hint: 'Active tunnel connections', docs: 'dashboard.md#clients-table' },
-      { id: 'tunnels', label: 'Tunnels', icon: CableIcon, hint: 'Private services reachable with --bind-tunnels', docs: 'emergency-tunnels.md' },
+      { id: 'tunnels', label: 'Tunnels', icon: CableIcon, hint: 'Private services reachable with aperio-client bind', docs: 'emergency-tunnels.md' },
     ],
   },
   {

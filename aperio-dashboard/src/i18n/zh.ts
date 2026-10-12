@@ -40,8 +40,8 @@ export const zh: Record<string, string> = {
   'Allowed source IPs / CIDRs': '允许的源 IP / CIDR',
   'Announced link capacity; the server paces frames to this client accordingly':
     '声明的链路容量；服务器据此控制发往该客户端的帧速',
-  'Another live connection reports the same client id ({id}), bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
-    '另一个活动连接报告了相同的客户端 ID（{id}）,  通过此 ID 的 bind-tunnels 和故障转移查找存在歧义；请为每个客户端设置独立的 --client-id',
+  'Another live connection reports the same client id ({id}), so failover lookups by this id are ambiguous; give each client its own --client-id':
+    '另一个活动连接报告了相同的客户端 ID（{id}），因此通过此 ID 的故障转移查找存在歧义；请为每个客户端设置独立的 --client-id',
   'Aperio Reverse Tunneling System • Server Uptime: {uptime}':
     'Aperio 反向隧道系统 • 服务器运行时长：{uptime}',
   Appearance: '外观',
@@ -659,7 +659,8 @@ export const zh: Record<string, string> = {
   'ejected': '已剔除',
   'draining': '排空中',
   'cache off': '缓存关闭',
-  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect, enable the server cache or drop the flag': '此服务启用了缓存（cache: true），但服务器响应缓存已禁用（APERIO_CACHE off），因此该选项无效，请启用服务器缓存或移除该标志。',
+  'This service opted into caching (cache.enabled) but the server response cache is disabled (cache.enabled off on the server), so the opt-in has no effect; enable the server cache or drop the setting':
+    '此服务启用了缓存（cache.enabled），但服务器的响应缓存已关闭（服务器上的 cache.enabled 为关），因此不起作用；请启用服务器缓存或移除该设置',
   'Add hostname': '添加 Hostname',
   'Hostname binds': 'Hostname 绑定',
   'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
@@ -758,7 +759,8 @@ export const zh: Record<string, string> = {
   'Server self-health': '服务器自检',
   'Server-side GET cache occupancy and hit rate.': '服务器端 GET 缓存的占用与命中率。',
   'Services that ask for capacity when they need it. A request for a hostname nothing is serving triggers a cold start instead of a 504, and a saturated pool asks for one more instance. Declared by the client in its scaling: block; scaling back in is the client’s own idle_timeout.': '在需要时请求容量的服务。当请求指向无人提供服务的 Hostname 时，会触发冷启动而不是返回 504；当连接池饱和时会再请求一个实例。由客户端在 scaling: 块中声明；缩减则由客户端自身的 idle_timeout 完成。',
-  'Set max_concurrent on the client to make utilization measurable.': '在客户端设置 max_concurrent，使利用率可被度量。',
+  'Set limits.concurrent_requests on the client to make utilization measurable.':
+    '在客户端设置 limits.concurrent_requests，使利用率可被度量。',
   'Sign in at /aperio/oidc/login?org={id}. Leave issuer empty to clear.': '请在 /aperio/oidc/login?org={id} 登录。将颁发者留空可清除配置。',
   'Size': '大小',
   'State': '状态',
@@ -806,15 +808,9 @@ export const zh: Record<string, string> = {
   'Services': '服务',
   'Each entry is one exposed backend with its own bind and tuning.': '每一项都是一个已公开的后端，带有自己的绑定与调优。',
   'Private TCP/UDP services a peer client can bind locally, and the peers this client binds.': '其他客户端可在本地绑定的私有 TCP/UDP 服务，以及此客户端所绑定的对端。',
-  'Access control': '访问控制',
-  'Who may reach the exposed service.': '谁可以访问已公开的服务。',
   'Capacity & pacing': '容量与节流',
   'How much work this client accepts and how fast the server may push to it.': '此客户端接受多少工作，以及服务器可以多快向它推送。',
-  'Backend health': '后端健康',
-  'Probing the backend so an unhealthy one leaves the routing pool without dropping the tunnel. Set here it applies to every entry under services:, and any entry may override it.': '探测后端，使不健康的后端离开路由池而不中断隧道。在此设置将应用于 services: 下的每一项，任何一项都可覆盖它。',
   'Asking for capacity when it is needed, and retiring when idle.': '需要时申请容量，空闲时退场。',
-  'Response handling': '响应处理',
-  'Caching, resilience, and the headers this client rewrites.': '缓存、弹性，以及此客户端重写的 Header。',
   'Logging': '日志',
   'What this client writes and in which format.': '此客户端写入什么内容，以及采用何种格式。',
   'Core': '核心',
@@ -888,8 +884,8 @@ export const zh: Record<string, string> = {
   'TOTP QR code': 'TOTP 二维码',
   'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.': '在请求客户端暂停生成之前，服务器为速度较慢的访问者缓冲多少下载内容。',
   'Service defaults': '服务默认值',
-  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here, they only ever worked without a services: list, and appear only for a file that already writes them.': '应用于 services: 下的每个条目，可按条目覆盖。在顶层指定单个后端的键在这里已废弃，它们本来也只有在没有 services: 列表时才生效，只有已经写了它们的文件才会显示。',
-  '`{keys}` name one service at the top level, and this file also has a services: list, the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` 在顶层指定了单个服务，而该文件同时还有 services: 列表，客户端读取列表并忽略它们。请把它们移到所属的条目中。',
+  'What every service gets unless its own entry says otherwise. The environment and the command line write here too.':
+    '每个服务都会得到的设置，除非其自身条目另有说明。环境变量和命令行也写入这里。',
   'Every healthy client of the route takes requests in turn, evenly. The default, and what you want when the clients are interchangeable.': '路由上每个健康的客户端轮流均分请求。默认值，客户端可互换时就用它。',
   'Only the clients on the lowest priority tier receive traffic; a higher tier takes over when every client above it is unhealthy, draining or gone, and hands back when one returns. Tiers come from each client’s priority (0 = primary).': '只有优先级最低一档的客户端接收流量；当其上的所有客户端都不健康、正在排空或已离线时，更高一档接管，有一个恢复后再交还。档位来自各客户端的 priority（0 = 主）。',
   'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.': '只要首次为访客服务的客户端保持健康，该访客就一直用它。适用于在内存中保存按访客状态的后端；按访客而非按请求分摊。',
@@ -916,7 +912,8 @@ export const zh: Record<string, string> = {
   'Messages': '消息',
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': '该客户端监听的主题，以及同一台机器上的应用接入收发消息的位置。',
   'Cold start & scale-out records': '冷启动与扩容记录',
-  'Private services reachable with --bind-tunnels': '通过 --bind-tunnels 访问的私有服务',
+  'Private services reachable with aperio-client bind':
+    '通过 aperio-client bind 访问的私有服务',
   'Display name': '显示名称',
   'Handle': '标识符',
   'Only what it is called. The handle {handle} is what addresses it and never changes.': '只是它的称呼。标识符 {handle} 用于寻址，且永不改变。',

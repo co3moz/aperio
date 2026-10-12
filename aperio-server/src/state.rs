@@ -167,7 +167,7 @@ pub(crate) struct ClientDetail {
   /// response cache is disabled (cache.enabled off), so the opt-in does nothing.
   pub(crate) cache_ignored: bool,
   /// False when this service asked not to be recorded for the request
-  /// inspector (`capture: false`).
+  /// inspector (`inspector: false`).
   pub(crate) capture: bool,
   /// True when the service is willing to be recorded but the server has the
   /// inspector off altogether, so nothing about it can be inspected however
@@ -176,7 +176,7 @@ pub(crate) struct ClientDetail {
   /// Client-process instance id self-reported via Ping (`--client-id`).
   pub(crate) instance_id: Option<String>,
   /// True when another live connection reports the same instance id, a
-  /// misconfiguration warning surfaced in the dashboard (`--bind-tunnels`
+  /// misconfiguration warning surfaced in the dashboard (`aperio-client bind`
   /// and failover `wait` lookups become ambiguous).
   pub(crate) instance_id_shared: bool,
   /// Process-wide instance group id (the client's raw `client_id` base, shared

@@ -69,14 +69,6 @@ import { toast } from 'sonner'
 
 type Kind = 'client' | 'server'
 
-/**
- * The keys that name one service at the top level of a client file.
- *
- * Deprecated, and read by nothing once a `services:` list exists, the client
- * drops them silently. The form can construct exactly that combination now
- * that it no longer forces a choice of shape, so it has to say so.
- */
-const SINGLE_SERVICE_KEYS = ['target', 'serve', 'hostname', 'path', 'tcp_target', 'target_health']
 type Doc = Record<string, unknown>
 
 /** How many of a section's fields the document actually sets, so a collapsed
@@ -201,10 +193,8 @@ export function ConfigBuilderSection() {
 
   const sections = useMemo(() => {
     if (!schema) return []
-    // Nothing is hidden by mode any more: a client file has one shape,
-    // `services:`. The single-service keys are marked deprecated in the
-    // schema, so they surface only for a file that already writes them,
-    // which is exactly what someone migrating such a file needs.
+    // Nothing is hidden by mode: a client file has one shape, services keyed
+    // by name with `defaults:` beside them.
     return sectionsFor(
       fieldsOf(schema, schema),
       kind === 'client' ? CLIENT_GROUPS : SERVER_GROUPS,
@@ -212,17 +202,6 @@ export function ConfigBuilderSection() {
       doc,
     )
   }, [schema, kind, doc])
-
-  // Both shapes at once: the list is what runs, so the top-level keys are dead
-  // weight the file still claims. Only for a client file, the server has no
-  // such pair.
-  const shadowed = useMemo(
-    () =>
-      kind === 'client' && Array.isArray((doc as { services?: unknown[] }).services)
-        ? SINGLE_SERVICE_KEYS.filter((k) => doc[k] !== undefined && doc[k] !== '')
-        : [],
-    [kind, doc],
-  )
 
   const update = useCallback(
     (path: string, value: unknown) =>
@@ -301,13 +280,6 @@ export function ConfigBuilderSection() {
       </Card>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
-      {shadowed.length > 0 && (
-        <p className="rounded-3xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
-          {t('`{keys}` name one service at the top level, and this file also has a services: list, the client reads the list and ignores them. Move them into the entry they belong to.', {
-            keys: shadowed.join('`, `'),
-          })}
-        </p>
-      )}
       {!schema && !error && (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner /> {t('Loading…')}
@@ -823,7 +795,7 @@ function RawYamlField({
 }
 
 /**
- * A map of name → object, the shape `bind-tunnels:` uses. Editing it inline
+ * A map of name → object, the shape `services:` and `binds:` use. Editing it inline
  * would swamp the column, so the summary stays in the form and the entries are
  * edited in a dialog. Nothing here is left unconfigurable: the point of the
  * builder is that every key the schema knows can be reached.

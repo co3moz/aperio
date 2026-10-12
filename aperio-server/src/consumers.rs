@@ -1,6 +1,6 @@
 //! Who is dialing whose tunnel (planned_features #56).
 //!
-//! `--bind-tunnels` lets one client dial another client's exposed tunnel, so
+//! `aperio-client bind` lets one client dial another client's exposed tunnel, so
 //! that dependency is real: a database bound locally by three machines is
 //! three services that stop working when the declaring client goes away. The
 //! topology graph drew clients and routes and knew nothing about it, and a
@@ -11,7 +11,7 @@
 //!
 //! A consumer is not a registered client. It opens a fresh WebSocket to
 //! `/aperio/tcp` per connection, with a token and nothing else, so there is no
-//! id to group by: counted naively, every `--bind-tunnels` invocation and
+//! id to group by: counted naively, every `aperio-client bind` invocation and
 //! every reconnect would be a new node, and the graph would fill with ghosts
 //! of the same machine.
 //!
@@ -28,7 +28,7 @@ use std::net::IpAddr;
 /// How long an edge with no live connection stays on the graph.
 ///
 /// A dependency does not stop existing because the connection is momentarily
-/// idle: `--bind-tunnels` listeners open a connection per accepted socket, so
+/// idle: `aperio-client bind` listeners open a connection per accepted socket, so
 /// a database client that has just finished a query has zero connections and
 /// is still very much a dependency. Fifteen minutes is long enough to survive
 /// that and short enough that a machine which is genuinely gone leaves.

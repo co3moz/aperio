@@ -52,7 +52,6 @@ async fn declare(state: &Arc<AppState>, cid: &str, org: &str, name: &str) {
     protocol: "tcp".to_string(),
     encrypt: false,
     idle_timeout: None,
-    expose: None,
   }];
   state.clients.write().await.insert(cid.to_string(), c);
 }

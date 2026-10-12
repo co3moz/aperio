@@ -10,10 +10,10 @@ pub(crate) type ServeKey = (String, serve::ServeOptions);
 pub(crate) type ServeListeners =
   std::collections::HashMap<ServeKey, (u16, tokio::task::JoinHandle<()>)>;
 
-/// Static file mode: rewrites every `serve:` directory, the top-level one
-/// (single-service mode) or per `services:` entry, into a loopback static
-/// server target. One server runs per distinct directory, shared across
-/// services and config reloads. Errors on conflicting backend settings.
+/// Static file mode: rewrites every service's `serve:` directory into a
+/// loopback static server target. One server runs per distinct directory,
+/// shared across services and config reloads. Errors on conflicting backend
+/// settings.
 pub(crate) async fn apply_serve_mode(
   settings: &mut ClientSettings,
   started: &mut ServeListeners,
@@ -26,22 +26,8 @@ pub(crate) async fn apply_serve_mode(
   // Resolved once per (re)load and shared by every served directory: the two
   // options are process-wide, not per service.
   let serve_opts = serve::options(settings.serve_spa, settings.serve_404.as_deref());
-  if let Some(dir) = settings.serve.clone() {
-    if settings.target.is_some() || settings.tcp_target.is_some() {
-      return Err(
-        "CRITICAL ERROR: serve and target/tcp_target are mutually exclusive, the serve directory IS the backend".to_string(),
-      );
-    }
-    if !settings.services.is_empty() {
-      return Err(
-        "CRITICAL ERROR: the top-level serve drives single-service mode; move it into the services: entry that should serve the directory".to_string(),
-      );
-    }
-    let port = serve_port(&dir, &serve_opts, started).await?;
-    needed.insert((dir.clone(), serve_opts.clone()));
-    settings.target = Some(format!("http://127.0.0.1:{}", port));
-  }
-  for (i, entry) in settings.services.iter_mut().enumerate() {
+  for service in settings.services.iter_mut() {
+    let entry = &mut service.entry;
     let Some(dir) = entry
       .serve
       .clone()
@@ -52,13 +38,12 @@ pub(crate) async fn apply_serve_mode(
     };
     let has = |v: &Option<String>| v.as_deref().is_some_and(|s| !s.trim().is_empty());
     if has(&entry.target) || has(&entry.tcp_target) {
-      return Err(format!(
-        "CRITICAL ERROR: service '{}' sets serve together with target/tcp_target, the serve directory IS the backend",
-        entry
-          .name
-          .clone()
-          .unwrap_or_else(|| format!("services[{}]", i))
-      ));
+      return Err(match &service.name {
+        Some(name) => format!(
+          "CRITICAL ERROR: service '{name}' sets serve together with target/tcp_target, the serve directory IS the backend"
+        ),
+        None => "CRITICAL ERROR: serve and target/tcp_target are mutually exclusive, the serve directory IS the backend".to_string(),
+      });
     }
     let port = serve_port(&dir, &serve_opts, started).await?;
     needed.insert((dir.clone(), serve_opts.clone()));

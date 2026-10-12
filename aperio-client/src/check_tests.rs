@@ -10,9 +10,9 @@
 //! instrumented binary, its coverage is recorded and merged.
 
 use super::run_check;
-use crate::config::{ClientSettings, SettingsSources, Source};
-use aperio_config::{ServiceEntry, TunnelDecl};
-use std::collections::HashMap;
+use crate::config::ClientSettings;
+use aperio_config::TunnelDecl;
+use aperio_config::layers::Layer;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
@@ -189,80 +189,20 @@ fn handle_conn(mut stream: std::net::TcpStream, cfg: MockCfg) {
 
 // --- Settings builders -----------------------------------------------------
 
+/// No server, no token, no service: each scenario adds what it is about.
 fn base_settings() -> ClientSettings {
-  ClientSettings {
-    name: None,
-    metrics_labels: Default::default(),
-    adaptive_concurrency: false,
-    multiplex: false,
-    otel_bridge: None,
-    startup_delay: None,
-    depends_on: None,
-    pid_file: None,
-    connect_timeout: None,
-    min_tls_version: None,
-    custom_name: None,
-    token: None,
-    api_key: None,
-    scaling: None,
-    server_urls: Vec::new(),
-    serve_spa: false,
-    serve_404: None,
-    device_key: None,
-    device_key_file: None,
-    idle_timeout: None,
-    server: None,
-    target: None,
-    serve: None,
-    hostnames: Vec::new(),
-    path: None,
-    trim_bind: None,
-    pass_hostname: false,
-    max_response_body: 0,
-    reload_drain_secs: 10,
-    retry_attempts: 1,
-    retry_backoff_ms: 100,
-    retry_all_methods: false,
-    breaker_failures: 0,
-    breaker_open_for_secs: 30,
-    max_request_body: None,
-    response_timeout: None,
-    timeout_secs: 30,
-    max_concurrent: None,
-    connections: None,
-    priority: 0,
-    bandwidth: None,
-    max_message_size: 0,
-    max_redirects: 5,
-    tcp_target: None,
-    target_health: None,
-    wait_for_backend: false,
-    health_interval: 0,
-    health_timeout: 0,
-    health_threshold: 0,
-    public: false,
-    server_side: false,
-    allow_server_forward: false,
-    visitor_auth: None,
-    allowed_ips: Vec::new(),
-    headers: None,
-    security_headers: None,
-    cache: false,
-    resilience: false,
-    capture: true,
-    webhook_inbox: false,
-    denied: None,
-    ip_family: crate::dial::IpFamily::Auto,
-    tls_policy: crate::dial::TlsPolicy::default(),
-    egress_proxy: None,
-    services: Vec::new(),
-    client_id: None,
-    tunnels: Vec::new(),
-    bind_tunnels: HashMap::new(),
-    subscribe: Vec::new(),
-    messages_listen: None,
-    messages_mqtt_listen: None,
-  }
+  let mut s = crate::tests::settings("");
+  s.server = None;
+  s.token = None;
+  s
+}
+
+/// The one service of the command line, from a yaml mapping.
+fn single(s: &mut ClientSettings, yaml: &str) {
+  let mut service = crate::tests::svc("x", yaml);
+  service.name = None;
+  s.services = vec![service];
+  s.single = true;
 }
 
 fn tunnel(target: &str) -> TunnelDecl {
@@ -275,7 +215,6 @@ fn tunnel(target: &str) -> TunnelDecl {
     psk: None,
     proxy_protocol: false,
     idle_timeout: None,
-    expose: None,
   }
 }
 
@@ -289,11 +228,6 @@ fn tempdir(tag: &str) -> String {
 /// exits the process, so this never returns.
 async fn drive(scenario: &str) -> ! {
   let mut s = base_settings();
-  let mut sources = SettingsSources {
-    server: None,
-    token: None,
-    target: None,
-  };
 
   match scenario {
     "pass" => {
@@ -302,25 +236,17 @@ async fn drive(scenario: &str) -> ! {
       let addr = format!("127.0.0.1:{port}");
       s.server = Some(http.clone());
       s.token = Some("tok".to_string());
-      s.target = Some(http.clone());
-      s.target_health = Some("/h".to_string());
-      s.visitor_auth = Some(aperio_config::AuthSetting::Credentials(
-        "user:pw".to_string(),
-      ));
-      s.services = vec![ServiceEntry {
-        name: Some("svc".to_string()),
-        target: Some(http.clone()),
-        auth: Some(aperio_config::AuthSetting::Credentials(
-          "admin:s3cret".to_string(),
-        )),
-        ..Default::default()
-      }];
-      s.tcp_target = Some(addr.clone());
+      single(
+        &mut s,
+        &format!(
+          "{{target: '{http}', tcp_target: '{addr}', health: {{endpoint: /h}}, access: {{method: basic, users: 'user:pw'}}}}"
+        ),
+      );
       s.tunnels = vec![tunnel(&addr)];
       // Exercise the `from(...)` source labels on the pass path.
-      sources.server = Some(Source::Cli);
-      sources.token = Some(Source::LocalFile);
-      sources.target = Some(Source::Env);
+      s.sources.insert("server.url".into(), Layer::Cli);
+      s.sources.insert("server.token".into(), Layer::Local);
+      s.sources.insert("service.target".into(), Layer::Env);
     }
     "missing" => {
       // Everything unset: server/token/target all fail; token is filtered when
@@ -328,84 +254,47 @@ async fn drive(scenario: &str) -> ! {
       s.token = Some("   ".to_string());
     }
     "serve" => {
-      s.serve = Some(tempdir("serve"));
+      single(&mut s, &format!("{{serve: '{}'}}", tempdir("serve")));
     }
     "services" => {
       let port = spawn_mock(MockCfg::default());
       let http = format!("http://127.0.0.1:{port}");
-      s.visitor_auth = Some(aperio_config::AuthSetting::Credentials(
-        "nocolon".to_string(),
-      )); // invalid: no separator
       s.services = vec![
-        ServiceEntry {
-          name: Some("api".to_string()),
-          target: Some(http.clone()),
-          // Absolute health URL branch.
-          target_health: Some(format!("{http}/h")),
-          ..Default::default()
-        },
-        ServiceEntry {
-          // No name → "services[1]" label; unreachable → probe fails; invalid
-          // auth; health endpoint is unreachable too (Err branch).
-          target: Some("http://127.0.0.1:1".to_string()),
-          target_health: Some("/h".to_string()),
-          auth: Some(aperio_config::AuthSetting::Credentials("x".to_string())),
-          ..Default::default()
-        },
-        ServiceEntry {
-          name: Some("static".to_string()),
-          serve: Some(tempdir("svc-static")),
-          ..Default::default()
-        },
-        ServiceEntry {
-          name: Some("broken".to_string()),
-          serve: Some("/no/such/aperio/dir".to_string()),
-          ..Default::default()
-        },
-        ServiceEntry {
-          name: Some("badhealth".to_string()),
-          target: Some(http.clone()),
-          target_health: Some("/badhealth".to_string()), // relative + 503
-          ..Default::default()
-        },
-        ServiceEntry {
-          name: Some("grpc".to_string()),
-          target: Some(format!("h2c://127.0.0.1:{port}")), // h2c → http rewrite
-          ..Default::default()
-        },
+        // Absolute health URL branch.
+        crate::tests::svc(
+          "api",
+          &format!("{{target: '{http}', health: {{endpoint: '{http}/h'}}}}"),
+        ),
+        // Unreachable, so the probe fails; an invalid gate (no separator);
+        // a health endpoint that is unreachable too (Err branch).
+        crate::tests::svc(
+          "down",
+          "{target: 'http://127.0.0.1:1', health: {endpoint: /h}, access: {method: basic, users: x}}",
+        ),
+        crate::tests::svc("static", &format!("{{serve: '{}'}}", tempdir("svc-static"))),
+        crate::tests::svc("broken", "{serve: /no/such/aperio/dir}"),
+        // Relative health path answered with 503.
+        crate::tests::svc(
+          "badhealth",
+          &format!("{{target: '{http}', health: {{endpoint: /badhealth}}}}"),
+        ),
+        // h2c is rewritten to http for the probe.
+        crate::tests::svc("grpc", &format!("{{target: 'h2c://127.0.0.1:{port}'}}")),
       ];
     }
-    "shadowed" => {
-      // A file that names one service at the top level *and* carries a
-      // services: list. The runtime ignores the top-level one, so the check
-      // has to report on the entry, and say the others are being ignored.
-      // The two are arranged so the answer is unambiguous: the top-level
-      // target is reachable and the entry's is not, so probing the wrong one
-      // would pass.
-      let port = spawn_mock(MockCfg::default());
-      s.target = Some(format!("http://127.0.0.1:{port}"));
-      s.hostnames = vec!["ignored.example.com".to_string()];
-      s.services = vec![ServiceEntry {
-        name: Some("real".to_string()),
-        target: Some("http://127.0.0.1:1".to_string()),
-        ..Default::default()
-      }];
-    }
     "binder" => {
-      // A file made only of `bind-tunnels:` is a binder: it exposes nothing
-      // and exists to open local listeners onto tunnels someone else
-      // declared. `check` used to call that a missing target.
+      // A file made only of `binds:` is a binder: it exposes nothing and
+      // exists to open local listeners onto tunnels someone else declared.
+      // `check` used to call that a missing target.
       let port = spawn_mock(MockCfg::default());
       s.server = Some(format!("http://127.0.0.1:{port}"));
       s.token = Some("t".to_string());
-      s.bind_tunnels.insert(
-        "pg_main".to_string(),
-        aperio_config::BindTunnelValue::Port(15432),
-      );
+      s.binds
+        .insert("pg_main".to_string(), aperio_config::BindValue::Port(15432));
     }
     "tunnels" => {
       let port = spawn_mock(MockCfg::default());
-      s.tcp_target = Some("127.0.0.1:1".to_string()); // connection refused
+      s.services = vec![crate::tests::svc("raw", "{tcp_target: '127.0.0.1:1'}")]; // refused
       s.tunnels = vec![
         tunnel(&format!("127.0.0.1:{port}")), // reachable
         tunnel("10.255.255.1:80"),            // unroutable → connect timeout
@@ -487,7 +376,7 @@ async fn drive(scenario: &str) -> ! {
     other => panic!("unknown scenario {other}"),
   }
 
-  run_check(&s, &sources).await
+  run_check(&s).await
 }
 
 /// Hidden driver: only does work when the scenario env var is set, so a plain
@@ -549,30 +438,6 @@ fn serve_mode_target_and_dir() {
 #[test]
 fn services_mode_probes_each_entry() {
   assert_eq!(run_scenario("services"), 1);
-}
-
-#[test]
-fn a_services_list_wins_over_a_top_level_target() {
-  // The bug this pins: the check named and probed the top-level target, which
-  // is the one backend the client is going to ignore, and never touched the
-  // entry that actually serves traffic. "Everything is fine" about the wrong
-  // machine is worse than no answer.
-  let (code, out) = run_scenario_output("shadowed");
-  assert!(
-    out.contains("1 service(s) configured"),
-    "should report the services list, got:\n{out}"
-  );
-  assert!(
-    out.contains("warn  single-service keys"),
-    "should say the top-level keys are ignored, got:\n{out}"
-  );
-  assert!(out.contains("`target`, `hostname`"), "got:\n{out}");
-  assert!(
-    out.contains("service 'real'"),
-    "should probe the entry, got:\n{out}"
-  );
-  // And the entry it probed is the unreachable one, so the run fails.
-  assert_eq!(code, 1);
 }
 
 #[test]

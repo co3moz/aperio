@@ -33,7 +33,7 @@ docker run -d --name aperio-client \
   -e APERIO_SERVER_TOKEN="change-me-to-a-long-random-string" \
   -e APERIO_SERVER_URL="http://your-server-ip:8080" \
   -e APERIO_TARGET="http://localhost:3000" \
-  -e APERIO_PUBLIC=1 \
+  -e APERIO_ACCESS=public \
   ghcr.io/co3moz/aperio-client:latest
 ```
 
@@ -42,7 +42,7 @@ docker run -d --name aperio-client \
 and adjust its network settings. On Docker Desktop, `host.docker.internal` is
 one way to reach a backend on the host.
 
-`APERIO_PUBLIC=1` makes the route public. Since 0.10.0, routes are closed by
+`APERIO_ACCESS=public` makes the route public. Since 0.10.0, routes are closed by
 default. Remove this setting and configure visitor authentication when the
 site should require a login; see [Tokens & Authentication](tokens-and-auth.md).
 
@@ -51,7 +51,7 @@ Or run the client directly after installing it with `curl -sSf https://raw.githu
 ```bash
 # on the machine next to the service you are exposing
 aperio-client 3000 --server-url https://tunnel.example.com \
-  --server-token change-me-to-a-long-random-string --public
+  --server-token change-me-to-a-long-random-string --access public
 ```
 
 ## 3. Verify

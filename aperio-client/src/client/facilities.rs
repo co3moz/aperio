@@ -127,7 +127,7 @@ impl ProcessFacilities {
           crate::messages_run::Runner::new(
             entry.topic.clone(),
             command.to_string(),
-            entry.timeout,
+            entry.timeout.map(|t| t.as_secs()),
             entry.max_concurrent,
             entry
               .env

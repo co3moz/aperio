@@ -182,7 +182,7 @@ createServer((req, res) => {
   token: ${TOKEN}
 client_id: 7c1f6b6e-2a5d-4f2a-9c3e-0b6a1d5e4f21
 services:
-  - name: checkout_api
+  checkout_api:
     custom_name: "Checkout API"
     target: http://127.0.0.1:${BACKEND_PORT}
     hostname: api.example.com
@@ -190,14 +190,14 @@ services:
     # the route (closed by default since 0.10.0), the demo traffic never
     # arrives, and every screen is captured as an empty state, which looks
     # exactly like a successful capture until somebody opens the PDF.
-    public: true
+    access: public
 scaling:
   url: https://api.provider.example/apps/checkout/scale
   min: 0
   max: 8
   cold_start: 45s
 tunnels:
-  - name: pg_main
+  pg_main:
     custom_name: "Primary Postgres"
     target: 127.0.0.1:5432
 `,

@@ -90,7 +90,7 @@ version of this list:
     monthly byte quota, before anything is served or stored on the caller's
     behalf.
 11. **Cache**, after routing rather than before it, because the opt-in is the
-    serving client's (`cache: true`) and the server has to know who would serve
+    serving client's (`cache.enabled`) and the server has to know who would serve
     the request to know whether it may be cached. A fresh hit, or a
     stale-while-revalidate hit, short-circuits the tunnel; concurrent misses
     coalesce behind a single-flight leader.

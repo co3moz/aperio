@@ -10,7 +10,7 @@ On connection loss the client reconnects with exponential backoff, starting at 1
 
 ## Backend health probing
 
-Set `APERIO_TARGET_HEALTH` (a path like `/health`, or a full URL) and the client probes your backend independently, reporting the result to the server:
+Set `health.endpoint` (`APERIO_HEALTH_ENDPOINT`; a path like `/health`, or a full URL) and the client probes your backend independently, reporting the result to the server:
 
 - A failing backend takes the client **out of routing without dropping the tunnel**, no reconnect churn, no lost binds.
 - It rejoins automatically when the probe recovers.
@@ -32,19 +32,19 @@ A client that is *not* connected when the signal arrives, sitting in the reconne
 
 Two knobs keep a client from being overwhelmed:
 
-- `APERIO_MAX_CONCURRENT`, announced to the server, which queues the excess instead of flooding the backend; also enforced locally.
+- `limits.concurrent_requests` (`APERIO_LIMITS_CONCURRENT_REQUESTS`), announced to the server, which queues the excess instead of flooding the backend; also enforced locally.
 - `APERIO_BANDWIDTH`, declare the link capacity (`8mbit`, `500kbit`, `2MB`, or plain bytes/second) and the server paces outgoing tunnel frames with a token bucket (1 s burst) so the client is never pushed faster than its network can drain.
 - **Per-stream pause/resume** (tunnel protocol v3), which needs no configuration on the client at all. When a visitor reads more slowly than the backend produces, the server asks this client to pause that one stream, and the client stops reading its source, the backend response body, the backend WebSocket, or the TCP socket, so ordinary TCP backpressure reaches the backend. It resumes when the server says so, and after 30 s on its own if that message is ever lost. See [Tunnel Protocol](tunnel-protocol.md).
 
 ## Adaptive concurrency
 
-`APERIO_MAX_CONCURRENT` is what a healthy backend can take. A backend that has fallen behind can take less, and nothing in the numbers above notices. Set `APERIO_ADAPTIVE_CONCURRENCY=1` (yaml `adaptive_concurrency`) and the announced number follows the backend instead of staying at whatever the config said at startup.
+`limits.concurrent_requests` is what a healthy backend can take. A backend that has fallen behind can take less, and nothing in the numbers above notices. Set `APERIO_LIMITS_ADAPTIVE_CONCURRENCY=1` (yaml `limits.adaptive_concurrency`) and the announced number follows the backend instead of staying at whatever the config said at startup.
 
-The evidence is already here: how long a request waits for one of the local `max_concurrent` permits, before the backend has even been asked. Queueing there means the backend is behind, whatever the host's CPU says, and it catches the case CPU cannot, a client sitting at 3% in front of a backend that has fallen over. Every 10 s the client takes the mean wait over the window and moves: above 250 ms it **halves** the number, below 50 ms it climbs back **one at a time**, and it never leaves the band `1..=max_concurrent`. Additive increase and multiplicative decrease, for the reason TCP uses them, being too high costs every visitor in the queue while being too low costs some throughput, and those are not symmetric. A window with no requests in it holds rather than climbs: an idle service has produced no evidence its backend recovered.
+The evidence is already here: how long a request waits for one of the local `limits.concurrent_requests` permits, before the backend has even been asked. Queueing there means the backend is behind, whatever the host's CPU says, and it catches the case CPU cannot, a client sitting at 3% in front of a backend that has fallen over. Every 10 s the client takes the mean wait over the window and moves: above 250 ms it **halves** the number, below 50 ms it climbs back **one at a time**, and it never leaves the band `1..=max_concurrent`. Additive increase and multiplicative decrease, for the reason TCP uses them, being too high costs every visitor in the queue while being too low costs some throughput, and those are not symmetric. A window with no requests in it holds rather than climbs: an idle service has produced no evidence its backend recovered.
 
 The client lowers its own limiter in step, so nothing can push past the number even if it is ignored, and the server acts on it too: it queues rather than dispatching past the announced figure, the [autoscaler](autoscaling.md) sees utilization rise, because a client that shrank is a client with less capacity, and the announced figure is what the server's saturation signal reads. What the server does *not* do for a saturated client is pick another one: client selection reads health and binds, not utilization, so a request whose chosen client is at its limit waits for that client's permit and is refused with `429` if the gateway timeout passes first, rather than being moved to a less busy member. All of that beats refusing the request, which is why this announces rather than sheds.
 
-Two things worth knowing. It needs `max_concurrent` set, since that is the number being moved; without it the client says so and does nothing. And the band belongs to the connection: the client climbs back to what it first announced and no further, so raising the limit for real means editing the config, which reconnects and sets a new ceiling.
+Two things worth knowing. It needs `limits.concurrent_requests` set, since that is the number being moved; without it the client says so and does nothing. And the band belongs to the connection: the client climbs back to what it first announced and no further, so raising the limit for real means editing the config, which reconnects and sets a new ceiling.
 
 ## Idle retirement
 

@@ -24,15 +24,15 @@ A top-level `serve:` (with no `services:` list) used to be the same thing. **A c
 
 ```yaml
 services:
-  - name: site
+  site:
     serve: ./sites/marketing
     hostname: www.example.com
 
-  - name: docs
+  docs:
     serve: ./sites/docs
     hostname: docs.example.com
 
-  - name: api
+  api:
     target: http://localhost:4000
     hostname: api.example.com
 ```

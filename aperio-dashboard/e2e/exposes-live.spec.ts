@@ -104,7 +104,7 @@ test('live delegated TCP/UDP UI journey, isolation, persistence and revocation',
     await json(admin.request, `${url}/aperio/api/users`, 'POST', { username: 'plain', password, role: 'viewer' })
     const tunnelToken = await json(admin.request, `${url}/aperio/api/tokens`, 'POST', { name: 'declaring-client' })
     const config = join(dir, 'client.yaml')
-    await writeFile(config, `server:\n  url: ${url}\n  token: ${tunnelToken.token}\nconnections: 1\ntunnels:\n  - name: echo\n    target: 127.0.0.1:${backendPort}\n    protocol: tcp/udp\n`)
+    await writeFile(config, `server:\n  url: ${url}\n  token: ${tunnelToken.token}\ntunnels:\n  echo:\n    target: 127.0.0.1:${backendPort}\n    protocol: tcp/udp\n`)
     run('aperio-client', ['--config', config], { APERIO_CONNECTIONS: '1' })
     await login(publisher, url, 'publisher', password); await login(plain, url, 'plain', password)
     const page = await publisher.newPage(); await page.goto(`${url}/aperio/?tab=tunnels`)

@@ -48,7 +48,7 @@ pub(crate) async fn compute_stats(state: &AppState) -> EnhancedServerStats {
   let clients = state.clients.read().await;
 
   // Instance ids reported by more than one live connection: a
-  // misconfiguration worth flagging (`--bind-tunnels` / failover `wait`
+  // misconfiguration worth flagging (`aperio-client bind` / failover `wait`
   // lookups become ambiguous).
   let mut instance_counts: std::collections::HashMap<&str, u32> = std::collections::HashMap::new();
   for handle in clients.values() {

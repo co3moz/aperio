@@ -301,7 +301,7 @@ pub struct ConfigNote {
 
 /// One tunnel declared by a client (`tunnels:` list in its aperio.yaml): a
 /// normally unexposed local service that a peer client may reach through
-/// the server with `--bind-tunnels`, same token, explicit client id.
+/// the server with `aperio-client bind`, by the tunnel's name.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct TunnelDecl {
   /// Handle this tunnel is addressed by, unique within the organization.
@@ -326,12 +326,6 @@ pub struct TunnelDecl {
   /// Declared by the owning client, relayed to binders via tunnel discovery.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub idle_timeout: Option<u64>,
-  /// Public-expose key (experimental): matches this tunnel to an `expose:`
-  /// entry of aperio-server.yaml. A shared secret, deserialized from the
-  /// client's Ping but never re-serialized (tunnel discovery must not leak
-  /// it to same-token binders).
-  #[serde(default, skip_serializing)]
-  pub expose: Option<String>,
 }
 
 /// Client-side stage durations of one proxied request, in microseconds from

@@ -66,7 +66,7 @@ pub(crate) struct TopoOffline {
 /// client declares (planned_features #56).
 ///
 /// The consumer is identified by the address it dialed from, because a
-/// `--bind-tunnels` consumer is not a registered client and has no id to group
+/// `aperio-client bind` consumer is not a registered client and has no id to group
 /// by. Several processes behind one address are therefore one node, which is
 /// the right grain for the question this answers: who depends on this tunnel.
 #[derive(Serialize, utoipa::ToSchema)]

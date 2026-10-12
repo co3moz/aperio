@@ -22,84 +22,40 @@ export const CLIENT_GROUPS: GroupSpec[] = [
   {
     title: 'Server connection',
     description: 'Which Aperio server this client dials, and how it identifies itself.',
-    keys: ['server', 'token', 'version', 'client_id', 'ip_family', 'device_key', 'device_key_file'],
+    keys: ['server', 'name', 'client_id', 'device_key', 'device_key_file'],
   },
   {
     title: 'Services',
     description: 'Each entry is one exposed backend with its own bind and tuning.',
-    keys: ['services'],
+    keys: ['services', 'serve_spa', 'serve_404'],
+  },
+  {
+    title: 'Service defaults',
+    description:
+      'What every service gets unless its own entry says otherwise. The environment and the command line write here too.',
+    keys: ['defaults'],
   },
   {
     title: 'Tunnels',
     description:
       'Private TCP/UDP services a peer client can bind locally, and the peers this client binds.',
-    keys: ['tunnels', 'bind-tunnels'],
+    keys: ['tunnels', 'binds'],
   },
   {
     title: 'Messages',
     description:
       'Topics this client listens for, and where an application on the same machine attaches to send and receive them.',
-    keys: ['subscribe', 'messages_listen', 'messages_mqtt_listen'],
-  },
-  {
-    title: 'Service defaults',
-    description:
-      'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here, they only ever worked without a services: list, and appear only for a file that already writes them.',
-    keys: [
-      'target',
-      'serve',
-      'hostname',
-      'path',
-      'tcp_target',
-      'serve_spa',
-      'serve_404',
-      'trim_bind',
-      'pass_hostname',
-    ],
-  },
-  {
-    title: 'Access control',
-    description: 'Who may reach the exposed service.',
-    keys: ['public', 'auth', 'allowed_ips', 'denied'],
+    keys: ['subscribe', 'messages'],
   },
   {
     title: 'Capacity & pacing',
     description: 'How much work this client accepts and how fast the server may push to it.',
-    keys: [
-      'max_concurrent',
-      'connections',
-      'priority',
-      'bandwidth',
-      'timeout',
-      'response_timeout',
-      'max_request_body',
-      'max_response_body',
-      'max_message_size',
-      'max_redirects',
-    ],
-  },
-  {
-    title: 'Backend health',
-    description:
-      'Probing the backend so an unhealthy one leaves the routing pool without dropping the tunnel. Set here it applies to every entry under services:, and any entry may override it.',
-    keys: [
-      'health',
-      'target_health',
-      'health_interval',
-      'health_timeout',
-      'health_threshold',
-      'wait_for_backend',
-    ],
+    keys: ['bandwidth', 'max_message_size'],
   },
   {
     title: 'Autoscaling',
     description: 'Asking for capacity when it is needed, and retiring when idle.',
     keys: ['scaling', 'idle_timeout'],
-  },
-  {
-    title: 'Response handling',
-    description: 'Caching, resilience, and the headers this client rewrites.',
-    keys: ['cache', 'resilience', 'webhook_inbox', 'headers', 'security_headers'],
   },
   {
     title: 'Logging',
@@ -205,7 +161,6 @@ export const ESSENTIAL_KEYS: string[] = [
   'server',
   'url',
   'token',
-  'version',
   // What it is.
   'target',
   'serve',

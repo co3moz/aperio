@@ -18,7 +18,7 @@ Or use HTTP with a programmatic admin key that has the operator role. See [Admin
 
 ```bash
 curl -X POST https://tunnel.example.com/aperio/api/publish \
-  -H "Authorization: Bearer $APERIO_API_KEY" \
+  -H "Authorization: Bearer $APERIO_SERVER_API_KEY" \
   -H 'content-type: application/json' \
   -d '{"topic":"deploy/web","payload":"v1.9.2"}'
 ```
@@ -79,7 +79,8 @@ An `env:` map adds variables for that subscription's command, on top of the clie
 A client subscribing is only half of it; something has to hand the message to your application. Set a local address and the client speaks plain HTTP on it:
 
 ```yaml
-messages_listen: 127.0.0.1:1888
+messages:
+  listen: 127.0.0.1:1888
 ```
 
 Subscribe with server-sent events, from a shell or from any language's standard library:
@@ -111,7 +112,8 @@ The face is loopback because anything that can open a socket on that host is alr
 For an application that would rather use the MQTT client library it already has:
 
 ```yaml
-messages_mqtt_listen: 127.0.0.1:1883
+messages:
+  mqtt_listen: 127.0.0.1:1883
 ```
 
 Then connect as you would to any broker. In Node:

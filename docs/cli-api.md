@@ -23,8 +23,8 @@ The secret is returned exactly once. Hand it to the client the same way as any o
 
 | Surface | Name |
 | --- | --- |
-| CLI | `--api-key <KEY>` |
-| Environment | `APERIO_API_KEY` |
+| CLI | `--server-api-key <KEY>` |
+| Environment | `APERIO_SERVER_API_KEY` |
 | `aperio.yaml` | `server.api_key` |
 
 ```yaml
@@ -245,7 +245,7 @@ aperio-client api edge-traefik                    # Traefik dynamic configuratio
 aperio-client api edge-ask app.example.com        # does this server serve it?
 ```
 
-Both need `edge.token` on the server, and present it as the ordinary API credential: `--api-key` (or `APERIO_API_KEY` / `server.api_key`), sent as `Authorization: Bearer`. See [Edge proxy](edge-proxy.md).
+Both need `edge.token` on the server, and present it as the ordinary API credential: `--server-api-key` (or `APERIO_SERVER_API_KEY` / `server.api_key`), sent as `Authorization: Bearer`. See [Edge proxy](edge-proxy.md).
 
 ### Settings, backup, and purging
 

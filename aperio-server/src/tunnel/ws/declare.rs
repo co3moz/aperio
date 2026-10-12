@@ -581,12 +581,12 @@ impl ConnCtx {
         // cause is, on the connection whose service is being refused,
         // and it names the line to write rather than the state it found.
         warn!(
-          "Client {} declares no gate and is not declared open, so its traffic is refused (`default_access` is `deny`). Write `public: true` on the service if it is meant to be reachable by anyone, or give it an `auth:`.",
+          "Client {} declares no gate and is not declared open, so its traffic is refused (`access.default` is `deny`). Write `access: public` on the service if it is meant to be reachable by anyone, or give it an `access:` method.",
           client_id
         );
       } else {
         warn!(
-          "Client {} serves traffic that nothing gates: this server has no `auth:` and the service declares neither a gate nor `public: true`, so it is reachable by anyone. Declare it (`auth:` / `public: true`), or set `default_access: deny` to refuse what nothing declares.",
+          "Client {} serves traffic that nothing gates: this server has no `access.gate` and the service declares neither a gate nor `access: public`, so it is reachable by anyone. Declare it (an `access:` method, or `access: public`), or set `access.default` to `deny` to refuse what nothing declares.",
           client_id
         );
       }

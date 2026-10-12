@@ -3,8 +3,8 @@
 //! tokens, ephemeral tunnels, maintenance mode, cache/webhooks/users/orgs,
 //! …), so they can be scripted from CI without a browser session.
 //!
-//! Authentication uses a programmatic admin key (`--api-key`, yaml
-//! `server.api_key`, env `APERIO_API_KEY`) sent as `Authorization: Bearer`.
+//! Authentication uses a programmatic admin key (`--server-api-key`, yaml
+//! `server.api_key`, env `APERIO_SERVER_API_KEY`) sent as `Authorization: Bearer`.
 //! The tunnel token (`--server-token`) is accepted as a fallback credential;
 //! the server only honours it on the endpoints that take the master token
 //! (`api tunnel create|delete`), so everything else needs an admin key.

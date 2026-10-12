@@ -6,7 +6,7 @@ import {
   TunnelServer,
   EchoBackend,
   DeclaringClient,
-  PortOverrideBinder,
+  CommandLineBinder,
   NamedBinder,
   LegacyBridge,
 } from './fixtures.js'
@@ -167,7 +167,7 @@ export class TunnelBindingSpec extends Test({
     server: () => TunnelServer,
     echo: () => EchoBackend,
     declaring: () => DeclaringClient,
-    override: () => PortOverrideBinder,
+    commandLine: () => CommandLineBinder,
     named: () => NamedBinder,
     legacy: () => LegacyBridge,
   },
@@ -180,11 +180,11 @@ export class TunnelBindingSpec extends Test({
     assert.match(await tcpProbe(port, message), new RegExp(`echo:${message}`))
   }
 
-  async byClientIdWithAPortOverride() {
-    this.override._localPort = await freePort()
-    await this.override._start()
-    await this._echoes(this.override._localPort, 'ping-123')
-    await this.override._waitForLog(`Tunnel bound: 127.0.0.1:${this.override._localPort}`)
+  async byANameOnTheCommandLineWithItsEntryFromTheFile() {
+    this.commandLine._localPort = await freePort()
+    await this.commandLine._start()
+    await this._echoes(this.commandLine._localPort, 'ping-123')
+    await this.commandLine._waitForLog(`Tunnel bound: 127.0.0.1:${this.commandLine._localPort}`)
   }
 
   async byNameWithATokenThatOnlyCarriesAllowBind() {

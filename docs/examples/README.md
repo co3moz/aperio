@@ -2,7 +2,7 @@
 
 Each folder contains a client `aperio.yaml` for one scenario and, where the scenario changes a server setting, a `server-init.yaml` carrying those settings. Replace example tokens, hostnames, and backend addresses before running them. Binder, publisher, and organization examples need separate tokens with the permissions described in their READMEs.
 
-Since 0.10.0 the server is **closed by default**. Most examples set `public: true` so visitors can reach the service. The `oidc` and `share_links` examples keep the visitor gate enabled; `visitor_auth` shows both protected and public services. Remove `public: true` and configure `auth:` when a service should require a login. See [Tokens & Authentication](../tokens-and-auth.md) for the access rules.
+Since 0.10.0 the server is **closed by default**. Most examples set `access: public` so visitors can reach the service. The `oidc` and `share_links` examples keep the visitor gate enabled; `visitor_auth` shows both protected and public services. Remove `access: public`, or write a method block in it, when a service should require a login. See [Tokens & Authentication](../tokens-and-auth.md) for the access rules.
 
 > **Note:** These are configuration templates. OIDC needs an identity provider, autoscaling needs a scaling endpoint, and MQTT needs a broker. Check each scenario's README and linked guide for its prerequisites. `aperio-server check server-init.yaml` validates a settings document; `aperio-client check` also tests connectivity and therefore needs the real server and backend.
 
@@ -37,7 +37,7 @@ A folder with a `server-init.yaml` adds `APERIO_INIT_FILE=server-init.yaml` to t
 | [cache](cache/) | Server-side GET response cache, opted in per service. |
 | [resilience](resilience/) | Serve cached (even stale) responses while no healthy client is connected. |
 | [messaging](messaging/) | Clients signalling each other over the tunnel they already hold: subscribe, publish, and run a command on receipt. |
-| [emergency_tunnels](emergency_tunnels/) | Break-glass TCP/UDP tunnels to private services (`tunnels:` / `bind-tunnels:`). |
+| [emergency_tunnels](emergency_tunnels/) | Break-glass TCP/UDP tunnels to private services (`tunnels:` / `binds:`). |
 | [encrypted_tunnels](encrypted_tunnels/) | End-to-end encrypted tunnels with a pre-shared key. |
 | [mqtt](mqtt/) | An MQTT broker reachable by every client of an organization, and by nothing else. |
 | [public_expose](public_expose/) | Expose a declared tunnel on a public server port, claimed by its organization. |

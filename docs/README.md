@@ -23,7 +23,7 @@ Prefer one long read? [**The Complete Guide**](book/aperio.tex) covers the topic
 - [Share Links](share-links.md), hand out temporary access to a protected site without creating accounts.
 - [Static File Serving](static-serving.md), publish a directory with no backend at all: SPA fallback, custom 404, streamed files, `Range` requests, and the path-safety rules.
 - [Ephemeral Tunnels](ephemeral-tunnels.md), per-PR preview environments via the API and the GitHub Action.
-- [Tunnels](emergency-tunnels.md), declare unexposed TCP/UDP services, bind them by name from another client with `--bind-tunnels`, or open one on a public port with `expose:`.
+- [Tunnels](emergency-tunnels.md), declare unexposed TCP/UDP services, bind them by name from another client with `aperio-client bind`, or open one on a public port with `expose:`.
 - [Messages](messaging.md), publish a topic and every client of the organization that subscribed to it hears about it, over the tunnel they already hold. The server's own events are on `$aperio/`.
 
 ## Operating Aperio

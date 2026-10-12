@@ -539,7 +539,7 @@ pub(crate) fn build_router(state: Arc<AppState>, metrics_enabled: bool) -> Route
   app = app.route("/aperio/ws", get(ws_handler));
   app = app.route("/aperio/tcp", get(tcp_ws_handler));
   app = app.route("/aperio/udp", get(udp_ws_handler));
-  // Tunnel discovery for --bind-tunnels consumers: same token the client
+  // Tunnel discovery for aperio-client bind consumers: same token the client
   // connected with (or master), explicit client id, never a listing.
   app = app.route("/aperio/tunnels", get(tunnels_discovery_handler));
   app = app.route("/aperio/tunnels/{client_id}", get(tunnels_list_handler));

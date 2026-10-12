@@ -1,5 +1,4 @@
-//! `aperio-client --bind-tunnels`: local listeners for tunnels declared
-//! elsewhere.
+//! `aperio-client bind`: local listeners for tunnels declared elsewhere.
 //!
 //! A normally unexposed service (a database, an internal admin port, an SSH
 //! daemon) is declared as a tunnel by the client running next to it. Any
@@ -7,11 +6,11 @@
 //! accepted connection is relayed through the server to the declaring client,
 //! which dials its local target.
 //!
-//! Tunnels are addressed by **name**. The server-side connection id is a
+//! Tunnels are addressed by **name** (`pg_main`, or `acme@pg_main` for one
+//! organization's), never by a client id: the server-side connection id is a
 //! fresh UUID per connection and the client suffixes its own id per service,
 //! so neither is something a configuration file can name and keep naming
-//! across a restart. Addressing a peer by client id still works and binds
-//! every tunnel that peer declares.
+//! across a restart.
 //!
 //! What can be bound is discovered rather than assumed: the server lists the
 //! tunnels the presented token may reach, so a name that cannot be bound is
@@ -42,8 +41,6 @@ pub(crate) struct TunnelView {
   pub(crate) protocol: String,
   pub(crate) target: String,
   #[serde(default)]
-  pub(crate) client_id: Option<String>,
-  #[serde(default)]
   pub(crate) available: bool,
   #[serde(default)]
   pub(crate) encrypt: bool,
@@ -65,10 +62,7 @@ pub(crate) struct TunnelView {
 /// One resolved binding: a tunnel, where it will listen, and what it needs.
 #[derive(Debug)]
 struct Binding {
-  /// Name the server relays by. Every binding resolves to one, including an
-  /// entry keyed by a peer's client id: discovery turns that peer's
-  /// declarations into names first, so there is a single address form on the
-  /// wire. The server still accepts `?client=&target=` for older binders.
+  /// Name the server relays by.
   name: String,
   /// Declaration, for protocol, encryption and the UDP idle timeout.
   decl: TunnelDecl,
@@ -80,11 +74,14 @@ struct Binding {
   psk: Option<String>,
 }
 
-/// Runs bind-tunnels mode until the process is stopped. `cli_id` is the value
-/// of `--bind-tunnels`: a tunnel name, a peer's client id, or empty (bind
-/// what the `bind-tunnels:` section names, or everything visible when it has
-/// nothing to say).
-pub(crate) async fn run_bind_tunnels(settings: &ClientSettings, server: &str, cli_id: &str) -> ! {
+/// Runs bind mode until the process is stopped. `names` are the tunnels
+/// `aperio-client bind` was given; none binds what the `binds:` section
+/// names, or everything visible when it has nothing to say.
+pub(crate) async fn run_bind_tunnels(
+  settings: &ClientSettings,
+  server: &str,
+  names: &[String],
+) -> ! {
   crate::tcp::spawn_shutdown_watcher();
 
   let fallback_token = settings
@@ -99,12 +96,11 @@ pub(crate) async fn run_bind_tunnels(settings: &ClientSettings, server: &str, cl
   // that will never be relayed.
   //
   // Every configured credential is asked, because an entry may carry its own
-  // `token:` and be the only one that can see its tunnel. That is the older
-  // spelling's shape, where the file has no server token at all.
+  // `token:` and be the only one that can see its tunnel.
   let mut tokens: Vec<String> = Vec::new();
   for candidate in std::iter::once(fallback_token.clone()).chain(
     settings
-      .bind_tunnels
+      .binds
       .values()
       .map(|value| value.entry().token.clone()),
   ) {
@@ -120,13 +116,13 @@ pub(crate) async fn run_bind_tunnels(settings: &ClientSettings, server: &str, cl
   }
   if tokens.is_empty() {
     error!(
-      "CRITICAL SECURITY ERROR: a token is required (--server-token, APERIO_SERVER_TOKEN, yaml: server.token, or a bind-tunnels entry's token)"
+      "CRITICAL SECURITY ERROR: a token is required (--server-token, APERIO_SERVER_TOKEN, yaml: server.token, or a binds: entry's token)"
     );
     std::process::exit(1);
   }
   let visible = discover(server, &tokens).await;
 
-  let bindings = match plan(settings, cli_id, &visible, &fallback_token) {
+  let bindings = match plan(settings, names, &visible, &fallback_token) {
     Ok(bindings) => bindings,
     Err(e) => {
       error!("{}", e);
@@ -189,27 +185,34 @@ fn visible_hint(visible: &[TunnelView]) -> String {
   format!("This token can bind: {}.", names.join(", "))
 }
 
-/// Turns the configuration into concrete bindings, resolving every key
+/// Turns the configuration into concrete bindings, resolving every name
 /// against what the server says is bindable.
 fn plan(
   settings: &ClientSettings,
-  cli_id: &str,
+  names: &[String],
   visible: &[TunnelView],
   fallback_token: &Option<String>,
 ) -> Result<Vec<Binding>, String> {
-  let entries = &settings.bind_tunnels;
+  let entries = &settings.binds;
   let mut planned: Vec<Binding> = Vec::new();
 
-  // An explicit `--bind-tunnels <value>` selects one thing; its yaml entry,
-  // when there is one, supplies the port and the rest.
-  if !cli_id.is_empty() {
-    let entry = entries.get(cli_id).map(|v| v.entry()).unwrap_or_default();
-    return resolve_key(cli_id, &entry, visible, fallback_token, &mut planned)
-      .map(|()| planned)
-      .map_err(|e| format!("{e} {}", visible_hint(visible)));
+  // Names on the command line select what to bind; a `binds:` entry of the
+  // same name, when there is one, supplies the port and the rest.
+  if !names.is_empty() {
+    let mut failures: Vec<String> = Vec::new();
+    for name in names {
+      let entry = entries.get(name).map(|v| v.entry()).unwrap_or_default();
+      if let Err(e) = resolve_name(name, &entry, visible, fallback_token, &mut planned) {
+        failures.push(e);
+      }
+    }
+    if !failures.is_empty() {
+      return Err(format!("{} {}", failures.join(" "), visible_hint(visible)));
+    }
+    return Ok(planned);
   }
 
-  // No value: the yaml section drives it.
+  // No name: the `binds:` section drives it.
   if entries.is_empty() {
     // Nothing configured either, so bind what this token can reach. This is
     // the "I just want in" case, and it is only reasonable because the server
@@ -221,9 +224,9 @@ fn plan(
   }
 
   let mut failures: Vec<String> = Vec::new();
-  for (key, value) in entries {
+  for (name, value) in entries {
     let entry = value.entry();
-    if let Err(e) = resolve_key(key, &entry, visible, fallback_token, &mut planned) {
+    if let Err(e) = resolve_name(name, &entry, visible, fallback_token, &mut planned) {
       failures.push(e);
     }
   }
@@ -236,11 +239,11 @@ fn plan(
   Ok(planned)
 }
 
-/// Resolves one `bind-tunnels:` key: a tunnel name, or a peer's client id
-/// (which binds every tunnel that peer declares).
-fn resolve_key(
+/// Resolves one tunnel name: `pg_main`, or `acme@pg_main` for one
+/// organization's.
+fn resolve_name(
   key: &str,
-  entry: &aperio_config::BindTunnelEntry,
+  entry: &aperio_config::BindEntry,
   visible: &[TunnelView],
   fallback_token: &Option<String>,
   out: &mut Vec<Binding>,
@@ -284,48 +287,19 @@ fn resolve_key(
       options.join(", ")
     ));
   }
-  if let Some(view) = by_name.first() {
-    out.push(binding_for_view(view, entry, fallback_token)?);
-    return Ok(());
+  match by_name.first() {
+    Some(view) => {
+      out.push(binding_for_view(view, entry, fallback_token)?);
+      Ok(())
+    }
+    None => Err(format!("`{key}` is not a tunnel this token may bind.")),
   }
-  // Not a name this token can bind. A client id binds everything that peer
-  // declares, which is the older spelling.
-  //
-  // Discovery reports the process's own `client_id`, but a configuration
-  // written before names existed may name one of its *connections*
-  // (`<uuid>-0`, `<uuid>-c2`), since that is what the server used to answer
-  // to. Either selects the process: the id is a full UUID, so a key that
-  // extends it with a suffix cannot be some other client.
-  let peer: Vec<&TunnelView> = visible
-    .iter()
-    .filter(|v| {
-      v.client_id.as_deref().is_some_and(|id| {
-        id == key
-          || key
-            .strip_prefix(id)
-            .is_some_and(|rest| rest.starts_with('-'))
-      })
-    })
-    .collect();
-  if peer.is_empty() {
-    return Err(format!(
-      "`{key}` is neither a tunnel this token may bind nor a connected client's id."
-    ));
-  }
-  for view in peer {
-    let mut per_tunnel = entry.clone();
-    // The old spelling maps a declared target to a local port; a named entry
-    // uses `port:`, which cannot apply to a whole peer.
-    per_tunnel.port = entry.overrides.get(view.target.trim()).copied();
-    out.push(binding_for_view(view, &per_tunnel, fallback_token)?);
-  }
-  Ok(())
 }
 
 /// Builds the binding for one discovered tunnel.
 fn binding_for_view(
   view: &TunnelView,
-  entry: &aperio_config::BindTunnelEntry,
+  entry: &aperio_config::BindEntry,
   fallback_token: &Option<String>,
 ) -> Result<Binding, String> {
   let token = entry
@@ -367,7 +341,6 @@ fn binding_for_view(
       // other end of the tunnel, that owns the connection to the backend.
       proxy_protocol: false,
       idle_timeout: view.idle_timeout,
-      expose: None,
     },
     port: local_port(view, entry.port),
     label: format!("tunnel {}", view.name),

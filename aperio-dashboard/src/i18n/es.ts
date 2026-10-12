@@ -40,8 +40,8 @@ export const es: Record<string, string> = {
   'Allowed source IPs / CIDRs': 'IPs de origen / CIDRs permitidos',
   'Announced link capacity; the server paces frames to this client accordingly':
     'Capacidad de enlace anunciada; el servidor regula los frames hacia este cliente en consecuencia',
-  'Another live connection reports the same client id ({id}), bind-tunnels and failover lookups by this id are ambiguous; give each client its own --client-id':
-    'Otra conexión activa informa el mismo id de cliente ({id}), las búsquedas de bind-tunnels y failover por este id son ambiguas; dé a cada cliente su propio --client-id',
+  'Another live connection reports the same client id ({id}), so failover lookups by this id are ambiguous; give each client its own --client-id':
+    'Otra conexión activa informa el mismo id de cliente ({id}), así que las búsquedas de failover por este id son ambiguas; dé a cada cliente su propio --client-id',
   'Aperio Reverse Tunneling System • Server Uptime: {uptime}':
     'Sistema de túneles inversos Aperio • Tiempo activo del servidor: {uptime}',
   Appearance: 'Apariencia',
@@ -678,7 +678,8 @@ export const es: Record<string, string> = {
   'ejected': 'expulsado',
   'draining': 'drenando',
   'cache off': 'caché desactivada',
-  'This service opted into caching (cache: true) but the server response cache is disabled (APERIO_CACHE off), so the opt-in has no effect, enable the server cache or drop the flag': 'Este servicio activó la caché (cache: true) pero la caché de respuestas del servidor está desactivada (APERIO_CACHE off), así que la opción no tiene efecto: habilita la caché del servidor o quita el flag.',
+  'This service opted into caching (cache.enabled) but the server response cache is disabled (cache.enabled off on the server), so the opt-in has no effect; enable the server cache or drop the setting':
+    'Este servicio activó el caché (cache.enabled) pero el caché de respuestas del servidor está desactivado (cache.enabled apagado en el servidor), así que no tiene efecto; active el caché del servidor o quite el ajuste',
   'Add hostname': 'Añadir hostname',
   'Hostname binds': 'Vínculos de hostname',
   'Temporary binds for this connection: while set, these are the only hostnames routed to it. Edit the row you want to move and leave the others as they are; empty rows are dropped, and emptying them all clears the override. Nothing is persisted across reconnects.':
@@ -777,7 +778,8 @@ export const es: Record<string, string> = {
   'Server self-health': 'Autodiagnóstico del servidor',
   'Server-side GET cache occupancy and hit rate.': 'Ocupación y tasa de aciertos de la caché GET del servidor.',
   'Services that ask for capacity when they need it. A request for a hostname nothing is serving triggers a cold start instead of a 504, and a saturated pool asks for one more instance. Declared by the client in its scaling: block; scaling back in is the client’s own idle_timeout.': 'Servicios que piden capacidad cuando la necesitan. Una petición a un hostname que nadie sirve dispara un arranque en frío en lugar de un 504, y un grupo saturado pide una instancia más. El cliente lo declara en su bloque scaling:; reducir de nuevo lo hace su propio idle_timeout.',
-  'Set max_concurrent on the client to make utilization measurable.': 'Configure max_concurrent en el cliente para que el uso sea medible.',
+  'Set limits.concurrent_requests on the client to make utilization measurable.':
+    'Configure limits.concurrent_requests en el cliente para que el uso sea medible.',
   'Sign in at /aperio/oidc/login?org={id}. Leave issuer empty to clear.': 'Inicie sesión en /aperio/oidc/login?org={id}. Deje el emisor vacío para borrarlo.',
   'Size': 'Tamaño',
   'State': 'Estado',
@@ -825,15 +827,9 @@ export const es: Record<string, string> = {
   'Services': 'Servicios',
   'Each entry is one exposed backend with its own bind and tuning.': 'Cada entrada es un backend expuesto con su propio enlace y ajustes.',
   'Private TCP/UDP services a peer client can bind locally, and the peers this client binds.': 'Servicios TCP/UDP privados que otro cliente puede vincular localmente, y los pares que vincula este cliente.',
-  'Access control': 'Control de acceso',
-  'Who may reach the exposed service.': 'Quién puede alcanzar el servicio expuesto.',
   'Capacity & pacing': 'Capacidad y ritmo',
   'How much work this client accepts and how fast the server may push to it.': 'Cuánto trabajo acepta este cliente y a qué velocidad puede enviarle el servidor.',
-  'Backend health': 'Salud del backend',
-  'Probing the backend so an unhealthy one leaves the routing pool without dropping the tunnel. Set here it applies to every entry under services:, and any entry may override it.': 'Sondea el backend para que uno con problemas salga del grupo de enrutamiento sin cortar el túnel. Definido aquí se aplica a cada entrada de services:, y cualquier entrada puede anularlo.',
   'Asking for capacity when it is needed, and retiring when idle.': 'Pedir capacidad cuando hace falta y retirarse cuando está inactivo.',
-  'Response handling': 'Gestión de respuestas',
-  'Caching, resilience, and the headers this client rewrites.': 'Caché, resiliencia y los headers que reescribe este cliente.',
   'Logging': 'Registro',
   'What this client writes and in which format.': 'Qué escribe este cliente y en qué formato.',
   'Core': 'Núcleo',
@@ -907,8 +903,8 @@ export const es: Record<string, string> = {
   'TOTP QR code': 'Código QR de TOTP',
   'How much of a slow visitor’s download the server buffers before asking the client to pause producing it.': 'Cuánto de la descarga de un visitante lento almacena el servidor en búfer antes de pedir al cliente que pause la producción.',
   'Service defaults': 'Valores por defecto del servicio',
-  'Applied to every entry under services:, and overridable per entry. The keys that name one backend at the top level are deprecated here, they only ever worked without a services: list, and appear only for a file that already writes them.': 'Se aplican a cada entrada de services: y pueden sobrescribirse por entrada. Las claves que nombran un backend en el nivel superior están obsoletas aquí (solo funcionaban sin una lista services:) y aparecen únicamente para un archivo que ya las escribe.',
-  '`{keys}` name one service at the top level, and this file also has a services: list, the client reads the list and ignores them. Move them into the entry they belong to.': '`{keys}` nombran un único servicio en el nivel superior y este archivo además tiene una lista services:; el cliente lee la lista y los ignora. Muévelos a la entrada a la que pertenecen.',
+  'What every service gets unless its own entry says otherwise. The environment and the command line write here too.':
+    'Lo que recibe cada servicio salvo que su propia entrada diga otra cosa. El entorno y la línea de comandos también escriben aquí.',
   'Every healthy client of the route takes requests in turn, evenly. The default, and what you want when the clients are interchangeable.': 'Cada cliente sano de la ruta atiende peticiones por turnos, a partes iguales. El valor por defecto, y lo que quieres cuando los clientes son intercambiables.',
   'Only the clients on the lowest priority tier receive traffic; a higher tier takes over when every client above it is unhealthy, draining or gone, and hands back when one returns. Tiers come from each client’s priority (0 = primary).': 'Solo reciben tráfico los clientes del nivel de prioridad más bajo; un nivel superior toma el relevo cuando todos los de encima están enfermos, drenando o ausentes, y lo devuelve cuando uno vuelve. Los niveles salen del priority de cada cliente (0 = primario).',
   'A visitor keeps the client that first served them, for as long as it stays healthy. For backends holding per-visitor state in memory; the pool spreads by visitor rather than by request.': 'Un visitante conserva el cliente que le atendió primero mientras siga sano. Para backends que guardan estado por visitante en memoria; el reparto es por visitante y no por petición.',
@@ -935,7 +931,8 @@ export const es: Record<string, string> = {
   'Messages': 'Mensajes',
   'Topics this client listens for, and where an application on the same machine attaches to send and receive them.': 'Topics que escucha este cliente, y dónde se conecta una aplicación de la misma máquina para enviar y recibir.',
   'Cold start & scale-out records': 'Registros de arranque en frío y escalado',
-  'Private services reachable with --bind-tunnels': 'Servicios privados accesibles con --bind-tunnels',
+  'Private services reachable with aperio-client bind':
+    'Servicios privados accesibles con aperio-client bind',
   'Display name': 'Nombre visible',
   'Handle': 'Identificador',
   'Only what it is called. The handle {handle} is what addresses it and never changes.': 'Solo cómo se llama. El identificador {handle} es lo que la direcciona y nunca cambia.',

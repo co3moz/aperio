@@ -3,8 +3,9 @@ server:
   token: apr_sticky_change_me
 
 services:
-  - target: http://localhost:3000
-    public: true
+  app:
+    target: http://localhost:3000
+    access: public
     hostname: app.example.com
 
 # Fixed instance id: visitor affinity keys on it, so a client restart keeps

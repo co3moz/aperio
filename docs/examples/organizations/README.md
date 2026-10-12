@@ -33,7 +33,7 @@ curl -b cookies.txt -X POST -H 'Content-Type: application/json' \
   https://tunnel.example.com/aperio/api/tokens
 ```
 
-Copy the returned token secret into `aperio.yaml` as `server.token`. `allow_public` is required because that client's service declares `public: true`; see [Closed by default](../../configuration.md#closed-by-default).
+Copy the returned token secret into `aperio.yaml` as `server.token`. `allow_public` is required because that client's service declares `access: public`; see [Closed by default](../../configuration.md#closed-by-default).
 
 The client connects with that token, and everywhere (live view, traffic log, stats, uptime, topology) it shows under Acme. A named admin you create in Acme signs in to a self-contained view of Acme alone, never master.
 

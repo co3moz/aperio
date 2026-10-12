@@ -12,7 +12,7 @@ use crate::service::{self, ServiceSpec, Shared, run_service};
 /// A service with `connections: N` runs as N parallel tunnel connections; the
 /// first keeps the service's client id, extras derive `<id>-c2`, `<id>-c3`, …
 /// so every connection has a distinct instance id (no shared-id ambiguity for
-/// failover or `--bind-tunnels` lookups).
+/// failover or `aperio-client bind` lookups).
 ///
 /// A multiplexed group is the other direction: its services are one connection
 /// between them, spawned once at the first member and skipped at the rest.

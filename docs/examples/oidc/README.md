@@ -9,4 +9,4 @@ Register an OAuth client at your issuer with redirect URI `https://tunnel.exampl
 
 > **Before running:** Replace the issuer, client ID, secret, allowed emails, and callback URL in `server-init.yaml`, and start the server once with `APERIO_INIT_FILE=server-init.yaml` (or enter the same values under **Settings → OIDC** in the dashboard). Register that callback URL with your provider. The sample Google issuer cannot use the placeholder client credentials.
 
-Services a client declares `public: true` still bypass the gate (token-permitting), which is handy for webhooks and status pages.
+Services a client declares `access: public` still bypass the gate (token-permitting), which is handy for webhooks and status pages.

@@ -55,7 +55,7 @@ since a refused client reconnects on its own.
 The versioned JSON Schemas (`aperio-client.<tag>.json`) are attached to each
 GitHub Release, so an editor validates the exact keys a given version accepts.
 
-## Upgrading to 0.13.0: the server's settings move into its database
+## Upgrading to 0.13.0: the server's settings move into its database, and the client file is reshaped
 
 The server no longer reads `aperio-server.yaml`, and reads only its boot
 settings from the environment: `APERIO_SERVER_TOKEN`, `HOST`, `PORT`,
@@ -117,6 +117,59 @@ proxy.trusted`). Moving a deployment over is four steps:
 `--verify-audit` and `--decrypt-backup` are subcommands now: `aperio-server
 check <file>`, `settings show`, `schema`, `audit verify` and
 `backup decrypt`. The flags are refused rather than ignored.
+
+### The client file
+
+A 0.13 client reads the 0.12 file shape nowhere: it refuses the start and names
+every key that moved, with what replaced it, and does the same for a variable
+an earlier release read. The changes are mechanical:
+
+```yaml
+# 0.12                                   # 0.13
+server: https://tunnel.example.com       server:
+token: apr_xxx                             url: https://tunnel.example.com
+timeout: 60                                token: apr_xxx
+services:                                defaults:
+  - name: web                              timeout: 60s
+    target: http://localhost:3000        services:
+    public: true                           web:
+    max_concurrent: 8                        target: http://localhost:3000
+    target_health: /health                   access: public
+                                             limits:
+                                               concurrent_requests: 8
+                                             health:
+                                               endpoint: /health
+```
+
+| 0.12 | 0.13 |
+| --- | --- |
+| `services:` / `tunnels:` lists with `name:` | maps keyed by name |
+| a service setting at the top level | the same key under `defaults:` |
+| `public: true`, `auth:` | `access: public`, `access:` with a method block |
+| `max_concurrent`, `adaptive_concurrency`, `max_request_body`, `max_response_body`, `max_redirects` | `limits.concurrent_requests`, `limits.adaptive_concurrency`, `limits.request_body`, `limits.response_body`, `limits.redirects` |
+| `target_health`, `health_interval`, `health_timeout`, `health_threshold`, `wait_for_backend` | `health.endpoint`, `health.interval`, `health.timeout`, `health.threshold`, `health.wait_for_backend` |
+| `capture` | `inspector` |
+| `cache: true`, `resilience: true` | `cache: {enabled: true, offline: true}` |
+| `retry.backoff: 100` (milliseconds) | `retry.delay: 100ms` |
+| `ip_family`, `egress_proxy`, `tls_min_version`, `tls_cipher_suites` | `server.ip_family`, `server.proxy`, `server.min_tls_version`, `server.tls_cipher_suites` |
+| `messages_listen`, `messages_mqtt_listen` | `messages.listen`, `messages.mqtt_listen` |
+| `bind-tunnels:` | `binds:`, keyed by tunnel name only |
+
+The variables follow the keys: `APERIO_PUBLIC=1` is `APERIO_ACCESS=public`,
+`APERIO_TARGET_HEALTH` is `APERIO_HEALTH_ENDPOINT`, `APERIO_MAX_CONCURRENT` is
+`APERIO_LIMITS_CONCURRENT_REQUESTS`, `APERIO_API_KEY` is
+`APERIO_SERVER_API_KEY`, and the rest are listed in the
+[configuration reference](configuration.md#settings). On the command line,
+`--bind-tunnels` is `aperio-client bind`, `--public` is `--access public`, and
+the aliases (`--server`, `--token`, `--host`, `--concurrency`, `--target`) are
+gone.
+
+**The environment now beats the file.** A container that mounts an
+`aperio.yaml` and also sets a variable gets the variable, which is the point,
+but a stale variable left in a unit file or a compose file now wins where the
+file used to. The client images no longer set any variable by default for the
+same reason.
+
 
 ## Upgrading to 0.12.0: what an OIDC login is, and a wider default
 

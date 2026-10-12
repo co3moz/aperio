@@ -84,7 +84,7 @@ fn test_share_call_maps_hostname_path_and_expiry() {
 
 #[test]
 fn test_share_call_omits_absent_optional_fields() {
-  let call = call_for(&["share", "--host", "app.example.com"]).unwrap();
+  let call = call_for(&["share", "--hostname", "app.example.com"]).unwrap();
   let body = call.body.expect("share sends a body");
   assert!(body.get("path").is_none());
   assert!(body.get("ttl_seconds").is_none());
@@ -623,7 +623,7 @@ async fn send_reads_a_redirect_as_the_authentication_error_it_is() {
     .await
     .unwrap_err();
   assert!(err.contains("authentication required"), "{err}");
-  assert!(err.contains("--api-key"), "{err}");
+  assert!(err.contains("--server-api-key"), "{err}");
 }
 
 #[tokio::test]

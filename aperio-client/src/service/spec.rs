@@ -641,7 +641,7 @@ impl ServiceRuntime {
       }
       (true, _, _) => {
         warn!(
-          "[{}] adaptive_concurrency needs max_concurrent to be set; there is no number to move",
+          "[{}] limits.adaptive_concurrency needs limits.concurrent_requests to be set; there is no number to move",
           spec.label()
         );
         None

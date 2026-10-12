@@ -245,7 +245,7 @@ pub(crate) async fn proxy_http_request(
         // a stealth refusal. Except that a *resilient* cached answer is
         // itself the declaration, and this is the one condition it exists
         // for: an entry is only consulted here once its client is gone, so
-        // refusing makes `resilience: true` work exactly while nobody needs
+        // refusing makes `cache.offline` work exactly while nobody needs
         // it.
         //
         // This is #119. The intermittent 504 was this refusal, reached

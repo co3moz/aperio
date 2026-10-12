@@ -58,8 +58,8 @@ export class ResilientClient extends CacheClient {
   _env() {
     return {
       APERIO_HOSTNAME: 'cache.e2e.local',
-      APERIO_CACHE: '1',
-      APERIO_RESILIENCE: '1',
+      APERIO_CACHE_ENABLED: '1',
+      APERIO_CACHE_OFFLINE: '1',
     }
   }
 }
@@ -70,7 +70,7 @@ export class PlainClient extends CacheClient {
     return 'plain.e2e.local'
   }
   _env() {
-    return { APERIO_HOSTNAME: 'plain.e2e.local', APERIO_CACHE: '1' }
+    return { APERIO_HOSTNAME: 'plain.e2e.local', APERIO_CACHE_ENABLED: '1' }
   }
 }
 
@@ -79,7 +79,7 @@ export class SingleFlightClient extends ClientFor(() => CacheServer, () => Singl
     return 'sf.e2e.local'
   }
   _env() {
-    return { APERIO_HOSTNAME: 'sf.e2e.local', APERIO_CACHE: '1' }
+    return { APERIO_HOSTNAME: 'sf.e2e.local', APERIO_CACHE_ENABLED: '1' }
   }
 }
 
@@ -88,6 +88,6 @@ export class SwrClient extends ClientFor(() => CacheServer, () => SwrBackend) {
     return 'swr.e2e.local'
   }
   _env() {
-    return { APERIO_HOSTNAME: 'swr.e2e.local', APERIO_CACHE: '1' }
+    return { APERIO_HOSTNAME: 'swr.e2e.local', APERIO_CACHE_ENABLED: '1' }
   }
 }

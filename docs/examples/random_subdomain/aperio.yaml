@@ -5,5 +5,6 @@ server:
 # Nothing preview-specific needed on the client: the server assigns a
 # random subdomain to every connection automatically.
 services:
-  - target: http://localhost:3000
-    public: true
+  web:
+    target: http://localhost:3000
+    access: public

@@ -3,13 +3,13 @@
 use std::time::Duration;
 use tokio_tungstenite::tungstenite::{client::IntoClientRequest, http::HeaderValue};
 
-use crate::config::{ClientSettings, SettingsSources, build_http_url, build_ws_url};
+use crate::config::{ClientSettings, build_http_url, build_ws_url, normalize_target};
 
 /// `aperio-client check`: diagnoses configuration and connectivity, config
 /// resolution (with the layer each value came from), server reachability and
 /// version skew, token validity, local targets and the health endpoint.
 /// Exits 0 when everything passes, 1 otherwise.
-pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSources) -> ! {
+pub(crate) async fn run_check(settings: &ClientSettings) -> ! {
   println!(
     "aperio-client {}, configuration & connectivity check\n",
     env!("CARGO_PKG_VERSION")
@@ -44,16 +44,16 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
   // --- 1. Configuration resolution ---------------------------------------
   let server = settings.server.clone();
   let token = settings.token.clone().filter(|t| !t.trim().is_empty());
-  let target = settings.target.clone();
-  let target_health = settings.target_health.clone();
-  let from = |src: Option<crate::config::Source>| {
-    src
-      .map(|s| format!(" (from {})", s.label()))
+  let from = |path: &str| {
+    settings
+      .sources
+      .get(path)
+      .map(|layer| format!(" (from {})", layer.label()))
       .unwrap_or_default()
   };
 
   match &server {
-    Some(s) => pass("server url", format!("{}{}", s, from(sources.server))),
+    Some(s) => pass("server url", format!("{}{}", s, from("server.url"))),
     None => fail(
       "server url",
       "missing (--server-url / APERIO_SERVER_URL / yaml: server.url)".to_string(),
@@ -61,7 +61,7 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
     ),
   }
   match &token {
-    Some(_) => pass("token", format!("configured{}", from(sources.token))),
+    Some(_) => pass("token", format!("configured{}", from("server.token"))),
     None => fail(
       "token",
       "missing (--server-token / APERIO_SERVER_TOKEN / yaml: server.token)".to_string(),
@@ -89,19 +89,17 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
   // Every visitor gate is checked here rather than at the moment a visitor
   // fails to get in: a method that does not exist, or a credential missing
   // half of itself, presents hours later as "the password does not work".
-  let auth_probes: Vec<(String, &aperio_config::AuthSetting)> = settings
-    .visitor_auth
-    .iter()
-    .map(|a| ("visitor auth".to_string(), a))
-    .chain(settings.services.iter().enumerate().filter_map(|(i, s)| {
-      s.auth.as_ref().map(|a| {
-        let name = s.name.clone().unwrap_or_else(|| format!("services[{}]", i));
-        (format!("visitor auth for '{}'", name), a)
-      })
-    }))
-    .collect();
-  for (label, auth) in auth_probes {
-    match aperio_config::validate_auth_setting(auth) {
+  let label_of = |service: &crate::config::Service| match &service.name {
+    Some(name) => format!("service '{name}'"),
+    None => "the service".to_string(),
+  };
+  for service in &settings.services {
+    let Some(access) = service.entry.policy.access.as_ref() else {
+      continue;
+    };
+    let auth = access.auth_setting();
+    let label = format!("access for {}", label_of(service));
+    match aperio_config::validate_auth_setting(&auth) {
       Ok(()) => {
         let methods: Vec<String> = auth
           .methods()
@@ -114,91 +112,52 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
     }
   }
 
-  // Which shape actually drives the client, mirroring `build_specs`: a
-  // `services:` list wins over a single service named at the top level, unless
-  // that target came from the command line, where the positional argument is
-  // deliberately an override. Getting this backwards made the whole section a
-  // lie for a file that had both, it named, and probed, the one backend the
-  // client was going to ignore.
-  let cli_target = matches!(sources.target, Some(crate::config::Source::Cli));
-  let services_win = !settings.services.is_empty() && !cli_target;
-  if services_win {
-    let shadowed: Vec<&str> = [
-      ("target", target.is_some()),
-      ("serve", settings.serve.is_some()),
-      ("hostname", !settings.hostnames.is_empty()),
-      ("path", settings.path.is_some()),
-      ("tcp_target", settings.tcp_target.is_some()),
-      ("target_health", target_health.is_some()),
-    ]
-    .into_iter()
-    .filter(|(_, set)| *set)
-    .map(|(key, _)| key)
-    .collect();
-    if !shadowed.is_empty() {
-      warn(
-        "single-service keys",
-        format!(
-          "`{}` come from the command line or the environment and are ignored while a services: list exists, the entries below are what runs. A config file no longer accepts them at all.",
-          shadowed.join("`, `")
+  // What this client runs, mirroring `build_specs`.
+  let carries_messages = !settings.subscribe.is_empty()
+    || settings.messages_listen.is_some()
+    || settings.messages_mqtt_listen.is_some();
+  match settings.services.as_slice() {
+    [one] if settings.single => {
+      let entry = &one.entry;
+      let what = match (&entry.target, &entry.serve, &entry.tcp_target) {
+        (Some(t), _, _) => format!("{}{}", normalize_target(t), from("service.target")),
+        (_, Some(dir), _) => format!(
+          "static directory '{dir}' (serve mode){}",
+          from("service.serve")
         ),
-      );
+        (_, _, Some(t)) => format!("raw TCP {t}{}", from("service.tcp_target")),
+        _ => "none".to_string(),
+      };
+      pass("target", what)
     }
-  }
-
-  match &target {
-    Some(t) if !services_win => pass("target", format!("{}{}", t, from(sources.target))),
-    _ if settings.serve.is_some() && !services_win => pass(
+    [] if !settings.tunnels.is_empty() => pass(
       "target",
-      format!(
-        "static directory '{}' (serve mode)",
-        settings.serve.as_deref().unwrap_or_default()
-      ),
-    ),
-    _ if services_win => pass(
-      "target",
-      format!(
-        "{} service(s) configured (from the local config file)",
-        settings.services.len()
-      ),
-    ),
-    _ if !settings.tunnels.is_empty() => pass(
-      "target",
-      format!(
-        "none, {} tunnel(s) declared (from the local config file)",
-        settings.tunnels.len()
-      ),
+      format!("none, {} tunnel(s) declared", settings.tunnels.len()),
     ),
     // A binder exposes nothing: it exists to open local listeners onto tunnels
-    // someone else declared. Reporting a missing target for one was wrong
-    // twice over, since the message did not even mention the section the file
-    // is made of.
-    _ if !settings.bind_tunnels.is_empty() => pass(
+    // someone else declared.
+    [] if !settings.binds.is_empty() => pass(
       "target",
-      format!(
-        "none, binds {} tunnel(s) (from the local config file)",
-        settings.bind_tunnels.len()
-      ),
+      format!("none, binds {} tunnel(s)", settings.binds.len()),
     ),
     // A client that only sends and receives messages exposes nothing either,
     // and is as complete a configuration as a binder.
-    _ if !settings.subscribe.is_empty()
-      || settings.messages_listen.is_some()
-      || settings.messages_mqtt_listen.is_some() =>
-    {
-      pass(
-        "target",
-        format!(
-          "none, messaging only, {} subscription(s) (from the local config file)",
-          settings.subscribe.len()
-        ),
-      )
-    }
-    _ => fail(
+    [] if carries_messages => pass(
       "target",
-      "missing (--target / APERIO_TARGET / yaml: services:, tunnels:, bind-tunnels: or subscribe:)"
+      format!(
+        "none, messaging only, {} subscription(s)",
+        settings.subscribe.len()
+      ),
+    ),
+    [] => fail(
+      "target",
+      "missing (an argument, APERIO_TARGET, or yaml: services:, tunnels:, binds: or subscribe:)"
         .to_string(),
       &mut failures,
+    ),
+    services => pass(
+      "target",
+      format!("{} service(s) configured", services.len()),
     ),
   }
 
@@ -362,8 +321,6 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
   }
 
   // --- 4. Local targets (and their health endpoints) ----------------------
-  // Single-service mode probes the one target; multi-service mode probes
-  // every entry of the services: list.
   // A `serve:` directory is the backend itself, so its check is a directory
   // check rather than an HTTP probe.
   let check_serve_dir = |label: &str, dir: &str, failures: &mut u32| {
@@ -380,11 +337,11 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
   // Names are identifiers, and the check is where a file learns that before
   // a deploy does. Both lists, since a tunnel name is addressed from another
   // machine entirely.
-  for (i, entry) in settings.services.iter().enumerate() {
-    if let Some(name) = entry.name.as_deref()
+  for service in &settings.services {
+    if let Some(name) = service.name.as_deref()
       && let Err(why) = aperio_config::validate_name("service", name)
     {
-      fail(&format!("services[{i}]"), why, &mut failures);
+      fail(&format!("services.{name}"), why, &mut failures);
     }
   }
   for decl in &settings.tunnels {
@@ -395,24 +352,22 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
     }
   }
   let mut probes: Vec<(String, String, Option<String>)> = Vec::new();
-  if let Some(t) = target.as_ref().filter(|_| !services_win) {
-    probes.push(("target".to_string(), t.clone(), target_health.clone()));
-  } else if let Some(dir) = settings.serve.as_ref().filter(|_| !services_win) {
-    check_serve_dir("target", dir, &mut failures);
-  } else {
-    for (i, entry) in settings.services.iter().enumerate() {
-      let label = format!(
-        "service '{}'",
-        entry
-          .name
-          .clone()
-          .unwrap_or_else(|| format!("services[{}]", i))
-      );
-      if let Some(t) = &entry.target {
-        probes.push((label, t.clone(), entry.target_health.clone()));
-      } else if let Some(dir) = &entry.serve {
-        check_serve_dir(&label, dir, &mut failures);
-      }
+  for service in &settings.services {
+    let entry = &service.entry;
+    let label = if settings.single {
+      "target".to_string()
+    } else {
+      label_of(service)
+    };
+    let health = entry
+      .policy
+      .health
+      .as_ref()
+      .and_then(|h| h.endpoint.clone());
+    if let Some(t) = &entry.target {
+      probes.push((label, normalize_target(t), health));
+    } else if let Some(dir) = &entry.serve {
+      check_serve_dir(&label, dir, &mut failures);
     }
   }
   for (label, target, health) in &probes {
@@ -453,12 +408,14 @@ pub(crate) async fn run_check(settings: &ClientSettings, sources: &SettingsSourc
     }
   }
 
-  // --- 5. TCP targets (legacy tcp_target + declared tunnels) --------------
+  // --- 5. TCP targets (tcp_target + declared tunnels) ---------------------
   // These are raw TCP services, so reachability is probed with a plain
   // connect instead of an HTTP request.
   let mut tcp_probes: Vec<(String, String)> = Vec::new();
-  if let Some(t) = &settings.tcp_target {
-    tcp_probes.push(("tcp target".to_string(), t.clone()));
+  for service in &settings.services {
+    if let Some(t) = &service.entry.tcp_target {
+      tcp_probes.push((format!("tcp target of {}", label_of(service)), t.clone()));
+    }
   }
   for decl in &settings.tunnels {
     tcp_probes.push((format!("tunnel '{}'", decl.target), decl.target.clone()));

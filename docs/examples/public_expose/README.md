@@ -2,7 +2,7 @@
 
 > **Concept:** [Emergency Tunnels](../../emergency-tunnels.md), [Public exposes](../../public-exposes.md).
 
-An expose listener cuts the binder out of the tunnel picture: the server itself opens a public TCP (or UDP) port and relays every accepted connection into a declared tunnel, useful for exposing SSH or a game server without running `--bind-tunnels` anywhere.
+An expose listener cuts the binder out of the tunnel picture: the server itself opens a public TCP (or UDP) port and relays every accepted connection into a declared tunnel, useful for exposing SSH or a game server without running `aperio-client bind` anywhere.
 
 The listener names the tunnel and the organization whose client may claim it (`master` here, the organization the client below connects as), so the claim is settled by identity rather than a secret copied into two places. Revoking the tokens of that organization closes the port's source. Listeners are managed resources: create this one from the dashboard's Tunnels page, or with the API using [`expose.json`](expose.json):
 

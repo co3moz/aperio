@@ -154,7 +154,6 @@ fn tcp_tunnel(target: &str) -> TunnelDecl {
     protocol: "tcp".into(),
     encrypt: false,
     idle_timeout: None,
-    expose: None,
   }
 }
 
@@ -166,7 +165,6 @@ fn udp_tunnel(target: &str) -> TunnelDecl {
     protocol: "udp".into(),
     encrypt: false,
     idle_timeout: None,
-    expose: None,
   }
 }
 

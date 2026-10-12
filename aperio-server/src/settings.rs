@@ -90,7 +90,7 @@ pub(crate) struct ServerConfig {
   /// `Allow` is what the server has always done and stays the default: with
   /// no `auth:` anywhere, every route serves everyone. `Deny` inverts it, so
   /// a route is reachable because something said so rather than because
-  /// nothing said otherwise, and `public: true` / `method: none` become the
+  /// nothing said otherwise, and `access: public` / `method: none` become the
   /// sentence that opens one rather than an exemption from a gate that may
   /// not exist.
   pub(crate) default_access: DefaultAccess,

@@ -492,7 +492,7 @@ pub(crate) fn spawn_backend_wait(
   }
   if spec.target_health.is_some() {
     info!(
-      "[{}] wait_for_backend is implied by target_health; the health check already gates startup",
+      "[{}] health.wait_for_backend is implied by health.endpoint; the health check already gates startup",
       label
     );
     return None;

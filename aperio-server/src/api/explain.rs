@@ -680,7 +680,7 @@ pub(crate) async fn explain_handler(
     && !crate::routing::route_is_public(&state, &path, Some(&hostname)).await
     // Only when something would otherwise serve it. Both refusals answer 504,
     // but they are different sentences to act on: with a client behind the
-    // gate the line to write is `public: true` on that service, and with no
+    // gate the line to write is `access: public` on that service, and with no
     // client at all there is nothing to write it on, so `no_client` further
     // down is the more useful answer and is left to win.
     && crate::routing::route_exists(&state, &path, Some(&hostname), None).await

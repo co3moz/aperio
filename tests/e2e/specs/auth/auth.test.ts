@@ -68,7 +68,7 @@ export class PublicClient extends AuthClient {
     return false
   }
   _env() {
-    return { APERIO_HOSTNAME: 'pub.e2e.local', APERIO_PUBLIC: '1' }
+    return { APERIO_HOSTNAME: 'pub.e2e.local', APERIO_ACCESS: 'public' }
   }
 }
 
@@ -82,7 +82,7 @@ export class UnpermittedPublicClient extends AuthClient {
     return this._token
   }
   _env() {
-    return { APERIO_HOSTNAME: 'priv.e2e.local', APERIO_PUBLIC: '1' }
+    return { APERIO_HOSTNAME: 'priv.e2e.local', APERIO_ACCESS: 'public' }
   }
 }
 
@@ -261,14 +261,14 @@ export class MethodGrammarClient extends AuthClient {
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
       'services:',
-      '  - name: gated_by_block',
+      '  gated_by_block:',
       `    target: ${this._backendUrl()}`,
       '    hostname: block.e2e.local',
-      '    auth: { method: basic, users: "block:blockpw" }',
-      '  - name: open_by_method',
+      '    access: { method: basic, users: "block:blockpw" }',
+      '  open_by_method:',
       `    target: ${this._backendUrl()}`,
       '    hostname: open.e2e.local',
-      '    auth: { method: none }',
+      '    access: { method: none }',
       '',
     ].join('\n')
   }
@@ -285,10 +285,10 @@ export class UnknownMethodClient extends AuthClient {
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
       'services:',
-      '  - name: unknown_method',
+      '  unknown_method:',
       `    target: ${this._backendUrl()}`,
       '    hostname: unknown.e2e.local',
-      '    auth: { method: ldap }',
+      '    access: { method: ldap }',
       '',
     ].join('\n')
   }
@@ -486,7 +486,7 @@ export class DeclaredOpenClient extends ClientFor(() => ClosedServer, () => Clos
     return '/hello'
   }
   _env() {
-    return { APERIO_HOSTNAME: 'declared.e2e.local', APERIO_PUBLIC: '1' }
+    return { APERIO_HOSTNAME: 'declared.e2e.local', APERIO_ACCESS: 'public' }
   }
 }
 
@@ -777,10 +777,10 @@ export class RichGateClient extends DeclaredGateClient {
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
       'services:',
-      '  - name: declared_bearer',
+      '  declared_bearer:',
       `    target: ${this._backendUrl()}`,
       `    hostname: ${DECLARED_HOST}`,
-      '    auth:',
+      '    access:',
       '      method: bearer',
       `      secret: "${DECLARED_SECRET}"`,
       '',
@@ -804,10 +804,10 @@ export class ForwardDeclaringClient extends DeclaredGateClient {
       `  url: ${this.server._url}`,
       `  token: ${this.server._token}`,
       'services:',
-      '  - name: declared_forward',
+      '  declared_forward:',
       `    target: ${this._backendUrl()}`,
       '    hostname: declared-forward.e2e.local',
-      '    auth:',
+      '    access:',
       '      method: forward',
       '      url: http://127.0.0.1:9/_authcheck',
       '',

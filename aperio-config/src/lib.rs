@@ -12,23 +12,22 @@ pub mod authoring;
 pub mod egress;
 pub mod expose;
 pub mod expose_policy;
+pub mod layers;
 pub mod pairing;
 pub mod removed;
 pub mod server_settings;
 pub mod units;
 
-// The schema itself, split by which file each part describes and by what it
-// describes about it. Everything is re-exported, so `aperio_config::Thing`
-// resolves exactly where it did: this is a move, not a rename.
+// The schema itself, split by what each part describes. Everything is
+// re-exported, so `aperio_config::Thing` resolves wherever it is defined.
 //
-// - [`client`] and [`server`] are the two documents' service-level shapes;
-//   [`file`] is `aperio.yaml`'s own top-level key list.
-// - [`rules`] is the server's rule-shaped entries (routes, waf, expose, …),
-//   which are lists of small records rather than settings.
-// - [`groups`] is its grouped blocks, the ones that flatten into
-//   `APERIO_<GROUP>_<CHILD>`.
-// - [`auth`] is the `auth:` grammar both ends have to agree on.
-// - [`settings`] is the scalar-or-block enums a setting can be written as.
+// - [`file`] is `aperio.yaml`'s own top-level key list; [`client`] is the
+//   shapes it holds (a service, its policy, a tunnel, a bind).
+// - [`layers`] merges the files, the environment and the command line into
+//   one configuration, and derives the environment's names from the schema.
+// - [`rules`] is the server's rule-shaped entries (routes, waf, ...), which
+//   are lists of small records rather than settings.
+// - [`auth`] is the visitor gate grammar both ends have to agree on.
 //
 // What stays here is what the whole schema is built out of: the name, topic
 // and protocol rules every part validates against.
@@ -165,10 +164,10 @@ pub fn protocol_serves(protocol: &str, want: &str) -> bool {
 
 /// True when a string is shaped like the UUID a client id is.
 ///
-/// Tunnel names and client ids share one key space in `bind-tunnels:`, where a
-/// key is read as a tunnel name and falls back to a peer's client id. The two
-/// shapes cannot collide: a UUID carries `-`, which a name may not, so this
-/// only has to recognize the id form rather than defend the name space.
+/// A tunnel name shaped like a client id is refused, so a name written in a
+/// `binds:` entry can never be read as the id of whatever happens to be
+/// connected. The two shapes cannot collide anyway, a UUID carries `-`,
+/// which a name may not, so this only has to recognize the id form.
 pub fn looks_like_client_id(raw: &str) -> bool {
   let s = raw.trim();
   // 8-4-4-4-12 hex with hyphens, the only form the client emits.

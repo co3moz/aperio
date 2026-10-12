@@ -2,57 +2,39 @@
 
 The complete reference for configuring both sides of Aperio.
 
-The two sides are configured differently, on purpose. A **client** is a file next to the service it exposes, `aperio.yaml`, with an environment variable and usually a CLI flag for every setting. A **server** reads a handful of boot settings from its environment and keeps every other setting in its database, changed from the dashboard or the API without a restart; see [Server](#server).
+The two sides are configured differently, on purpose. A **client** is a file next to the service it exposes, `aperio.yaml`, with an environment variable for every setting and a CLI flag for the common ones. A **server** reads a handful of boot settings from its environment and keeps every other setting in its database, changed from the dashboard or the API without a restart; see [Server](#server).
 
 ## The client's standard: one name, three surfaces
 
-Client settings use consistent names across the surfaces they support:
+Every client setting has one name, its yaml key. The other two surfaces are derived from it:
 
 | Surface | Form | Example |
 | --- | --- | --- |
-| CLI argument | `--kebab-case` | `--server-token` |
-| yaml key | `snake_case` (nested for the server section) | `server.token` |
-| Environment variable | `APERIO_SNAKE_CASE` | `APERIO_SERVER_TOKEN` |
+| yaml key | `snake_case`, dotted for a block | `server.token`, `health.interval` |
+| Environment variable | `APERIO_` + the key, dots as underscores | `APERIO_SERVER_TOKEN`, `APERIO_HEALTH_INTERVAL` |
+| CLI flag | `--` + the key, dots and underscores as dashes | `--server-token` |
 
-Replace hyphens in a CLI flag with underscores and add `APERIO_` to get its environment variable: `--server-token` becomes `APERIO_SERVER_TOKEN`. YAML uses lowercase keys; related settings may be grouped (`server.token`). Some settings have no CLI flag. The tables below show each supported surface.
+The environment variables are not a list somebody keeps: they are generated from the same schema the parser and the editor read, so a key and its variable cannot drift apart. `log_level` is the one bare name, `LOG_LEVEL`. A service's settings are written once under `defaults:` and their variables carry no `DEFAULTS_` prefix, `APERIO_TIMEOUT` is `defaults.timeout`, because that is where one service's settings go when there is no file to put them in. The CLI has flags for the settings a one-liner needs; everything else is the file or the environment.
 
-### Grouped keys
+A value that is not one scalar is still reachable from the environment: a list is comma-separated (`APERIO_ALLOWED_IPS=10.0.0.0/8,203.0.113.7`), a map of strings is `k=v,k=v` (`APERIO_METRICS_LABELS=env=prod,region=eu`), and anything can be written as yaml (`APERIO_ACCESS='{method: basic, users: "admin:secret"}'`).
 
-Settings that share a prefix are written as a block, so the yaml reads as a structure rather than a flat list of run-on names:
+### Units
 
-```yaml
-# ./aperio.yaml (client)
-health:
-  endpoint: /healthz   # was target_health
-  interval: 10         # was health_interval
-  timeout: 5           # was health_timeout
-  threshold: 3         # was health_threshold
-  wait_for_backend: true
-```
-
-The environment variable is unchanged, since the environment has no nesting: `health.interval` is still `APERIO_HEALTH_INTERVAL`. The rule is mechanical in both directions, `<group>.<child>` ⇄ `APERIO_<GROUP>_<CHILD>`.
-
-**The flat spelling still works.** Every `health_interval:` key is read exactly as before, so no existing file needs changing; the block wins per field when a file uses both. The client logs a one-line deprecation notice per flat key it finds, naming the block to move it to. Client blocks: `health` (also per `services:` entry) and the long-standing `server`.
-
-Each environment variable has exactly one canonical `APERIO_*` name, there are no scoping aliases (`APERIO_CLIENT_*`) or alternate spellings. A few surfaces still offer shorthand: the CLI flags `--server`, `--token`, `--host`, `--concurrency` are visible aliases of `--server-url`, `--server-token`, `--hostname`, `--max-concurrent`, and the flat yaml `server:` / `token:` keys are accepted as shorthand for `server.url` / `server.token`. New documentation and examples always use the canonical names.
-
-**Dashboard users and roles.** Beyond the master token (which signs in as a built-in admin named `aperio`), admins can create named dashboard users from the *Users* page, each with a role: **viewer** (read-only, statistics, traffic, audit), **operator** (day-to-day operations, clients, tokens, webhooks, maintenance, share links), or **admin** (everything, including server settings and user management). Passwords are stored as Argon2id hashes in `APERIO_DATA_DIR/aperio.db`. The role floor of every dashboard route is enforced server-side (a viewer gets `403` on any mutation, and on the admin-only settings/users routes); the UI additionally hides controls a role cannot use. An OIDC login is what its dashboard user record says: the identity provider vouches for the email, the record (matched by email, created at the first login) carries the grants, see [Organizations](organizations.md#oidc-identity-is-the-providers-authorization-is-aperios). Dashboard sessions last 24 hours and are persisted in `APERIO_DATA_DIR/aperio.db` (hashed cookie tokens only), so a server restart does not sign anyone out. Users (and tokens) can also be grouped into isolated **organizations**, in which case a named user's reach is the list of grants on their record, one organization for most, several with a role in each for an operator who administers more than one tenant, and the server-global settings/export routes take Admin in the master organization, which the built-in `aperio` account has, see [Organizations](organizations.md).
-
-**Two-factor authentication (TOTP).** Any named dashboard user can enroll an authenticator app (Google Authenticator, Authy, 1Password, …) from the sidebar's *Two-factor auth* dialog: scan the QR code, confirm a 6-digit code, and store the eight single-use recovery codes shown once. From then on the login form asks for the code after the password (a recovery code works too, and is consumed). Wrong codes count towards the brute-force lockout. An admin can reset a locked-out user's TOTP from the *Users* page (`DELETE /aperio/api/users/:id/totp`); enrollment endpoints live under `/aperio/api/me/totp/*`. The built-in `aperio` admin (master token / dashboard password) has no user row and cannot enroll, create named users for anyone who needs 2FA. OIDC is not that account: an OIDC login is matched to a dashboard user record by email and takes the grants on it, so it can enroll like any named user.
-
-**Passkeys (WebAuthn).** Set `dashboard.webauthn.origin` to the public URL the dashboard is reached at (e.g. `https://tunnel.example.com`, the RP ID is its domain, so an IP origin won't work) and named users can register passkeys (YubiKeys, Touch ID / Face ID, password managers) from the sidebar's *Passkeys* dialog, then sign in passwordless from the login page. Passkey sign-ins skip TOTP (the authenticator already verifies the user), failed ceremonies count towards the brute-force lockout, and registrations/deletions are audit-logged. Up to 10 passkeys per user, stored in `aperio.db` (public keys only, private keys never leave the authenticator). A passkey registered with **“allow signing in without a username”** becomes a discoverable credential: pressing the passkey button with an empty username brings up the authenticator's account picker directly. Passkeys without the opt-in keep working username-first only. By default a passkey is scoped to the exact host of `dashboard.webauthn.origin`, so it will **not** work when the dashboard is also reached through a sibling host (e.g. `test-aperio.robogon.com` next to `aperio.robogon.com`); set `dashboard.webauthn.rp_id` to the shared parent domain (`robogon.com`) to make one passkey cover every subdomain. WebAuthn has no wildcard RP ID; the parent-domain RP ID is the supported way to get the `*.robogon.com` effect.
+A duration is written with its unit, `250ms`, `30s`, `5m`, `2h`, `1d`; a size with its unit, `512KB`, `10MB`, `1GB`. A bare number is still read, as seconds or as bytes, and no key carries its unit in its name.
 
 ## Client
 
-### Precedence
+### Layers
 
-The client layers four configuration sources, from lowest to highest:
+The client reads four layers and merges them, lowest first:
 
-**`~/.aperio.yaml`  <  environment variables  <  `./aperio.yaml`  <  CLI arguments**
+**`~/.aperio.yaml`  <  `./aperio.yaml`  <  environment variables  <  CLI arguments**
 
-`~/.aperio.yaml` holds user-level defaults shared across projects (typically `server.url` and `server.token`), the local `aperio.yaml` describes the service in the current directory, and CLI arguments override everything. With no CLI arguments the client is fully environment-driven, Docker setups work unchanged. `aperio-client check` reports which layer supplied each value.
+One rule merges them, the same one `include:` uses: **mappings merge key by key, and anything else is replaced.** A later layer wins a key; a block a later layer writes is laid over the earlier one rather than replacing it, so `~/.aperio.yaml` can hold `server.url` and `server.token` for every project while each project's file adds its services. The environment beating the file is what a container expects: the image carries the file, the deployment overrides a value. `aperio-client check` reports which layer supplied each value.
 
-When a config file is present, the client **hot-reloads** it: edits to `aperio.yaml` (or the `--config` path) are detected within ~5 s, the current connection is dropped gracefully, and the service restarts with the freshly resolved configuration. A file that no longer parses (or resolves to an invalid configuration) is ignored with a warning. Alongside the services, a reload re-applies the process-wide facilities: the `messages_listen` and `messages_mqtt_listen` faces (a face whose address is unchanged keeps serving its connections; one that moved is rebound, one the file dropped is stopped), the `subscribe:` filters and their `run:` commands, and `idle_timeout`. The one exception is `otel_bridge:`'s own shape, its listeners, queue and transport: that queue is held by whichever tunnel connection is live and cannot be rebuilt underneath them, so a reload that changes one of those logs a warning saying a restart is needed. The server and token the `https` transport posts with are *not* an exception; they are read per export and follow a reload like everything else. Settings fixed for the life of the process are documented as such where they appear (`ip_family`, for instance).
+**A key nothing reads is an error**, at startup and on a reload, naming the key it was probably meant to be (`` `services.web.timeot` is not a setting; did you mean `timeout`? ``), or, for a key an earlier release read, what replaced it. The same goes for a variable an earlier release read (`APERIO_PUBLIC` was replaced by `APERIO_ACCESS=public`). Top-level keys starting with `x-` are left alone, for yaml anchors a file reuses (`x-common: &common`).
+
+When a config file is present, the client **hot-reloads** it: edits to `aperio.yaml` (or the `--config` path) are detected within ~5 s, the replacement connections come up before the old ones are drained, and the services restart with the freshly resolved configuration. A file that no longer parses, or resolves to an invalid configuration, is ignored with a warning and the previous configuration keeps serving. Alongside the services, a reload re-applies the process-wide facilities (the message faces, the subscriptions and their commands); the OTel bridge and the server connection's settings (`server.ip_family`, `server.proxy`, the TLS ones) apply at startup and need a restart.
 
 ### CLI
 
@@ -60,127 +42,165 @@ When a config file is present, the client **hot-reloads** it: edits to `aperio.y
 aperio-client                          Run from config files / environment (Docker mode)
 aperio-client 3000                     Expose http://localhost:3000
 aperio-client example.com              Expose http://example.com
-aperio-client --bind-tunnels <name>    Bind a declared tunnel locally (a client id binds all of that peer's)
+aperio-client bind [NAME...]           Bind tunnels a peer client declares, locally
 aperio-client check                    Diagnose configuration and connectivity
 aperio-client api <group> <action>     Call the server's admin API (see below)
+aperio-client completions <shell>      Print a shell completion script
 aperio-client --version
 aperio-client --help
 ```
 
-The positional target is optional, a bare port number expands to `http://localhost:<port>`, a bare hostname to `http://<hostname>`, and full URLs pass through. When omitted, the target comes from a config file or the environment.
+The positional target is optional: a bare port number expands to `http://localhost:<port>`, a bare hostname to `http://<hostname>`, and full URLs pass through. The same reading applies to a `target:` in a file. A target on the command line or in the environment runs as the one service, in place of the file's `services:`.
 
 `aperio-client api ...` performs one admin API call and prints the JSON answer, the dashboard's operations (share links, tokens, tunnels, maintenance, users, reports) from a script. It authenticates with an admin key rather than the tunnel token; see [Admin API from the CLI](cli-api.md).
 
-`aperio-client check` resolves the configuration with the usual precedence, reporting **which layer** (CLI argument, `./aperio.yaml`, environment, `~/.aperio.yaml`) supplied each value, and verifies every hop: server health endpoint (including a client/server version and protocol comparison), token validity (a real tunnel handshake), every local target (all `services:` entries in multi-service mode), and their health endpoints when configured. Exit code 0 = all green, handy in support requests and provisioning scripts.
+`aperio-client check` resolves the configuration the usual way, reporting **which layer** (the command line, `./aperio.yaml`, the environment, `~/.aperio.yaml`) supplied each value, and verifies every hop: the server's health endpoint (including whether the server is on this client's minor release), token validity (a real tunnel handshake), every local target with its health endpoint, every `serve:` directory, and every declared tunnel. It exits non-zero when anything fails, so it works as a deploy gate.
 
-| Option | Meaning |
+| Flag | Key it writes |
 | --- | --- |
-| `--server-url URL` (alias `--server`) | Aperio server URL |
-| `--server-token TOKEN` (alias `--token`) | Tunnel token (master or dynamic) |
-| `--target TARGET` | Alternative to the positional target (usable with subcommands) |
-| `--serve DIR` | Serve a local directory of static files instead of forwarding to a backend (mutually exclusive with a target; directories serve their `index.html`). One command to publish a `dist/` folder: `aperio-client --serve ./dist`. Also available per `services:` entry via `serve:`, so one client can serve several directories on different binds. Files stream from disk and single-range `Range` requests are answered `206`. Responses carry a strong `ETag` from the file's size and modification time, so an unchanged file answers `304` to a matching `If-None-Match` (on `GET` and `HEAD`) instead of being sent again, and a resumed download with `If-Range` continues rather than restarting. Two options refine not-found handling, `serve_spa` / `serve_404` in yaml or `APERIO_SERVE_SPA=1` (navigation falls back to the root `index.html` with status 200, for React/Vue routers) / `APERIO_SERVE_404=/path/to/404.html` (custom page, status 404); both are process-wide. Full article: [Static File Serving](static-serving.md). |
-| `--hostname HOSTNAME` (alias `--host`) | Hostname bind(s) (e.g. `app.example.com`, or comma-separated `a.example.com,b.example.com`) |
-| `--path PREFIX` | Path bind (e.g. `/api`) |
-| `--max-concurrent N` (alias `--concurrency`) | Local max concurrent requests |
-| `--priority N` | Load-balancing priority tier: 0 = primary (default), higher = standby |
-| `--pass-hostname` | Forward the original `Host` header to the backend |
-| `--public` | Declare the service public (skip the visitor auth gate; needs token permission) |
-| `--visitor-auth USER:PASSWORD` | Gate this service behind a client-set visitor login, overriding the server's own visitor password for it (needs the same token permission as `--public`) |
-| `--allowed-ips IPS` | Comma-separated visitor IPs/CIDRs allowed to reach this service (everyone when unset); enforced per candidate by the server, a fully rejected visitor gets the `denied:` redirect or a stealth answer |
-| `--client-id UUID` | Persistent client instance id (default: a random UUID per run) |
-| `--bind-tunnels [NAME]` | Bind a declared tunnel locally by name; a client id binds every tunnel that peer declares, and no value binds the `bind-tunnels:` section (see [Tunnels](emergency-tunnels.md)) |
-| `--api-key KEY` | Admin API key used by the `api` subcommand (never by the tunnel) |
-| `--config FILE` | Config file path (default: `./aperio.yaml`) |
+| `--server-url URL` | `server.url` |
+| `--server-token TOKEN` | `server.token` |
+| `--server-api-key KEY` | `server.api_key`, used by the `api` subcommand, never by the tunnel |
+| `--server-ip-family auto\|ipv4\|ipv6` | `server.ip_family` |
+| `--server-proxy [user:password@]host:port` | `server.proxy` |
+| `--name NAME` | `name` |
+| `--client-id UUID` | `client_id` |
+| `--serve DIR` | the one service's `serve`: a local directory of static files instead of a backend. `aperio-client --serve ./dist` publishes a folder |
+| `--hostname HOSTNAME` | the one service's `hostname`, comma-separated for several |
+| `--path PREFIX` | the one service's `path` |
+| `--access POLICY` | `defaults.access`: `public`, or a method block as yaml |
+| `--allowed-ips IPS` | `defaults.allowed_ips`, comma-separated |
+| `--priority N` | `defaults.priority` |
+| `--pass-hostname` | `defaults.pass_hostname` |
+| `--config FILE` | the config file to read (default: `./aperio.yaml`) |
 
 ### Settings
 
-A single HTTP backend needs a server URL, a tunnel token, and a target (or `--serve` for static files). A client that only binds tunnels or handles messages needs no HTTP target. `aperio-client check` shows where each resolved setting came from.
+A single HTTP backend needs a server URL, a tunnel token, and a target (or `serve:` for static files). A client that only binds tunnels or handles messages needs no target. `aperio-client check` shows where each resolved setting came from.
 
-**Config-file note:** The table shows short service field names such as `target`, `serve`, and `hostname`. In `aperio.yaml`, put those fields inside a `services:` entry, even for one backend. Top-level service binds in a config file are refused. CLI arguments and `APERIO_TARGET` still support single-service mode; see [Multiple services](#multiple-services).
+#### The client
+
+Top-level keys: what the client as a whole is, and how it reaches its server.
 
 | Env variable | CLI | yaml key | Description | Default |
 | --- | --- | --- | --- | --- |
-| `APERIO_SERVER_TOKEN` | `--server-token` | `server.token` | **Required.** Tunnel token. |  |
 | `APERIO_SERVER_URL` | `--server-url` | `server.url` | **Required.** Server URL (`http/https/ws/wss`). |  |
-| `APERIO_API_KEY` | `--api-key` | `server.api_key` | Programmatic admin key for `aperio-client api ...` calls, unrelated to the tunnel itself. Falls back to the tunnel token, which the server accepts only where the master token is a valid credential. See [Admin API from the CLI](cli-api.md). |  |
+| `APERIO_SERVER_TOKEN` | `--server-token` | `server.token` | **Required.** Tunnel token, master or a scoped dynamic token. |  |
 | `APERIO_SERVER_URLS` |  | `server.urls` | Additional server URLs to fail over to (comma-separated on env, a list in yaml), tried in order when the primary `server.url` is unreachable, for a redundant control plane. |  |
-| `APERIO_IP_FAMILY` | `--ip-family` | `ip_family` | Address family used to dial the server: `auto` (default; IPv4-first, trying each resolved address with a per-address timeout), `ipv4`, or `ipv6`. Use `ipv4` when the server hostname resolves to an unreachable IPv6 address. | `auto` |
-| `APERIO_EGRESS_PROXY` | `--egress-proxy` | `egress_proxy` | HTTP proxy to dial the tunnel server through, for a network that allows no direct outbound connection: `host:port`, `http://host:port`, either with an optional `user:password@` in front. The client sends `CONNECT` and runs TLS inside the tunnel the proxy opens, so the proxy sees the server's hostname and nothing else. **The tunnel only**: requests to your own backend are never sent through it, and neither is anything else on the machine. A port is required in practice; without one the http default (`80`) is used, and a value that names a port but no host (`:3128`) is refused at startup rather than read as a hostname. An IPv6 proxy is written bracketed (`[2001:db8::1]:3128`). An `https://` proxy (TLS to the proxy itself) is refused rather than dialed in the clear. A proxy that refuses `CONNECT` fails the dial with the proxy and its status named, and `aperio-client check` reports the route it took. | direct |
-| `APERIO_TLS_MIN_VERSION` | `--` | `tls_min_version` | Lowest TLS version offered when dialing the tunnel server over `wss://`: `1.2` or `1.3`. Unset leaves rustls' own set (1.2 and 1.3), which is the right default; pin it when a policy has to name the floor in writing rather than inherit it from a dependency. A value this client cannot offer is refused at startup, never silently ignored. Process-wide: a hot-reload does not change it. | *(rustls default: 1.2 and 1.3)* |
-| `APERIO_TLS_CIPHER_SUITES` | `--` | `tls_cipher_suites` | Exact cipher suites offered when dialing the tunnel server, by their IANA names, comma-separated (e.g. `TLS13_AES_256_GCM_SHA384,TLS13_CHACHA20_POLY1305_SHA256`). Unset leaves rustls' preference order alone, which is almost always better; name them only when something external requires it. An unknown name, or a set that cannot meet `APERIO_TLS_MIN_VERSION`, is refused at startup. Process-wide. | *(rustls' own order)* |
-| `APERIO_TARGET` | positional / `--target` | `target` | **Required.** Local backend to forward to. `http(s)://` (a bare port or hostname is normalized to it), or `h2c://` / `h2://` for HTTP/2 backends, gRPC: requests are dialed over HTTP/2 (cleartext prior knowledge / TLS), `te: trailers` is forwarded, and response trailers (`grpc-status`) are relayed to the visitor. The visitor leg must also be HTTP/2 for trailers to survive (aperio-server accepts h2c; have the fronting proxy forward gRPC as HTTP/2). `unix:///var/run/app.sock` forwards over a Unix domain socket (HTTP/1.1; Unix platforms only, WebSocket upgrades unsupported; each request dials the socket fresh, matching socket-activated backends). |  |
+| `APERIO_SERVER_API_KEY` | `--server-api-key` | `server.api_key` | Programmatic admin key for `aperio-client api ...` calls, unrelated to the tunnel itself. Falls back to the tunnel token, which the server accepts only where the master token is a valid credential. See [Admin API from the CLI](cli-api.md). |  |
+| `APERIO_SERVER_IP_FAMILY` | `--server-ip-family` | `server.ip_family` | Address family used to dial the server: `auto` (default; IPv4-first, trying each resolved address with a per-address timeout), `ipv4`, or `ipv6`. Use `ipv4` when the server hostname resolves to an unreachable IPv6 address. | `auto` |
+| `APERIO_SERVER_PROXY` | `--server-proxy` | `server.proxy` | HTTP proxy to dial the tunnel server through, for a network that allows no direct outbound connection: `host:port`, `http://host:port`, either with an optional `user:password@` in front. The client sends `CONNECT` and runs TLS inside the tunnel the proxy opens, so the proxy sees the server's hostname and nothing else. **The tunnel only**: requests to your own backend are never sent through it, and neither is anything else on the machine. A port is required in practice; without one the http default (`80`) is used, and a value that names a port but no host (`:3128`) is refused at startup rather than read as a hostname. An IPv6 proxy is written bracketed (`[2001:db8::1]:3128`). An `https://` proxy (TLS to the proxy itself) is refused rather than dialed in the clear. A proxy that refuses `CONNECT` fails the dial with the proxy and its status named, and `aperio-client check` reports the route it took. | direct |
+| `APERIO_SERVER_MIN_TLS_VERSION` |  | `server.min_tls_version` | Lowest TLS version offered when dialing the tunnel server over `wss://`: `1.2` or `1.3`. Unset leaves rustls' own set (1.2 and 1.3), which is the right default; pin it when a policy has to name the floor in writing rather than inherit it from a dependency. A value this client cannot offer is refused at startup, never silently ignored. Process-wide: a hot-reload does not change it. | *(rustls default: 1.2 and 1.3)* |
+| `APERIO_SERVER_TLS_CIPHER_SUITES` |  | `server.tls_cipher_suites` | Exact cipher suites offered when dialing the tunnel server, by their IANA names, comma-separated (e.g. `TLS13_AES_256_GCM_SHA384,TLS13_CHACHA20_POLY1305_SHA256`). Unset leaves rustls' preference order alone, which is almost always better; name them only when something external requires it. An unknown name, or a set that cannot meet `APERIO_TLS_MIN_VERSION`, is refused at startup. Process-wide. | *(rustls' own order)* |
+| `APERIO_NAME` | `--name` | `name` | What to call this client on screen and in the server's logs, e.g. `eu_server_1`. Lowercase letters, digits and `_`, like a service name. **A label, not an address:** `client_id` stays the identity that failover recognizes this process by, because that needs something unique and a name is not. Three replicas an operator would happily call `eu_server` are three processes, and sharing a name must not make the server treat them as one. Unset shows the id. | the client id |
+| `APERIO_CLIENT_ID` | `--client-id` | `client_id` | Persistent client instance id (a UUID). Keeps the id stable across restarts, useful for failover `wait` mode and `aperio-client bind`. | random UUID per run |
+| `APERIO_ALLOW_SERVER_FORWARD` |  | `allow_server_forward` | Answer a `forward` check (`via: client`) whose endpoint the **server** wrote, in its own visitor gate or a `routes:` policy, rather than one of this client's services. Such a check makes the client call a URL the server chose, from the client's network, so it is refused unless this is set; the checks the client's own `access:` declares are always answered. A refused check refuses the visitor. See [the forward method](#the-forward-method). | `0` |
+| `APERIO_BANDWIDTH` |  | `bandwidth` | Link capacity of this client's network, e.g. `8mbit`, `500kbit`, `2MB`, or plain bytes/second. The server paces outgoing tunnel frames (token bucket, 1 s burst) so this client is never pushed faster than its network can drain. It is a **budget for the whole client process**, not a per-service default: it is divided across the `services:` entries and each entry's parallel `connections`, so the total never exceeds it. See [Sharing the bandwidth budget](#sharing-the-bandwidth-budget). | unlimited |
+| `APERIO_DEVICE_KEY` |  | `device_key` | Explicit device key announced for trust-on-first-use token pinning (server `security.token_pinning`): pins the token to this device so a leaked token replayed elsewhere is rejected. | none announced |
+| `APERIO_DEVICE_KEY_FILE` |  | `device_key_file` | Path holding the device key, its contents are used, or a fresh random key is generated and persisted there (owner-only `0600`) on first run. Ignored when `APERIO_DEVICE_KEY` is set. |  |
+| `APERIO_IDLE_TIMEOUT` |  | `idle_timeout` | Retire this client after it has served nothing for this long (e.g. `5m`); unset = never. The scale-in half of `scaling:`, see [Autoscaling](autoscaling.md). The shutdown is graceful, and the clock only starts after the first request. Every kind of traffic counts, not just buffered HTTP requests: each relayed frame of a WebSocket, TCP or UDP session re-stamps the clock in both directions, and retirement is held back while any request is still in flight (a slow backend, or a response streaming for longer than the window), so a live session is never cut mid-traffic. |  |
+| `APERIO_LOG_FORMAT` |  | `log_format` | `json` or `pretty`. By default the client auto-detects: human-readable logs on an interactive terminal, JSON when stdout is not a TTY (Docker, pipes, service managers). | auto |
+| `LOG_LEVEL` |  | `log_level` | Log verbosity; `RUST_LOG` overrides it. | `info` |
+| `APERIO_MAX_MESSAGE_SIZE` |  | `max_message_size` | Max size of one tunnel message accepted from the server (memory protection). | `32MB` |
+| `APERIO_MESSAGES_LISTEN` |  | `messages.listen` | Local address the message face listens on, so an application on this machine can subscribe and publish without speaking the tunnel protocol: `GET /subscribe?topic=<filter>` streams server-sent events, `POST /publish?topic=<topic>` sends the body. Loopback is the sensible value; anything else is warned about, since whoever can reach it can publish as this client. Unset = no local listener. | | unset |
+| `APERIO_MESSAGES_MQTT_LISTEN` |  | `messages.mqtt_listen` | Local address an MQTT listener answers on, for an application that would rather use the MQTT client library it already has. MQTT 3.1.1, QoS 0 on subscriptions (a subscription asking for 1 or 2 is granted 0), no retained messages, no persistent sessions. A publish carrying QoS 1 is honored as at-least-once and acknowledged with `PUBACK`; QoS 2 has no exchange of its own and is published at-least-once. The protocol never leaves the machine. Unset = no MQTT listener. | | unset |
+| `APERIO_OTEL_BRIDGE_LISTEN` |  | `otel_bridge.listen` | Address for the client's OTLP/HTTP receiver. Anything on the edge host exports to it with one environment variable and no SDK change. | `127.0.0.1:4318` |
+| `APERIO_OTEL_BRIDGE_LISTEN_GRPC` |  | `otel_bridge.listen_grpc` | Address for the OTLP/gRPC receiver, for an SDK pinned to that transport. Unset = no gRPC listener. |  |
+| `APERIO_OTEL_BRIDGE_QUEUE` |  | `otel_bridge.queue` | Exports held when the far end is not keeping up. Past this the newest is dropped and counted, never waited on: an exporter that cannot hand off its batch blocks the application it is instrumenting. | `256` |
+| `APERIO_OTEL_BRIDGE_TRANSPORT` |  | `otel_bridge.transport` | How exports reach the server: `tunnel` sends them on the WebSocket the client already holds, which is what preserves the "one outbound connection" property; `https` posts them to the server's endpoint instead, for telemetry bursty enough that it should stay off the tunnel. | `tunnel` |
+| `APERIO_PID_FILE` |  | `pid_file` | Path to write the process id to at startup, removed on a clean exit (not after a crash: a stale pid file would have an init system signalling whatever process now holds that number). A pid file that cannot be written is a warning, not a refusal to start. |  |
+| `APERIO_RELOAD_DRAIN` |  | `reload_drain` | How long a configuration reload lets in-flight requests finish before the affected tunnel connections are dropped. The client announces `Draining` first, so the server stops dispatching to it and the wait actually terminates. `0s` drops at once. | `10s` |
+| `APERIO_SCALING_COLD_START` |  | `scaling.cold_start` | How long a visitor request may be held while a cold start completes, e.g. `45s`. `0` answers immediately instead of holding. | `45s` |
+| `APERIO_SCALING_COOLDOWN` |  | `scaling.cooldown` | Minimum gap between two calls for one bind. A new instance needs time to appear; without this the server would ask again while it is still starting. | `60s` |
+| `APERIO_SCALING_MAX` |  | `scaling.max` | Ceiling the server will never ask to exceed. `0` means cold starts only, no scale-out. | `0` |
+| `APERIO_SCALING_MIN` |  | `scaling.min` | Instances that should always be running. `0` opts into scale-to-zero: a request for an unserved hostname cold-starts instead of answering 504. | `0` |
+| `APERIO_SCALING_SECRET` |  | `scaling.secret` | Sent as `Authorization: Bearer` on that call. Write-only: never echoed back, never logged. |  |
+| `APERIO_SCALING_TARGET_UTILIZATION` |  | `scaling.target_utilization` | Pool utilization above which the server asks for one more instance, between 0 and 1. | `0.8` |
+| `APERIO_SCALING_URL` |  | `scaling.url` | Endpoint the server POSTs to when a service of this client needs capacity. HTTPS and public addresses only, unless the operator opened those (see [Autoscaling](autoscaling.md)). Without it there is nothing to call, so the declaration is off. |  |
+| `APERIO_SCALING_WINDOW` |  | `scaling.window` | How long utilization must stay above the target before scaling out. Guards against reacting to a single spike. | `15s` |
+| `APERIO_SERVE_404` |  | `serve_404` | Static-file services: HTML file served with status 404 for misses the SPA fallback does not cover. Applies to every `serve:` directory of this client. |  |
+| `APERIO_SERVE_SPA` |  | `serve_spa` | Static-file services: answer a navigation (`Accept: text/html`) that matches no file with the root `index.html` and status 200, so a client-side router owns its routes. A missing asset still 404s. Applies to every `serve:` directory of this client. Default: `false`. |  |
+| `APERIO_SUBSCRIBE` |  | `subscribe` | Comma-separated topic filters this client subscribes to (the yaml form also accepts an object per entry, adding a required `topic:` and `env:` alongside `run:`/`timeout:`/`max_concurrent:` to run a command when a message arrives; `run:` is file-only), for messages from the other clients of its organization. MQTT filter syntax: `+` is one level, `#` is the rest. `$aperio/...` carries the server's own events (`$aperio/client/connected`, `$aperio/token/created`, …) and is never matched by a bare `#`, nor granted by one: the token's `topics` has to name it. Process-wide, not per service: a client running several services receives one copy, not one per service. |  |
+
+#### A service: where its traffic goes
+
+Written in a `services:` entry. On the command line and in the environment these describe the one service those two can run without a file; a target there runs on its own, in place of the file's `services:`.
+
+| Env variable | CLI | yaml key | Description | Default |
+| --- | --- | --- | --- | --- |
+| `APERIO_TARGET` | positional | `target` | **Required.** Local backend to forward to. `http(s)://` (a bare port or hostname is normalized to it), or `h2c://` / `h2://` for HTTP/2 backends, gRPC: requests are dialed over HTTP/2 (cleartext prior knowledge / TLS), `te: trailers` is forwarded, and response trailers (`grpc-status`) are relayed to the visitor. The visitor leg must also be HTTP/2 for trailers to survive (aperio-server accepts h2c; have the fronting proxy forward gRPC as HTTP/2). `unix:///var/run/app.sock` forwards over a Unix domain socket (HTTP/1.1; Unix platforms only, WebSocket upgrades unsupported; each request dials the socket fresh, matching socket-activated backends). |  |
 | `APERIO_SERVE` | `--serve` | `serve` | Serve a local directory of static files with a built-in file server instead of proxying to a backend, the directory takes the place of `target`. See [Static File Serving](static-serving.md) for SPA fallback, custom 404, streaming, `Range` support and the path-safety rules. |  |
 | `APERIO_TCP_TARGET` |  | `tcp_target` | Bridge a raw local TCP service (experimental) rather than an HTTP backend, reached through the server's `/aperio/tcp` endpoint. |  |
 | `APERIO_HOSTNAME` | `--hostname` | `hostname` | Hostname(s) this client serves. yaml `hostname:` accepts a single value or a list (`[a.example.com, b.example.com]`); the CLI/env value may be comma-separated. Each must be permitted by the client's token. |  |
 | `APERIO_PATH` | `--path` | `path` | Path prefix this client serves. |  |
-| `APERIO_TRIM_BIND` |  | `trim_bind` | Strip the path bind prefix before forwarding. | `1` when a path bind is set |
-| `APERIO_PASS_HOSTNAME` | `--pass-hostname` | `pass_hostname` | Forward the original `Host` header instead of the target's. | `0` |
-| `APERIO_PUBLIC` | `--public` | `public` | Declare the service public: the server skips its visitor password / OIDC gate for routes served exclusively by this client. Honored only when the token permits publishing public services (master always does). | `0` |
-| `APERIO_SERVER_SIDE` |  | `server_side` | Ask the server to reach this service's `target` itself instead of relaying through this client, when the server's `server_side_targets:` permits the address and the token carries `allow_server_side`. Saves the two hops a relayed request makes. Written at the top level it is the default for every `services:` entry, and it also reaches the single service of a file-less client; an entry may opt out with `server_side: false`. Cannot be combined with `serve:`, whose files are on this machine. See [Serving From the Server](server-side-services.md). | `0` |
-| `APERIO_ALLOW_SERVER_FORWARD` |  | `allow_server_forward` | Answer a `forward` check (`via: client`) whose endpoint the **server** wrote, in its own `auth:` or a `routes:` policy, rather than one of this client's services. Such a check makes the client call a URL the server chose, from the client's network, so it is refused unless this is set; the checks the client's own `auth:` declares are always answered. A refused check refuses the visitor. See [the forward method](#the-forward-method). | `0` |
-| `APERIO_VISITOR_AUTH` | `--visitor-auth` | `auth` | Gate this service behind a client-set visitor login, superseding the server's own `access.gate` for it (only the client's credentials work; master and dashboard passwords always do). A successful login is scoped to that hostname. Same token permission as `public`; ignored if the server sets `access.ignore_client_auth`. Per `services:` entry via `auth:`. In yaml this is either the `user:password` scalar or a method block, `auth: {method: basic, users: "admin:s3cret"}` and `auth: {method: none}` (the long spelling of `public: true`); the CLI flag and the environment variable are scalars, so they always mean `basic`. See [Visitor authentication](#visitor-authentication). |  |
-| `APERIO_ALLOWED_IPS` | `--allowed-ips` | `allowed_ips` | Visitor IPs/CIDRs allowed to reach this service (comma-separated on the CLI/env, a list in yaml; e.g. `203.0.113.7,10.0.0.0/8`). Enforced by the server **per candidate, before dispatch**, blocked traffic never enters the tunnel. When several clients serve one route, each candidate is filtered by its *own* list and the request goes to any passing candidate (**union semantics**, deliberately fail-open: one unrestricted client joining a route opens it; use the token-level `allowed_ips` for route-wide lockdown). A visitor every candidate rejects gets the `denied:` redirect of the most-primary declaring candidate, or, without one, a **stealth answer identical to an unclaimed route** (504), so the route's existence never leaks to blocked IPs. Purely restrictive, no token permission needed. Per `services:` entry via `allowed_ips:`. | everyone |
-| `APERIO_DENIED` |  | `denied` | Absolute http(s) URL a fully rejected visitor (see `allowed_ips`) is redirected to (302). Declared via the tunnel handshake; unset = the stealth answer. Per `services:` entry via `denied:`. | stealth |
-| `APERIO_PRIORITY` | `--priority` | `priority` | Load-balancing priority tier announced to the server (0 = primary, higher = standby; effective with `routing.lb_strategy: primary-standby`). | `0` |
-| `APERIO_BANDWIDTH` |  | `bandwidth` | Link capacity of this client's network, e.g. `8mbit`, `500kbit`, `2MB`, or plain bytes/second. The server paces outgoing tunnel frames (token bucket, 1 s burst) so this client is never pushed faster than its network can drain. It is a **budget for the whole client process**, not a per-service default: it is divided across the `services:` entries and each entry's parallel `connections`, so the total never exceeds it. See [Sharing the bandwidth budget](#sharing-the-bandwidth-budget). | unlimited |
-| `APERIO_MAX_CONCURRENT` | `--max-concurrent` | `max_concurrent` | Max concurrent requests; announced to the server, which queues the excess instead of flooding the backend. Also enforced locally. | unlimited |
-| `APERIO_CONNECTIONS` |  | `connections` | Parallel tunnel connections per service; the server load-balances across them like separate clients. The ceiling is the server's `max_connections_per_service` (default 16), announced on connect and lowerable per token. More is not automatically faster, each connection costs CPU on both ends; see the note under [Multiple services](#multiple-services). | `1` |
-| `APERIO_MULTIPLEX` |  | `multiplex` | Carry every service that sets this on one WebSocket instead of opening a connection each: one socket, one TLS session, one reader, one writer and one heartbeat for all of them, rather than that many of each on both ends. Settable per `services:` entry, so a file can turn it on once and still keep one service on a connection of its own with `multiplex: false`. Needs two services and a `name:` on each. `connections:` is not honored for a multiplexed service. See [One connection for several services](#one-connection-for-several-services). | `false` |
-| `APERIO_OTEL_BRIDGE_LISTEN` |  | `otel_bridge.listen` | Address for the client's OTLP/HTTP receiver. Anything on the edge host exports to it with one environment variable and no SDK change. | `127.0.0.1:4318` |
-| `APERIO_OTEL_BRIDGE_LISTEN_GRPC` |  | `otel_bridge.listen_grpc` | Address for the OTLP/gRPC receiver, for an SDK pinned to that transport. Unset = no gRPC listener. |  |
-| `APERIO_OTEL_BRIDGE_TRANSPORT` |  | `otel_bridge.transport` | How exports reach the server: `tunnel` sends them on the WebSocket the client already holds, which is what preserves the "one outbound connection" property; `https` posts them to the server's endpoint instead, for telemetry bursty enough that it should stay off the tunnel. | `tunnel` |
-| `APERIO_OTEL_BRIDGE_QUEUE` |  | `otel_bridge.queue` | Exports held when the far end is not keeping up. Past this the newest is dropped and counted, never waited on: an exporter that cannot hand off its batch blocks the application it is instrumenting. | `256` |
-| `APERIO_STARTUP_DELAY` |  | `startup_delay` | Seconds a service waits before opening its tunnel, for a backend that starts alongside the client and is not ready the moment the process is. Only the first connection of a parallel pool waits; the rest are the same service, and making each wait would turn a stagger into a per-connection delay. | `0` |
-| `APERIO_DEPENDS_ON` |  | `depends_on` | Services this one waits for before opening its tunnel, comma-separated in the variable and a list in yaml. Written at the top level it is the default for every `services:` entry that names none of its own, except the entries the list itself names, which are what is being waited for. The wait is bounded at 60 seconds and then proceeds anyway, logging what it gave up on. | |
-| `APERIO_PID_FILE` |  | `pid_file` | Path to write the process id to at startup, removed on a clean exit (not after a crash: a stale pid file would have an init system signalling whatever process now holds that number). A pid file that cannot be written is a warning, not a refusal to start. |  |
-| `APERIO_ADAPTIVE_CONCURRENCY` |  | `adaptive_concurrency` | Move the announced `max_concurrent` with backend pressure: halve it while requests queue waiting for a local permit, climb back one at a time when they stop. The server already queues rather than dispatching past the announced number, so a client that has become slow simply stops being sent work it cannot do; the server then holds the request, picks another client in the pool, or asks for capacity through autoscaling, all of which beat a refusal. Needs `max_concurrent` set, since that is the number being moved, and never leaves the band `1..=max_concurrent`. See [Client Resilience](client-resilience.md). | `false` |
-| `APERIO_CONNECT_TIMEOUT` |  | `connect_timeout` | Seconds to wait for the TCP connection to a backend, separate from `timeout`, which covers the whole request. Per service: a backend across a VPN needs longer than one on loopback, and one number for both means either slow failure detection everywhere or spurious failures for the far one. Unset = only the whole-request budget applies. |  |
-| `APERIO_MIN_TLS_VERSION` |  | `min_tls_version` | Lowest TLS version accepted from an `https://` backend, `1.2` or `1.3`. Per service so a fleet with one legacy backend does not have to lower the floor for all of them. A value that is not a TLS version is refused at startup rather than ignored: a typo that quietly leaves the floor where it was is what makes a security setting worse than none. Unset = rustls's own floor. |  |
-| `APERIO_METRICS_LABELS` |  | `metrics_labels` | Static Prometheus labels attached to this client's own `aperio_client_requests_total` series, so one Prometheus can serve several environments without relabelling rules. YAML takes a mapping (`{env: prod, region: eu-west}`); the environment spelling is a flat `env=prod,region=eu-west` list, because that is what a container platform can inject. The server validates and caps what arrives, at most 8 labels, names must be `[a-zA-Z_][a-zA-Z0-9_]*` and at most 32 characters, values at most 64 characters, and both the names the server writes itself (`client_id`, `job`, `instance`, `token`, `hostname`, `limit`, `service`) and any `__`-prefixed name are refused. An invalid label is dropped and the rest are kept. |  |
-| `APERIO_CONNECTIONS_MIN` |  | `connections.min` | Floor of an elastic pool: `connections: {min: 1, max: 8}` opens one connection and grows towards eight while requests queue up. Writing either half turns the setting into a range; a plain number stays a fixed pool. See [Elastic connections](#elastic-connections). | `1` |
-| `APERIO_CONNECTIONS_MAX` |  | `connections.max` | Ceiling of an elastic pool. The server's `max_connections_per_service` still wins over it. | `min` |
-| `APERIO_CAPTURE` | `--no-capture` | `capture` | Record this service's transactions for the dashboard's request inspector. On by default; `capture: false` (or `--no-capture`) trades the ability to inspect and replay this service's requests for the per-request cost of recording them. Live traffic, statistics and the access log are unaffected. | `1` (on) |
-| `APERIO_CACHE` |  | `cache` | Opt this service into the server-side GET response cache (needs `cache.enabled` on the **server**; strictly `Cache-Control`-driven). Per `services:` entry via `cache:`. | `0` |
-| `APERIO_RESILIENCE` | `--resilience` | `resilience` | Serve fresh or stale cached responses while no healthy client is connected, up to the server's `cache.max_stale` window. Needs client `cache: true` and server caching. Once a client reconnects, cache hits still apply and misses can reach the backend. Per `services:` entry via `resilience:`. | `0` |
-| `APERIO_WEBHOOK_INBOX` |  | `webhook_inbox` | Persist every inbound **POST** to this service into the server's webhook inbox (dashboard *Webhook Inbox* page): browse the payloads and re-fire any event to the connected client. Restart-surviving, newest 500 entries kept. Per `services:` entry via `webhook_inbox:`. | `0` |
-| `APERIO_SUBSCRIBE` |  | `subscribe` | Comma-separated topic filters this client subscribes to (the yaml form also accepts an object per entry, adding a required `topic:` and `env:` alongside `run:`/`timeout:`/`max_concurrent:` to run a command when a message arrives; `run:` is file-only), for messages from the other clients of its organization. MQTT filter syntax: `+` is one level, `#` is the rest. `$aperio/...` carries the server's own events (`$aperio/client/connected`, `$aperio/token/created`, …) and is never matched by a bare `#`, nor granted by one: the token's `topics` has to name it. Process-wide, not per service: a client running several services receives one copy, not one per service. |  |
-| `APERIO_MESSAGES_LISTEN` |  | `messages_listen` | Local address the message face listens on, so an application on this machine can subscribe and publish without speaking the tunnel protocol: `GET /subscribe?topic=<filter>` streams server-sent events, `POST /publish?topic=<topic>` sends the body. Loopback is the sensible value; anything else is warned about, since whoever can reach it can publish as this client. Unset = no local listener. | |
-| `APERIO_MESSAGES_MQTT_LISTEN` |  | `messages_mqtt_listen` | Local address an MQTT listener answers on, for an application that would rather use the MQTT client library it already has. MQTT 3.1.1, QoS 0 on subscriptions (a subscription asking for 1 or 2 is granted 0), no retained messages, no persistent sessions. A publish carrying QoS 1 is honored as at-least-once and acknowledged with `PUBACK`; QoS 2 has no exchange of its own and is published at-least-once. The protocol never leaves the machine. Unset = no MQTT listener. | |
-| `APERIO_IDLE_TIMEOUT` | `--` | `idle_timeout` | Retire this client after it has served nothing for this long (e.g. `5m`); unset = never. The scale-in half of `scaling:`, see [Autoscaling](autoscaling.md). The shutdown is graceful, and the clock only starts after the first request. Every kind of traffic counts, not just buffered HTTP requests: each relayed frame of a WebSocket, TCP or UDP session re-stamps the clock in both directions, and retirement is held back while any request is still in flight (a slow backend, or a response streaming for longer than the window), so a live session is never cut mid-traffic. |  |
-| `APERIO_SCALING_URL` |  | `scaling.url` | Endpoint the server POSTs to when a service of this client needs capacity. HTTPS and public addresses only, unless the operator opened those (see [Autoscaling](autoscaling.md)). Without it there is nothing to call, so the declaration is off. |  |
-| `APERIO_SCALING_SECRET` |  | `scaling.secret` | Sent as `Authorization: Bearer` on that call. Write-only: never echoed back, never logged. |  |
-| `APERIO_SCALING_MIN` |  | `scaling.min` | Instances that should always be running. `0` opts into scale-to-zero: a request for an unserved hostname cold-starts instead of answering 504. | `0` |
-| `APERIO_SCALING_MAX` |  | `scaling.max` | Ceiling the server will never ask to exceed. `0` means cold starts only, no scale-out. | `0` |
-| `APERIO_SCALING_COLD_START` |  | `scaling.cold_start` | How long a visitor request may be held while a cold start completes, e.g. `45s`. `0` answers immediately instead of holding. | `45s` |
-| `APERIO_SCALING_TARGET_UTILIZATION` |  | `scaling.target_utilization` | Pool utilization above which the server asks for one more instance, between 0 and 1. | `0.8` |
-| `APERIO_SCALING_WINDOW` |  | `scaling.window` | How long utilization must stay above the target before scaling out. Guards against reacting to a single spike. | `15s` |
-| `APERIO_SCALING_COOLDOWN` |  | `scaling.cooldown` | Minimum gap between two calls for one bind. A new instance needs time to appear; without this the server would ask again while it is still starting. | `60s` |
-| `APERIO_CLIENT_ID` | `--client-id` | `client_id` | Persistent client instance id (a UUID). Keeps the id stable across restarts, useful for failover `wait` mode and `--bind-tunnels`. | random UUID per run |
-| `APERIO_NAME` | `--name` | `name` | What to call this client on screen and in the server's logs, e.g. `eu_server_1`. Lowercase letters, digits and `_`, like a service name. **A label, not an address:** `client_id` stays the identity that failover and `bind_tunnels:` recognize this process by, because those need something unique and a name is not. Three replicas an operator would happily call `eu_server` are three processes, and sharing a name must not make the server treat them as one. Unset shows the id. | the client id |
-| `APERIO_DEVICE_KEY` |  | `device_key` | Explicit device key announced for trust-on-first-use token pinning (server `security.token_pinning`): pins the token to this device so a leaked token replayed elsewhere is rejected. | none announced |
-| `APERIO_DEVICE_KEY_FILE` |  | `device_key_file` | Path holding the device key, its contents are used, or a fresh random key is generated and persisted there (owner-only `0600`) on first run. Ignored when `APERIO_DEVICE_KEY` is set. |  |
-| `APERIO_CUSTOM_NAME` |  | `custom_name` | What to call this service on screen (dashboard, client logs). Free text: any language, any punctuation, spaces, changeable at will, nothing addresses it. `name:` is the handle that does, and it is an identifier (`a-z`, `0-9`, `_`). Per `services:` entry via `custom_name:`, and available on a `tunnels:` entry too. |  |
-| `APERIO_TARGET_HEALTH` |  | `health.endpoint` | Health endpoint of the local target (path like `/health`, or a full URL). When set, the client probes it independently and reports the result to the server: a failing backend takes the client **out of routing without dropping the tunnel**; it rejoins automatically when the probe recovers. The dashboard shows a `BACKEND DOWN` badge meanwhile. **The service starts *unhealthy* (out of routing) until the first probe succeeds**, the client never claims a backend is up before it has checked it, and the first probe runs immediately at startup, so a healthy backend becomes routable within a probe (not a probe interval). Before that first probe completes the dashboard shows a **CHECKING** badge (rather than *BACKEND DOWN*), so "not probed yet" is distinguishable from "probed and down". Probes never follow redirects. Against an `h2c://`/`h2://` target the value names the **gRPC service** to health-check instead, and the probe calls `grpc.health.v1.Health/Check`: a plain GET cannot reach a server that speaks HTTP/2 with prior knowledge and routes by method name. `/` asks about the server as a whole. An absolute `http(s)://` URL still means an ordinary HTTP probe. |  |
-| `APERIO_WAIT_FOR_BACKEND` |  | `health.wait_for_backend` | Startup gate: hold the service **out of routing until the backend first accepts a connection**, avoiding the connection-refused window while a slow dev server boots. Connection-level only (a probe per second); once the backend is up the gate never re-engages. Superseded by `target_health`, which gates startup *and* tracks health continuously. Per `services:` entry via `wait_for_backend:`. | `0` |
-| `APERIO_HEALTH_INTERVAL` |  | `health.interval` | Seconds between backend health probes. | `10` |
-| `APERIO_HEALTH_TIMEOUT` |  | `health.timeout` | Per-probe timeout (seconds). | `5` |
-| `APERIO_HEALTH_THRESHOLD` |  | `health.threshold` | Consecutive probe failures before the backend is reported unhealthy. | `2` |
-| `APERIO_TIMEOUT` |  | `timeout` | Per-request backend timeout (seconds). | `30` |
-| `APERIO_RESPONSE_TIMEOUT` |  | `response_timeout` | Per-service override (seconds) of the server's gateway response timeout for requests dispatched to this service. Unset = the server's global `gateway.response_timeout`. Per `services:` entry via `response_timeout:`. | server global |
-| `APERIO_MAX_REDIRECTS` |  | `max_redirects` | Backend redirects followed transparently: same-host scheme upgrades (`http://x` → `https://x`) and hops within the same root domain (`example.com` → `test.example.com`), never downgrading https to http. Redirects beyond this many jumps, or to unrelated hosts, pass through to the visitor unchanged. `0` disables following entirely. | `5` |
-| `APERIO_RELOAD_DRAIN` |  | `reload_drain` | Seconds a configuration reload lets in-flight requests finish before the affected tunnel connections are dropped. The client announces `Draining` first, so the server stops dispatching to it and the wait actually terminates. `0` drops at once, which is what happened before this setting existed. | `10` |
-| `APERIO_RETRY_ATTEMPTS` |  | `retry.attempts` | Total attempts for a backend request that fails **before any response arrives** (a refused connection, a reset, a timeout on the head). `1` = no retrying, which does not cover a connection the backend had already closed: see the note under this table. Values are clamped to `1..=10`, so a larger number silently becomes 10. Only idempotent methods are retried unless `retry.all_methods` says otherwise, and only requests whose body can be replayed: a streamed upload is consumed by the first attempt, so it is never retried. Once a response head has arrived the request is past this point, so an error later in the body is not retried either. | `1` (off) |
-| `APERIO_RETRY_BACKOFF` |  | `retry.backoff` | Milliseconds before the second attempt, doubled before each further one. | `100` |
-| `APERIO_RETRY_ALL_METHODS` |  | `retry.all_methods` | `1` = also retry non-idempotent methods (POST, PATCH). Off by default because a retried write may reach the backend twice, the same trade as the server's `failover.all_methods`. | `0` |
-| `APERIO_BREAKER_FAILURES` |  | `circuit_breaker.failures` | Consecutive backend failures that open the circuit breaker. While open the backend is **not dialed at all** and the visitor gets `502` immediately, so a dead backend stops being hammered once per request and nobody waits out a connect that will not succeed. `0` disables it. A response head of any status counts as a success: a `500` is a backend that is up, and refusing to dial it would turn an application error into an outage. | `0` (off) |
-| `APERIO_BREAKER_OPEN_FOR` |  | `circuit_breaker.open_for` | Seconds the breaker stays open. After that one request is let through to probe the backend; if it fails, a fresh window starts. | `30` |
-| `APERIO_MAX_RESPONSE_BODY` |  | `max_response_body` | Max backend response size in bytes; bodies over 32 KB are streamed through the tunnel as binary chunks rather than base64 in one message (256 KB against a server too old for binary frames). A response that grows past this limit before any of it was sent is refused with a `502`; one already streaming is aborted, so the visitor sees a broken response rather than a silently truncated success. | 50 MB |
-| `APERIO_MAX_REQUEST_BODY` |  | `max_request_body` | Max request body size in bytes visitors may upload to this service. Announced to the server, which rejects bigger uploads with an early **413** before the body ever enters the tunnel. Can only tighten the server's global `limits.request_body`, never widen it. Per `services:` entry via `max_request_body:`. | server limit only |
-| `APERIO_MAX_MESSAGE_SIZE` |  | `max_message_size` | Max size of one tunnel message accepted from the server (memory protection). | 32 MB |
-| `LOG_LEVEL` |  | `log_level` | Log verbosity. | `info` |
-| `APERIO_LOG_FORMAT` |  | `log_format` | `json` or `pretty`. By default the client auto-detects: human-readable logs on an interactive terminal, JSON when stdout is not a TTY (Docker, pipes, service managers). | auto |
+| `APERIO_CUSTOM_NAME` |  | `custom_name` | What to call this service on screen (dashboard, client logs). Free text: any language, any punctuation, spaces, changeable at will, nothing addresses it. The key a service is written under is the handle that does, and it is an identifier (`a-z`, `0-9`, `_`). Available on a `tunnels:` entry too. |  |
 
-Yaml-only sections: `services:` (multiple exposed targets, below), `tunnels:` and `bind-tunnels:` (see [Tunnels](emergency-tunnels.md)).
+#### A service: what it does with its traffic
+
+Written in a `services:` entry for that service, or under `defaults:` for every service that does not write its own. The environment variable and the flag set the `defaults:` value: `APERIO_TIMEOUT=60s` is `defaults.timeout`, and a service that writes its own `timeout` keeps it.
+
+| Env variable | CLI | yaml key | Description | Default |
+| --- | --- | --- | --- | --- |
+| `APERIO_ACCESS` | `--access` | `access` | Who may reach the service: `public`, one method block, or a list of them (any one admits). Unset, the server's own visitor gate and `access.default` decide. | the server's gate |
+| `APERIO_ALLOWED_IPS` | `--allowed-ips` | `allowed_ips` | Visitor IPs/CIDRs allowed to reach this service (comma-separated on the CLI/env, a list in yaml; e.g. `203.0.113.7,10.0.0.0/8`). Enforced by the server **per candidate, before dispatch**, blocked traffic never enters the tunnel. When several clients serve one route, each candidate is filtered by its *own* list and the request goes to any passing candidate (**union semantics**, deliberately fail-open: one unrestricted client joining a route opens it; use the token-level `allowed_ips` for route-wide lockdown). A visitor every candidate rejects gets the `denied:` redirect of the most-primary declaring candidate, or, without one, a **stealth answer identical to an unclaimed route** (504), so the route's existence never leaks to blocked IPs. Purely restrictive, no token permission needed. | everyone |
+| `APERIO_CACHE_ENABLED` |  | `cache.enabled` | Opt this service into the server-side GET response cache (needs `cache.enabled` on the **server**; strictly `Cache-Control`-driven). | `false` |
+| `APERIO_CACHE_OFFLINE` |  | `cache.offline` | Serve fresh or stale cached responses while no healthy client is connected, up to the server's `cache.max_stale` window. Needs `cache.enabled` here and caching on the server. Once a client reconnects, cache hits still apply and misses can reach the backend. | `false` |
+| `APERIO_CIRCUIT_BREAKER_FAILURES` |  | `circuit_breaker.failures` | Consecutive backend failures that open the circuit breaker. While open the backend is **not dialed at all** and the visitor gets `502` immediately, so a dead backend stops being hammered once per request and nobody waits out a connect that will not succeed. `0` disables it. A response head of any status counts as a success: a `500` is a backend that is up, and refusing to dial it would turn an application error into an outage. | `0` (off) |
+| `APERIO_CIRCUIT_BREAKER_OPEN_FOR` |  | `circuit_breaker.open_for` | How long the breaker stays open. After that one request is let through to probe the backend; if it fails, a fresh window starts. | `30s` |
+| `APERIO_CONNECT_TIMEOUT` |  | `connect_timeout` | How long to wait for the TCP connection to a backend, separate from `timeout`, which covers the whole request. Per service: a backend across a VPN needs longer than one on loopback, and one number for both means either slow failure detection everywhere or spurious failures for the far one. Unset = only the whole-request budget applies. |  |
+| `APERIO_CONNECTIONS` |  | `connections` | Parallel tunnel connections per service; the server load-balances across them like separate clients. The ceiling is the server's `limits.connections_per_service` (default 16), announced on connect and lowerable per token. More is not automatically faster, each connection costs CPU on both ends; see the note under [Multiple services](#multiple-services). | `1` |
+| `APERIO_CONNECTIONS_MAX` |  | `connections.max` | Ceiling of an elastic pool. The server's `limits.connections_per_service` still wins over it. | `min` |
+| `APERIO_CONNECTIONS_MIN` |  | `connections.min` | Floor of an elastic pool: `connections: {min: 1, max: 8}` opens one connection and grows towards eight while requests queue up. Writing either half turns the setting into a range; a plain number stays a fixed pool. See [Elastic connections](#elastic-connections). | `1` |
+| `APERIO_DENIED` |  | `denied` | Absolute http(s) URL a fully rejected visitor (see `allowed_ips`) is redirected to (302). Declared via the tunnel handshake; unset = the stealth answer. | stealth |
+| `APERIO_HEADERS_REQUEST_ADD` |  | `headers.request.add` | Headers to set, name → value; replaces an existing header of the same name. |  |
+| `APERIO_HEADERS_REQUEST_REMOVE` |  | `headers.request.remove` | Header names to strip (case-insensitive). |  |
+| `APERIO_HEADERS_RESPONSE_ADD` |  | `headers.response.add` | Headers to set, name → value; replaces an existing header of the same name. |  |
+| `APERIO_HEADERS_RESPONSE_REMOVE` |  | `headers.response.remove` | Header names to strip (case-insensitive). |  |
+| `APERIO_HEALTH_ENDPOINT` |  | `health.endpoint` | Health endpoint of the local target (path like `/health`, or a full URL). When set, the client probes it independently and reports the result to the server: a failing backend takes the client **out of routing without dropping the tunnel**; it rejoins automatically when the probe recovers. The dashboard shows a `BACKEND DOWN` badge meanwhile. **The service starts *unhealthy* (out of routing) until the first probe succeeds**, the client never claims a backend is up before it has checked it, and the first probe runs immediately at startup, so a healthy backend becomes routable within a probe (not a probe interval). Before that first probe completes the dashboard shows a **CHECKING** badge (rather than *BACKEND DOWN*), so "not probed yet" is distinguishable from "probed and down". Probes never follow redirects. Against an `h2c://`/`h2://` target the value names the **gRPC service** to health-check instead, and the probe calls `grpc.health.v1.Health/Check`: a plain GET cannot reach a server that speaks HTTP/2 with prior knowledge and routes by method name. `/` asks about the server as a whole. An absolute `http(s)://` URL still means an ordinary HTTP probe. |  |
+| `APERIO_HEALTH_INTERVAL` |  | `health.interval` | Time between backend health probes. | `10s` |
+| `APERIO_HEALTH_THRESHOLD` |  | `health.threshold` | Consecutive probe failures before the backend is reported unhealthy. | `2` |
+| `APERIO_HEALTH_TIMEOUT` |  | `health.timeout` | Per-probe timeout. | `5s` |
+| `APERIO_HEALTH_WAIT_FOR_BACKEND` |  | `health.wait_for_backend` | Startup gate: hold the service **out of routing until the backend first accepts a connection**, avoiding the connection-refused window while a slow dev server boots. Connection-level only (a probe per second); once the backend is up the gate never re-engages. Superseded by `health.endpoint`, which gates startup *and* tracks health continuously. | `0` |
+| `APERIO_INSPECTOR` |  | `inspector` | Record this service's transactions for the dashboard's request inspector. On by default; `inspector: false` (or `APERIO_INSPECTOR=0`) trades the ability to inspect and replay this service's requests for the per-request cost of recording them. Live traffic, statistics and the access log are unaffected. | `true` |
+| `APERIO_LIMITS_ADAPTIVE_CONCURRENCY` |  | `limits.adaptive_concurrency` | Move the announced `limits.concurrent_requests` with backend pressure: halve it while requests queue waiting for a local permit, climb back one at a time when they stop. The server already queues rather than dispatching past the announced number, so a client that has become slow simply stops being sent work it cannot do; the server then holds the request, picks another client in the pool, or asks for capacity through autoscaling, all of which beat a refusal. Needs `limits.concurrent_requests` set, since that is the number being moved, and never leaves the band `1..=max_concurrent`. See [Client Resilience](client-resilience.md). | `false` |
+| `APERIO_LIMITS_CONCURRENT_REQUESTS` |  | `limits.concurrent_requests` | Max concurrent requests; announced to the server, which queues the excess instead of flooding the backend. Also enforced locally. | unlimited |
+| `APERIO_LIMITS_REDIRECTS` |  | `limits.redirects` | Backend redirects followed transparently: same-host scheme upgrades (`http://x` → `https://x`) and hops within the same root domain (`example.com` → `test.example.com`), never downgrading https to http. Redirects beyond this many jumps, or to unrelated hosts, pass through to the visitor unchanged. `0` disables following entirely. | `5` |
+| `APERIO_LIMITS_REQUEST_BODY` |  | `limits.request_body` | Largest request body visitors may upload to this service, e.g. `10MB`. Announced to the server, which rejects bigger uploads with an early **413** before the body ever enters the tunnel. Can only tighten the server's global `limits.request_body`, never widen it. | server limit only |
+| `APERIO_LIMITS_RESPONSE_BODY` |  | `limits.response_body` | Largest backend response this client relays, e.g. `50MB`; bodies over 32 KB are streamed through the tunnel as binary chunks rather than base64 in one message (256 KB against a server too old for binary frames). A response that grows past this limit before any of it was sent is refused with a `502`; one already streaming is aborted, so the visitor sees a broken response rather than a silently truncated success. | `50MB` |
+| `APERIO_METRICS_LABELS` |  | `metrics_labels` | Static Prometheus labels attached to this client's own `aperio_client_requests_total` series, so one Prometheus can serve several environments without relabelling rules. YAML takes a mapping (`{env: prod, region: eu-west}`); the environment spelling is a flat `env=prod,region=eu-west` list, because that is what a container platform can inject. The server validates and caps what arrives, at most 8 labels, names must be `[a-zA-Z_][a-zA-Z0-9_]*` and at most 32 characters, values at most 64 characters, and both the names the server writes itself (`client_id`, `job`, `instance`, `token`, `hostname`, `limit`, `service`) and any `__`-prefixed name are refused. An invalid label is dropped and the rest are kept. |  |
+| `APERIO_MIN_TLS_VERSION` |  | `min_tls_version` | Lowest TLS version accepted from an `https://` backend, `1.2` or `1.3`. Per service so a fleet with one legacy backend does not have to lower the floor for all of them. A value that is not a TLS version is refused at startup rather than ignored: a typo that quietly leaves the floor where it was is what makes a security setting worse than none. Unset = rustls's own floor. |  |
+| `APERIO_MULTIPLEX` |  | `multiplex` | Carry every service that sets this on one WebSocket instead of opening a connection each: one socket, one TLS session, one reader, one writer and one heartbeat for all of them, rather than that many of each on both ends. Written under `defaults:` it turns on once, and a service still keeps a connection of its own with `multiplex: false`. Needs two services; the one service of the command line never multiplexes. `connections:` is not honored for a multiplexed service. See [One connection for several services](#one-connection-for-several-services). | `false` |
+| `APERIO_PASS_HOSTNAME` | `--pass-hostname` | `pass_hostname` | Forward the original `Host` header instead of the target's. | `0` |
+| `APERIO_PRIORITY` | `--priority` | `priority` | Load-balancing priority tier announced to the server (0 = primary, higher = standby; effective with `routing.lb_strategy: primary-standby`). | `0` |
+| `APERIO_RESPONSE_TIMEOUT` |  | `response_timeout` | This service's own `gateway.response_timeout`: how long the server waits for it to answer a dispatched request, for slow report and upload endpoints. Unset = the server's. | server global |
+| `APERIO_RETRY_ALL_METHODS` |  | `retry.all_methods` | `1` = also retry non-idempotent methods (POST, PATCH). Off by default because a retried write may reach the backend twice, the same trade as the server's `failover.all_methods`. | `0` |
+| `APERIO_RETRY_ATTEMPTS` |  | `retry.attempts` | Total attempts for a backend request that fails **before any response arrives** (a refused connection, a reset, a timeout on the head). `1` = no retrying, which does not cover a connection the backend had already closed: see the note under this table. Values are clamped to `1..=10`, so a larger number silently becomes 10. Only idempotent methods are retried unless `retry.all_methods` says otherwise, and only requests whose body can be replayed: a streamed upload is consumed by the first attempt, so it is never retried. Once a response head has arrived the request is past this point, so an error later in the body is not retried either. | `1` |
+| `APERIO_RETRY_DELAY` |  | `retry.delay` | Wait before the second attempt, doubled before each further one (`100ms`, `1s`). | `100ms` |
+| `APERIO_SECURITY_HEADERS` |  | `security_headers` | Security response-header preset: `true` injects HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and `Referrer-Policy`; a mapping picks headers individually. |  |
+| `APERIO_SECURITY_HEADERS_CSP` |  | `security_headers.csp` | `Content-Security-Policy` value to inject (no default, CSP is application-specific). |  |
+| `APERIO_SECURITY_HEADERS_FRAME_OPTIONS` |  | `security_headers.frame_options` | `X-Frame-Options` value to inject. |  |
+| `APERIO_SECURITY_HEADERS_HSTS` |  | `security_headers.hsts` | Inject `Strict-Transport-Security` (only meaningful behind HTTPS). |  |
+| `APERIO_SECURITY_HEADERS_HSTS_MAX_AGE` |  | `security_headers.hsts_max_age` | HSTS `max-age`. Default: `730d` (two years). | `730d` |
+| `APERIO_SECURITY_HEADERS_NOSNIFF` |  | `security_headers.nosniff` | Inject `X-Content-Type-Options: nosniff`. |  |
+| `APERIO_SECURITY_HEADERS_REFERRER_POLICY` |  | `security_headers.referrer_policy` | `Referrer-Policy` value to inject. |  |
+| `APERIO_SERVER_SIDE` |  | `server_side` | Ask the server to reach this service's `target` itself instead of relaying through this client, when the server's `server_side_targets:` permits the address and the token carries `allow_server_side`. Saves the two hops a relayed request makes. Written at the top level it is the default for every `services:` entry, and it also reaches the single service of a file-less client; an entry may opt out with `server_side: false`. Cannot be combined with `serve:`, whose files are on this machine. See [Serving From the Server](server-side-services.md). | `0` |
+| `APERIO_STARTUP_DELAY` |  | `startup_delay` | How long a service waits before opening its tunnel, for a backend that starts alongside the client and is not ready the moment the process is. Only the first connection of a parallel pool waits; the rest are the same service, and making each wait would turn a stagger into a per-connection delay. | `0s` |
+| `APERIO_TIMEOUT` |  | `timeout` | Per-request backend timeout. | `30s` |
+| `APERIO_TRIM_BIND` |  | `trim_bind` | Strip the path bind prefix before forwarding. | `1` when a path bind is set |
+| `APERIO_WEBHOOK_INBOX` |  | `webhook_inbox` | Persist every inbound **POST** to this service into the server's webhook inbox (dashboard *Webhook Inbox* page): browse the payloads and re-fire any event to the connected client. Restart-surviving, newest 500 entries kept. | `0` |
+
+#### Sections written only in a file
+
+A map of entries has no flat spelling, so these live in the file (or in `~/.aperio.yaml`):
+
+| Key | What it holds |
+| --- | --- |
+| `services` | The backends this client exposes, keyed by name, see [Multiple services](#multiple-services). |
+| `defaults` | What every service gets unless its own entry says otherwise: any key of the service tables above, apart from where its traffic comes from and goes to (and `depends_on`, `bandwidth`, which belong to one service). |
+| `tunnels` | Private services a peer may bind, keyed by the name binders use: `target`, `protocol` (`tcp`, `udp`, `tcp/udp`), `encrypt`, `psk`, `proxy_protocol`, `idle_timeout`, `custom_name`. See [Tunnels](emergency-tunnels.md). |
+| `binds` | Tunnels `aperio-client bind` listens for, keyed by tunnel name: a local port, or `{port, address, token, psk}`. |
+| `subscribe` | Topic filters, each a bare filter or `{topic, run, env, timeout, max_concurrent}` to run a command per message. `APERIO_SUBSCRIBE` carries bare filters only: a command to run is written in the file. See [Messaging](messaging.md). |
+| `include` | Other files to read first, see [Splitting the config across files](#splitting-the-config-across-files-include). |
 
 ### aperio.yaml & ~/.aperio.yaml
 
@@ -188,37 +208,37 @@ Yaml-only sections: `services:` (multiple exposed targets, below), `tunnels:` an
 # ~/.aperio.yaml, user-level defaults shared across projects
 server:
   url: https://tunnel.example.com
-  token: apr_xxxxxxxxxxxxxxxx
+  token: ${APERIO_SERVER_TOKEN}
 ```
 
 ```yaml
 # ./aperio.yaml, per-project service description
 services:
-  - target: http://localhost:3000
-    # optional
+  web:
+    target: http://localhost:3000
     hostname: app.example.com
     path: /api
-    trim_bind: true
-    pass_hostname: false
-    max_concurrent: 8
+    access: public
+    limits:
+      concurrent_requests: 8
     health:
       endpoint: /health   # probe the backend; report unhealthy without dropping the tunnel
 
-# top-level keys are the defaults every entry falls back to
-priority: 0                  # 0 = primary, higher = standby tier
-health:
-  interval: 10
+defaults:                 # every service, unless its entry says otherwise
+  timeout: 60s
+  health:
+    interval: 10s
 ```
 
-**A config file describes services under `services:`, even when there is one.** Naming a single backend at the top level (`target:`, `serve:`, `hostname:`, `path:`, `tcp_target:`, and the probe path `target_health:` / `health.endpoint`) was deprecated from 0.6.0 and removed in 0.9.0: those keys only ever did anything in a file *without* a `services:` list, so a reader had to know which of two shapes they were looking at before they could read anything else. The rest of the `health:` block stays where it is: `interval`, `timeout`, `threshold` and `wait_for_backend` are genuine defaults every entry inherits, while a probe path belongs to the backend it probes. **A file has not accepted them since 0.9.0**: a client that finds one refuses to start and names the keys, rather than running while the file says something it is not doing. Migrating is mechanical, indent them under one `services:` entry. Single-service mode is unchanged where it belongs, on the command line and in the environment.
+**A file describes its backends under `services:`, keyed by name, even when there is one.** The key is the service's name, the identifier the dashboard and the logs use (`a-z`, `0-9`, `_`); `custom_name:` is where anything human goes. A service key written at the top level (`target:`, `hostname:`, ...) is refused with a message saying where it goes, and a key that every service shares is written once under `defaults:`.
 
-Single-service mode itself is not going away, it moves to where a one-liner belongs, the command line and the environment:
+A one-liner still runs a single service, on the command line or in the environment:
 
 ```bash
-# the positional target is single-service mode
+# the positional target is the one service
 aperio-client http://localhost:3000 \
   --server-url https://tunnel.example.com --server-token apr_xxxxxxxxxxxxxxxx \
-  --hostname app.example.com --path /api
+  --hostname app.example.com --path /api --access public
 ```
 
 ```bash
@@ -228,10 +248,11 @@ export APERIO_SERVER_TOKEN=apr_xxxxxxxxxxxxxxxx
 export APERIO_TARGET=http://localhost:3000
 export APERIO_HOSTNAME=app.example.com
 export APERIO_PATH=/api
+export APERIO_ACCESS=public
 aperio-client
 ```
 
-The legacy flat form (`server: https://...` plus top-level `token:`) is still accepted. The local file is hot-reloaded: edits are applied within ~5 s via a graceful reconnect.
+A `hostname` or `path` given that way with no target is refused rather than ignored: it describes a service, and there is none to put it on.
 
 ### Splitting the config across files (`include:`)
 
@@ -240,63 +261,70 @@ One `aperio.yaml` stops scaling when there are twenty services, or when differen
 ```yaml
 # aperio.yaml
 include:
-  - shared/health.yaml     # relative to *this* file, not the working directory
+  - shared/defaults.yaml   # relative to *this* file, not the working directory
   - services/prod.yaml
-timeout: 30                # this file wins over anything an include set
+defaults:
+  timeout: 30s             # this file wins over anything an include set
 services:
-  - name: web              # appended after the included services
+  web:                     # added next to the services the includes named
     target: http://localhost:3000
 ```
 
-The rule is one sentence: **an included file's keys are used unless the including file sets them, and sequences of mappings concatenate.** That second half is what makes it useful, `services:`, `subscribe:` and `expose:` are collections a file adds to, while `allowed_ips:` and the rest are values it sets. Includes are merged in the order written, so a later one wins over an earlier one, and the including file wins over all of them.
+The rule is the one every layer uses: **mappings merge key by key, and anything else is replaced.** A fragment adds a service by naming it, sets a default under `defaults:`, and a list (`allowed_ips:`, `subscribe:`) is the value the last file to write it gave. Includes are merged in the order written, so a later one wins over an earlier one, and the including file wins over all of them.
 
-Paths resolve relative to the file that wrote them, so a fragment means the same thing whichever directory the client is started from. Chains may nest five deep; a cycle, a missing file, or a malformed `include:` is an error naming the file rather than a silently partial configuration. Hot-reload watches every file that contributed, not just the root, and re-reads the set on each change so adding or removing an include is picked up too.
+Paths resolve relative to the file that wrote them, so a fragment means the same thing whichever directory the client is started from. Chains may nest five deep; a cycle, a missing file, or a malformed `include:` is an error naming the file rather than a silently partial configuration. Every file is checked on its own, so a key nothing reads is reported against the fragment that wrote it. Hot-reload watches every file that contributed, not just the root, and re-reads the set on each change so adding or removing an include is picked up too.
 
 ### Multiple services
 
-One client process can expose several targets: add an entry per backend to `services:`, and the client opens one tunnel connection per entry, each with its own binds, health probe, and knobs:
+One client process can expose several targets: add an entry per backend to `services:`, and the client opens one tunnel connection per entry (or shares one, with `multiplex`), each with its own binds, health probe, and knobs:
 
 ```yaml
 # ./aperio.yaml (client)
 server:
   url: https://tunnel.example.com
-  token: apr_xxxxxxxxxxxxxxxx
+  token: ${APERIO_SERVER_TOKEN}
+defaults:
+  access: public
 services:
-  - name: web
+  web:
     target: http://localhost:3000
     hostname: app.example.com
-    target_health: /health
-  - name: api
+    health:
+      endpoint: /health
+  api:
     target: http://localhost:4000
     hostname: api.example.com
-    max_concurrent: 8
-  - name: docs
+    limits:
+      concurrent_requests: 8
+  docs:
     target: http://localhost:5000
     path: /docs
 ```
 
-Per-entry fields: `name`, `custom_name`, `target` (required, or `serve` in its place: a local directory of static files served as this service, mutually exclusive with `target`; one loopback file server runs per distinct directory), `hostname`, `path`, `trim_bind`, `pass_hostname`, `max_concurrent`, `adaptive_concurrency`, `multiplex`, `connections`, `priority`, `bandwidth`, `timeout`, `connect_timeout`, `min_tls_version`, `max_response_body`, `max_request_body`, `max_redirects`, `target_health`, `wait_for_backend`, `health_interval`, `health_timeout`, `health_threshold`, `startup_delay`, `depends_on`, `metrics_labels`, `public`, `auth`, `allowed_ips`, `denied`, `headers`, `security_headers`, `cache`, `resilience`, `capture`, `webhook_inbox`, `server_side`, `tcp_target`, `retry`, `circuit_breaker`. Unset tuning knobs fall back to the top-level values; binds are strictly per entry. The one exception is `bandwidth`, where the top-level value is a budget shared by the entries rather than a default copied into each of them.
+An entry takes every key of the service tables above. `target` (or `serve`, a local directory of static files served as the service, or `tcp_target`, a raw TCP backend) is what it exposes; `hostname`, `path`, `custom_name`, `depends_on` and `bandwidth` belong to the one service. Everything else may also be written under `defaults:`, and **an entry is laid over `defaults:` by the merge rule**: a key the entry writes wins, a block it writes (`health:`, `limits:`) is merged with the default block field by field, and a key it does not write is the default's. The environment and the command line write `defaults:`, so `APERIO_TIMEOUT=60s` reaches every service that does not write its own `timeout`. The one exception to "a default is copied into each service" is the top-level `bandwidth`, which is a budget the services share rather than a value each of them gets.
 
-**Backend resilience (`retry:` and `circuit_breaker:`).** The server can fail a request over to another *client* and eject one that keeps misbehaving; neither helps the client whose own backend is refusing connections. These two blocks cover that hop, per service or at the top level as the default for every entry. They apply to every backend scheme: plain HTTP, `h2c://` / `h2://`, and `unix://`.
+Services run in the order the file writes them, and each runs under the client's id suffixed with its position.
+
+**Backend resilience (`retry:` and `circuit_breaker:`).** The server can fail a request over to another *client* and eject one that keeps misbehaving; neither helps the client whose own backend is refusing connections. These two blocks cover that hop, per service or under `defaults:`. They apply to every backend scheme: plain HTTP, `h2c://` / `h2://`, and `unix://`.
 
 ```yaml
 services:
-  - name: api
+  api:
     target: http://localhost:3000
     retry:
       attempts: 3        # total, including the first; 1 = off (the default)
-      backoff: 100       # ms before the second attempt, doubled after that
+      delay: 100ms       # before the second attempt, doubled after that
       all_methods: false # POST/PATCH are not retried unless this is true
     circuit_breaker:
       failures: 5        # consecutive failures that open it; 0 = off (default)
-      open_for: 30       # seconds before one request probes the backend again
+      open_for: 30s      # before one request probes the backend again
 ```
 
 Retrying only covers failures that happen *before* a response head arrives, and only requests that can be replayed: a streamed upload is consumed by its first attempt. The breaker counts any response head as a success regardless of status, because a `500` is a backend that is up and answering.
 
 **One case is handled whatever `retry:` says.** The client keeps backend connections alive and reuses them, and the backend closes idle ones on its own schedule, so there is a window where a request is written onto a socket the backend has just finished with. Nothing is wrong with the backend, and no response head arrives; under load that window is hit constantly. The client re-dials once, silently, for a request the same fences already allow to be replayed (an idempotent method, a replayable body). This is not the retry policy, which is about a backend that failed, and it is why the same backend behind any mainstream proxy does not answer with a scattering of `502`s under load. A second such failure on the same request is a backend genuinely closing on the client, and it reaches the visitor.
 
-`connections: N` (default 1, also valid at the top level or as `APERIO_CONNECTIONS`) opens N parallel tunnel connections for a service. How many N may be is the server's decision, `max_connections_per_service` (default 16), lowerable per token and announced on connect: a client asking for more opens what it is allowed and says so in its log. The server pools them like separate clients, its load-balancing strategy spreads requests across them, so a single service is no longer serialized behind one WebSocket under heavy parallel traffic. Each connection gets its own instance id (`<id>`, `<id>-c2`, `<id>-c3`, …), so the dashboard's shared-id warning is not triggered and failover/`--bind-tunnels` lookups stay unambiguous; `max_concurrent` applies per connection. The `name` shows up in client logs and as a badge in the dashboard's clients table. The `services:` list is layered like every other client setting: the local `./aperio.yaml` wins when it writes one, and `~/.aperio.yaml` is used when it does not; a positional CLI target overrides the list entirely (single-service mode). Config hot-reload re-resolves the whole list, so adding or removing services doesn't need a restart.
+`connections: N` (default 1) opens N parallel tunnel connections for a service. How many N may be is the server's decision, `limits.connections_per_service` (default 16), lowerable per token and announced on connect: a client asking for more opens what it is allowed and says so in its log. The server pools them like separate clients, its load-balancing strategy spreads requests across them, so a single service is no longer serialized behind one WebSocket under heavy parallel traffic. Each connection gets its own instance id (`<id>`, `<id>-c2`, `<id>-c3`, …), so the dashboard's shared-id warning is not triggered and failover lookups stay unambiguous; `limits.concurrent_requests` applies per connection. Config hot-reload re-resolves every service, so adding or removing one doesn't need a restart.
 
 More connections is not automatically faster: each one costs a reader and a writer task on both ends, and its own sockets and queues. Raising N pays off when the bottleneck is the network, a long round-trip or a single TCP stream's throughput ceiling between client and server. When client and server share a machine's CPU (loopback, a dev box, co-located containers), small values win; in a loopback bulk-throughput measurement the curve peaked at 4 connections and fell past it, with 10 slower than 1. Start small, and let a measurement on your own deployment justify each increase.
 
@@ -308,7 +336,8 @@ More connections is not automatically faster: each one costs a reader and a writ
 server:
   token: ${APERIO_TOKEN}
 services:
-  - target: http://localhost:3000
+  web:
+    target: http://localhost:3000
     hostname: ${ENV:-dev}.example.com
 ```
 
@@ -316,11 +345,9 @@ Only this spelling is expanded. A bare `$NAME` is left exactly as written, becau
 
 This is a **client** feature. The server's settings expand nothing, so a `${VAR}` written in a settings document is the value itself, not a reference to one: an `oidc.client_secret` spelled that way is a secret that reads as a placeholder and is neither. Set a server credential from the dashboard instead, where it is stored and never read back.
 
-### Typos and literal secrets
+### Literal secrets
 
-A key nothing recognizes has always been ignored silently, which is the most expensive kind of typo: the file says the setting is configured and the behavior says it is not. Unknown keys now produce a warning naming the key they were probably meant to be (`` `hostnme` is not a setting; did you mean `hostname`? ``), at the top level and inside `services:` entries, against the same generated schema editors complete from. It stays a warning rather than an error, so a file carrying keys for a newer client than the one running still starts.
-
-`aperio-client check` also warns when a credential (`token`, `psk`, `client_secret`, `password`, `api_key`, `device_key`, or a generic `secret`) is written into the file literally rather than as `${VAR}`. A warning, not a failure: it is a working configuration, and where the file is a private deploy artifact it may be the deliberate one. But a secret typed into a file ends up in a repository, a backup and a support ticket, and the alternative costs one `${VAR}`.
+`aperio-client check` warns when a credential (`token`, `psk`, `client_secret`, `password`, `api_key`, `device_key`, or a generic `secret`) is written into the file literally rather than as `${VAR}`. A warning, not a failure: it is a working configuration, and where the file is a private deploy artifact it may be the deliberate one. But a secret typed into a file ends up in a repository, a backup and a support ticket, and the alternative costs one `${VAR}`.
 
 ### Serving a service from the server (`server_side:`)
 
@@ -330,14 +357,14 @@ send the request straight to `target` instead:
 
 ```yaml
 services:
-  - name: internal_api
+  internal_api:
     target: http://10.0.0.5:8080
     hostname: api.example.com
     server_side: true
 ```
 
 It takes two permissions that have to agree: the server's
-`server_side_targets:` must name the address, and the token must carry
+`security.server_side_targets` must name the address, and the token must carry
 `allow_server_side`. Neither is enough alone, an unset list permits nothing,
 and a target outside it is refused rather than relayed. `serve:` cannot be
 combined with it.
@@ -347,19 +374,19 @@ why, the WebSocket half, and what the last hop gives up.
 
 ### Service start order
 
-A `services:` entry can name others it should follow:
+A service can name others it should follow:
 
 ```yaml
 services:
-  - name: db
+  db:
     tcp_target: 127.0.0.1:5432
-  - name: api
+  api:
     target: http://localhost:3000
     depends_on: [db]
-    startup_delay: 2
+    startup_delay: 2s
 ```
 
-`depends_on` waits for those services to have a live tunnel, then **proceeds anyway** after 60 seconds: a dependency that never arrives must not keep a service that could be serving traffic off the air forever. The wait is bounded and what it gave up on is logged.
+`depends_on` waits for those services to have a live tunnel, then **proceeds anyway** after 60 seconds: a dependency that never arrives must not keep a service that could be serving traffic off the air forever. The wait is bounded and what it gave up on is logged. It is written on the service that waits, never under `defaults:`.
 
 "Has a live tunnel" means right now, not "did at some point": a service that loses its connection stops counting as ready, and one with `connections: N` counts as ready while any of its connections is up. It orders startup and nothing more, though. Once a service is past its own gate it stays up whatever its dependency does afterwards, because taking a healthy service off the air over someone else's outage turns one failure into two.
 
@@ -371,7 +398,7 @@ A plain `connections: N` opens N connections at startup and keeps them, whether 
 
 ```yaml
 services:
-  - name: api
+  api:
     target: http://localhost:3000
     connections: { min: 1, max: 8 }
 ```
@@ -389,7 +416,7 @@ Eight per connection is not a capacity limit, a tunnel connection multiplexes: i
 
 The client logs each decision with the numbers behind it, and the dashboard's connection config view shows the range beside the size the pool is running right now (`connections: { min: 1, max: 5 }  # 4 open right now`), so the count in the clients table having grown past what the file's `min` says is legible rather than a discrepancy.
 
-Environment: `APERIO_CONNECTIONS_MIN` / `APERIO_CONNECTIONS_MAX`. The server's `max_connections_per_service` still wins over `max`, and the `bandwidth:` share is divided by `max` (never by the current size), so growing the pool cannot exceed the budget the file declares. The dashboard shows the connections a service actually has open, not its ceiling.
+Environment: `APERIO_CONNECTIONS_MIN` / `APERIO_CONNECTIONS_MAX`. The server's `limits.connections_per_service` still wins over `max`, and the `bandwidth:` share is divided by `max` (never by the current size), so growing the pool cannot exceed the budget the file declares. The dashboard shows the connections a service actually has open, not its ceiling.
 
 A range is opt-in for a reason: as the note above says, more connections is not automatically faster, and on a host where client and server share CPU the curve has a peak. `connections: N` keeps behaving exactly as it always did.
 
@@ -398,15 +425,16 @@ A range is opt-in for a reason: as the note above says, more connections is not 
 `connections:` is about giving one service several sockets. `multiplex: true` is the opposite question, and it is the one an operator with forty services asks: can several services share one socket?
 
 ```yaml
-multiplex: true          # the file-wide default
+defaults:
+  multiplex: true        # every service, unless it says otherwise
 services:
-  - name: web
+  web:
     target: http://localhost:3000
     hostname: web.example.com
-  - name: api
+  api:
     target: http://localhost:4000
     hostname: api.example.com
-  - name: bulk
+  bulk:
     target: http://localhost:5000
     hostname: files.example.com
     multiplex: false     # large responses, keep a connection of its own
@@ -416,12 +444,9 @@ services:
 
 What it costs is that the services share a link. They send through one writer, so a large response occupies it while the others wait their turn, and they share a fate: the connection dropping takes all of them out of routing together, and brings all of them back together. That is why it is opt-in and why `multiplex: false` on the one service whose responses are large is worth writing.
 
-Each service is still its own service everywhere it matters. The server routes to it by its own binds, gates it with its own `auth:` and `allowed_ips:`, ejects it on its own backend failures without touching its neighbours, and shows and controls it separately in the dashboard. On the client, each keeps its own backend, header rules, timeouts, circuit breaker, health probe and `max_concurrent:`.
+Each service is still its own service everywhere it matters. The server routes to it by its own binds, gates it with its own `access:` and `allowed_ips:`, ejects it on its own backend failures without touching its neighbours, and shows and controls it separately in the dashboard. On the client, each keeps its own backend, header rules, timeouts, circuit breaker, health probe and `limits.concurrent_requests`. The one service of the command line has nobody to share with and never multiplexes.
 
-Two things to know before turning it on:
-
-- **Every multiplexed service needs a `name:`.** It is what the server keeps that service's routing, ejection and statistics under, and what addresses it in the dashboard. Two unnamed services on one connection would be told apart only by their position in a list, so the client refuses the config rather than guessing.
-- **`connections:` is not honored for a multiplexed service.** One connection is what multiplexing means. The client reports the difference in the dashboard's config view rather than dropping it silently, so a `connections: 4` that stopped applying is visible.
+**`connections:` is not honored for a multiplexed service.** One connection is what multiplexing means. The client reports the difference in the dashboard's config view rather than dropping it silently, so a `connections: 4` that stopped applying is visible.
 
 ### Sharing the bandwidth budget
 
@@ -437,65 +462,67 @@ The budget is split per **service**, not per connection, so a service does not g
 
 ### Header rules
 
-A `headers:` section (top-level, or per `services:` entry, the entry replaces the top-level section entirely when set) edits proxied HTTP traffic on the client: `request` rules apply to what the local backend receives, `response` rules to what the visitor receives. `add` sets a header, replacing any existing value of the same name; `remove` strips headers case-insensitively:
+A `headers:` block (on a service, or under `defaults:`) edits proxied HTTP traffic on the client: `request` rules apply to what the local backend receives, `response` rules to what the visitor receives. `add` sets a header, replacing any existing value of the same name; `remove` strips headers case-insensitively:
 
 ```yaml
 # ./aperio.yaml (client)
-headers:
-  request:
-    add:
-      X-Forwarded-Env: staging
-    remove: [X-Internal-Debug]
-  response:
-    add:
-      X-Served-By: aperio
-    remove: [Server, X-Powered-By]
+defaults:
+  headers:
+    request:
+      add:
+        X-Forwarded-Env: staging
+      remove: [X-Internal-Debug]
+    response:
+      add:
+        X-Served-By: aperio
+      remove: [Server, X-Powered-By]
 ```
 
-Hop-by-hop and tunnel-critical headers (`Connection`, `Upgrade`, `Sec-WebSocket-*`, …) stay managed by Aperio regardless of these rules, and WebSocket upgrade traffic is not affected. Config file only (no CLI/env form); hot-reload applies edits within ~5 s.
+A service's own `headers:` is laid over the default one by the merge rule: an `add` map merges name by name, and a `remove` list it writes replaces the default's. Hop-by-hop and tunnel-critical headers (`Connection`, `Upgrade`, `Sec-WebSocket-*`, …) stay managed by Aperio regardless of these rules, and WebSocket upgrade traffic is not affected. From the environment: `APERIO_HEADERS_REQUEST_ADD=X-Env=staging`, `APERIO_HEADERS_RESPONSE_REMOVE=Server,X-Powered-By`.
 
 ### Security header preset (`security_headers:`)
 
-A `security_headers:` key (top-level, or per `services:` entry, the entry replaces the top-level value when set) injects standard security response headers without hand-writing `headers:` rules. `security_headers: true` enables the standard set, `Strict-Transport-Security: max-age=63072000`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and `false` opts a single service out of a top-level preset. A mapping picks headers individually:
+`security_headers:` (on a service, or under `defaults:`) injects standard security response headers without hand-writing `headers:` rules. `security_headers: true` enables the standard set, `Strict-Transport-Security: max-age=63072000`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and `false` opts a single service out of a default preset. A mapping picks headers individually:
 
 ```yaml
 # ./aperio.yaml (client)
-security_headers:
-  hsts: true                  # Strict-Transport-Security (only meaningful behind HTTPS)
-  hsts_max_age: 31536000      # optional, default 63072000 (2 years)
-  frame_options: SAMEORIGIN   # X-Frame-Options: SAMEORIGIN or DENY (anything
-                              # else is sent as DENY, a browser acts on those
-                              # two and ignores a typo, which would leave a
-                              # header that only looks like protection)
-  nosniff: true               # X-Content-Type-Options: nosniff
-  referrer_policy: strict-origin-when-cross-origin
-                              # an unrecognized value is sent as
-                              # strict-origin-when-cross-origin, for the same
-                              # reason frame_options falls back to DENY
-  csp: "default-src 'self'"   # Content-Security-Policy (no default, app-specific)
+defaults:
+  security_headers:
+    hsts: true                  # Strict-Transport-Security (only meaningful behind HTTPS)
+    hsts_max_age: 365d          # optional, default 730d (2 years)
+    frame_options: SAMEORIGIN   # X-Frame-Options: SAMEORIGIN or DENY (anything
+                                # else is sent as DENY, a browser acts on those
+                                # two and ignores a typo, which would leave a
+                                # header that only looks like protection)
+    nosniff: true               # X-Content-Type-Options: nosniff
+    referrer_policy: strict-origin-when-cross-origin
+                                # an unrecognized value is sent as
+                                # strict-origin-when-cross-origin, for the same
+                                # reason frame_options falls back to DENY
+    csp: "default-src 'self'"   # Content-Security-Policy (no default, app-specific)
 ```
 
-Preset headers replace whatever the backend sent for the same name, but explicit `headers:` rules always win: a name you `add` or `remove` yourself is left to your rules. Config file only; hot-reload applies changes within ~5 s.
-
-The preset has environment spellings too, for a client with no file: `APERIO_SECURITY_HEADERS` (the whole preset on or off) and the granular `APERIO_SECURITY_HEADERS_HSTS`, `APERIO_SECURITY_HEADERS_HSTS_MAX_AGE`, `APERIO_SECURITY_HEADERS_FRAME_OPTIONS`, `APERIO_SECURITY_HEADERS_NOSNIFF`, `APERIO_SECURITY_HEADERS_REFERRER_POLICY` and `APERIO_SECURITY_HEADERS_CSP`, each read on its own so one of them can be overridden without restating the rest.
+Preset headers replace whatever the backend sent for the same name, but explicit `headers:` rules always win: a name you `add` or `remove` yourself is left to your rules. From the environment: `APERIO_SECURITY_HEADERS` (the whole preset on or off) and the granular `APERIO_SECURITY_HEADERS_HSTS`, `APERIO_SECURITY_HEADERS_HSTS_MAX_AGE`, `APERIO_SECURITY_HEADERS_FRAME_OPTIONS`, `APERIO_SECURITY_HEADERS_NOSNIFF`, `APERIO_SECURITY_HEADERS_REFERRER_POLICY` and `APERIO_SECURITY_HEADERS_CSP`.
 
 ### Visitor authentication
 
-`auth:` is the same grammar on both sides of the tunnel: on the server it is the default gate for every route, on a client's service it overrides that gate for the traffic routed there. Three spellings of one thing.
+A service's `access:` says who may reach it. It is the same method grammar as the server's own visitor gate, `access.gate`: on the server it is the default gate for every route, on a client's service it overrides that gate for the traffic routed there.
 
 ```yaml
-auth: "admin:s3cret"                              # the scalar, unchanged
-auth: { method: basic, users: "admin:s3cret" }    # one method
-auth:                                             # several: any one admits
+access: public                                     # anyone, with no login
+access: { method: basic, users: "admin:s3cret" }   # one method
+access:                                            # several: any one admits
   - method: basic
     users: [admin:s3cret, ops:hunter2]
+  - method: bearer
+    secret: ${API_SECRET}
 ```
 
-The list is **any-of**: a visitor is admitted by the first method that admits them, which is what lets one route say "a browser signs in, a script presents a key". Six methods exist, simplest first:
+The list is **any-of**: a visitor is admitted by the first method that admits them, which is what lets one route say "a browser signs in, a script presents a key". Unset, the server's own gate and `access.default` decide. Six methods exist, simplest first:
 
 | `method:` | What it does | Where it may be written |
 | --- | --- | --- |
-| `none` | Deliberately open. The long spelling of `public: true`, and it needs the same token permission. | both |
+| `none` | Deliberately open. The long spelling of `access: public`, and it needs the same token permission. | both |
 | `basic` | A `user:password` login. `users:` takes one credential or a list, all alternatives on the same gate. | both |
 | `bearer` | An opaque secret presented as `Authorization: Bearer <secret>`. `secret:` takes one or a list, so a key rotates by adding the new one before withdrawing the old. | both |
 | `jwt` | A token the visitor already holds, verified against the keys its issuer publishes (`jwks_url:`) or a shared secret (`hmac_secret:`). No round trip per request. | both |
@@ -511,7 +538,7 @@ A browser navigation (a `GET` carrying `Accept: text/html`) is sent to the login
 So one route serves a person and a script each in the form they can act on:
 
 ```yaml
-auth:
+access:
   - method: basic                  # a person, in a browser
     users: "admin:s3cret"
   - method: bearer                 # a script, with no browser
@@ -533,7 +560,7 @@ A `bearer` secret is compared verbatim rather than hashed, unlike a `basic` pass
 #### The `forward` method
 
 ```yaml
-auth:
+access:
   - method: forward
     url: http://127.0.0.1:7070/_authcheck
     request_headers: [cookie, authorization]   # the default
@@ -555,7 +582,7 @@ A visitor's own copy of a name on that list is **dropped**, always, whether or n
 
 **A refusal is the endpoint's own answer**, relayed with its status, `Location`, `WWW-Authenticate`, `Content-Type` and `Set-Cookie`, so it can send a browser to a login of its own. Redirects from the endpoint are deliberately not followed: a `302` is an answer for the visitor, not a request for Aperio to make.
 
-**`via: client` asks over the tunnel.** The endpoint that decides can live on the *client's* network, deliberately not reachable from the internet: the server, holding a request it cannot yet admit, asks the connection that would serve it, the client calls its own internal endpoint (`localhost:7070` then means the client's localhost), and the verdict comes back the way a response does. A `forward` written on a client's service must say `via: client`, so the same word never means two networks in two files; the server refuses to dial a URL a client chose, whatever the entry says. What crosses is what an endpoint of the server's own would receive, composed on the server, less Aperio's own cookies (the dashboard session, share-link and affinity cookies), which are addressed to Aperio and never reach a client; what comes back is a status and the allow-listed headers, never a body. Three things are different over a tunnel, all deliberate: the check spends from the visitor's IP bucket at the price of a credential attempt, and a connection holds at most 32 open checks, so a flood of unauthenticated visitors cannot be a denial of service performed by the site's own gate; `cache:` defaults to `30` here, since the cold path is two round trips before the visitor's request starts; and "unreachable" has more shapes, disconnected, draining, saturated, too old to answer, every one of which refuses, so during a reload's handover the site cannot be logged into either. It replaces the workaround of publishing the auth endpoint as its own bearer-gated service, which cost a public hostname, a second gate to rotate and a full trip out through the proxy and back. A client too old to answer holds the service back at the handshake, as with any method it cannot carry; a server-written `via: client` asked of such a client refuses after the timeout. A client calls only the endpoints its own `auth:` declares unless it sets `allow_server_forward: true` (`APERIO_ALLOW_SERVER_FORWARD=1`): a `via: client` the server writes would otherwise let the server send requests anywhere on every client's network, so each client that should answer one has to agree to, and one that has not refuses the visitor and says so in its log.
+**`via: client` asks over the tunnel.** The endpoint that decides can live on the *client's* network, deliberately not reachable from the internet: the server, holding a request it cannot yet admit, asks the connection that would serve it, the client calls its own internal endpoint (`localhost:7070` then means the client's localhost), and the verdict comes back the way a response does. A `forward` written on a client's service must say `via: client`, so the same word never means two networks in two files; the server refuses to dial a URL a client chose, whatever the entry says. What crosses is what an endpoint of the server's own would receive, composed on the server, less Aperio's own cookies (the dashboard session, share-link and affinity cookies), which are addressed to Aperio and never reach a client; what comes back is a status and the allow-listed headers, never a body. Three things are different over a tunnel, all deliberate: the check spends from the visitor's IP bucket at the price of a credential attempt, and a connection holds at most 32 open checks, so a flood of unauthenticated visitors cannot be a denial of service performed by the site's own gate; `cache:` defaults to `30` here, since the cold path is two round trips before the visitor's request starts; and "unreachable" has more shapes, disconnected, draining, saturated, too old to answer, every one of which refuses, so during a reload's handover the site cannot be logged into either. It replaces the workaround of publishing the auth endpoint as its own bearer-gated service, which cost a public hostname, a second gate to rotate and a full trip out through the proxy and back. A client too old to answer holds the service back at the handshake, as with any method it cannot carry; a server-written `via: client` asked of such a client refuses after the timeout. A client calls only the endpoints its own `access:` declares unless it sets `allow_server_forward: true` (`APERIO_ALLOW_SERVER_FORWARD=1`): a `via: client` the server writes would otherwise let the server send requests anywhere on every client's network, so each client that should answer one has to agree to, and one that has not refuses the visitor and says so in its log.
 
 **`cache:` remembers a verdict** for an identical *request*, so a busy route does not pay a round trip per page load. Only admissions are remembered, never refusals: somebody who has just been given access must not keep being turned away for the rest of the window. The key is a hash of everything the subrequest carried, the endpoint, the hostname, the method, the path, the visitor's address and the credential headers, so no secret is held in it and a `yes` for one path, or for one address, is never a `yes` for another. Your endpoint is told the method and the path and may answer on them, which is the ordinary way this pattern is used, so a cache that keyed on the credential alone would quietly turn a per-request authorization into a per-session one.
 
@@ -564,7 +591,7 @@ The URL goes through the server's [outbound policy](threat-model.md), like every
 #### The `jwt` method
 
 ```yaml
-auth:
+access:
   - method: jwt
     jwks_url: https://accounts.example.com/.well-known/jwks.json
     issuer: https://accounts.example.com
@@ -585,17 +612,17 @@ A token in the `Authorization` header is Aperio's credential and is stripped bef
 
 #### What a client may declare, and how that is agreed
 
-A client may write `none`, `basic`, `bearer`, `jwt`, `aperio`, and `forward` with `via: client`. A bare `forward` is refused on a client: its URL would otherwise be called by the *server*, from the server's network, so `localhost:7070` written in a client's file would mean the server's localhost and not its own. `via: client` is what makes the same word mean the client's network, and the server never dials a URL a client chose.
+A client's `access:` may write `public` (`none`), `basic`, `bearer`, `jwt`, `aperio`, and `forward` with `via: client`. A bare `forward` is refused on a client: its URL would otherwise be called by the *server*, from the server's network, so `localhost:7070` written in a client's file would mean the server's localhost and not its own. `via: client` is what makes the same word mean the client's network, and the server never dials a URL a client chose.
 
-Which of those actually travel is **negotiated on the handshake rather than assumed**. The server announces the methods it accepts from a client on the upgrade response, and a client whose `auth:` needs one that is missing **does not serve that service**: it says which side is too old and retries, instead of connecting under a gate the server was never told about. A server too old to send the announcement sends nothing, which reads as "only what the scalar `visitor_auth` can carry", since that is the only field such a server reads: `method: none`, or a `basic` naming a *single* `user:password`. A gate whose method is one of those two but whose shape is not, `basic` with two users, say, is refused there as well, and the message says the server is too old rather than naming the method: the method is not the problem, the shape is, and there is one credential's worth of room in the field it would have to travel in.
+Which of those actually travel is **negotiated on the handshake rather than assumed**. The server announces the methods it accepts from a client on the upgrade response, and a client whose `access:` needs one that is missing **does not serve that service**: it says which side is too old and retries, instead of connecting under a gate the server was never told about. A server too old to send the announcement sends nothing, which reads as "only what the scalar `visitor_auth` can carry", since that is the only field such a server reads: `method: none`, or a `basic` naming a *single* `user:password`. A gate whose method is one of those two but whose shape is not, `basic` with two users, say, is refused there as well, and the message says the server is too old rather than naming the method: the method is not the problem, the shape is, and there is one credential's worth of room in the field it would have to travel in.
 
 That is worth the machinery because of what the alternative does quietly: a server that ignored a policy it did not understand would read the client as declaring *no* gate, and the route would come up open. Only the one service stops; its siblings keep serving.
 
-**The announcement is about the connection, not about the build.** Declaring a visitor gate needs the same token permission as `public`, so a token without it is answered with an empty list and holds the service back, rather than being told the gate was accepted and then having it dropped a message later. The server's log names the token and the reason; the client says the permission is the usual cause.
+**The announcement is about the connection, not about the build.** Declaring a visitor gate needs the same token permission as `access: public`, so a token without it is answered with an empty list and holds the service back, rather than being told the gate was accepted and then having it dropped a message later. The server's log names the token and the reason; the client says the permission is the usual cause.
 
 #### The scalar spelling, and what still reads it
 
-The scalar keeps working everywhere it worked, and it is still what `access.gate`, `APERIO_VISITOR_AUTH`, `--visitor-auth` and the dashboard's visitor-password field carry, since each of those is a single value. A policy the scalar cannot express (several users, or `method: none`) shows as empty in that field, so `GET /aperio/api/settings` reports `visitor_auth_methods` beside it and what is in force stays readable.
+The server's `access.gate` still takes the scalar `user:password`, the spelling that predates the grammar, and the dashboard's visitor-password field carries it. A client's `access:` does not: `public` is its one scalar, and a login is written as a method block, so a value can never be read as a password when it was meant as a keyword. A policy the scalar cannot express (several users, or `method: none`) shows as empty in the dashboard's field, so `GET /aperio/api/settings` reports `visitor_auth_methods` beside it and what is in force stays readable.
 
 #### Telling the backend who came in
 
@@ -617,25 +644,25 @@ A session is for one of two things: administering Aperio, or viewing a site behi
 | Credential | Plane |
 | --- | --- |
 | Master token, a named dashboard user, a passkey, OIDC | **admin**: the dashboard, its API, and (fenced by organization) the visitor gate |
-| `server.auth` / `access.gate` | **visitor**: every proxied hostname, nothing administrative |
-| A client's own `auth:` | **visitor**, and only on that hostname |
+| `access.gate` | **visitor**: every proxied hostname, nothing administrative |
+| A client's own `access:` | **visitor**, and only on that hostname |
 
 The visitor password is server-wide, so a visitor who signs in on one hostname is not asked again on the next; what it never opens is Aperio itself.
 
 #### Closed by default
 
-`default_access` (`access.default`) says what a route **nobody gated** means:
+`access.default` says what a route **nobody gated** means:
 
 | Value | Meaning |
 | --- | --- |
-| `deny` (default since 0.10.0) | A route is served because something said so, an `auth:` policy that admits the visitor or an explicit `method: none` / `public: true`, and not because nothing said otherwise. A caller carrying a valid Aperio session (master token, dashboard session, passkey or OIDC) also reaches it, see below. |
-| `allow` | What the server did before 0.10.0: with no `auth:` anywhere, every route serves everyone. |
+| `deny` (default since 0.10.0) | A route is served because something said so, an `access:` policy that admits the visitor or an explicit `access: public`, and not because nothing said otherwise. A caller carrying a valid Aperio session (master token, dashboard session, passkey or OIDC) also reaches it, see below. |
+| `allow` | What the server did before 0.10.0: with no gate anywhere, every route serves everyone. |
 
-Under `deny` an undeclared route is refused with the same answer an unclaimed hostname gives, so the existence of something there does not leak to a caller who was never going to be let in. Two exceptions, both deliberate: this server's own signed-in users (a master token, a dashboard session, a passkey or an OIDC login against the hostname's organization) reach it, because "not published" says nothing about whether the operator may look; and a `resilience: true` service with a cached entry answers from that entry rather than the stealth refusal. A route that *is* gated is untouched: the posture decides what an unstated route means, nothing else.
+Under `deny` an undeclared route is refused with the same answer an unclaimed hostname gives, so the existence of something there does not leak to a caller who was never going to be let in. Two exceptions, both deliberate: this server's own signed-in users (a master token, a dashboard session, a passkey or an OIDC login against the hostname's organization) reach it, because "not published" says nothing about whether the operator may look; and a service with `cache.offline` and a cached entry answers from that entry rather than the stealth refusal. A route that *is* gated is untouched: the posture decides what an unstated route means, nothing else.
 
-This is the setting that makes `auth: DUMMY:DUMMY` unnecessary. It was the only way to say "not public" while `public:` was an exemption from a gate that might not exist.
+This is the setting that makes `auth: DUMMY:DUMMY` unnecessary. It was the only way to say "not public" while being public was an exemption from a gate that might not exist.
 
-**The default is `deny` from 0.10.0.** Before that it was `allow`, and a client serving something nothing gated was warned once per connection naming the line to write, so the flip was not the first anyone heard of it. If this server publishes a public site, which is the commonest deployment there is, every client serving one now has to say so with `public: true` or `auth: {method: none}`; until it does, those routes answer as an unclaimed hostname does. Setting `allow` restores the previous behaviour exactly and is a supported posture, not a migration escape hatch. An unreadable value refuses the start rather than being guessed at: `off`, `false` and `no` could each mean either side of this.
+**The default is `deny` from 0.10.0.** Before that it was `allow`, and a client serving something nothing gated was warned once per connection naming the line to write, so the flip was not the first anyone heard of it. If this server publishes a public site, which is the commonest deployment there is, every client serving one now has to say so with `access: public`; until it does, those routes answer as an unclaimed hostname does. Setting `allow` restores the previous behaviour exactly and is a supported posture, not a migration escape hatch. An unreadable value refuses the start rather than being guessed at: `off`, `false` and `no` could each mean either side of this.
 
 ### Editor autocompletion (JSON Schema)
 
@@ -741,6 +768,14 @@ curl -fsS -b cookies.txt -H 'Content-Type: application/json' \
 
 `aperio-server apply <file>` stores a document's settings straight into the data directory of a **stopped** server, for the next start.
 
+#### Dashboard sign-in
+
+**Dashboard users and roles.** Beyond the master token (which signs in as a built-in admin named `aperio`), admins can create named dashboard users from the *Users* page, each with a role: **viewer** (read-only, statistics, traffic, audit), **operator** (day-to-day operations, clients, tokens, webhooks, maintenance, share links), or **admin** (everything, including server settings and user management). Passwords are stored as Argon2id hashes in `APERIO_DATA_DIR/aperio.db`. The role floor of every dashboard route is enforced server-side (a viewer gets `403` on any mutation, and on the admin-only settings/users routes); the UI additionally hides controls a role cannot use. An OIDC login is what its dashboard user record says: the identity provider vouches for the email, the record (matched by email, created at the first login) carries the grants, see [Organizations](organizations.md#oidc-identity-is-the-providers-authorization-is-aperios). Dashboard sessions last 24 hours and are persisted in `APERIO_DATA_DIR/aperio.db` (hashed cookie tokens only), so a server restart does not sign anyone out. Users (and tokens) can also be grouped into isolated **organizations**, in which case a named user's reach is the list of grants on their record, one organization for most, several with a role in each for an operator who administers more than one tenant, and the server-global settings/export routes take Admin in the master organization, which the built-in `aperio` account has, see [Organizations](organizations.md).
+
+**Two-factor authentication (TOTP).** Any named dashboard user can enroll an authenticator app (Google Authenticator, Authy, 1Password, …) from the sidebar's *Two-factor auth* dialog: scan the QR code, confirm a 6-digit code, and store the eight single-use recovery codes shown once. From then on the login form asks for the code after the password (a recovery code works too, and is consumed). Wrong codes count towards the brute-force lockout. An admin can reset a locked-out user's TOTP from the *Users* page (`DELETE /aperio/api/users/:id/totp`); enrollment endpoints live under `/aperio/api/me/totp/*`. The built-in `aperio` admin (master token / dashboard password) has no user row and cannot enroll, create named users for anyone who needs 2FA. OIDC is not that account: an OIDC login is matched to a dashboard user record by email and takes the grants on it, so it can enroll like any named user.
+
+**Passkeys (WebAuthn).** Set `dashboard.webauthn.origin` to the public URL the dashboard is reached at (e.g. `https://tunnel.example.com`, the RP ID is its domain, so an IP origin won't work) and named users can register passkeys (YubiKeys, Touch ID / Face ID, password managers) from the sidebar's *Passkeys* dialog, then sign in passwordless from the login page. Passkey sign-ins skip TOTP (the authenticator already verifies the user), failed ceremonies count towards the brute-force lockout, and registrations/deletions are audit-logged. Up to 10 passkeys per user, stored in `aperio.db` (public keys only, private keys never leave the authenticator). A passkey registered with **“allow signing in without a username”** becomes a discoverable credential: pressing the passkey button with an empty username brings up the authenticator's account picker directly. Passkeys without the opt-in keep working username-first only. By default a passkey is scoped to the exact host of `dashboard.webauthn.origin`, so it will **not** work when the dashboard is also reached through a sibling host (e.g. `test-aperio.robogon.com` next to `aperio.robogon.com`); set `dashboard.webauthn.rp_id` to the shared parent domain (`robogon.com`) to make one passkey cover every subdomain. WebAuthn has no wildcard RP ID; the parent-domain RP ID is the supported way to get the `*.robogon.com` effect.
+
 #### Getting back in
 
 The master token always signs in as `aperio`, whatever the settings say. When a setting locks the dashboard out (an `security.admin_allowed_ips` that does not include you, a `dashboard.hostname` nobody can reach), stop the server and put that setting back:
@@ -807,8 +842,8 @@ Every setting, by section, with its default. A blank default is unset. The lists
 
 | Setting | Description | Default |
 | --- | --- | --- |
-| `cache.enabled` | `true` = enable the server-side GET response cache for services that opt in with the client `cache: true` setting. Strictly `Cache-Control`-driven: only responses explicitly allowing shared caching (`max-age`/`s-maxage`, no `no-store`/`no-cache`/`private`, no `Vary`/`Set-Cookie`) are stored, for the advertised lifetime; only credential-less plain GETs are answered from it. Hits carry `x-aperio-cache: hit` and an `Age` header; entries without a backend validator get a synthesized `ETag`, and a matching `If-None-Match` is answered `304` at the edge without a tunnel round-trip. Misses are **single-flighted**: concurrent identical cacheable GETs collapse into one upstream fetch (followers wait for the leader and answer from the freshly stored entry), so cache expiry on a hot URL cannot stampede the backend. Responses advertising `stale-while-revalidate=N` (RFC 5861) keep serving for N seconds past expiry (marked `x-aperio-stale`) while one background revalidation refreshes the entry, visitors never wait on the refresh. `POST /aperio/api/cache/purge` (admin) drops entries by `hostname`, `path_prefix` and/or `surrogate_key`, for immediate invalidation after a deploy. Cached entries also satisfy single-range **`Range` requests** (video scrubbing, resumable downloads) at the edge: `206 Partial Content` sliced from the stored full body with `Accept-Ranges`/`Content-Range`, `416` when out of range, honoring `If-Range`, partial requests never re-traverse the tunnel while the entry lives. | `false` |
-| `cache.max_stale` | Serve-stale window for services that set `resilience: true`: how long past its advertised lifetime a cached response may still answer visitors while the route has no healthy client. `0` disables serve-stale. | `1h` |
+| `cache.enabled` | `true` = enable the server-side GET response cache for services that opt in with the client's `cache.enabled`. Strictly `Cache-Control`-driven: only responses explicitly allowing shared caching (`max-age`/`s-maxage`, no `no-store`/`no-cache`/`private`, no `Vary`/`Set-Cookie`) are stored, for the advertised lifetime; only credential-less plain GETs are answered from it. Hits carry `x-aperio-cache: hit` and an `Age` header; entries without a backend validator get a synthesized `ETag`, and a matching `If-None-Match` is answered `304` at the edge without a tunnel round-trip. Misses are **single-flighted**: concurrent identical cacheable GETs collapse into one upstream fetch (followers wait for the leader and answer from the freshly stored entry), so cache expiry on a hot URL cannot stampede the backend. Responses advertising `stale-while-revalidate=N` (RFC 5861) keep serving for N seconds past expiry (marked `x-aperio-stale`) while one background revalidation refreshes the entry, visitors never wait on the refresh. `POST /aperio/api/cache/purge` (admin) drops entries by `hostname`, `path_prefix` and/or `surrogate_key`, for immediate invalidation after a deploy. Cached entries also satisfy single-range **`Range` requests** (video scrubbing, resumable downloads) at the edge: `206 Partial Content` sliced from the stored full body with `Accept-Ranges`/`Content-Range`, `416` when out of range, honoring `If-Range`, partial requests never re-traverse the tunnel while the entry lives. | `false` |
+| `cache.max_stale` | Serve-stale window for services that set `cache.offline`: how long past its advertised lifetime a cached response may still answer visitors while the route has no healthy client. `0` disables serve-stale. | `1h` |
 | `cache.negative_ttl` | How long to briefly cache error / negative responses (e.g. `404`) so a hot missing URL cannot hammer the backend with repeated misses. `0` = disabled. Needs `cache.enabled`. | `0s` |
 | `cache.size` | Total in-memory budget of the response cache; inserting past it evicts the entries closest to expiry, and a single body larger than a quarter of the budget is never cached. | `64MB` |
 
@@ -862,7 +897,7 @@ Every setting, by section, with its default. A blank default is unset. The lists
 
 | Setting | Description | Default |
 | --- | --- | --- |
-| `inspector.enabled` | `false` = do not record transactions for the request inspector. On by default. Off gives back a mutex, two header clones and a capture entry per proxied request, at the cost of not being able to inspect or replay anything. A client may opt out for one service with `capture: false`. | `true` |
+| `inspector.enabled` | `false` = do not record transactions for the request inspector. On by default. Off gives back a mutex, two header clones and a capture entry per proxied request, at the cost of not being able to inspect or replay anything. A client may opt out for one service with `inspector: false`. | `true` |
 | `inspector.redact` | `false` = disable secret masking in the request inspector. On (default), credential headers (`Authorization`, `Cookie`, `X-Api-Key`, …) and secret-looking body fields (`password`, `token`, `api_key`, …) show as `[REDACTED]` in the inspector, the cURL copy, and the HAR export; the raw capture kept in memory for replay is always intact. | `true` |
 
 #### Limits (`limits`)
@@ -1187,12 +1222,12 @@ Anything a person should read goes in `custom_name:` instead, free text, any lan
 
 ```yaml
 services:
-  - name: web                    # the handle
+  web:
     custom_name: "Public Web"    # what the dashboard shows
     target: http://localhost:3000
 
 tunnels:
-  - name: pg_main
+  pg_main:
     custom_name: "Primary Postgres"
     target: 127.0.0.1:5432
 ```

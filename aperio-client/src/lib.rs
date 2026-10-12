@@ -48,8 +48,8 @@ pub(crate) use client::specs::*;
 use aperio_config::format_bandwidth;
 use check::run_check;
 use config::{
-  CliMode, build_ws_url, load_home_config, parse_bandwidth, parse_cli, resolve_settings,
-  resolve_sources,
+  CliMode, build_ws_url, load_home_config, normalize_target, parse_bandwidth, parse_cli,
+  resolve_settings,
 };
 
 /// How long a reload waits for the replacement connections to come up before
@@ -237,11 +237,18 @@ pub async fn run() {
     info!("Starting Aperio Client...");
   }
 
-  // Configuration layering: CLI > ./aperio.yaml > environment > ~/.aperio.yaml.
-  let home_cfg = load_home_config();
-  let (file_cfg, config_files) = crate::config::load_file_config_tree(cli.opts.config.as_deref());
-  // At startup an unusable setting is still fatal; only a hot-reload keeps the
-  // previous configuration and carries on.
+  // Configuration layering: ~/.aperio.yaml < ./aperio.yaml < environment < CLI.
+  // At startup an unusable file or setting is fatal; only a hot-reload keeps
+  // the previous configuration and carries on.
+  let home_cfg = load_home_config().unwrap_or_else(|e| {
+    error!("CRITICAL ERROR: {}", e);
+    std::process::exit(1);
+  });
+  let (file_cfg, config_files) = crate::config::load_file_config_tree(cli.opts.config.as_deref())
+    .unwrap_or_else(|e| {
+      error!("CRITICAL ERROR: {}", e);
+      std::process::exit(1);
+    });
   let mut settings = match resolve_settings(&cli, &home_cfg, &file_cfg) {
     Ok(s) => s,
     Err(e) => {
@@ -277,7 +284,7 @@ pub async fn run() {
 
   // Diagnostics mode reports missing config instead of exiting on it.
   if let CliMode::Check = cli.mode {
-    run_check(&settings, &resolve_sources(&cli, &home_cfg, &file_cfg)).await;
+    run_check(&settings).await;
   }
 
   // TCP bridge mode short-circuits the tunnel client entirely.
@@ -294,14 +301,14 @@ pub async fn run() {
     return;
   }
 
-  // Bind-tunnels mode: run local listeners for a peer client's declared
-  // tunnels instead of exposing anything.
-  if let CliMode::BindTunnels(ref id) = cli.mode {
+  // Bind mode: run local listeners for tunnels a peer client declares
+  // instead of exposing anything.
+  if let CliMode::Bind(ref names) = cli.mode {
     let server = settings.server.clone().unwrap_or_else(|| {
       error!("CRITICAL ERROR: the server URL is required (--server-url, APERIO_SERVER_URL, or yaml: server.url)!");
       std::process::exit(1);
     });
-    bind_tunnels::run_bind_tunnels(&settings, &server, id).await;
+    bind_tunnels::run_bind_tunnels(&settings, &server, names).await;
   }
 
   // Stable instance id base, kept across reconnects and config respawns so
@@ -345,7 +352,7 @@ pub async fn run() {
     std::process::exit(1);
   }
 
-  let mut specs = match build_specs(&settings, &client_id, cli.target.is_some()) {
+  let mut specs = match build_specs(&settings, &client_id) {
     Ok(specs) => specs,
     Err(e) => {
       error!("{}", e);
@@ -559,7 +566,14 @@ pub async fn run() {
       config::parse_config_tree(std::path::Path::new(&config_path)).map(|(cfg, _)| cfg);
     match reloaded {
       Ok(new_file_cfg) => {
-        let mut s = match resolve_settings(&cli, &load_home_config(), &new_file_cfg) {
+        let home = match load_home_config() {
+          Ok(home) => home,
+          Err(e) => {
+            warn!("Config reload: {}; keeping previous", e);
+            continue;
+          }
+        };
+        let mut s = match resolve_settings(&cli, &home, &new_file_cfg) {
           Ok(s) => s,
           Err(e) => {
             warn!(
@@ -579,7 +593,7 @@ pub async fn run() {
             continue;
           }
         };
-        match build_specs(&s, &client_id, cli.target.is_some()) {
+        match build_specs(&s, &client_id) {
           Ok(new_specs) => {
             // The process-wide facilities follow the same configuration the
             // services are about to be rebuilt from, and only once it has

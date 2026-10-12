@@ -47,14 +47,15 @@ export class DeclaringClient extends AperioClientBase({
       `  token: ${this.server._token}`,
       `client_id: ${this._id}`,
       'services:',
-      `  - target: ${this.backend._url}`,
+      '  decl:',
+      `    target: ${this.backend._url}`,
       '    hostname: decl.e2e.local',
       `    tcp_target: ${this.echo._address()}`,
       'tunnels:',
-      '  - name: echo_main',
+      '  echo_main:',
       `    target: ${this.echo._address()}`,
       '    protocol: tcp',
-      '  - name: echo_both',
+      '  echo_both:',
       `    target: ${this.echo._address()}`,
       '    protocol: tcp/udp',
       '',
@@ -63,17 +64,17 @@ export class DeclaringClient extends AperioClientBase({
 }
 
 /**
- * Binds the declared tunnel by client id, overriding the local port.
+ * Binds one tunnel named on the command line, its `binds:` entry supplying the
+ * local port and the token.
  *
  * Started by the spec rather than by a hook: it is pointed at the declaring
  * client, so it may only come up once that client's declarations are
  * discoverable, and that is something a test asserts rather than something a
  * dependency can express.
  */
-export class PortOverrideBinder extends AperioClientBase({
+export class CommandLineBinder extends AperioClientBase({
   dependencies: {
     server: () => TunnelServer,
-    echo: () => EchoBackend,
     declaring: () => DeclaringClient,
   },
 }) {
@@ -89,15 +90,14 @@ export class PortOverrideBinder extends AperioClientBase({
     return this.server._token
   }
   _args() {
-    return ['--bind-tunnels', this.declaring._id, '--server-url', this.server._url]
+    return ['bind', 'echo_main', '--server-url', this.server._url]
   }
   _config() {
     return [
-      'bind-tunnels:',
-      `  '${this.declaring._id}':`,
+      'binds:',
+      '  echo_main:',
+      `    port: ${this._localPort}`,
       `    token: ${this.server._token}`,
-      '    override:',
-      `      '${this.echo._address()}': ${this._localPort}`,
       '',
     ].join('\n')
   }
@@ -124,14 +124,14 @@ export class NamedBinder extends AperioClientBase({
     return this._bindToken
   }
   _args() {
-    return ['--bind-tunnels']
+    return ['bind']
   }
   _config() {
     return [
       'server:',
       `  url: ${this.server._url}`,
       `  token: ${this._bindToken}`,
-      'bind-tunnels:',
+      'binds:',
       `  echo_main: ${this._mainPort}`,
       `  echo_both: ${this._bothPort}`,
       '',

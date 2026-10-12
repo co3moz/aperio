@@ -9,5 +9,6 @@ server:
 # been accepted since 0.9.0.
 # A bare port (`3000`) or hostname (`example.com`) is normalized to a URL.
 services:
-  - target: http://localhost:3000
-    public: true
+  web:
+    target: http://localhost:3000
+    access: public

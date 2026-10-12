@@ -631,25 +631,26 @@ server:
   token: apr_xxxxxxxxxxxxxxxx
 
 services:
-  - target: http://localhost:3000
+  web:                       # the service's name
+    target: http://localhost:3000
     hostname: app.example.com
+    access: public
     health:
-      endpoint: /health    # hold the service out of routing until it answers
+      endpoint: /health      # hold the service out of routing until it answers
 
-# Optional, but worth setting early. Top-level keys are the defaults every
-# entry inherits:
-max_concurrent: 8          # what one instance of the backend can take
+# Optional, but worth setting early. What every service gets unless its
+# own entry says otherwise:
+defaults:
+  limits:
+    concurrent_requests: 8   # what one instance of the backend can take
 \end{codecard}
 
-A file describes its backends under \code{services:}, even when there is
-one of them. Naming a single backend at the top level instead
-(\code{target:}, \code{serve:}, \code{hostname:}, \code{path:},
-\code{tcp\_target:}, \code{target\_health:}) was deprecated from 0.6.0
-and removed in 0.9.0: a client that finds one refuses to start and names
-the keys, rather than running while the file says something it is not
-doing. Single-service mode itself is unaffected where it belongs, on the
-command line and in the environment, and a top-level \code{health:} block
-without an \code{endpoint:} is still the defaults every entry inherits.
+A file describes its backends under \code{services:}, keyed by name, even
+when there is one of them. A service key written at the top level
+(\code{target:}, \code{hostname:}, \ldots) is refused with a message saying
+where it goes, rather than running while the file says something it is not
+doing. A one-liner still runs a single service, on the command line and in
+the environment.
 
 The file is watched: editing it re-resolves the whole configuration and
 respawns the services, so every setting takes effect without a restart.
@@ -734,11 +735,13 @@ clients, configured once at deployment and adjusted while it runs, by people
 who should not need a shell on it to do so.
 
 So the \textbf{client} reads \code{aperio.yaml}, with an environment variable
-for every setting and CLI arguments above both. Naming is mechanical across
-those surfaces: a setting called \code{server.token} in the yaml is
-\code{APERIO\_SERVER\_TOKEN} in the environment and \code{--server-token} on
-the command line, and settings that share a prefix are written as a block
-(\code{health:}, \code{server:}).
+for every setting and CLI flags for the common ones. A setting has one name,
+its yaml key, and the other surfaces are derived from it: \code{server.token}
+is \code{APERIO\_SERVER\_TOKEN} in the environment and \code{--server-token} on
+the command line. The variables are generated from the same schema the parser
+reads, so a key and its variable cannot drift apart. What every service shares
+is written once under \code{defaults:}, and its variables carry no prefix of
+their own: \code{APERIO\_TIMEOUT} is \code{defaults.timeout}.
 
 The \textbf{server} reads only its boot settings from the environment, what it
 needs before its database opens: the master token, the listener, the data
@@ -753,13 +756,16 @@ written as its path: \code{proxy.trusted}, \code{cache.enabled},
 
 \begin{enumerate}[leftmargin=1.5em]
   \item CLI arguments (highest)
-  \item \code{./aperio.yaml}, or the file named by \code{--config}
   \item environment variables
+  \item \code{./aperio.yaml}, or the file named by \code{--config}
   \item \code{\textasciitilde/.aperio.yaml}, user-level defaults (lowest)
 \end{enumerate}
 
-The home file exists so a developer can set the server URL and token once
-and keep per-project files down to a target and a hostname.
+One rule merges them, the one \code{include:} uses too: mappings merge key
+by key, and anything else is replaced. The environment beating the file is
+what a container expects, an image carries the file and the deployment
+overrides a value. The home file exists so a developer can set the server
+URL and token once and keep per-project files down to their services.
 
 \subsection*{Server}
 
@@ -805,9 +811,10 @@ are written from.
 \section{Configuration across an upgrade}
 
 A client file does not declare the release it was written for, and no layer
-translates an old spelling into a new one. A key that was removed or renamed
-is reported by name when the client reads the file, with what replaced it,
-instead of the generic message a typo gets. On the server, a stored document
+translates an old spelling into a new one. A key nothing reads is an error:
+one that was removed or renamed is reported by name with what replaced it,
+and a typo with the key it was probably meant to be. A variable an earlier
+release read refuses the start the same way, naming its replacement. On the server, a stored document
 this build cannot read stops the start with the setting named, and
 \code{aperio-server settings reset} puts it back. The changelog lists every
 such change under the release that made it.
@@ -891,12 +898,15 @@ server:
   token: apr_xxxxxxxxxxxxxxxx
 
 services:
-  - target: http://localhost:3000
+  app:
+    target: http://localhost:3000
     hostname: app.example.com
+    access: public
     health:
       endpoint: /health          # polled locally; failing means "do not route here"
     connections: 4               # parallel tunnel connections, no head-of-line stalls
-    max_concurrent: 32           # what this backend can take at once
+    limits:
+      concurrent_requests: 32    # what this backend can take at once
 \end{codecard}
 
 A gRPC or HTTP/2 backend is the same file with \code{h2c://localhost:50051}
@@ -914,10 +924,14 @@ server:
   url: https://tunnel.example.com
   token: apr_xxxxxxxxxxxxxxxx
 
-serve: ./dist
-hostname: docs.example.com
-cache: true                   # let the server cache what the headers allow
-security_headers: true        # HSTS, nosniff, frame-options, referrer-policy
+services:
+  docs:
+    serve: ./dist
+    hostname: docs.example.com
+    access: public
+    cache:
+      enabled: true             # let the server cache what the headers allow
+    security_headers: true      # HSTS, nosniff, frame-options, referrer-policy
 \end{codecard}
 
 Files stream from disk rather than being read into memory, and \code{Range}
@@ -925,8 +939,9 @@ requests are answered, so a video or a large download behaves. A
 single-page app needs one more line, \code{serve\_spa: true}
 (\code{APERIO\_SERVE\_SPA=1}), which makes a navigation that matches no
 file fall back to the root \code{index.html} instead of \code{404}ing,
-the behavior a client-side router depends on. It is process-wide rather
-than per-entry, which is why it is not in the file above.
+the behavior a client-side router depends on. It applies to every
+\code{serve:} directory of the client, which is why it is a top-level key
+rather than one in the entry above.
 
 \subsection{A private port, reachable but not published}
 
@@ -942,23 +957,23 @@ server:
   token: apr_xxxxxxxxxxxxxxxx
 
 tunnels:
-  - name: pg_main
+  pg_main:                      # the name binders ask for
     target: 127.0.0.1:5432
     encrypt: true
-    psk: a-long-random-string   # end-to-end; never sent to the server
-  - name: ssh_box
+    psk: ${PG_TUNNEL_PSK}       # end-to-end; never sent to the server
+  ssh_box:
     target: 127.0.0.1:22
     protocol: tcp
 \end{codecard}
 
 \begin{codecard}[aperiosh]{From the other machine}
-aperio-client --bind-tunnels pg_main \
+aperio-client bind pg_main \
   --server-url https://tunnel.example.com \
   --server-token apr_yyyyyyyyyyyyyyyy
 \end{codecard}
 
 The three combine in one file when a machine hosts more than one of them:
-\code{services:} takes a list of the first two kinds (Section~\ref{sec:several-services}),
+\code{services:} holds the first two kinds (Section~\ref{sec:several-services}),
 and \code{tunnels:} sits beside it.
 
 \section{Binds: hostname and path}
@@ -970,7 +985,8 @@ cannot claim what its credential does not allow.
 
 \begin{codecard}[aperioyaml]{./aperio.yaml (client)}
 services:
-  - target: http://localhost:3000
+  api:
+    target: http://localhost:3000
     hostname: app.example.com   # or a list: [app.example.com, www.example.com]
     path: /api                  # optional prefix bind
     trim_bind: true             # strip /api before forwarding (default with a path bind)
@@ -989,45 +1005,53 @@ entry, each with its own binds, health probe and limits:
 server:
   url: https://tunnel.example.com
   token: apr_xxxxxxxxxxxxxxxx
+defaults:
+  access: public
 services:
-  - name: web
+  web:
     target: http://localhost:3000
     hostname: app.example.com
-    target_health: /health
-  - name: api
+    health:
+      endpoint: /health
+  api:
     target: http://localhost:4000
     hostname: api.example.com
-    max_concurrent: 32
-  - name: docs
+    limits:
+      concurrent_requests: 32
+  docs:
     serve: ./site
     hostname: docs.example.com
 \end{codecard}
 
-Per-entry keys override the top-level value entirely rather than merging,
-which keeps the mental model simple: a service either declares a setting
-or inherits it.
+An entry is laid over \code{defaults:} by the same rule the layers are
+merged with: a key the entry writes wins, a block it writes is merged with
+the default block field by field, and a key it leaves out is the default's.
+The environment writes \code{defaults:}, so \code{APERIO\_TIMEOUT=60s}
+reaches every service that does not write its own \code{timeout}.
 
 \section{Editing traffic}
 
 Two mechanisms, applied on the client side of the tunnel:
 
 \begin{codecard}[aperioyaml]{./aperio.yaml (client)}
-headers:
-  request:                       # what the local backend receives
-    add:
-      X-Forwarded-Env: staging
-    remove: [X-Internal-Debug]
-  response:                      # what the visitor receives
-    add:
-      X-Served-By: aperio
-    remove: [Server, X-Powered-By]
-
-security_headers: true           # HSTS, X-Frame-Options, nosniff, Referrer-Policy
+defaults:
+  headers:
+    request:                     # what the local backend receives
+      add:
+        X-Forwarded-Env: staging
+      remove: [X-Internal-Debug]
+    response:                    # what the visitor receives
+      add:
+        X-Served-By: aperio
+      remove: [Server, X-Powered-By]
+  security_headers: true         # HSTS, X-Frame-Options, nosniff, Referrer-Policy
 \end{codecard}
 
 \code{security\_headers} also takes a mapping when the standard preset is
-too much, and \code{false} on a service opts it out of a top-level
-preset. Hop-by-hop and tunnel-critical headers stay managed by Aperio no
+too much, and \code{false} on a service opts it out of the default. A
+service's own \code{headers:} is merged with the default one: its
+\code{add} names join the default's, and a \code{remove} list it writes
+replaces the default's. Hop-by-hop and tunnel-critical headers stay managed by Aperio no
 matter what the rules say.
 
 \section{Capacity and resilience knobs}
@@ -1035,12 +1059,12 @@ matter what the rules say.
 The four that matter most in production:
 
 \begin{description}[leftmargin=1.6em,style=nextline]
-  \item[\code{max\_concurrent}] What one instance of the backend can
+  \item[\code{limits.concurrent\_requests}] What one instance of the backend can
         handle at once. The server queues beyond it instead of flooding,
         and autoscaling measures saturation against it. Setting it is the
         difference between a backend that degrades gracefully and one
         that falls over.
-  \item[\code{target\_health}] A path the client probes; while it fails,
+  \item[\code{health.endpoint}] A path the client probes; while it fails,
         the service is held out of routing without dropping the tunnel.
   \item[\code{connections}] Parallel tunnel connections per service. More
         connections mean a dropped one is covered by a sibling with no
@@ -1060,16 +1084,17 @@ statement about a dependency rather than about this deployment.
 Two client keys make it a statement about the deployment:
 
 \begin{lstlisting}[language=aperioyaml]
-server: https://tunnel.example.com
-token: <token>
+server:
+  url: https://tunnel.example.com
+  token: ${APERIO_SERVER_TOKEN}
+  min_tls_version: "1.3"
+  # Rarely needed. Unset means rustls' own preference order, which is
+  # almost always the better choice.
+  # tls_cipher_suites: TLS13_AES_256_GCM_SHA384,TLS13_CHACHA20_POLY1305_SHA256
 
 services:
-  - target: http://127.0.0.1:3000
-
-tls_min_version: "1.3"
-# Rarely needed. Unset means rustls' own preference order, which is
-# almost always the better choice.
-# tls_cipher_suites: TLS13_AES_256_GCM_SHA384,TLS13_CHACHA20_POLY1305_SHA256
+  app:
+    target: http://127.0.0.1:3000
 \end{lstlisting}
 
 Neither changes what a correct peer negotiates; they change what is offered,
@@ -1081,8 +1106,8 @@ or a floor of 1.3 with only 1.2 suites named, is \textbf{refused at startup}
 rather than ignored: an operator who pins a floor wants a stricter dial than
 they had, and quietly giving them the default is how a control comes to exist
 only on paper. And both are fixed for the life of the process, like
-\code{ip\_family}: a hot reload will not change the terms under which the
-current connection was made.
+\code{server.ip\_family}: a hot reload will not change the terms under which
+the current connection was made.
 
 \chapter{Configuring the server}
 \label{ch:server-config}
@@ -1521,7 +1546,9 @@ cache:
 \end{codecard}
 
 \begin{codecard}[aperioyaml]{./aperio.yaml (client)}
-cache: true                    # per service, or top-level
+defaults:                      # every service, or on one service
+  cache:
+    enabled: true
 \end{codecard}
 
 The operator enables the machinery; the service owner opts their service
@@ -1550,7 +1577,7 @@ Four behaviours matter operationally:
         one backend fetch, so a cold cache under load does not stampede.
   \item[Stale while revalidate] A stale entry can be served immediately
         while a refresh happens in the background.
-  \item[Serve stale] With \code{resilience: true} on the service, cached
+  \item[Serve stale] With \code{cache.offline: true} on the service, cached
         answers keep being served (marked, even expired) while no healthy
         client is connected, instead of a \code{504}.
 \end{description}
@@ -1758,15 +1785,15 @@ every later question in this chapter is "where does this fit in it".
   \item \textbf{The gate the serving clients declared}, if the token
         permits it and the server has not set
         \code{access.ignore\_client\_auth}. This is a whole
-        \code{auth:} policy today, not only a password
+        \code{access:} policy, not only a password
         (Section~\ref{sec:visitor-auth}).
-  \item \textbf{Declared open.} \code{public: true}, or its long spelling
+  \item \textbf{Declared open.} \code{access: public}, or its long spelling
         \code{method: none}, and only where the token allows it. This is
         the one sentence that opens a route under either posture, which
         is why it is asked before anything else about the server's own
         configuration.
   \item \textbf{Nothing gates the route.} What that means is
-        \code{default\_access} (Section~\ref{sec:default-access}):
+        \code{access.default} (Section~\ref{sec:default-access}):
         refused, which is the default since 0.10.0, or served.
   \item \textbf{The server's own \code{auth:}}, evaluated method by
         method until one admits: a session, a credential presented on the
@@ -1793,15 +1820,14 @@ not hold: a visitor session opens no part of Aperio
 \section{How a gate is written}
 \label{sec:visitor-auth}
 
-\code{auth:} is one grammar on both sides of the tunnel: on the server it
-is the default for every route, on a client's service it overrides that
-default for the traffic routed there. Three spellings of the same thing,
-and the first one is what every file written so far already says.
+One grammar gates visitors on both sides of the tunnel: the server's
+\code{access.gate} is the default for every route, and a client service's
+\code{access:} overrides that default for the traffic routed there.
 
-\begin{codecard}[aperioyaml]{Either file}
-auth: "admin:s3cret"                            # the scalar, unchanged
-auth: { method: basic, users: "admin:s3cret" }  # one method
-auth:                                           # several: any one admits
+\begin{codecard}[aperioyaml]{./aperio.yaml (client), on a service}
+access: public                                    # anyone, no login
+access: { method: basic, users: "admin:s3cret" }  # one method
+access:                                           # several: any one admits
   - method: basic
     users: [admin:s3cret, ops:hunter2]
 \end{codecard}
@@ -1814,7 +1840,7 @@ line already written. Six methods exist today:
 
 \begin{description}[leftmargin=1.6em,style=nextline]
   \item[\code{none}] Deliberately open. The long spelling of a client's
-        \code{public: true}, and it needs the same token permission.
+        \code{access: public}, and it needs the same token permission.
   \item[\code{basic}] A \code{user:password} login. \code{users:} takes
         one credential or a list, all alternatives on one gate.
   \item[\code{forward}] Ask an endpoint you run about each request:
@@ -1977,10 +2003,10 @@ naming the ones it does. An operator who wrote a gate should never be
 given no gate, which is exactly what accepting an unknown method and
 ignoring it would produce.
 
-The scalar keeps working wherever it worked, and it is still what
-\code{access.gate}, \code{APERIO\_VISITOR\_AUTH},
-\code{--visitor-auth} and the dashboard's visitor-password field carry,
-since each of those is a single value. A policy the scalar cannot express
+The server's \code{access.gate} still takes the scalar
+\code{user:password}, and the dashboard's visitor-password field carries it;
+a client's \code{access:} does not, since \code{public} is its one scalar and
+a login is written as a method block. A policy the scalar cannot express
 shows as empty there, so \code{GET /aperio/api/settings} reports
 \code{visitor\_auth\_methods} beside it and what is in force stays
 readable. A client may declare \code{none}, \code{basic}, \code{bearer} and
@@ -2057,16 +2083,15 @@ never opens is Aperio.
 \subsection{Closed by default}
 \label{sec:default-access}
 
-\code{default\_access} says what a route \textbf{nobody gated} means.
-\code{allow} is what the server did before 0.10.0: with no \code{auth:}
-anywhere, every route serves everyone. \code{deny} inverts it, so a route
-is served because something said so, an \code{auth:} policy that admits
-the visitor or an explicit \code{method: none} / \code{public: true}, and
-not because nothing said otherwise.
+\code{access.default} says what a route \textbf{nobody gated} means.
+\code{allow} is what the server did before 0.10.0: with no gate anywhere,
+every route serves everyone. \code{deny} inverts it, so a route is served
+because something said so, a policy that admits the visitor or an explicit
+\code{access: public}, and not because nothing said otherwise.
 
 This is the setting that makes a throwaway \code{auth: DUMMY:DUMMY}
 unnecessary. Writing one was the only way to say "not public" while
-\code{public:} was an exemption from a gate that might not exist, which is
+being public was an exemption from a gate that might not exist, which is
 a configuration language admitting it cannot express \emph{closed}.
 
 An undeclared route under \code{deny} is refused with the same answer an
@@ -2308,8 +2333,8 @@ data at four resolutions.}
         concurrency and flags (draining, ejected, cache off). The kill
         switch and bind overrule live here.
   \item[Tunnels] The private services clients declare for
-        \code{--bind-tunnels}, each with the client that declared it and
-        a ready \code{bind-tunnels:} block to copy.
+        \code{aperio-client bind}, each with the client that declared it
+        and a ready \code{binds:} block to copy.
   \item[Live Traffic] Requests as they complete, as a table or a console.
         Backed by a server-sent event stream rather than polling.
   \item[Breakdown] Traffic by token and hostname, with per-route trends
@@ -2352,9 +2377,9 @@ health, version and flags. The kill switch and the bind overrule are here,
 and the uptime panel underneath tracks availability per service.}
 
 \screenshot{dashboard-tunnels.png}{Tunnels: the private services clients
-declare for \code{--bind-tunnels}, each named \code{<org>@<name>} with the
-client that declared it, and a copy button that hands over a ready
-\code{bind-tunnels:} block.}
+declare for \code{aperio-client bind}, each named \code{<org>@<name>} with
+the client that declared it, and a copy button that hands over a ready
+\code{binds:} block.}
 
 \screenshot{dashboard-traffic.png}{Live Traffic: requests as they complete,
 over a server-sent event stream rather than a poll. The latency percentiles
@@ -2699,7 +2724,9 @@ scaling:
   cooldown: 60s
 
 idle_timeout: 5m
-max_concurrent: 10          # what makes saturation measurable
+defaults:
+  limits:
+    concurrent_requests: 10 # what makes saturation measurable
 \end{codecard}
 
 The declaration is persisted server-side against the hostname and
@@ -2710,14 +2737,14 @@ is running.
 \section{What saturation actually means}
 
 Not the request count. Each client queues on a concurrency limiter sized
-by its announced \code{max\_concurrent}, so permits in use is exactly the
-work the pool is doing:
+by its announced \code{limits.concurrent\_requests}, so permits in use is
+exactly the work the pool is doing:
 
 \begin{lstlisting}[language=aperiosh]
-utilization = inflight / sum(max_concurrent)   # routable, primary-tier clients only
+utilization = inflight / sum(concurrent_requests)   # routable, primary-tier clients only
 \end{lstlisting}
 
-Four instances of \code{max\_concurrent: 10} are saturated at 32
+Four instances of \code{concurrent\_requests: 10} are saturated at 32
 concurrent requests, not at "request number 41". Standby tiers never
 count as capacity, because counting them would mask saturation of the
 primaries.
@@ -2852,20 +2879,20 @@ which another client may reach through the server. Each one carries a
 
 \begin{codecard}[aperioyaml]{./aperio.yaml (client), on the machine next to the private service}
 tunnels:
-  - name: mongo
+  mongo:                        # the name binders ask for
     target: 127.0.0.1:27017     # MongoDB
     protocol: tcp
-  - name: pg_main
+  pg_main:
     target: 127.0.0.1:5432
     encrypt: true
-    psk: a-long-random-string   # never sent anywhere
-  - name: dns
+    psk: ${PG_TUNNEL_PSK}       # never sent anywhere
+  dns:
     target: 127.0.0.1:53
     protocol: tcp/udp           # one tunnel, both transports
 \end{codecard}
 
 \begin{codecard}[aperiosh]{From any machine, with a token permitted to bind it}
-aperio-client --bind-tunnels mongo \
+aperio-client bind mongo \
   --server-url https://tunnel.example.com \
   --server-token apr_...
 \end{codecard}
@@ -2918,7 +2945,7 @@ machine point at it.
 
 \begin{lstlisting}[language=aperioyaml]
 services:
-  - name: web                    # the handle
+  web:                           # the handle
     custom_name: "Public Web"    # what the dashboard shows
     target: http://localhost:3000
 \end{lstlisting}
@@ -2935,7 +2962,7 @@ aperio-client api expose create --file ssh-expose.json
 A tunnel name is unique inside an organization and nowhere else, which is
 why the organization is part of the claim; \code{master} is the built-in
 one. The same \code{<org>@<name>} spelling works as a
-\code{bind-tunnels:} key, is how the dashboard shows a tunnel and the
+\code{binds:} key, is how the dashboard shows a tunnel and the
 client that declared it, and is how a client is named wherever the
 server reports one, so one address form reads everywhere. An organization name may not contain
 \code{@}, which is what keeps it unambiguous. Listeners, their limits and
@@ -3384,9 +3411,9 @@ catalogue these tables are written from.
 \textbf{Setting} & \textbf{Description} & \textbf{Default} \\
 \midrule
 \endhead
-\code{cache.enabled} & \code{true} = enable the server-side GET response cache for services that opt in with the client \code{cache: true} setting. Strictly \code{Cache-Control}-driven: only responses explicitly allowing shared caching (\code{max-age}/\code{s-maxage}, no \code{no-store}/\code{no-cache}/\code{private}, no \code{Vary}/\code{Set-Cookie}) are stored, for the advertised lifetime; only credential-less plain GETs are answered from it. Hits carry \code{x-aperio-cache: hit} and an \code{Age} header; entries without a backend validator get a synthesized \code{ETag}, and a matching \code{If-None-Match} is answered \code{304} at the edge without a tunnel round-trip. Misses are \textbf{single-flighted}: concurrent identical cacheable GETs collapse into one upstream fetch (followers wait for the leader and answer from the freshly stored entry), so cache expiry on a hot URL cannot stampede the backend. Responses advertising \code{stale-while-revalidate=N} (RFC 5861) keep serving for N seconds past expiry (marked \code{x-aperio-stale}) while one background revalidation refreshes the entry, visitors never wait on the refresh. \code{POST /aperio/api/cache/purge} (admin) drops entries by \code{hostname}, \code{path\_prefix} and/or \code{surrogate\_key}, for immediate invalidation after a deploy. Cached entries also satisfy single-range \textbf{\code{Range} requests} (video scrubbing, resumable downloads) at the edge: \code{206 Partial Content} sliced from the stored full body with \code{Accept-Ranges}/\code{Content-Range}, \code{416} when out of range, honoring \code{If-Range}, partial requests never re-traverse the tunnel while the entry lives. & \code{false} \\
+\code{cache.enabled} & \code{true} = enable the server-side GET response cache for services that opt in with the client's \code{cache.enabled}. Strictly \code{Cache-Control}-driven: only responses explicitly allowing shared caching (\code{max-age}/\code{s-maxage}, no \code{no-store}/\code{no-cache}/\code{private}, no \code{Vary}/\code{Set-Cookie}) are stored, for the advertised lifetime; only credential-less plain GETs are answered from it. Hits carry \code{x-aperio-cache: hit} and an \code{Age} header; entries without a backend validator get a synthesized \code{ETag}, and a matching \code{If-None-Match} is answered \code{304} at the edge without a tunnel round-trip. Misses are \textbf{single-flighted}: concurrent identical cacheable GETs collapse into one upstream fetch (followers wait for the leader and answer from the freshly stored entry), so cache expiry on a hot URL cannot stampede the backend. Responses advertising \code{stale-while-revalidate=N} (RFC 5861) keep serving for N seconds past expiry (marked \code{x-aperio-stale}) while one background revalidation refreshes the entry, visitors never wait on the refresh. \code{POST /aperio/api/cache/purge} (admin) drops entries by \code{hostname}, \code{path\_prefix} and/or \code{surrogate\_key}, for immediate invalidation after a deploy. Cached entries also satisfy single-range \textbf{\code{Range} requests} (video scrubbing, resumable downloads) at the edge: \code{206 Partial Content} sliced from the stored full body with \code{Accept-Ranges}/\code{Content-Range}, \code{416} when out of range, honoring \code{If-Range}, partial requests never re-traverse the tunnel while the entry lives. & \code{false} \\
 \rowsep
-\code{cache.max\_stale} & Serve-stale window for services that set \code{resilience: true}: how long past its advertised lifetime a cached response may still answer visitors while the route has no healthy client. \code{0} disables serve-stale. & \code{1h} \\
+\code{cache.max\_stale} & Serve-stale window for services that set \code{cache.offline}: how long past its advertised lifetime a cached response may still answer visitors while the route has no healthy client. \code{0} disables serve-stale. & \code{1h} \\
 \rowsep
 \code{cache.negative\_ttl} & How long to briefly cache error / negative responses (e.g. \code{404}) so a hot missing URL cannot hammer the backend with repeated misses. \code{0} = disabled. Needs \code{cache.enabled}. & \code{0s} \\
 \rowsep
@@ -3512,7 +3539,7 @@ catalogue these tables are written from.
 \textbf{Setting} & \textbf{Description} & \textbf{Default} \\
 \midrule
 \endhead
-\code{inspector.enabled} & \code{false} = do not record transactions for the request inspector. On by default. Off gives back a mutex, two header clones and a capture entry per proxied request, at the cost of not being able to inspect or replay anything. A client may opt out for one service with \code{capture: false}. & \code{true} \\
+\code{inspector.enabled} & \code{false} = do not record transactions for the request inspector. On by default. Off gives back a mutex, two header clones and a capture entry per proxied request, at the cost of not being able to inspect or replay anything. A client may opt out for one service with \code{inspector: false}. & \code{true} \\
 \rowsep
 \code{inspector.redact} & \code{false} = disable secret masking in the request inspector. On (default), credential headers (\code{Authorization}, \code{Cookie}, \code{X-Api-Key}, \ldots{}) and secret-looking body fields (\code{password}, \code{token}, \code{api\_key}, \ldots{}) show as \code{[REDACTED]} in the inspector, the cURL copy, and the HAR export; the raw capture kept in memory for replay is always intact. & \code{true} \\
 \rowsep
@@ -3537,7 +3564,7 @@ catalogue these tables are written from.
 \rowsep
 \code{limits.request\_body} & Max request body size. & \code{10MB} \\
 \rowsep
-\code{limits.streams\_per\_ip} & Streamed responses one visitor address may hold open at once. Saturating a service's concurrency budget otherwise takes one host holding many slow streams; this makes it take a botnet. The slot is taken when a response turns out to \emph{be} a stream and released when the body ends or the visitor walks away, so it is a concurrency limit rather than a rate limit: opening and closing streams quickly never trips it, holding them open does. Refusals appear as \code{aperio\_rate\_limited\_total\{limit="streams-per-ip"\}}. \textbf{Check \code{trust\_proxy} before setting it}, or every visitor behind your CDN shares one address. & \code{0} \\
+\code{limits.streams\_per\_ip} & Streamed responses one visitor address may hold open at once. Saturating a service's concurrency budget otherwise takes one host holding many slow streams; this makes it take a botnet. The slot is taken when a response turns out to \emph{be} a stream and released when the body ends or the visitor walks away, so it is a concurrency limit rather than a rate limit: opening and closing streams quickly never trips it, holding them open does. Refusals appear as \code{aperio\_rate\_limited\_total\{limit="streams-per-ip"\}}. \textbf{Check \code{proxy.trust} before setting it}, or every visitor behind your CDN shares one address. & \code{0} \\
 \rowsep
 \code{limits.tunnels} & Max simultaneously connected tunnel connections. A client holds one per service unless it multiplexes, and a config reload briefly wants two per service (the replacement comes up before the old one closes). Was \code{10} before 0.12.0. & \code{64} \\
 \rowsep
@@ -3926,12 +3953,16 @@ they drive.
 
 \chapter{Client settings reference}
 \label{app:client}
-
-The client layers CLI arguments over \code{./aperio.yaml}, over the
-environment, over \code{\textasciitilde/.aperio.yaml}. Only three
-settings are required: the token, the server URL, and the target.
-
-\begin{longtable}{@{}R{0.21}R{0.18}R{0.15}R{0.36}@{}}
+The client merges four layers, lowest first: \code{\textasciitilde/.aperio.yaml},
+\code{./aperio.yaml}, the environment, the command line. Mappings merge key
+by key and anything else is replaced. Every variable is the yaml key with
+\code{APERIO\_} in front and its dots as underscores; a key of
+\code{defaults:} is written without that prefix, so \code{APERIO\_TIMEOUT}
+is \code{defaults.timeout}. A default, where a key has one, is given at the
+end of its description.
+\section*{The client}
+Top-level keys: what the client as a whole is, and how it reaches its server.
+\begin{longtable}{@{}R{0.24}R{0.15}R{0.17}R{0.34}@{}}
 \toprule
 \textbf{Env} & \textbf{CLI} & \textbf{yaml} & \textbf{Description} \\
 \midrule
@@ -3940,26 +3971,96 @@ settings are required: the token, the server URL, and the target.
 \textbf{Env} & \textbf{CLI} & \textbf{yaml} & \textbf{Description} \\
 \midrule
 \endhead
-\code{APERIO\_SERVER\_TOKEN} & \code{--server-token} & \code{server.token} & \textbf{Required.} Tunnel token. \\
-\rowsep
 \code{APERIO\_SERVER\_URL} & \code{--server-url} & \code{server.url} & \textbf{Required.} Server URL (\code{http/https/ws/wss}). \\
 \rowsep
-\code{APERIO\_API\_KEY} & \code{--api-key} & \code{server.api\_key} & Programmatic admin key for \code{aperio-client api ...} calls, unrelated to the tunnel itself. Falls back to the tunnel token, which the server accepts only where the master token is a valid credential. See \emph{Admin API from the CLI}. \\
+\code{APERIO\_SERVER\_TOKEN} & \code{--server-token} & \code{server.token} & \textbf{Required.} Tunnel token, master or a scoped dynamic token. \\
 \rowsep
 \code{APERIO\_SERVER\_URLS} &  & \code{server.urls} & Additional server URLs to fail over to (comma-separated on env, a list in yaml), tried in order when the primary \code{server.url} is unreachable, for a redundant control plane. \\
 \rowsep
-\code{APERIO\_IP\_FAMILY} & \code{--ip-family} & \code{ip\_family} & Address family used to dial the server: \code{auto} (default; IPv4-first, trying each resolved address with a per-address timeout), \code{ipv4}, or \code{ipv6}. Use \code{ipv4} when the server hostname resolves to an unreachable IPv6 address. \\
-\code{APERIO\_EGRESS\_PROXY} & \code{--egress-proxy} & \code{egress\_proxy} & HTTP proxy to dial the tunnel server through, on a network with no direct outbound connection: \code{host:port} or \code{http://host:port}, optionally with \code{user:password@} in front. The client sends \code{CONNECT} and runs TLS inside the tunnel the proxy opens, so the proxy sees the hostname and nothing else. The tunnel only: your backend is never reached through it. An \code{https://} proxy is refused rather than dialed in the clear, and a refused \code{CONNECT} names the proxy and its status. \\
-\code{APERIO\_TLS\_MIN\_VERSION} & \code{--} & \code{tls\_min\_version} & Lowest TLS version offered when dialing the tunnel server over \code{wss://}: \code{1.2} or \code{1.3}. Unset leaves rustls' own set (1.2 and 1.3), which is the right default; pin it when a policy has to name the floor in writing. A value this client cannot offer is refused at startup, never silently ignored. Process-wide. \\
-\code{APERIO\_TLS\_CIPHER\_SUITES} & \code{--} & \code{tls\_cipher\_suites} & Exact cipher suites offered when dialing the tunnel server, by their IANA names, comma-separated. Unset leaves rustls' preference order alone, which is almost always better. An unknown name, or a set that cannot meet the configured floor, is refused at startup. Process-wide. \\
+\code{APERIO\_SERVER\_API\_KEY} & \code{--server-api-key} & \code{server.api\_key} & Programmatic admin key for \code{aperio-client api ...} calls, unrelated to the tunnel itself. Falls back to the tunnel token, which the server accepts only where the master token is a valid credential. See Admin API from the CLI. \\
 \rowsep
-\code{APERIO\_TARGET} & positional / \code{--target} & \code{target} & \textbf{Required.} Local backend to forward to. \code{http(s)://} (a bare port or hostname is normalized to it), or \code{h2c://} / \code{h2://} for HTTP/2 backends, gRPC: requests are dialed over HTTP/2 (cleartext prior knowledge / TLS), \code{te: trailers} is forwarded, and response trailers (\code{grpc-status}) are relayed to the visitor. The visitor leg must also be HTTP/2 for trailers to survive (aperio-server accepts h2c; have the fronting proxy forward gRPC as HTTP/2). \code{unix:///var/run/app.sock} forwards over a Unix domain socket (HTTP/1.1; Unix platforms only, WebSocket upgrades unsupported; each request dials the socket fresh, matching socket-activated backends). \\
+\code{APERIO\_SERVER\_IP\_FAMILY} & \code{--server-ip-family} & \code{server.ip\_family} & Address family used to dial the server: \code{auto} (default; IPv4-first, trying each resolved address with a per-address timeout), \code{ipv4}, or \code{ipv6}. Use \code{ipv4} when the server hostname resolves to an unreachable IPv6 address. Default: \code{auto}. \\
 \rowsep
-\code{APERIO\_SERVE} & \code{--serve} & \code{serve} & Serve a local directory of static files with a built-in file server instead of proxying to a backend, the directory takes the place of \code{target}. Files stream from disk, so memory does not scale with file size, and single-range \code{Range} requests are answered \code{206} with \code{Accept-Ranges}/\code{Content-Range} (\code{416} past the end), which is what video scrubbing and resumable downloads need. \\
+\code{APERIO\_SERVER\_PROXY} & \code{--server-proxy} & \code{server.proxy} & HTTP proxy to dial the tunnel server through, for a network that allows no direct outbound connection: \code{host:port}, \code{http://host:port}, either with an optional \code{user:password@} in front. The client sends \code{CONNECT} and runs TLS inside the tunnel the proxy opens, so the proxy sees the server's hostname and nothing else. \textbf{The tunnel only}: requests to your own backend are never sent through it, and neither is anything else on the machine. A port is required in practice; without one the http default (\code{80}) is used, and a value that names a port but no host (\code{:3128}) is refused at startup rather than read as a hostname. An IPv6 proxy is written bracketed (\code{[2001:db8::1]:3128}). An \code{https://} proxy (TLS to the proxy itself) is refused rather than dialed in the clear. A proxy that refuses \code{CONNECT} fails the dial with the proxy and its status named, and \code{aperio-client check} reports the route it took. Default: direct. \\
 \rowsep
-\code{APERIO\_SERVE\_SPA} &  & \code{serve\_spa} & \code{1} = a navigation (\code{Accept: text/html}) that resolves to no file falls back to the root \code{index.html} with status \code{200}, the single-page-app deployment. A missing hashed asset still \code{404}s. \\
+\code{APERIO\_SERVER\_MIN\_TLS\_VERSION} &  & \code{server.min\_tls\_version} & Lowest TLS version offered when dialing the tunnel server over \code{wss://}: \code{1.2} or \code{1.3}. Unset leaves rustls' own set (1.2 and 1.3), which is the right default; pin it when a policy has to name the floor in writing rather than inherit it from a dependency. A value this client cannot offer is refused at startup, never silently ignored. Process-wide: a hot-reload does not change it. Default: \emph{(rustls default: 1.2 and 1.3)}. \\
 \rowsep
-\code{APERIO\_SERVE\_404} &  & \code{serve\_404} & Path to an HTML file served (status \code{404}) for misses the SPA fallback does not cover. \\
+\code{APERIO\_SERVER\_TLS\_CIPHER\_SUITES} &  & \code{server.tls\_cipher\_suites} & Exact cipher suites offered when dialing the tunnel server, by their IANA names, comma-separated (e.g. \code{TLS13\_AES\_256\_GCM\_SHA384,TLS13\_CHACHA20\_POLY1305\_SHA256}). Unset leaves rustls' preference order alone, which is almost always better; name them only when something external requires it. An unknown name, or a set that cannot meet \code{APERIO\_TLS\_MIN\_VERSION}, is refused at startup. Process-wide. Default: \emph{(rustls' own order)}. \\
+\rowsep
+\code{APERIO\_NAME} & \code{--name} & \code{name} & What to call this client on screen and in the server's logs, e.g. \code{eu\_server\_1}. Lowercase letters, digits and \code{\_}, like a service name. \textbf{A label, not an address:} \code{client\_id} stays the identity that failover recognizes this process by, because that needs something unique and a name is not. Three replicas an operator would happily call \code{eu\_server} are three processes, and sharing a name must not make the server treat them as one. Unset shows the id. Default: the client id. \\
+\rowsep
+\code{APERIO\_CLIENT\_ID} & \code{--client-id} & \code{client\_id} & Persistent client instance id (a UUID). Keeps the id stable across restarts, useful for failover \code{wait} mode and \code{aperio-client bind}. Default: random UUID per run. \\
+\rowsep
+\code{APERIO\_ALLOW\_SERVER\_FORWARD} &  & \code{allow\_server\_forward} & Answer a \code{forward} check (\code{via: client}) whose endpoint the \textbf{server} wrote, in its own visitor gate or a \code{routes:} policy, rather than one of this client's services. Such a check makes the client call a URL the server chose, from the client's network, so it is refused unless this is set; the checks the client's own \code{access:} declares are always answered. A refused check refuses the visitor. See the forward method. Default: \code{0}. \\
+\rowsep
+\code{APERIO\_BANDWIDTH} &  & \code{bandwidth} & Link capacity of this client's network, e.g. \code{8mbit}, \code{500kbit}, \code{2MB}, or plain bytes/second. The server paces outgoing tunnel frames (token bucket, 1 s burst) so this client is never pushed faster than its network can drain. It is a \textbf{budget for the whole client process}, not a per-service default: it is divided across the \code{services:} entries and each entry's parallel \code{connections}, so the total never exceeds it. See Sharing the bandwidth budget. Default: unlimited. \\
+\rowsep
+\code{APERIO\_DEVICE\_KEY} &  & \code{device\_key} & Explicit device key announced for trust-on-first-use token pinning (server \code{security.token\_pinning}): pins the token to this device so a leaked token replayed elsewhere is rejected. Default: none announced. \\
+\rowsep
+\code{APERIO\_DEVICE\_KEY\_FILE} &  & \code{device\_key\_file} & Path holding the device key, its contents are used, or a fresh random key is generated and persisted there (owner-only \code{0600}) on first run. Ignored when \code{APERIO\_DEVICE\_KEY} is set. \\
+\rowsep
+\code{APERIO\_IDLE\_TIMEOUT} &  & \code{idle\_timeout} & Retire this client after it has served nothing for this long (e.g. \code{5m}); unset = never. The scale-in half of \code{scaling:}, see Autoscaling. The shutdown is graceful, and the clock only starts after the first request. Every kind of traffic counts, not just buffered HTTP requests: each relayed frame of a WebSocket, TCP or UDP session re-stamps the clock in both directions, and retirement is held back while any request is still in flight (a slow backend, or a response streaming for longer than the window), so a live session is never cut mid-traffic. \\
+\rowsep
+\code{APERIO\_LOG\_FORMAT} &  & \code{log\_format} & \code{json} or \code{pretty}. By default the client auto-detects: human-readable logs on an interactive terminal, JSON when stdout is not a TTY (Docker, pipes, service managers). Default: auto. \\
+\rowsep
+\code{LOG\_LEVEL} &  & \code{log\_level} & Log verbosity; \code{RUST\_LOG} overrides it. Default: \code{info}. \\
+\rowsep
+\code{APERIO\_MAX\_MESSAGE\_SIZE} &  & \code{max\_message\_size} & Max size of one tunnel message accepted from the server (memory protection). Default: \code{32MB}. \\
+\rowsep
+\code{APERIO\_MESSAGES\_LISTEN} &  & \code{messages.listen} & Local address the message face listens on, so an application on this machine can subscribe and publish without speaking the tunnel protocol: \code{GET /subscribe?topic=<filter>} streams server-sent events, \code{POST /publish?topic=<topic>} sends the body. Loopback is the sensible value; anything else is warned about, since whoever can reach it can publish as this client. Unset = no local listener. Default: | unset. \\
+\rowsep
+\code{APERIO\_MESSAGES\_MQTT\_LISTEN} &  & \code{messages.mqtt\_listen} & Local address an MQTT listener answers on, for an application that would rather use the MQTT client library it already has. MQTT 3.1.1, QoS 0 on subscriptions (a subscription asking for 1 or 2 is granted 0), no retained messages, no persistent sessions. A publish carrying QoS 1 is honored as at-least-once and acknowledged with \code{PUBACK}; QoS 2 has no exchange of its own and is published at-least-once. The protocol never leaves the machine. Unset = no MQTT listener. Default: | unset. \\
+\rowsep
+\code{APERIO\_OTEL\_BRIDGE\_LISTEN} &  & \code{otel\_bridge.listen} & Address for the client's OTLP/HTTP receiver. Anything on the edge host exports to it with one environment variable and no SDK change. Default: \code{127.0.0.1:4318}. \\
+\rowsep
+\code{APERIO\_OTEL\_BRIDGE\_LISTEN\_GRPC} &  & \code{otel\_bridge.listen\_grpc} & Address for the OTLP/gRPC receiver, for an SDK pinned to that transport. Unset = no gRPC listener. \\
+\rowsep
+\code{APERIO\_OTEL\_BRIDGE\_QUEUE} &  & \code{otel\_bridge.queue} & Exports held when the far end is not keeping up. Past this the newest is dropped and counted, never waited on: an exporter that cannot hand off its batch blocks the application it is instrumenting. Default: \code{256}. \\
+\rowsep
+\code{APERIO\_OTEL\_BRIDGE\_TRANSPORT} &  & \code{otel\_bridge.transport} & How exports reach the server: \code{tunnel} sends them on the WebSocket the client already holds, which is what preserves the "one outbound connection" property; \code{https} posts them to the server's endpoint instead, for telemetry bursty enough that it should stay off the tunnel. Default: \code{tunnel}. \\
+\rowsep
+\code{APERIO\_PID\_FILE} &  & \code{pid\_file} & Path to write the process id to at startup, removed on a clean exit (not after a crash: a stale pid file would have an init system signalling whatever process now holds that number). A pid file that cannot be written is a warning, not a refusal to start. \\
+\rowsep
+\code{APERIO\_RELOAD\_DRAIN} &  & \code{reload\_drain} & How long a configuration reload lets in-flight requests finish before the affected tunnel connections are dropped. The client announces \code{Draining} first, so the server stops dispatching to it and the wait actually terminates. \code{0s} drops at once. Default: \code{10s}. \\
+\rowsep
+\code{APERIO\_SCALING\_COLD\_START} &  & \code{scaling.cold\_start} & How long a visitor request may be held while a cold start completes, e.g. \code{45s}. \code{0} answers immediately instead of holding. Default: \code{45s}. \\
+\rowsep
+\code{APERIO\_SCALING\_COOLDOWN} &  & \code{scaling.cooldown} & Minimum gap between two calls for one bind. A new instance needs time to appear; without this the server would ask again while it is still starting. Default: \code{60s}. \\
+\rowsep
+\code{APERIO\_SCALING\_MAX} &  & \code{scaling.max} & Ceiling the server will never ask to exceed. \code{0} means cold starts only, no scale-out. Default: \code{0}. \\
+\rowsep
+\code{APERIO\_SCALING\_MIN} &  & \code{scaling.min} & Instances that should always be running. \code{0} opts into scale-to-zero: a request for an unserved hostname cold-starts instead of answering 504. Default: \code{0}. \\
+\rowsep
+\code{APERIO\_SCALING\_SECRET} &  & \code{scaling.secret} & Sent as \code{Authorization: Bearer} on that call. Write-only: never echoed back, never logged. \\
+\rowsep
+\code{APERIO\_SCALING\_TARGET\_UTILIZATION} &  & \code{scaling.target\_utilization} & Pool utilization above which the server asks for one more instance, between 0 and 1. Default: \code{0.8}. \\
+\rowsep
+\code{APERIO\_SCALING\_URL} &  & \code{scaling.url} & Endpoint the server POSTs to when a service of this client needs capacity. HTTPS and public addresses only, unless the operator opened those (see Autoscaling). Without it there is nothing to call, so the declaration is off. \\
+\rowsep
+\code{APERIO\_SCALING\_WINDOW} &  & \code{scaling.window} & How long utilization must stay above the target before scaling out. Guards against reacting to a single spike. Default: \code{15s}. \\
+\rowsep
+\code{APERIO\_SERVE\_404} &  & \code{serve\_404} & Static-file services: HTML file served with status 404 for misses the SPA fallback does not cover. Applies to every \code{serve:} directory of this client. \\
+\rowsep
+\code{APERIO\_SERVE\_SPA} &  & \code{serve\_spa} & Static-file services: answer a navigation (\code{Accept: text/html}) that matches no file with the root \code{index.html} and status 200, so a client-side router owns its routes. A missing asset still 404s. Applies to every \code{serve:} directory of this client. Default: \code{false}. \\
+\rowsep
+\code{APERIO\_SUBSCRIBE} &  & \code{subscribe} & Comma-separated topic filters this client subscribes to (the yaml form also accepts an object per entry, adding a required \code{topic:} and \code{env:} alongside \code{run:}/\code{timeout:}/\code{max\_concurrent:} to run a command when a message arrives; \code{run:} is file-only), for messages from the other clients of its organization. MQTT filter syntax: \code{+} is one level, \code{\#} is the rest. \code{\$aperio/...} carries the server's own events (\code{\$aperio/client/connected}, \code{\$aperio/token/created}, \ldots{}) and is never matched by a bare \code{\#}, nor granted by one: the token's \code{topics} has to name it. Process-wide, not per service: a client running several services receives one copy, not one per service. \\
+\rowsep
+\bottomrule
+\end{longtable}
+\section*{A service: where its traffic goes}
+Written in a \code{services:} entry. On the command line and in the environment these describe the one service those two can run without a file; a target there runs on its own, in place of the file's \code{services:}.
+\begin{longtable}{@{}R{0.24}R{0.15}R{0.17}R{0.34}@{}}
+\toprule
+\textbf{Env} & \textbf{CLI} & \textbf{yaml} & \textbf{Description} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Env} & \textbf{CLI} & \textbf{yaml} & \textbf{Description} \\
+\midrule
+\endhead
+\code{APERIO\_TARGET} & positional & \code{target} & \textbf{Required.} Local backend to forward to. \code{http(s)://} (a bare port or hostname is normalized to it), or \code{h2c://} / \code{h2://} for HTTP/2 backends, gRPC: requests are dialed over HTTP/2 (cleartext prior knowledge / TLS), \code{te: trailers} is forwarded, and response trailers (\code{grpc-status}) are relayed to the visitor. The visitor leg must also be HTTP/2 for trailers to survive (aperio-server accepts h2c; have the fronting proxy forward gRPC as HTTP/2). \code{unix:///var/run/app.sock} forwards over a Unix domain socket (HTTP/1.1; Unix platforms only, WebSocket upgrades unsupported; each request dials the socket fresh, matching socket-activated backends). \\
+\rowsep
+\code{APERIO\_SERVE} & \code{--serve} & \code{serve} & Serve a local directory of static files with a built-in file server instead of proxying to a backend, the directory takes the place of \code{target}. See Static File Serving for SPA fallback, custom 404, streaming, \code{Range} support and the path-safety rules. \\
 \rowsep
 \code{APERIO\_TCP\_TARGET} &  & \code{tcp\_target} & Bridge a raw local TCP service (experimental) rather than an HTTP backend, reached through the server's \code{/aperio/tcp} endpoint. \\
 \rowsep
@@ -3967,148 +4068,126 @@ settings are required: the token, the server URL, and the target.
 \rowsep
 \code{APERIO\_PATH} & \code{--path} & \code{path} & Path prefix this client serves. \\
 \rowsep
-\code{APERIO\_TRIM\_BIND} &  & \code{trim\_bind} & Strip the path bind prefix before forwarding. \\
+\code{APERIO\_CUSTOM\_NAME} &  & \code{custom\_name} & What to call this service on screen (dashboard, client logs). Free text: any language, any punctuation, spaces, changeable at will, nothing addresses it. The key a service is written under is the handle that does, and it is an identifier (\code{a-z}, \code{0-9}, \code{\_}). Available on a \code{tunnels:} entry too. \\
 \rowsep
-\code{APERIO\_PASS\_HOSTNAME} & \code{--pass-hostname} & \code{pass\_hostname} & Forward the original \code{Host} header instead of the target's. \\
+\bottomrule
+\end{longtable}
+\section*{A service: what it does with its traffic}
+Written in a \code{services:} entry for that service, or under \code{defaults:} for every service that does not write its own. The environment variable and the flag set the \code{defaults:} value: \code{APERIO\_TIMEOUT=60s} is \code{defaults.timeout}, and a service that writes its own \code{timeout} keeps it.
+\begin{longtable}{@{}R{0.24}R{0.15}R{0.17}R{0.34}@{}}
+\toprule
+\textbf{Env} & \textbf{CLI} & \textbf{yaml} & \textbf{Description} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Env} & \textbf{CLI} & \textbf{yaml} & \textbf{Description} \\
+\midrule
+\endhead
+\code{APERIO\_ACCESS} & \code{--access} & \code{access} & Who may reach the service: \code{public}, one method block, or a list of them (any one admits). Unset, the server's own visitor gate and \code{access.default} decide. Default: the server's gate. \\
 \rowsep
-\code{APERIO\_PUBLIC} & \code{--public} & \code{public} & Declare the service public: the server skips its visitor password / OIDC gate for routes served exclusively by this client. Honored only when the token permits publishing public services (master always does). \\
+\code{APERIO\_ALLOWED\_IPS} & \code{--allowed-ips} & \code{allowed\_ips} & Visitor IPs/CIDRs allowed to reach this service (comma-separated on the CLI/env, a list in yaml; e.g. \code{203.0.113.7,10.0.0.0/8}). Enforced by the server \textbf{per candidate, before dispatch}, blocked traffic never enters the tunnel. When several clients serve one route, each candidate is filtered by its \emph{own} list and the request goes to any passing candidate (\textbf{union semantics}, deliberately fail-open: one unrestricted client joining a route opens it; use the token-level \code{allowed\_ips} for route-wide lockdown). A visitor every candidate rejects gets the \code{denied:} redirect of the most-primary declaring candidate, or, without one, a \textbf{stealth answer identical to an unclaimed route} (504), so the route's existence never leaks to blocked IPs. Purely restrictive, no token permission needed. Default: everyone. \\
 \rowsep
-\code{APERIO\_SERVER\_SIDE} &  & \code{server\_side} & Ask the server to reach this service's \code{target} itself instead of relaying through this client, when the server's \code{server\_side\_targets:} permits the address and the token carries \code{allow\_server\_side}. Top-level it is the default for every \code{services:} entry and for the single service of a file-less client; an entry may opt out with \code{server\_side: false}. Cannot be combined with \code{serve:}. Needs tunnel protocol 9 (0.11.0); against an older server the service is held back rather than relayed. \\
+\code{APERIO\_CACHE\_ENABLED} &  & \code{cache.enabled} & Opt this service into the server-side GET response cache (needs \code{cache.enabled} on the \textbf{server}; strictly \code{Cache-Control}-driven). Default: \code{false}. \\
 \rowsep
-\code{APERIO\_ALLOW\_SERVER\_FORWARD} &  & \code{allow\_server\_forward} & Answer a \code{forward} check (\code{via: client}) whose endpoint the server wrote, in its own \code{auth:} or a \code{routes:} policy, rather than one of this client's services. Such a check makes the client call a URL the server chose, from the client's network, so it is refused unless this is set; the checks the client's own \code{auth:} declares are always answered. \\
+\code{APERIO\_CACHE\_OFFLINE} &  & \code{cache.offline} & Serve fresh or stale cached responses while no healthy client is connected, up to the server's \code{cache.max\_stale} window. Needs \code{cache.enabled} here and caching on the server. Once a client reconnects, cache hits still apply and misses can reach the backend. Default: \code{false}. \\
 \rowsep
-\code{APERIO\_VISITOR\_AUTH} & \code{--visitor-auth} & \code{auth} & Gate this service behind a client-set visitor login, superseding the server's own \code{access.gate} for it (only the client's credentials work; master and dashboard passwords always do). A successful login is scoped to that hostname. Same token permission as \code{public}; ignored if the server sets \code{access.ignore\_client\_auth}. Per \code{services:} entry via \code{auth:}. In yaml this is the \code{user:password} scalar or a method block (Section~\ref{sec:visitor-auth}); the flag and the environment variable are scalars, so they always mean \code{basic}. \\
+\code{APERIO\_CIRCUIT\_BREAKER\_FAILURES} &  & \code{circuit\_breaker.failures} & Consecutive backend failures that open the circuit breaker. While open the backend is \textbf{not dialed at all} and the visitor gets \code{502} immediately, so a dead backend stops being hammered once per request and nobody waits out a connect that will not succeed. \code{0} disables it. A response head of any status counts as a success: a \code{500} is a backend that is up, and refusing to dial it would turn an application error into an outage. Default: \code{0} (off). \\
 \rowsep
-\code{APERIO\_ALLOWED\_IPS} & \code{--allowed-ips} & \code{allowed\_ips} & Visitor IPs/CIDRs allowed to reach this service (comma-separated on the CLI/env, a list in yaml; e.g. \code{203.0.113.7,10.0.0.0/8}). Enforced by the server \textbf{per candidate, before dispatch}, blocked traffic never enters the tunnel. When several clients serve one route, each candidate is filtered by its *own* list and the request goes to any passing candidate (\textbf{union semantics}, deliberately fail-open: one unrestricted client joining a route opens it; use the token-level \code{allowed\_ips} for route-wide lockdown). A visitor every candidate rejects gets the \code{denied:} redirect of the most-primary declaring candidate, or, without one, a \textbf{stealth answer identical to an unclaimed route} (504), so the route's existence never leaks to blocked IPs. Purely restrictive, no token permission needed. Per \code{services:} entry via \code{allowed\_ips:}. \\
+\code{APERIO\_CIRCUIT\_BREAKER\_OPEN\_FOR} &  & \code{circuit\_breaker.open\_for} & How long the breaker stays open. After that one request is let through to probe the backend; if it fails, a fresh window starts. Default: \code{30s}. \\
 \rowsep
-\code{APERIO\_DENIED} &  & \code{denied} & Absolute http(s) URL a fully rejected visitor (see \code{allowed\_ips}) is redirected to (302). Declared via the tunnel handshake; unset = the stealth answer. Per \code{services:} entry via \code{denied:}. \\
+\code{APERIO\_CONNECT\_TIMEOUT} &  & \code{connect\_timeout} & How long to wait for the TCP connection to a backend, separate from \code{timeout}, which covers the whole request. Per service: a backend across a VPN needs longer than one on loopback, and one number for both means either slow failure detection everywhere or spurious failures for the far one. Unset = only the whole-request budget applies. \\
 \rowsep
-\code{APERIO\_PRIORITY} & \code{--priority} & \code{priority} & Load-balancing priority tier announced to the server (0 = primary, higher = standby; effective with \code{routing.lb\_strategy: primary-standby}). \\
+\code{APERIO\_CONNECTIONS} &  & \code{connections} & Parallel tunnel connections per service; the server load-balances across them like separate clients. The ceiling is the server's \code{limits.connections\_per\_service} (default 16), announced on connect and lowerable per token. More is not automatically faster, each connection costs CPU on both ends; see the note under Multiple services. Default: \code{1}. \\
 \rowsep
-\code{APERIO\_BANDWIDTH} &  & \code{bandwidth} & Link capacity of this client's network, e.g. \code{8mbit}, \code{500kbit}, \code{2MB}, or plain bytes/second. The top-level value is a budget for the whole process, divided across the \code{services:} entries and each entry's \code{connections}; per-entry it is that service's ceiling. The server paces outgoing tunnel frames (token bucket, 1 s burst) so this client is never pushed faster than its network can drain. \\
+\code{APERIO\_CONNECTIONS\_MAX} &  & \code{connections.max} & Ceiling of an elastic pool. The server's \code{limits.connections\_per\_service} still wins over it. Default: \code{min}. \\
 \rowsep
-\code{APERIO\_MAX\_CONCURRENT} & \code{--max-concurrent} & \code{max\_concurrent} & Max concurrent requests; announced to the server, which queues the excess instead of flooding the backend. Also enforced locally. \\
+\code{APERIO\_CONNECTIONS\_MIN} &  & \code{connections.min} & Floor of an elastic pool: \code{connections: \{min: 1, max: 8\}} opens one connection and grows towards eight while requests queue up. Writing either half turns the setting into a range; a plain number stays a fixed pool. See Elastic connections. Default: \code{1}. \\
 \rowsep
-\code{APERIO\_CONNECTIONS} &  & \code{connections} & Parallel tunnel connections per service; the server's \code{max\_connections\_per\_service} (default 16) caps it, and the client refuses to configure more than 256. The server load-balances across them like separate clients. \\
+\code{APERIO\_DENIED} &  & \code{denied} & Absolute http(s) URL a fully rejected visitor (see \code{allowed\_ips}) is redirected to (302). Declared via the tunnel handshake; unset = the stealth answer. Default: stealth. \\
 \rowsep
-\code{APERIO\_OTEL\_BRIDGE\_LISTEN} &  & \code{otel\_bridge.listen} & Address for the client's OTLP/HTTP receiver, \code{127.0.0.1:4318} by default; anything on the edge host exports to it with one environment variable. \\
+\code{APERIO\_HEADERS\_REQUEST\_ADD} &  & \code{headers.request.add} & Headers to set, name $\rightarrow$ value; replaces an existing header of the same name. \\
 \rowsep
-\code{APERIO\_OTEL\_BRIDGE\_LISTEN\_GRPC} &  & \code{otel\_bridge.listen\_grpc} & Address for the OTLP/gRPC receiver. Unset, the default, means no gRPC listener. \\
+\code{APERIO\_HEADERS\_REQUEST\_REMOVE} &  & \code{headers.request.remove} & Header names to strip (case-insensitive). \\
 \rowsep
-\code{APERIO\_OTEL\_BRIDGE\_TRANSPORT} &  & \code{otel\_bridge.transport} & \code{tunnel}, the default, sends exports on the WebSocket the client already holds; \code{https} posts them to the server's endpoint. \\
+\code{APERIO\_HEADERS\_RESPONSE\_ADD} &  & \code{headers.response.add} & Headers to set, name $\rightarrow$ value; replaces an existing header of the same name. \\
 \rowsep
-\code{APERIO\_OTEL\_BRIDGE\_QUEUE} &  & \code{otel\_bridge.queue} & Exports held when the far end is not keeping up, \code{256} by default; past this the newest is dropped and counted, never waited on. \\
+\code{APERIO\_HEADERS\_RESPONSE\_REMOVE} &  & \code{headers.response.remove} & Header names to strip (case-insensitive). \\
 \rowsep
-\code{APERIO\_STARTUP\_DELAY} &  & \code{startup\_delay} & Seconds a service waits before opening its tunnel, \code{0} by default, for a backend that starts alongside the client. Only the first connection of a parallel pool waits. \\
+\code{APERIO\_HEALTH\_ENDPOINT} &  & \code{health.endpoint} & Health endpoint of the local target (path like \code{/health}, or a full URL). When set, the client probes it independently and reports the result to the server: a failing backend takes the client \textbf{out of routing without dropping the tunnel}; it rejoins automatically when the probe recovers. The dashboard shows a \code{BACKEND DOWN} badge meanwhile. *\emph{The service starts }unhealthy\emph{ (out of routing) until the first probe succeeds}\emph{, the client never claims a backend is up before it has checked it, and the first probe runs immediately at startup, so a healthy backend becomes routable within a probe (not a probe interval). Before that first probe completes the dashboard shows a }\emph{CHECKING}\emph{ badge (rather than }BACKEND DOWN\emph{), so "not probed yet" is distinguishable from "probed and down". Probes never follow redirects. Against an `h2c://`/`h2://` target the value names the }\emph{gRPC service}* to health-check instead, and the probe calls \code{grpc.health.v1.Health/Check}: a plain GET cannot reach a server that speaks HTTP/2 with prior knowledge and routes by method name. \code{/} asks about the server as a whole. An absolute \code{http(s)://} URL still means an ordinary HTTP probe. \\
 \rowsep
-\code{APERIO\_DEPENDS\_ON} &  & \code{depends\_on} & Services this one waits for before opening its tunnel, comma-separated in the variable. At the top level it is the default for every \code{services:} entry that names none of its own, except the entries the list itself names, which are what is being waited for. The wait is bounded: after 60 seconds it proceeds anyway and logs what it gave up on, because a dependency that never arrives must not keep a service that could be serving traffic off the air. On a multiplexed connection a dependency on one of its own members is dropped, since both open together. \\
+\code{APERIO\_HEALTH\_INTERVAL} &  & \code{health.interval} & Time between backend health probes. Default: \code{10s}. \\
 \rowsep
-\code{APERIO\_PID\_FILE} &  & \code{pid\_file} & Path to write the process id to at startup, removed on a clean exit. Unset by default. A pid file that cannot be written is a warning, not a refusal to start. \\
+\code{APERIO\_HEALTH\_THRESHOLD} &  & \code{health.threshold} & Consecutive probe failures before the backend is reported unhealthy. Default: \code{2}. \\
 \rowsep
-\code{APERIO\_ADAPTIVE\_CONCURRENCY} &  & \code{adaptive\_concurrency} & Off by default. Moves the announced \code{max\_concurrent} with backend pressure: halves it while requests queue waiting for a local permit, climbs back one at a time when they stop. Needs \code{max\_concurrent} set, and never leaves the band \code{1..=max\_concurrent}. \\
+\code{APERIO\_HEALTH\_TIMEOUT} &  & \code{health.timeout} & Per-probe timeout. Default: \code{5s}. \\
 \rowsep
-\code{APERIO\_CONNECT\_TIMEOUT} &  & \code{connect\_timeout} & Seconds to wait for the TCP connection to a backend, separate from \code{timeout}, which covers the whole request. Per service. Unset = only the whole-request budget applies. \\
+\code{APERIO\_HEALTH\_WAIT\_FOR\_BACKEND} &  & \code{health.wait\_for\_backend} & Startup gate: hold the service \textbf{out of routing until the backend first accepts a connection}, avoiding the connection-refused window while a slow dev server boots. Connection-level only (a probe per second); once the backend is up the gate never re-engages. Superseded by \code{health.endpoint}, which gates startup \emph{and} tracks health continuously. Default: \code{0}. \\
 \rowsep
-\code{APERIO\_MIN\_TLS\_VERSION} &  & \code{min\_tls\_version} & Lowest TLS version accepted from an \code{https://} backend, \code{1.2} or \code{1.3}. Per service. A value that is not a TLS version is refused at startup rather than ignored. \\
+\code{APERIO\_INSPECTOR} &  & \code{inspector} & Record this service's transactions for the dashboard's request inspector. On by default; \code{inspector: false} (or \code{APERIO\_INSPECTOR=0}) trades the ability to inspect and replay this service's requests for the per-request cost of recording them. Live traffic, statistics and the access log are unaffected. Default: \code{true}. \\
 \rowsep
-\code{APERIO\_METRICS\_LABELS} &  & \code{metrics\_labels} & Static Prometheus labels attached to this client's own \code{aperio\_client\_requests\_total} series. YAML takes a mapping (\code{\{env: prod\}}); the environment spelling is a flat \code{env=prod,region=eu-west} list. At most 8 labels, names must match \code{[a-zA-Z\_][a-zA-Z0-9\_]*}, and the names the server writes itself are refused. \\
+\code{APERIO\_LIMITS\_ADAPTIVE\_CONCURRENCY} &  & \code{limits.adaptive\_concurrency} & Move the announced \code{limits.concurrent\_requests} with backend pressure: halve it while requests queue waiting for a local permit, climb back one at a time when they stop. The server already queues rather than dispatching past the announced number, so a client that has become slow simply stops being sent work it cannot do; the server then holds the request, picks another client in the pool, or asks for capacity through autoscaling, all of which beat a refusal. Needs \code{limits.concurrent\_requests} set, since that is the number being moved, and never leaves the band \code{1..=max\_concurrent}. See Client Resilience. Default: \code{false}. \\
 \rowsep
-\code{APERIO\_CONNECTIONS\_MIN} &  & \code{connections.min} & Floor of an elastic pool: \code{connections: \{min: 1, max: 8\}} opens one connection and grows towards eight while requests queue up. A plain number stays a fixed pool. \\
+\code{APERIO\_LIMITS\_CONCURRENT\_REQUESTS} &  & \code{limits.concurrent\_requests} & Max concurrent requests; announced to the server, which queues the excess instead of flooding the backend. Also enforced locally. Default: unlimited. \\
 \rowsep
-\code{APERIO\_CONNECTIONS\_MAX} &  & \code{connections.max} & Ceiling of an elastic pool. The server's \code{max\_connections\_per\_service} still wins over it, and the \code{bandwidth} share is divided by this value rather than by the pool's current size. \\
+\code{APERIO\_LIMITS\_REDIRECTS} &  & \code{limits.redirects} & Backend redirects followed transparently: same-host scheme upgrades (\code{http://x} $\rightarrow$ \code{https://x}) and hops within the same root domain (\code{example.com} $\rightarrow$ \code{test.example.com}), never downgrading https to http. Redirects beyond this many jumps, or to unrelated hosts, pass through to the visitor unchanged. \code{0} disables following entirely. Default: \code{5}. \\
 \rowsep
-\code{APERIO\_MULTIPLEX} &  & \code{multiplex} & Off by default. Carries every service that sets it on one WebSocket instead of one each: a single socket, TLS session, reader, writer and heartbeat for the group rather than that many of each on both ends. Settable per \code{services:} entry, so a file can turn it on once and keep one service on a connection of its own with \code{multiplex: false}. Needs two services, a \code{name:} on each, and a server speaking tunnel protocol 8 or newer (0.10.0), which it announces on the handshake; against an older one the services are held back rather than half-served. \code{connections:} is not honored for a multiplexed service, and the client reports that in the dashboard's config view. \\
+\code{APERIO\_LIMITS\_REQUEST\_BODY} &  & \code{limits.request\_body} & Largest request body visitors may upload to this service, e.g. \code{10MB}. Announced to the server, which rejects bigger uploads with an early \textbf{413} before the body ever enters the tunnel. Can only tighten the server's global \code{limits.request\_body}, never widen it. Default: server limit only. \\
 \rowsep
-\code{APERIO\_CACHE} &  & \code{cache} & Opt this service into the server-side GET response cache (needs \code{APERIO\_CACHE=1} on the \textbf{server}; strictly \code{Cache-Control}-driven). Per \code{services:} entry via \code{cache:}. \\
+\code{APERIO\_LIMITS\_RESPONSE\_BODY} &  & \code{limits.response\_body} & Largest backend response this client relays, e.g. \code{50MB}; bodies over 32 KB are streamed through the tunnel as binary chunks rather than base64 in one message (256 KB against a server too old for binary frames). A response that grows past this limit before any of it was sent is refused with a \code{502}; one already streaming is aborted, so the visitor sees a broken response rather than a silently truncated success. Default: \code{50MB}. \\
 \rowsep
-\code{APERIO\_RESILIENCE} & \code{--resilience} & \code{resilience} & Keep serving this service's cached responses while no healthy client is connected, instead of a 504: fresh-or-expired entries answer visitors (marked \code{x-aperio-stale: true} once past their lifetime, always with an \code{Age} header) up to the server's \code{cache.max\_stale} window. Needs \code{cache: true} and the server cache. The moment a client reconnects, normal proxying takes over. Per \code{services:} entry via \code{resilience:}. \\
+\code{APERIO\_METRICS\_LABELS} &  & \code{metrics\_labels} & Static Prometheus labels attached to this client's own \code{aperio\_client\_requests\_total} series, so one Prometheus can serve several environments without relabelling rules. YAML takes a mapping (\code{\{env: prod, region: eu-west\}}); the environment spelling is a flat \code{env=prod,region=eu-west} list, because that is what a container platform can inject. The server validates and caps what arrives, at most 8 labels, names must be \code{[a-zA-Z\_][a-zA-Z0-9\_]*} and at most 32 characters, values at most 64 characters, and both the names the server writes itself (\code{client\_id}, \code{job}, \code{instance}, \code{token}, \code{hostname}, \code{limit}, \code{service}) and any \code{\_\_}-prefixed name are refused. An invalid label is dropped and the rest are kept. \\
 \rowsep
-\code{APERIO\_CAPTURE} & \code{--no-capture} & \code{capture} & Record this service's transactions for the dashboard's request inspector, on by default. \code{capture: false} trades the ability to inspect and replay this service's requests for the per-request cost of recording them; live traffic, statistics and the access log are unaffected. \\
+\code{APERIO\_MIN\_TLS\_VERSION} &  & \code{min\_tls\_version} & Lowest TLS version accepted from an \code{https://} backend, \code{1.2} or \code{1.3}. Per service so a fleet with one legacy backend does not have to lower the floor for all of them. A value that is not a TLS version is refused at startup rather than ignored: a typo that quietly leaves the floor where it was is what makes a security setting worse than none. Unset = rustls's own floor. \\
 \rowsep
-\code{APERIO\_WEBHOOK\_INBOX} &  & \code{webhook\_inbox} & Persist every inbound \textbf{POST} to this service into the server's webhook inbox (dashboard *Webhook Inbox* page): browse the payloads and re-fire any event to the connected client. Restart-surviving, newest 500 entries kept. Per \code{services:} entry via \code{webhook\_inbox:}. \\
+\code{APERIO\_MULTIPLEX} &  & \code{multiplex} & Carry every service that sets this on one WebSocket instead of opening a connection each: one socket, one TLS session, one reader, one writer and one heartbeat for all of them, rather than that many of each on both ends. Written under \code{defaults:} it turns on once, and a service still keeps a connection of its own with \code{multiplex: false}. Needs two services; the one service of the command line never multiplexes. \code{connections:} is not honored for a multiplexed service. See One connection for several services. Default: \code{false}. \\
 \rowsep
-\code{APERIO\_IDLE\_TIMEOUT} & \code{--} & \code{idle\_timeout} & Retire this client after it has served nothing for this long (e.g. \code{5m}); unset = never. The scale-in half of \code{scaling:}, see \emph{Autoscaling}. The shutdown is graceful, and the clock only starts after the first request. Every kind of traffic counts, not just buffered HTTP requests: each relayed frame of a WebSocket, TCP or UDP session re-stamps the clock in both directions, and retirement waits while any request is still in flight, so a long-lived session is never cut mid-traffic. \\
+\code{APERIO\_PASS\_HOSTNAME} & \code{--pass-hostname} & \code{pass\_hostname} & Forward the original \code{Host} header instead of the target's. Default: \code{0}. \\
 \rowsep
-\code{APERIO\_CLIENT\_ID} & \code{--client-id} & \code{client\_id} & Persistent client instance id (a UUID). Keeps the id stable across restarts, useful for failover \code{wait} mode and \code{--bind-tunnels}. \\
+\code{APERIO\_PRIORITY} & \code{--priority} & \code{priority} & Load-balancing priority tier announced to the server (0 = primary, higher = standby; effective with \code{routing.lb\_strategy: primary-standby}). Default: \code{0}. \\
 \rowsep
-\code{APERIO\_NAME} & \code{--name} & \code{name} & What to call this client on screen and in the server's logs, e.g. \code{eu\_server\_1}. A label, not an address: \code{client\_id} stays the identity failover and \code{bind\_tunnels:} recognize this process by, because those need something unique and a name is not. \\
+\code{APERIO\_RESPONSE\_TIMEOUT} &  & \code{response\_timeout} & This service's own \code{gateway.response\_timeout}: how long the server waits for it to answer a dispatched request, for slow report and upload endpoints. Unset = the server's. Default: server global. \\
 \rowsep
-\code{APERIO\_DEVICE\_KEY} &  & \code{device\_key} & Explicit device key announced for trust-on-first-use token pinning (server \code{security.token\_pinning}): pins the token to this device so a leaked token replayed elsewhere is rejected. \\
+\code{APERIO\_RETRY\_ALL\_METHODS} &  & \code{retry.all\_methods} & \code{1} = also retry non-idempotent methods (POST, PATCH). Off by default because a retried write may reach the backend twice, the same trade as the server's \code{failover.all\_methods}. Default: \code{0}. \\
 \rowsep
-\code{APERIO\_DEVICE\_KEY\_FILE} &  & \code{device\_key\_file} & Path holding the device key, its contents are used, or a fresh random key is generated and persisted there (owner-only \code{0600}) on first run. Ignored when \code{APERIO\_DEVICE\_KEY} is set. \\
+\code{APERIO\_RETRY\_ATTEMPTS} &  & \code{retry.attempts} & Total attempts for a backend request that fails \textbf{before any response arrives} (a refused connection, a reset, a timeout on the head). \code{1} = no retrying, which does not cover a connection the backend had already closed: see the note under this table. Values are clamped to \code{1..=10}, so a larger number silently becomes 10. Only idempotent methods are retried unless \code{retry.all\_methods} says otherwise, and only requests whose body can be replayed: a streamed upload is consumed by the first attempt, so it is never retried. Once a response head has arrived the request is past this point, so an error later in the body is not retried either. Default: \code{1}. \\
 \rowsep
-\code{APERIO\_TARGET\_HEALTH} &  & \code{health.endpoint} & Health endpoint of the local target (path like \code{/health}, or a full URL). When set, the client probes it independently and reports the result to the server: a failing backend takes the client \textbf{out of routing without dropping the tunnel}; it rejoins automatically when the probe recovers. The dashboard shows a \code{BACKEND DOWN} badge meanwhile. \textbf{The service starts *unhealthy* (out of routing) until the first probe succeeds}, the client never claims a backend is up before it has checked it, and the first probe runs immediately at startup, so a healthy backend becomes routable within a probe (not a probe interval). Before that first probe completes the dashboard shows a \textbf{CHECKING} badge (rather than *BACKEND DOWN*), so "not probed yet" is distinguishable from "probed and down". Probes never follow redirects.  Against an \code{h2c://}/\code{h2://} target the value names the \emph{gRPC service} to health-check instead, and the probe calls \code{grpc.health.v1.Health/Check}: a plain GET cannot reach a server that speaks HTTP/2 with prior knowledge and routes by method name. \code{/} asks about the server as a whole. An absolute \code{http(s)://} URL still means an ordinary HTTP probe. \\
+\code{APERIO\_RETRY\_DELAY} &  & \code{retry.delay} & Wait before the second attempt, doubled before each further one (\code{100ms}, \code{1s}). Default: \code{100ms}. \\
 \rowsep
-\code{APERIO\_WAIT\_FOR\_BACKEND} &  & \code{health.wait\_for\_backend} & Startup gate: hold the service \textbf{out of routing until the backend first accepts a connection}, avoiding the connection-refused window while a slow dev server boots. Connection-level only (a probe per second); once the backend is up the gate never re-engages. Superseded by \code{target\_health}, which gates startup *and* tracks health continuously. Per \code{services:} entry via \code{wait\_for\_backend:}. \\
+\code{APERIO\_SECURITY\_HEADERS} &  & \code{security\_headers} & Security response-header preset: \code{true} injects HSTS, \code{X-Frame-Options: DENY}, \code{X-Content-Type-Options: nosniff} and \code{Referrer-Policy}; a mapping picks headers individually. \\
 \rowsep
-\code{APERIO\_HEALTH\_INTERVAL} &  & \code{health.interval} & Seconds between backend health probes. \\
-\rowsep
-\code{APERIO\_HEALTH\_TIMEOUT} &  & \code{health.timeout} & Per-probe timeout (seconds). \\
-\rowsep
-\code{APERIO\_HEALTH\_THRESHOLD} &  & \code{health.threshold} & Consecutive probe failures before the backend is reported unhealthy. \\
-\rowsep
-\code{APERIO\_TIMEOUT} &  & \code{timeout} & Per-request backend timeout (seconds). \\
-\rowsep
-\code{APERIO\_RESPONSE\_TIMEOUT} &  & \code{response\_timeout} & Per-service override (seconds) of the server's gateway response timeout for requests dispatched to this service. Unset = the server's global \code{gateway.response\_timeout}. Per \code{services:} entry via \code{response\_timeout:}. \\
-\rowsep
-\code{APERIO\_MAX\_REDIRECTS} &  & \code{max\_redirects} & Backend redirects followed transparently: same-host scheme upgrades (\code{http://x} $\rightarrow$ \code{https://x}) and hops within the same root domain (\code{example.com} $\rightarrow$ \code{test.example.com}), never downgrading https to http. Redirects beyond this many jumps, or to unrelated hosts, pass through to the visitor unchanged. \code{0} disables following entirely. \\
-\rowsep
-\code{APERIO\_RELOAD\_DRAIN} &  & \code{reload\_drain} & Seconds a configuration reload lets in-flight requests finish before dropping the affected tunnel connections. The client announces \code{Draining} first, so the server stops dispatching to it and the wait terminates. \code{0} drops at once. \\
-\rowsep
-\code{APERIO\_RETRY\_ATTEMPTS}, \code{APERIO\_RETRY\_BACKOFF}, \code{APERIO\_RETRY\_ALL\_METHODS} &  & \code{retry.attempts}, \code{retry.backoff}, \code{retry.all\_methods} & Retry a backend request that failed \emph{before any response arrived}: total attempts (\code{1} = off), milliseconds before the second attempt (doubled after that), and whether non-idempotent methods are retried too (off by default, a retried write may reach the backend twice). Only replayable requests are retried; a streamed upload is consumed by its first attempt. \\
-\rowsep
-\code{APERIO\_BREAKER\_FAILURES}, \code{APERIO\_BREAKER\_OPEN\_FOR} &  & \code{circuit\_breaker.failures}, \code{circuit\_breaker.open\_for} & Stop dialing a backend that keeps failing: consecutive failures that open the breaker (\code{0} = off) and how long it stays open before one request probes the backend again. While open the visitor gets \code{502} without a dial. A response head of any status counts as a success, since a \code{500} is a backend that is up. \\
-\rowsep
-\code{APERIO\_MAX\_RESPONSE\_BODY} &  & \code{max\_response\_body} & Max backend response size in bytes; bodies over 32 KB are streamed in binary chunks (256 KB against a peer too old for them). A response past this limit is refused with \code{502} before anything is sent, or aborted once streaming, so the visitor never sees a quietly truncated success. \\
-\rowsep
-\code{APERIO\_MAX\_REQUEST\_BODY} &  & \code{max\_request\_body} & Max request body size in bytes visitors may upload to this service. Announced to the server, which rejects bigger uploads with an early \textbf{413} before the body ever enters the tunnel. Can only tighten the server's global \code{limits.request\_body}, never widen it. Per \code{services:} entry via \code{max\_request\_body:}. \\
-\rowsep
-\code{APERIO\_MAX\_MESSAGE\_SIZE} &  & \code{max\_message\_size} & Max size of one tunnel message accepted from the server (memory protection). \\
-\rowsep
-\code{APERIO\_CUSTOM\_NAME} &  & \code{custom\_name} & What to call this service on screen (dashboard, client logs). Free text: any language, any punctuation, spaces, and changeable at will, because nothing addresses it, while \code{name:} is the handle that does, and it is an identifier (\code{a-z}, \code{0-9}, \code{\_}). Per \code{services:} entry via \code{custom\_name:}, and available on a \code{tunnels:} entry too. \\
-\rowsep
-\code{APERIO\_SUBSCRIBE} &  & \code{subscribe} & Topic filters this client listens for, so the clients of one organization can signal each other over the tunnel connections they already hold (Chapter~\ref{ch:messaging}). Process-wide rather than per service: a client with a \code{services:} list receives one copy, not one per service. MQTT filter syntax, where \code{+} is one level, \code{\#} is the rest. As yaml a list entry may also be an object, \code{\{topic, run, timeout, max\_concurrent\}}, which runs a command when a message arrives; \code{run:} is deliberately file-only, since what may execute on a machine belongs in a file an operator wrote. The token must carry the topics, or the subscription is refused with its reason. \\
-\rowsep
-\code{APERIO\_MESSAGES\_LISTEN} &  & \code{messages\_listen} & Address of the local HTTP face for messages, e.g. \code{127.0.0.1:1888}. \code{GET /subscribe?topic=<filter>} streams matching messages as server-sent events, \code{POST /publish?topic=<topic>} sends the body. No dependency and no codec, so \code{curl -N} is a working subscriber; a filter attached this way does not have to be in the config file, and is given back when the subscriber leaves. Loopback is the sensible value and unset means no listener at all: binding it elsewhere lets anything that can reach it publish as this client, and is warned about. \\
-\rowsep
-\code{APERIO\_MESSAGES\_MQTT\_LISTEN} &  & \code{messages\_mqtt\_listen} & Address of the local MQTT face, e.g. \code{127.0.0.1:1883}, for an application that would rather use the MQTT library it already has. MQTT 3.1.1, and a translator rather than a broker: nothing on the wire to the server speaks it. QoS 1 publishes travel at-least-once and are answered with PUBACK; subscriptions are granted QoS 0; no retained messages, no persistent sessions, no will. Runs alongside \code{messages\_listen} and shares one subscription set. Loopback is the sensible value; unset means no listener, and the face has no authentication of its own, so binding it elsewhere is warned about. \\
-\rowsep
-\code{APERIO\_SECURITY\_HEADERS} &  & \code{security\_headers} & The security response-header preset: HSTS, \code{X-Frame-Options: DENY}, \code{X-Content-Type-Options: nosniff} and \code{Referrer-Policy: strict-origin-when-cross-origin}. Explicit \code{headers:} rules always win over it. Off by default. \\
-\rowsep
-\code{APERIO\_SECURITY\_HEADERS\_HSTS} &  & \code{security\_headers.hsts} & Inject \code{Strict-Transport-Security} on its own. Only meaningful behind HTTPS. \\
-\rowsep
-\code{APERIO\_SECURITY\_HEADERS\_HSTS\_MAX\_AGE} &  & \code{security\_headers.hsts\_max\_age} & HSTS \code{max-age} in seconds. Default \code{63072000}, two years. \\
+\code{APERIO\_SECURITY\_HEADERS\_CSP} &  & \code{security\_headers.csp} & \code{Content-Security-Policy} value to inject (no default, CSP is application-specific). \\
 \rowsep
 \code{APERIO\_SECURITY\_HEADERS\_FRAME\_OPTIONS} &  & \code{security\_headers.frame\_options} & \code{X-Frame-Options} value to inject. \\
+\rowsep
+\code{APERIO\_SECURITY\_HEADERS\_HSTS} &  & \code{security\_headers.hsts} & Inject \code{Strict-Transport-Security} (only meaningful behind HTTPS). \\
+\rowsep
+\code{APERIO\_SECURITY\_HEADERS\_HSTS\_MAX\_AGE} &  & \code{security\_headers.hsts\_max\_age} & HSTS \code{max-age}. Default: \code{730d} (two years). Default: \code{730d}. \\
 \rowsep
 \code{APERIO\_SECURITY\_HEADERS\_NOSNIFF} &  & \code{security\_headers.nosniff} & Inject \code{X-Content-Type-Options: nosniff}. \\
 \rowsep
 \code{APERIO\_SECURITY\_HEADERS\_REFERRER\_POLICY} &  & \code{security\_headers.referrer\_policy} & \code{Referrer-Policy} value to inject. \\
 \rowsep
-\code{APERIO\_SECURITY\_HEADERS\_CSP} &  & \code{security\_headers.csp} & \code{Content-Security-Policy} value to inject. No default: a policy is application-specific, and a wrong one breaks the page. \\
+\code{APERIO\_SERVER\_SIDE} &  & \code{server\_side} & Ask the server to reach this service's \code{target} itself instead of relaying through this client, when the server's \code{server\_side\_targets:} permits the address and the token carries \code{allow\_server\_side}. Saves the two hops a relayed request makes. Written at the top level it is the default for every \code{services:} entry, and it also reaches the single service of a file-less client; an entry may opt out with \code{server\_side: false}. Cannot be combined with \code{serve:}, whose files are on this machine. See Serving From the Server. Default: \code{0}. \\
 \rowsep
-\code{APERIO\_SCALING\_URL} &  & \code{scaling.url} & Endpoint the server POSTs to when a service of this client needs capacity. HTTPS and public addresses only, unless the operator opened those (see \emph{Autoscaling}). Without it there is nothing to call, so the declaration is off. \\
+\code{APERIO\_STARTUP\_DELAY} &  & \code{startup\_delay} & How long a service waits before opening its tunnel, for a backend that starts alongside the client and is not ready the moment the process is. Only the first connection of a parallel pool waits; the rest are the same service, and making each wait would turn a stagger into a per-connection delay. Default: \code{0s}. \\
 \rowsep
-\code{APERIO\_SCALING\_SECRET} &  & \code{scaling.secret} & Sent as \code{Authorization: Bearer} on that call. Write-only: never echoed back, never logged. \\
+\code{APERIO\_TIMEOUT} &  & \code{timeout} & Per-request backend timeout. Default: \code{30s}. \\
 \rowsep
-\code{APERIO\_SCALING\_MIN} &  & \code{scaling.min} & Instances that should always be running. \code{0}, the default, opts into scale-to-zero: a request for an unserved hostname cold-starts instead of answering 504. \\
+\code{APERIO\_TRIM\_BIND} &  & \code{trim\_bind} & Strip the path bind prefix before forwarding. Default: \code{1} when a path bind is set. \\
 \rowsep
-\code{APERIO\_SCALING\_MAX} &  & \code{scaling.max} & Ceiling the server will never ask to exceed. \code{0}, the default, means cold starts only, no scale-out. \\
-\rowsep
-\code{APERIO\_SCALING\_COLD\_START} &  & \code{scaling.cold\_start} & How long a visitor request may be held while a cold start completes, e.g. \code{45s}, which is the default. \code{0} answers immediately instead of holding. \\
-\rowsep
-\code{APERIO\_SCALING\_TARGET\_UTILIZATION} &  & \code{scaling.target\_utilization} & Pool utilisation above which the server asks for one more instance, between 0 and 1. Default \code{0.8}. \\
-\rowsep
-\code{APERIO\_SCALING\_WINDOW} &  & \code{scaling.window} & How long utilisation must stay above the target before scaling out, e.g. \code{15s}, the default. Guards against reacting to a single spike. \\
-\rowsep
-\code{APERIO\_SCALING\_COOLDOWN} &  & \code{scaling.cooldown} & Minimum gap between two calls for one bind, default \code{60s}. A new instance needs time to appear; without this the server would ask again while it is still starting. \\
-\rowsep
-\code{LOG\_LEVEL} &  &, & Log verbosity. \\
-\rowsep
-\code{APERIO\_LOG\_FORMAT} &  &, & \code{json} or \code{pretty}. By default the client auto-detects: human-readable logs on an interactive terminal, JSON when stdout is not a TTY (Docker, pipes, service managers). \\
+\code{APERIO\_WEBHOOK\_INBOX} &  & \code{webhook\_inbox} & Persist every inbound \textbf{POST} to this service into the server's webhook inbox (dashboard \emph{Webhook Inbox} page): browse the payloads and re-fire any event to the connected client. Restart-surviving, newest 500 entries kept. Default: \code{0}. \\
 \rowsep
 \bottomrule
 \end{longtable}
+\section*{Sections written only in a file}
+\begin{description}
+\item[\code{services}] The backends this client exposes, keyed by name, see Multiple services.
+\item[\code{defaults}] What every service gets unless its own entry says otherwise: any key of the service tables above, apart from where its traffic comes from and goes to (and \code{depends\_on}, \code{bandwidth}, which belong to one service).
+\item[\code{tunnels}] Private services a peer may bind, keyed by the name binders use: \code{target}, \code{protocol} (\code{tcp}, \code{udp}, \code{tcp/udp}), \code{encrypt}, \code{psk}, \code{proxy\_protocol}, \code{idle\_timeout}, \code{custom\_name}. See Tunnels.
+\item[\code{binds}] Tunnels \code{aperio-client bind} listens for, keyed by tunnel name: a local port, or \code{\{port, address, token, psk\}}.
+\item[\code{subscribe}] Topic filters, each a bare filter or \code{\{topic, run, env, timeout, max\_concurrent\}} to run a command per message. \code{APERIO\_SUBSCRIBE} carries bare filters only: a command to run is written in the file. See Messaging.
+\item[\code{include}] Other files to read first, see Splitting the config across files.
+\end{description}
 
 \chapter{HTTP endpoint reference}
 \label{app:endpoints}
@@ -4133,7 +4212,7 @@ complete list, it is authoritative, and it always matches the running build.
 \code{GET /aperio/ws} & Tunnel endpoint for clients. & master or dynamic token (Bearer / \code{x-auth-token}) \\
 \rowsep
 \code{GET /aperio/tunnels} & Lists the tunnels the presented token may bind. & a tunnel token \\
-\code{GET /aperio/tunnels/:client\_id} & Per-client tunnel discovery for \code{--bind-tunnels}. & master, the client's own token, or one in its organization with \code{allow\_bind} \\
+\code{GET /aperio/tunnels/:client\_id} & Per-client tunnel discovery. & master, the client's own token, or one in its organization with \code{allow\_bind} \\
 \rowsep
 \code{GET /aperio} & Admin dashboard. & dashboard session \\
 \rowsep

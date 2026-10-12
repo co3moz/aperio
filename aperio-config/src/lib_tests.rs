@@ -144,30 +144,20 @@ fn hostnames_flatten_trims_and_drops_empties() {
 }
 
 #[test]
-fn file_config_resolves_server_url_and_token() {
-  // Bare-URL form; token from the flat key.
-  let c: FileConfig =
-    serde_json::from_str(r#"{"server": "https://t.example.com", "token": "flat"}"#).unwrap();
-  assert_eq!(c.server_url().as_deref(), Some("https://t.example.com"));
-  assert_eq!(c.server_token().as_deref(), Some("flat"));
-
-  // Section form: nested url + token win.
-  let c: FileConfig =
-    serde_json::from_str(r#"{"server": {"url": "https://s.example.com", "token": "nested"}}"#)
-      .unwrap();
-  assert_eq!(c.server_url().as_deref(), Some("https://s.example.com"));
-  assert_eq!(c.server_token().as_deref(), Some("nested"));
-
-  // Section without token → falls back to the flat token.
-  let c: FileConfig =
-    serde_json::from_str(r#"{"server": {"url": "https://s.example.com"}, "token": "fallback"}"#)
-      .unwrap();
-  assert_eq!(c.server_token().as_deref(), Some("fallback"));
-
-  // No server section at all.
-  let c: FileConfig = serde_json::from_str("{}").unwrap();
-  assert!(c.server_url().is_none());
-  assert!(c.server_token().is_none());
+fn the_server_block_is_the_one_place_a_client_says_how_to_reach_its_server() {
+  let c: FileConfig = serde_yaml::from_str(
+    "server: {url: https://s.example.com, token: t, ip_family: ipv4, proxy: 'proxy:3128'}",
+  )
+  .unwrap();
+  let server = c.server();
+  assert_eq!(server.url.as_deref(), Some("https://s.example.com"));
+  assert_eq!(server.token.as_deref(), Some("t"));
+  assert_eq!(server.ip_family.as_deref(), Some("ipv4"));
+  assert_eq!(server.proxy.as_deref(), Some("proxy:3128"));
+  // An empty file has an empty block rather than none, so callers need not
+  // branch on whether a file wrote one.
+  let c: FileConfig = serde_yaml::from_str("{}").unwrap();
+  assert!(c.server().url.is_none());
 }
 
 #[test]
@@ -183,24 +173,6 @@ fn schema_json_outputs_are_valid_json() {
   // The two schemas are different documents (client vs server config).
   assert_ne!(client, server);
 }
-
-/// Environment variables whose name predates the naming standard: each does
-/// have a yaml key, it simply is not the one the mechanical mapping would
-/// produce. Renaming them would break existing deployments for no functional
-/// gain, so they are recorded here instead, with the key they belong to.
-const ENV_ALIASES: &[(&str, &str)] = &[
-  // yaml `auth`; the APERIO_AUTH spelling was avoided because it reads as a
-  // sibling of the server's APERIO_SERVER_AUTH, which is a different setting.
-  ("APERIO_VISITOR_AUTH", "auth"),
-  // yaml `server.api_key`; predates the `server:` block, when it was a
-  // top-level key.
-  ("APERIO_API_KEY", "server.api_key"),
-  // yaml `circuit_breaker.*`; the block is spelled out in the file, where it
-  // is read once and has to be unambiguous, and shortened in the environment,
-  // where APERIO_CIRCUIT_BREAKER_FAILURES buys nothing over APERIO_BREAKER_.
-  ("APERIO_BREAKER_FAILURES", "circuit_breaker.failures"),
-  ("APERIO_BREAKER_OPEN_FOR", "circuit_breaker.open_for"),
-];
 
 /// Environment variables the client rule deliberately exempts, with the
 /// reason. Everything else the client reads from the environment must have a
@@ -260,147 +232,21 @@ fn env_vars_read(crate_dir: &str) -> std::collections::BTreeSet<String> {
   out
 }
 
-/// Every key a schema exposes, including the children of grouped blocks,
-/// rendered as the environment variable each one maps to.
-fn schema_env_names(schema_json: &str, groups: &[&str]) -> std::collections::BTreeSet<String> {
-  let schema: serde_json::Value = serde_json::from_str(schema_json).unwrap();
-  let defs = &schema["$defs"];
-  let mut out = std::collections::BTreeSet::new();
-  let Some(props) = schema["properties"].as_object() else {
-    return out;
-  };
-  for (key, node) in props {
-    // `host`/`port`/`log_level` map to bare names; everything else is
-    // prefixed. Both spellings are recorded so either satisfies a read.
-    out.insert(key.to_ascii_uppercase());
-    out.insert(format!("APERIO_{}", key.to_ascii_uppercase()));
-    if !groups.contains(&key.as_str()) {
-      continue;
-    }
-    for child in group_children(node, defs) {
-      out.insert(format!(
-        "APERIO_{}_{}",
-        key.to_ascii_uppercase(),
-        child.to_ascii_uppercase()
-      ));
-    }
-  }
-  out
-}
-
-/// Property names of a grouped block, following `$ref` and the `anyOf` a
-/// nullable or untagged field generates.
-fn group_children(node: &serde_json::Value, defs: &serde_json::Value) -> Vec<String> {
-  if let Some(reference) = node["$ref"].as_str() {
-    let name = reference.rsplit('/').next().unwrap_or_default();
-    return group_children(&defs[name], defs);
-  }
-  if let Some(obj) = node["properties"].as_object() {
-    return obj.keys().cloned().collect();
-  }
-  for key in ["anyOf", "oneOf"] {
-    if let Some(items) = node[key].as_array() {
-      let mut out = Vec::new();
-      for item in items {
-        out.extend(group_children(item, defs));
-      }
-      if !out.is_empty() {
-        return out;
-      }
-    }
-  }
-  Vec::new()
-}
-
+/// The client reads no setting from the environment by name. Its variables
+/// are derived from the schema (`layers::client_env`), one per scalar key,
+/// so a key and its variable cannot drift apart; a literal `APERIO_*` read
+/// in the client would be a second, hand-kept surface beside them.
 #[test]
-fn every_environment_variable_has_a_yaml_key() {
-  // Project rule: yaml is the client's primary configuration surface and
-  // every setting must be reachable from it. A setting that exists only in
-  // the environment is invisible to the JSON Schema, so editors neither
-  // complete nor validate it and an operator reading the config file cannot
-  // see it at all. This scans the client for what it actually reads and
-  // fails on anything the schema does not declare.
-  let exempt: std::collections::BTreeSet<&str> = ENV_EXEMPT
-    .iter()
-    .map(|(k, _)| *k)
-    .chain(ENV_ALIASES.iter().map(|(k, _)| *k))
-    .collect();
-  // The client's nested blocks: their children map to APERIO_<BLOCK>_<CHILD>.
-  // `circuit_breaker` is the one exception to the mechanical rule: its
-  // variables are APERIO_BREAKER_*, since APERIO_CIRCUIT_BREAKER_FAILURES is
-  // a mouthful for no added clarity, so the alias is declared above.
-  let groups = vec![
-    "health",
-    "server",
-    "scaling",
-    "security_headers",
-    "retry",
-    "circuit_breaker",
-    // `connections:` is a scalar or a `{min, max}` block, so its children are
-    // reachable as APERIO_CONNECTIONS_MIN / _MAX like any other grouped key.
-    "connections",
-    "otel_bridge",
-  ];
-  let declared = schema_env_names(&schema_json(), &groups);
+fn the_client_reads_no_setting_by_name() {
   let read = env_vars_read("../aperio-client/src");
-  // A scan that finds nothing would pass vacuously; the client reads dozens
-  // of variables, so anything near zero means the scanner broke.
-  assert!(
-    read.len() > 20,
-    "only {} environment reads found in the client, the scanner is broken",
-    read.len()
-  );
-  let missing: Vec<String> = read
-    .into_iter()
-    .filter(|var| !exempt.contains(var.as_str()) && !declared.contains(var))
+  let stray: Vec<&String> = read
+    .iter()
+    .filter(|v| !ENV_EXEMPT.iter().any(|(k, _)| k == v))
     .collect();
   assert!(
-    missing.is_empty(),
-    "environment variables with no yaml key (add the field, or exempt it with a reason in ENV_EXEMPT):\n  {}",
-    missing.join("\n  ")
+    stray.is_empty(),
+    "the client reads these by name instead of through the schema-derived table: {stray:?}"
   );
-
-  // An alias claims "this variable does have a yaml key, just under another
-  // name". Verify that key exists, so the table cannot become a place to hide
-  // a genuine gap.
-  let client: serde_json::Value = serde_json::from_str(&schema_json()).unwrap();
-  let defs = client["$defs"].clone();
-
-  /// Resolves a schema node to a named child, following `$ref` and the
-  /// `anyOf` a nullable or untagged field generates.
-  fn child(
-    node: &serde_json::Value,
-    defs: &serde_json::Value,
-    name: &str,
-  ) -> Option<serde_json::Value> {
-    if let Some(reference) = node["$ref"].as_str() {
-      let target = reference.rsplit('/').next().unwrap_or_default();
-      return child(&defs[target], defs, name);
-    }
-    if let Some(props) = node["properties"].as_object()
-      && let Some(found) = props.get(name)
-    {
-      return Some(found.clone());
-    }
-    for key in ["anyOf", "oneOf"] {
-      if let Some(items) = node[key].as_array() {
-        for item in items {
-          if let Some(found) = child(item, defs, name) {
-            return Some(found);
-          }
-        }
-      }
-    }
-    None
-  }
-
-  for (var, key) in ENV_ALIASES {
-    let mut node = client.clone();
-    for part in key.split('.') {
-      node = child(&node, &defs, part)
-        .unwrap_or_else(|| panic!("{var}: the client schema has no '{key}'"));
-    }
-  }
 }
 
 /// The server's environment is its boot settings, the few it needs before the
@@ -650,9 +496,15 @@ fn assert_example_keys_exist(label: &str, schema: &serde_json::Value) {
     if known.is_empty() {
       continue;
     }
+    // A map keyed by name (`services:`, `tunnels:`): the example's keys are
+    // names, and its values are the entries to check.
+    let keyed_by_name = prop
+      .get("additionalProperties")
+      .is_some_and(|a| a.get("$ref").is_some());
     for example in examples {
       let entries = match example {
         serde_json::Value::Array(items) => items.clone(),
+        serde_json::Value::Object(map) if keyed_by_name => map.values().cloned().collect(),
         other => vec![other.clone()],
       };
       for entry in entries {

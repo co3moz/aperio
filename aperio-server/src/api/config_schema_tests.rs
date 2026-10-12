@@ -15,8 +15,8 @@ async fn serves_both_schemas_and_rejects_anything_else() {
   let resp = config_schema_handler(Path("client".to_string())).await;
   assert_eq!(resp.status(), StatusCode::OK);
   let doc = body_json(resp).await;
-  assert!(doc["properties"]["target"].is_object(), "{doc}");
-  assert!(doc["properties"]["services"].is_object());
+  assert!(doc["properties"]["services"].is_object(), "{doc}");
+  assert!(doc["properties"]["defaults"].is_object());
 
   // …and the server's settings document. The two must not be the same
   // document, which a copy-paste slip in the match arms would produce.

@@ -8,6 +8,5 @@ server:
 
 # A client that publishes needs no service and no bind. It holds one tunnel
 # connection so a publish has something to travel on.
-services: []
-
-messages_listen: 127.0.0.1:1888
+messages:
+  listen: 127.0.0.1:1888

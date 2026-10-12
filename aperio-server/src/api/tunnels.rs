@@ -63,7 +63,7 @@ async fn tunnel_api_authorized(state: &AppState, headers: &HeaderMap, floor: Rol
 }
 
 /// Lists the tunnels declared by the clients of the caller's organization,
-/// the dashboard's view of what `--bind-tunnels` can reach.
+/// the dashboard's view of what `aperio-client bind` can reach.
 ///
 /// Read-only and organization-scoped, so a Viewer may see what exists without
 /// being able to bind anything: binding needs a tunnel token, which is a

@@ -112,7 +112,7 @@ containers:
         value: http://127.0.0.1:3000
       - name: APERIO_HOSTNAME
         value: app.example.com
-      - name: APERIO_PUBLIC
+      - name: APERIO_ACCESS
         value: "1"
       - name: APERIO_SERVER_TOKEN
         valueFrom:
@@ -124,7 +124,7 @@ containers:
       capabilities: { drop: ["ALL"] }
 ```
 
-> **Note:** Create `aperio-client-token` with a token allowed to publish `app.example.com` and public services. Replace the hostnames and app image, and point DNS at the Ingress. `APERIO_PUBLIC=1` is needed for a public route on servers using the default closed access policy. See [Tokens & Authentication](tokens-and-auth.md) and [Configuration](configuration.md#closed-by-default).
+> **Note:** Create `aperio-client-token` with a token allowed to publish `app.example.com` and public services. Replace the hostnames and app image, and point DNS at the Ingress. `APERIO_ACCESS=public` is needed for a public route on servers using the default closed access policy. See [Tokens & Authentication](tokens-and-auth.md) and [Configuration](configuration.md#closed-by-default).
 
 Two things follow from this shape and are worth saying out loud:
 

@@ -69,7 +69,7 @@ Related: [In-Flight Failover](failover.md) covers what happens when the chosen c
 
 ## Passive outlier ejection
 
-Active health probing (`APERIO_TARGET_HEALTH`) pulls a service from
+Active health probing (`health.endpoint`, `APERIO_HEALTH_ENDPOINT`) pulls a service from
 rotation when its own `/health` check fails. Passive outlier ejection is the
 complement: it reacts to how a service behaves under **real traffic**. When
 `outlier.enabled: true`, a service that returns too many server errors,

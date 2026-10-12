@@ -142,7 +142,7 @@ pub(crate) async fn send(
   // it as the authentication error it actually is.
   if status.is_redirection() {
     return Err(
-      "authentication required: pass an admin key with --api-key (or APERIO_API_KEY / yaml server.api_key)"
+      "authentication required: pass an admin key with --server-api-key (or APERIO_SERVER_API_KEY / yaml server.api_key)"
         .to_string(),
     );
   }

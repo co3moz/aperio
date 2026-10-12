@@ -3,32 +3,35 @@ server:
   token: apr_tuning_multi_change_me
 
 # Shared defaults; entries override what they need.
-timeout: 30
-max_concurrent: 8
+defaults:
+  timeout: 30s
+  limits:
+    concurrent_requests: 8
 
 services:
-  - name: api
-    public: true
+  api:
+    access: public
     target: http://localhost:4000
     hostname: api.example.com
     connections: 4               # parallel tunnel connections for hot traffic
-    max_concurrent: 32           # per-connection cap; excess queues at the server
+    limits: {concurrent_requests: 32}  # per-connection cap; excess queues at the server
 
-  - name: reports
-    public: true
+  reports:
+    access: public
     target: http://localhost:5000
     hostname: reports.example.com
-    timeout: 300                 # report generation is slow by nature
-    response_timeout: 300        # ask the server to wait this long too, or it
+    timeout: 5m                  # report generation is slow by nature
+    response_timeout: 5m         # ask the server to wait this long too, or it
                                  # gives up at its own gateway timeout first
-    max_response_body: 209715200 # up to 200 MB exports
-    max_request_body: 52428800   # uploads over 50 MB answer 413 at the server,
+    limits:
+      response_body: 200MB       # exports
+      request_body: 50MB         # bigger uploads answer 413 at the server,
                                  # before they enter the tunnel
 
-  - name: media
-    public: true
+  media:
+    access: public
     target: http://localhost:6000
     hostname: media.example.com
     bandwidth: 8mbit             # server paces responses to this rate
-    capture: false               # keep this firehose out of the request
+    inspector: false             # keep this firehose out of the request
                                  # inspector; traffic and statistics still count

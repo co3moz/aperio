@@ -68,7 +68,6 @@ async fn client(state: &Arc<AppState>, version: u32) -> mpsc::Receiver<Message> 
     protocol: "tcp/udp".into(),
     encrypt: false,
     idle_timeout: None,
-    expose: None,
   }];
   state.clients.write().await.insert("client".into(), c);
   rx
@@ -537,7 +536,6 @@ async fn udp_flood_with_slow_tunnel_stays_bounded_and_another_listener_progresse
     protocol: "udp".into(),
     encrypt: false,
     idle_timeout: None,
-    expose: None,
   }];
   state
     .clients

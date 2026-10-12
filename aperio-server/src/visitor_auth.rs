@@ -24,7 +24,7 @@ use crate::auth::constant_time_eq_str;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Method {
   /// Deliberately open. Admits everyone, and is the honest spelling of what
-  /// a client declares as `public: true`.
+  /// a client declares as `access: public`.
   Open,
   /// A `user:password` login. Several credentials may open one gate; they are
   /// alternatives, not a sequence.
