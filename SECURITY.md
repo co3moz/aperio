@@ -38,7 +38,7 @@ and what changed. Please give us a chance to release before publishing.
 Fixes land on the latest release. There is no long-term-support branch: this is
 a two-binary project where upgrading is replacing a file, and pretending to
 backport indefinitely would be a promise nobody could keep. Run the latest
-release, and read [the upgrade guide](docs/upgrade-guide.md) before a jump.
+release, and read [Upgrading](docs/deployment.md#upgrading) before a jump.
 
 ## What is in scope
 
@@ -61,7 +61,7 @@ Anything that breaks a boundary the product claims to hold:
 - **Secrets in the wrong place.** A credential written to a log, an error page,
   an export, a capture, or a backup that was not supposed to carry it.
 
-[docs/threat-model.md](docs/threat-model.md) states the boundaries in detail
+[Architecture](docs/architecture.md#trust-boundaries) states the boundaries in detail
 and is the reference for what the product claims. A gap between that document
 and the code is itself a report worth filing, whichever side turns out to be
 wrong.
