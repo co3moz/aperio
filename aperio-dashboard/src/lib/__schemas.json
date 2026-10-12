@@ -2054,11 +2054,12 @@
             "description": "Local backend to expose: a port (`3000`), a host, or a URL. `h2c://` /\n`h2://` targets are dialed over HTTP/2 (gRPC backends, trailers\nrelayed); `unix://` targets forward over a Unix domain socket.",
             "type": [
               "string",
+              "integer",
               "null"
             ],
             "examples": [
               "http://localhost:3000",
-              "3000",
+              3000,
               "h2c://127.0.0.1:50051",
               "unix:///var/run/app.sock"
             ]

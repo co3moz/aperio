@@ -165,8 +165,12 @@ fn the_environment_writes_the_document_defaults_and_the_one_service() {
     overlay.file["defaults"]["timeout"],
     Value::String("1m".into())
   );
-  // A target is text, so a bare port stays the text the client reads as one.
-  assert_eq!(overlay.service["target"], Value::String("3000".into()));
+  // A bare port is a number here, as it is in a file, and the target reads
+  // either spelling as the same text the client expands.
+  assert_eq!(overlay.service["target"], Value::Number(3000.into()));
+  let entry: ServiceEntry =
+    serde_yaml::from_value(Value::Mapping(overlay.service.clone())).unwrap();
+  assert_eq!(entry.target.as_deref(), Some("3000"));
 }
 
 // ---------------------------------------------------------------------------
