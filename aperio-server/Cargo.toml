@@ -64,6 +64,20 @@ argon2 = "0.5"
 # OpenAPI spec generation for the admin API (/aperio/api/openapi.json).
 utoipa = { version = "5", features = ["axum_extras"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+# Built-in HTTPS (`tls` in the settings). The listener's handshakes, on the
+# same ring provider as everything else here: tokio-rustls defaults to
+# aws-lc-rs, hence no default features.
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+# The ACME client behind `tls.acme`, without its own hyper/rustls stack: it
+# talks through the one reqwest below (`tls/http.rs`), and signs with ring.
+instant-acme = { version = "0.8", default-features = false, features = ["ring", "rcgen"] }
+# The TLS-ALPN-01 proof certificate, and the key and CSR of an order.
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem", "crypto"] }
+# Reads the names and the expiry out of a certificate: which hostnames a file
+# serves, and when an issued one is due for renewal. The version webauthn-rs
+# already brings in, so nothing is compiled twice.
+x509-parser = "0.16"
+bytes = "1"
 # One reqwest for the whole binary. It used to be two: 0.12 here for our own
 # outbound calls, and the 0.13 that opentelemetry-otlp pulls, aliased as
 # `reqwest_otlp`. OTLP is not optional, so every server linked two complete

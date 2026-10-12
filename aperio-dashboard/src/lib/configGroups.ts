@@ -133,6 +133,11 @@ export const SERVER_GROUPS: GroupSpec[] = [
     keys: ['proxy'],
   },
   {
+    title: 'HTTPS & certificates',
+    description: 'Serving HTTPS directly, with certificates from files or from an ACME authority such as Let’s Encrypt.',
+    keys: ['tls'],
+  },
+  {
     title: 'Observability',
     description: 'Metrics, tracing, logs, alerting, and how long records are kept.',
     keys: [

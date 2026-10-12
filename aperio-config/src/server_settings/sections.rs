@@ -347,7 +347,8 @@ pub struct Security {
   /// Addresses refused everything, checked before any other rule.
   #[schemars(extend("examples" = [["198.51.100.0/24"]]))]
   pub denied_ips: Vec<String>,
-  /// Mark session cookies `Secure`. Unset follows `proxy.trust`.
+  /// Mark session cookies `Secure`. Unset, they are when `proxy.trust` or
+  /// `tls.enabled` is on.
   #[serde(skip_serializing_if = "Option::is_none")]
   #[schemars(extend("examples" = [true]))]
   pub secure_cookies: Option<bool>,

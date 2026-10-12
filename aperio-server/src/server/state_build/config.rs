@@ -130,6 +130,7 @@ pub(crate) fn build_config(
     .map(|v| v.trim().to_ascii_lowercase())
     .filter(|v| !v.is_empty());
   let admin_allowed_ips = ranges("security.admin_allowed_ips", &s.security.admin_allowed_ips)?;
+  let tls = crate::tls::plan(&s.tls)?;
   let denied_ips = crate::deny_list::from_list(&s.security.denied_ips)?;
 
   let dashboard_hostname = match s.dashboard.hostname.as_deref().map(str::trim) {
@@ -278,7 +279,11 @@ pub(crate) fn build_config(
     admin_allowed_ips,
     dashboard_hostname,
     fenced_login: s.dashboard.fenced_login,
-    secure_cookies: s.security.secure_cookies.unwrap_or(trust_proxy),
+    secure_cookies: s
+      .security
+      .secure_cookies
+      .unwrap_or(trust_proxy || tls.is_some()),
+    tls,
     default_access,
     metrics_token,
     scaling_enabled: s.scaling.enabled,

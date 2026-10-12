@@ -436,7 +436,7 @@ Fences around the server itself. Security-relevant.
 | `security.login_lockout` | Locking out an address after failed sign-ins. |  |
 | `security.login_lockout.duration` | The first lockout's length; it doubles with each repeat, up to an hour. | `1m` |
 | `security.login_lockout.threshold` | Consecutive failed sign-ins from one address before it is locked out. | `5` |
-| `security.secure_cookies` | Mark session cookies `Secure`. Unset follows `proxy.trust`. |  |
+| `security.secure_cookies` | Mark session cookies `Secure`. Unset, they are when `proxy.trust` or `tls.enabled` is on. |  |
 | `security.server_side_targets` | Destinations (hosts, `*.suffix`, IPs or CIDRs) a client may ask this server to reach itself with `server_side: true`. Empty permits nothing. | `[]` |
 | `security.token_expiry_warning` | How long before a token expires the `token_expiring` event fires. `0s` = never. | `1d` |
 | `security.token_pinning` | Pin a dynamic token to the first device key that presents it. | `false` |
@@ -453,6 +453,23 @@ What a shutdown waits for.
 ### `sites`
 
 What the server does for a hostname, or a path under one, by itself: answers without a client, policy on proxied traffic, and what a hostname says when nothing serves it. Each setting comes from the most specific site that writes it; `hostname: "*"` is every hostname.
+
+### `tls`
+
+Serving HTTPS directly, with no proxy in front: certificates from files, from an ACME authority, or both. Security-relevant, and read at start.
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `tls.acme` | Certificates obtained and renewed from an ACME authority, Let's Encrypt unless another is named, proven with TLS-ALPN-01 on the HTTPS port. |  |
+| `tls.acme.directory` | The authority's ACME directory. | `https://acme-v02.api.letsencrypt.org/directory` |
+| `tls.acme.email` | Where the authority sends notices about the certificates, such as one about to expire that could not be renewed. |  |
+| `tls.acme.enabled` | Obtain and renew certificates automatically. Turning it on agrees to the authority's subscriber agreement. | `false` |
+| `tls.acme.hostnames` | Hostnames to hold a certificate for from the start, such as the dashboard's own. A wildcard needs a DNS-01 proof, which this server does not make. | `[]` |
+| `tls.acme.on_demand` | Also obtain a certificate the first time a hostname a client serves is reached over HTTPS, holding that handshake until it is issued. Random subdomains are left out: each would be a certificate of its own, and an authority limits how many one domain may have. | `true` |
+| `tls.certificates` | Certificates you manage yourself, as PEM files. Each serves the names written in it, a wildcard included, and is read again when its files change, so a renewal by another tool needs no restart. | `[]` |
+| `tls.enabled` | Serve HTTPS on `port`, beside the plain listener on the boot `PORT`. Needs certificates: `certificates`, `acme`, or both. | `false` |
+| `tls.port` | Port of the HTTPS listener, on the boot `HOST`. An ACME authority proves a hostname by connecting to it on 443, so with `acme` this is 443, or whatever forwards 443 to it. | `443` |
+| `tls.redirect_http` | Answer plain HTTP with a redirect to HTTPS, except the health probes. Tunnel clients then have to dial `wss://`. | `false` |
 
 ### `uptime`
 

@@ -84,9 +84,12 @@ pub(crate) struct ServerConfig {
   /// server's own name would be locked out by turning it on unasked.
   pub(crate) fenced_login: bool,
   /// When true, session cookies include the `Secure` flag so browsers only
-  /// send them over HTTPS connections. Defaults to the value of `trust_proxy`
-  /// (i.e. enabled when running behind a TLS-terminating reverse proxy).
+  /// send them over HTTPS connections. Defaults to on behind a trusted proxy
+  /// or with the built-in HTTPS listener, the two ways HTTPS reaches here.
   pub(crate) secure_cookies: bool,
+  /// The built-in HTTPS listener (`tls`), as checked when the settings were
+  /// saved; `None` when it is off. Read at start.
+  pub(crate) tls: Option<crate::tls::TlsPlan>,
   /// What a route nobody gated means (`planned_features.md` #108): `Deny`
   /// when the server's `access` is `deny`, so a route is reachable because
   /// something said so rather than because nothing said otherwise, and

@@ -792,6 +792,8 @@ export const ja: Record<string, string> = {
   'Who may log in, how, and what the dashboard offers.': '誰がどのようにログインできるか、そしてダッシュボードが提供するもの。',
   'Proxy trust': 'Proxy の信頼',
   'How the real client IP is resolved behind a proxy or CDN.': 'Proxy や CDN の背後で、実際のクライアント IP をどう解決するか。',
+  'HTTPS & certificates': 'HTTPS と証明書',
+  'Serving HTTPS directly, with certificates from files or from an ACME authority such as Let’s Encrypt.': 'ファイルの証明書、または Let’s Encrypt などの ACME 認証局の証明書で、HTTPS を直接提供します。',
   'Observability': 'オブザーバビリティ',
   'Metrics, tracing, logs, alerting, and how long records are kept.': 'メトリクス、トレース、ログ、アラート、そして記録の保持期間。',
   'Outbound & autoscaling': 'アウトバウンドとオートスケーリング',

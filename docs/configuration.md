@@ -238,7 +238,7 @@ A setting has a dotted path, `section.field`: `proxy.trusted`, `cache.enabled`, 
 
 A change is checked first: a value the server cannot honour, or an unknown key, is refused with its path. It is then stored, in force for the next request, and audited as `settings_updated`.
 
-- **Most settings apply at once.** Those read at start (`dashboard.enabled`, `dashboard.webauthn`, `oidc`, `metrics.enabled`, `otel`, `logging.access_log`, `outbound.proxy`, `outbound.no_proxy`, `edge.token`, `backup`) are stored and reported as `restart_pending` until the next start.
+- **Most settings apply at once.** Those read at start (`dashboard.enabled`, `dashboard.webauthn`, `oidc`, `metrics.enabled`, `otel`, `logging.access_log`, `outbound.proxy`, `outbound.no_proxy`, `edge.token`, `backup`, `tls`) are stored and reported as `restart_pending` until the next start.
 - **Security settings need more.** The paths that decide who reaches what, or where the server may be steered, need Admin in every organization (`*`) and, from a dashboard session, a sign-in from the last ten minutes. They are audited again as `settings_security_changed`. `GET /aperio/api/settings` lists them as `security_paths`.
 - **Credentials are never read back.** Secrets read as `********`, and writing `********` back keeps the stored value.
 

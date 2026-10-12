@@ -68,16 +68,8 @@ fn host_of(headers: &HeaderMap) -> Option<String> {
 }
 
 /// Where the provider sends the visitor back to: this hostname's callback.
-fn callback_uri(state: &AppState, headers: &HeaderMap, host: &str) -> String {
-  let proto = if state.config().trust_proxy {
-    headers
-      .get("x-forwarded-proto")
-      .and_then(|v| v.to_str().ok())
-      .filter(|p| *p == "https" || *p == "http")
-      .unwrap_or("http")
-  } else {
-    "http"
-  };
+fn callback_uri(state: &AppState, headers: &HeaderMap, host: &str, over_tls: bool) -> String {
+  let proto = crate::tls::scheme(state, headers, over_tls);
   format!("{proto}://{host}/aperio/sso/callback")
 }
 
@@ -87,6 +79,7 @@ pub(crate) async fn sso_login_handler(
   State(state): State<Arc<AppState>>,
   Query(query): Query<HashMap<String, String>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  tls: Option<axum::Extension<crate::tls::ServedOverTls>>,
   headers: HeaderMap,
 ) -> Response {
   let caller_ip = extract_client_ip(
@@ -129,7 +122,7 @@ pub(crate) async fn sso_login_handler(
         .into_response();
     }
   };
-  let redirect_uri = callback_uri(&state, &headers, &host);
+  let redirect_uri = callback_uri(&state, &headers, &host, tls.is_some());
   let token = uuid::Uuid::new_v4().to_string();
   {
     let mut pending = state.sso_states.lock().await;
