@@ -14,9 +14,12 @@ use serde_json::Value as Json;
 
 use crate::layers::{self, Scope};
 
+/// What renders one region of the page.
+pub type Render = fn() -> String;
+
 /// The generated regions of `docs/reference.md`, by marker name, with what
 /// fills each.
-pub const REGIONS: &[(&str, fn() -> String)] = &[
+pub const REGIONS: &[(&str, Render)] = &[
   ("client-settings", client_reference),
   ("server-settings", server_reference),
 ];
