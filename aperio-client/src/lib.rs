@@ -16,6 +16,7 @@ mod egress;
 mod flow;
 mod forward_ask;
 mod health_report;
+mod init;
 mod messages_http;
 mod messages_mqtt;
 mod messages_run;
@@ -183,6 +184,17 @@ pub async fn run() {
   if let CliMode::Completions(shell) = cli.mode {
     config::print_completions(shell);
     return;
+  }
+
+  // `init` writes a file from the command line and the environment, and reads
+  // no file: one that does not parse yet is no reason not to write a new one.
+  if let CliMode::Init {
+    ref service,
+    force,
+    stdout,
+  } = cli.mode
+  {
+    std::process::exit(init::run(&cli, service.as_deref(), force, stdout));
   }
 
   // Initialize logging. Interactive terminals get human-readable output;

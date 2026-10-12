@@ -14,6 +14,7 @@ aperio-client                          run from config file / environment (Docke
 aperio-client 3000                     expose http://localhost:3000\n  \
 aperio-client example.com              expose http://example.com\n  \
 aperio-client bind pg_main            bind a tunnel a peer client declares, locally\n  \
+aperio-client init 3000 --hostname app.example.com   write the aperio.yaml for it\n  \
 aperio-client check                    diagnose configuration and connectivity"
 )]
 pub(crate) struct Cli {
@@ -39,6 +40,22 @@ pub(crate) enum Command {
   },
   /// Diagnose configuration and connectivity
   Check,
+  /// Write the aperio.yaml that means what this command line (and the
+  /// environment) says: `aperio-client init 3000 --hostname app.example.com`
+  Init {
+    /// What to expose, the same forms as the positional argument
+    target: Option<String>,
+    /// The service's name in the file (default: the hostname's first label,
+    /// or `web`)
+    #[arg(long, value_name = "NAME")]
+    service: Option<String>,
+    /// Replace the config file when it exists
+    #[arg(long)]
+    force: bool,
+    /// Print the file instead of writing it
+    #[arg(long)]
+    stdout: bool,
+  },
   /// Bind tunnels a peer client declares as local listeners: the named ones,
   /// or every entry of the `binds:` section, or, with neither, everything
   /// the token may bind
@@ -142,6 +159,12 @@ pub(crate) enum CliMode {
   TcpBridge,
   /// `aperio-client check`: configuration & connectivity diagnostics.
   Check,
+  /// `aperio-client init`: write the file the command line describes.
+  Init {
+    service: Option<String>,
+    force: bool,
+    stdout: bool,
+  },
   /// `aperio-client completions <shell>`: print the script and exit.
   Completions(clap_complete::Shell),
   /// `aperio-client api ...`: one admin API call, then exit.
@@ -181,10 +204,27 @@ pub(crate) fn parse_cli() -> CliArgs {
 }
 
 pub(crate) fn cli_to_args(cli: Cli) -> CliArgs {
+  let mut target = cli.target;
   let (mode, local_port) = match cli.command {
     None => (CliMode::Run, None),
     Some(Command::Tcp { local_port }) => (CliMode::TcpBridge, Some(local_port)),
     Some(Command::Check) => (CliMode::Check, None),
+    Some(Command::Init {
+      target: init_target,
+      service,
+      force,
+      stdout,
+    }) => {
+      target = target.or(init_target);
+      (
+        CliMode::Init {
+          service,
+          force,
+          stdout,
+        },
+        None,
+      )
+    }
     Some(Command::Bind { names }) => (
       CliMode::Bind(
         names
@@ -200,7 +240,7 @@ pub(crate) fn cli_to_args(cli: Cli) -> CliArgs {
   };
   CliArgs {
     mode,
-    target: cli.target.as_deref().map(normalize_target),
+    target: target.as_deref().map(normalize_target),
     local_port,
     opts: cli.opts,
   }

@@ -549,3 +549,25 @@ fn the_generated_script_mentions_the_subcommands_it_completes() {
     assert!(script.contains(expected), "missing {expected}");
   }
 }
+
+#[test]
+fn init_takes_the_target_and_the_flags_of_a_one_liner() {
+  let cli = Cli::try_parse_from([
+    "aperio-client",
+    "init",
+    "3000",
+    "--hostname",
+    "app.example.com",
+    "--service",
+    "app",
+    "--stdout",
+  ])
+  .unwrap();
+  let args = cli_to_args(cli);
+  assert!(matches!(
+    args.mode,
+    CliMode::Init { ref service, force: false, stdout: true } if service.as_deref() == Some("app")
+  ));
+  assert_eq!(args.target.as_deref(), Some("http://localhost:3000"));
+  assert_eq!(args.opts.hostname.as_deref(), Some("app.example.com"));
+}

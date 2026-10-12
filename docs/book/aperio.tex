@@ -645,6 +645,15 @@ defaults:
     concurrent_requests: 8   # what one instance of the backend can take
 \end{codecard}
 
+\code{aperio-client init} writes that file from a one-liner: the same
+command, with \code{init} in front, writes the \code{aperio.yaml} it
+describes, the token left out as \code{\$\{APERIO\_SERVER\_TOKEN\}}.
+
+\begin{codecard}[aperiosh]{From the command that already works}
+aperio-client init 3000 --hostname app.example.com --access public \
+  --server-url https://tunnel.example.com
+\end{codecard}
+
 A file describes its backends under \code{services:}, keyed by name, even
 when there is one of them. A service key written at the top level
 (\code{target:}, \code{hostname:}, \ldots) is refused with a message saying

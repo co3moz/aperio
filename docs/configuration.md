@@ -43,6 +43,8 @@ aperio-client                          Run from config files / environment (Dock
 aperio-client 3000                     Expose http://localhost:3000
 aperio-client example.com              Expose http://example.com
 aperio-client bind [NAME...]           Bind tunnels a peer client declares, locally
+aperio-client init 3000 --hostname app.example.com
+                                       Write the aperio.yaml that command line describes
 aperio-client check                    Diagnose configuration and connectivity
 aperio-client api <group> <action>     Call the server's admin API (see below)
 aperio-client completions <shell>      Print a shell completion script
@@ -51,6 +53,13 @@ aperio-client --help
 ```
 
 The positional target is optional: a bare port number expands to `http://localhost:<port>`, a bare hostname to `http://<hostname>`, and full URLs pass through. The same reading applies to a `target:` in a file. A target on the command line or in the environment runs as the one service, in place of the file's `services:`.
+
+`aperio-client init` writes down a one-liner: it takes the service the command line (and the environment) describes, and every other setting given there, and writes the `aperio.yaml` that means the same thing, the service named after its hostname's first label unless `--service NAME` says otherwise. The token is not written into the file; the file reads `${APERIO_SERVER_TOKEN}` instead. It refuses to replace an existing file without `--force`, and `--stdout` prints the file rather than writing it. What it writes is read back the way the client reads a file before it is written, so it is a file the client accepts.
+
+```bash
+aperio-client init 3000 --hostname app.example.com --access public \
+  --server-url https://tunnel.example.com
+```
 
 `aperio-client api ...` performs one admin API call and prints the JSON answer, the dashboard's operations (share links, tokens, tunnels, maintenance, users, reports) from a script. It authenticates with an admin key rather than the tunnel token; see [Admin API from the CLI](cli-api.md).
 
