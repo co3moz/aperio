@@ -1054,3 +1054,44 @@ fn a_pending_sign_in_takes_a_slot_only_while_the_cap_leaves_one() {
   assert!(pending_login_slot(&mut pending, now, |exp| *exp));
   assert_eq!(pending.len(), MAX_PENDING_LOGINS / 2);
 }
+
+#[tokio::test]
+pub(super) async fn login_for_the_dashboard_never_uses_a_clients_visitor_password() {
+  // A redirect under `/aperio` is a dashboard login: the password a client
+  // set for its own site mints no session for it, and the server's own
+  // visitor password still does, whatever the client serving the hostname
+  // declared. Pinned because the two conditions keeping the client's
+  // password out of this form were one `||`, which the mutation sweep turned
+  // into `&&` without a test noticing.
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::test_support::basic_gate("visitor:pass");
+  let state = test_state_with(cfg);
+  let mut client = mock_client(Some("site.test"), None);
+  client.sole_mut().visitor_auth = Some("guest:letmein".to_string());
+  state.clients.write().await.insert("c1".to_string(), client);
+  let state = Arc::new(state);
+  assert_eq!(
+    call_login(
+      state.clone(),
+      basic_headers("guest:letmein", Some("site.test")),
+      login_query(Some("/aperio/tokens")),
+    )
+    .await
+    .unwrap_err(),
+    StatusCode::UNAUTHORIZED,
+    "the client's password opens its site, not the dashboard"
+  );
+  let res = call_login(
+    state.clone(),
+    basic_headers("visitor:pass", Some("site.test")),
+    login_query(Some("/aperio/tokens")),
+  )
+  .await
+  .unwrap();
+  assert_eq!(res.status(), StatusCode::OK);
+  let (_, info) = state.sessions.lock().await.entries().pop().unwrap();
+  assert!(
+    info.scope_host.is_none(),
+    "the server's gate is server-wide"
+  );
+}

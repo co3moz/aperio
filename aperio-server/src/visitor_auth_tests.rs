@@ -239,3 +239,68 @@ fn a_forward_knows_where_it_is_asked_from_and_a_clients_is_always_the_client() {
   let declared = Policy::compile_from(&setting, true);
   assert!(declared.forward_methods().next().unwrap().via_client);
 }
+
+// --- sso: what the mutation sweep found nobody had pinned -------------------
+
+const SSO: &str = "{method: sso, issuer: https://id.example.com, client_id: visitors, client_secret: s3cret, allowed_emails: \"*@example.com\"}";
+
+#[test]
+fn a_clients_sso_is_never_compiled_and_an_operators_is() {
+  // `sso` is the operator's: the provider and its secret are written on the
+  // server, and a client declaring one is refused at the declaration. The
+  // compiler holds the same line, so a declaration that got past it would
+  // still not become a sign-in at a provider the client chose.
+  let setting: AuthSetting = serde_yaml::from_str(SSO).unwrap();
+  let operators = Policy::compile_from(&setting, false);
+  assert!(operators.has_sso() && operators.sso_only());
+  let clients = Policy::compile_from(&setting, true);
+  assert!(!clients.has_sso());
+}
+
+#[test]
+fn an_sso_methods_scopes_default_only_when_nothing_was_written() {
+  let written = policy(
+    "{method: sso, issuer: https://id.example.com, client_id: v, client_secret: s, allowed_emails: \"*\", scopes: \"openid profile\"}",
+  );
+  assert_eq!(
+    written.sso_methods().next().unwrap().scopes,
+    "openid profile"
+  );
+  for blank in [
+    "{method: sso, issuer: https://id.example.com, client_id: v, client_secret: s, allowed_emails: \"*\"}",
+    "{method: sso, issuer: https://id.example.com, client_id: v, client_secret: s, allowed_emails: \"*\", scopes: \"  \"}",
+  ] {
+    assert_eq!(
+      policy(blank).sso_methods().next().unwrap().scopes,
+      "openid email",
+      "{blank}"
+    );
+  }
+}
+
+#[test]
+fn an_sso_methods_key_tells_providers_and_clients_apart() {
+  // The runtime discovered for a method is cached under its key, and the
+  // callback checks the key it started under against the gate in force: a
+  // key that did not tell two methods apart would hand one provider's
+  // runtime to another's gate, and admit a sign-in the gate no longer asks
+  // for.
+  let key = |yaml: &str| policy(yaml).sso_methods().next().unwrap().key();
+  let a = key(SSO);
+  let same = key(
+    "{method: sso, issuer: https://id.example.com/, client_id: visitors, client_secret: other, allowed_emails: \"*@elsewhere.test\"}",
+  );
+  let other_provider = key(
+    "{method: sso, issuer: https://other.example.com, client_id: visitors, client_secret: s3cret, allowed_emails: \"*@example.com\"}",
+  );
+  let other_client = key(
+    "{method: sso, issuer: https://id.example.com, client_id: staff, client_secret: s3cret, allowed_emails: \"*@example.com\"}",
+  );
+  assert!(!a.is_empty());
+  assert_eq!(
+    a, same,
+    "a trailing slash, the secret and the list are not identity"
+  );
+  assert_ne!(a, other_provider);
+  assert_ne!(a, other_client);
+}
