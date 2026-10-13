@@ -16,6 +16,8 @@ project follows semantic versioning per release tag.
 
 - **A replayed request stays inside the organization it was captured in.** The inspector's replay picked a client the way live traffic does, by whoever serves the hostname today, and a hostname can have moved to another tenant's client since the capture. The request, with the visitor's headers and body, then went to that tenant's backend. A replay is now dispatched only to a client of the organization the request was served in, and answers `504` when none serves the route.
 
+- **`aperio-client check` warns about literal secrets in the file it was told to read.** The warning read `./aperio.yaml`, `./aperio.yml` and `~/.aperio.yaml` and nothing else, so a client run with `--config deploy/web.yaml` was never told about a token typed into that file. The scan now reads the configured file when one is named, and the two default names otherwise.
+
 ## [0.13.0] - 2026-10-13
 
 ### Security

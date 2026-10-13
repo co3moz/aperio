@@ -307,7 +307,7 @@ pub async fn run() {
 
   // Diagnostics mode reports missing config instead of exiting on it.
   if let CliMode::Check = cli.mode {
-    run_check(&settings).await;
+    run_check(&settings, cli.opts.config.as_deref()).await;
   }
 
   // TCP bridge mode short-circuits the tunnel client entirely.

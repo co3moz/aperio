@@ -9,7 +9,7 @@ use crate::config::{ClientSettings, build_http_url, build_ws_url, normalize_targ
 /// resolution (with the layer each value came from), server reachability and
 /// version skew, token validity, local targets and the health endpoint.
 /// Exits 0 when everything passes, 1 otherwise.
-pub(crate) async fn run_check(settings: &ClientSettings) -> ! {
+pub(crate) async fn run_check(settings: &ClientSettings, config: Option<&str>) -> ! {
   println!(
     "aperio-client {}, configuration & connectivity check\n",
     env!("CARGO_PKG_VERSION")
@@ -166,7 +166,7 @@ pub(crate) async fn run_check(settings: &ClientSettings) -> ! {
   // deploy artifact it may even be the deliberate one. But a secret typed
   // into a file is a secret that ends up in a repository, a backup and a
   // support ticket, and the alternative costs one `${VAR}`.
-  for (path, findings) in literal_secrets_in_config_files() {
+  for (path, findings) in literal_secrets_in_config_files(config) {
     for finding in findings {
       warn(
         "secrets",
@@ -483,13 +483,18 @@ pub(crate) fn literal_secrets_in(text: &str) -> Vec<String> {
   found
 }
 
-/// The same, over the config files this client would load.
-fn literal_secrets_in_config_files() -> Vec<(String, Vec<String>)> {
+/// The same, over the config files this client would load: the file
+/// `--config` names when it does, else the two default names, and the user's
+/// `~/.aperio.yaml` either way. The named file, because that is the one the
+/// client reads; a check that looked only at `./aperio.yaml` said nothing
+/// about a deployment whose file is called anything else.
+fn literal_secrets_in_config_files(config: Option<&str>) -> Vec<(String, Vec<String>)> {
   let mut out = Vec::new();
-  for path in ["aperio.yaml".to_string(), "aperio.yml".to_string()]
-    .into_iter()
-    .chain(dirs_home_config())
-  {
+  let project: Vec<String> = match config {
+    Some(path) => vec![path.to_string()],
+    None => vec!["aperio.yaml".to_string(), "aperio.yml".to_string()],
+  };
+  for path in project.into_iter().chain(dirs_home_config()) {
     let Ok(text) = std::fs::read_to_string(&path) else {
       continue;
     };

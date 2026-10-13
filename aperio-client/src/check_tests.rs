@@ -376,7 +376,7 @@ async fn drive(scenario: &str) -> ! {
     other => panic!("unknown scenario {other}"),
   }
 
-  run_check(&s).await
+  run_check(&s, None).await
 }
 
 /// Hidden driver: only does work when the scenario env var is set, so a plain
@@ -561,4 +561,35 @@ fn a_quoted_literal_is_still_a_literal() {
     super::literal_secrets_in("  client_secret: \"s3cr3t\"\n"),
     vec!["client_secret".to_string()]
   );
+}
+
+#[test]
+fn the_secret_scan_reads_the_file_the_client_was_told_to_read() {
+  // `--config deploy/web.yaml` is the file the client runs on, so it is the
+  // file the warning has to be about; `./aperio.yaml` may not even exist.
+  let dir = std::env::temp_dir().join(format!("aperio-check-{}", uuid::Uuid::new_v4()));
+  std::fs::create_dir_all(&dir).unwrap();
+  let path = dir.join("web.yaml");
+  std::fs::write(
+    &path,
+    "server:\n  url: https://t.example.com\n  token: apr_literal\n",
+  )
+  .unwrap();
+  let path = path.to_string_lossy().into_owned();
+  let found = super::literal_secrets_in_config_files(Some(&path));
+  let ours = found
+    .iter()
+    .find(|(p, _)| *p == path)
+    .map(|(_, keys)| keys.clone());
+  assert_eq!(ours, Some(vec!["token".to_string()]));
+  // A named file that holds no literal is reported clean, whatever
+  // `./aperio.yaml` would have said.
+  std::fs::write(
+    &path,
+    "server:\n  url: https://t.example.com\n  token: ${APERIO_SERVER_TOKEN}\n",
+  )
+  .unwrap();
+  let found = super::literal_secrets_in_config_files(Some(&path));
+  assert!(found.iter().all(|(p, _)| *p != path));
+  let _ = std::fs::remove_dir_all(&dir);
 }
