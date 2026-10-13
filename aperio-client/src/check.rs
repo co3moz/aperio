@@ -209,12 +209,9 @@ pub(crate) async fn run_check(settings: &ClientSettings, config: Option<&str>) -
             .unwrap_or("unknown");
           pass(
             "server health",
-            format!(
-              "healthy (server v{version}, {} client(s) connected)",
-              body
-                .get("connected_clients")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0)
+            health_summary(
+              body.get("version").and_then(|v| v.as_str()),
+              body.get("connected_clients").and_then(|v| v.as_u64()),
             ),
           );
           match body.get("version").and_then(|v| v.as_str()) {
@@ -454,6 +451,21 @@ const SECRET_KEYS: &[&str] = &[
   "api_key",
   "device_key",
 ];
+
+/// The health line: what the server said about itself. The release and the
+/// client count are answered to a credential, so without a token they are
+/// absent rather than "unknown", which read as a server that could not say.
+pub(crate) fn health_summary(version: Option<&str>, clients: Option<u64>) -> String {
+  match (version, clients) {
+    (Some(v), Some(n)) => format!("healthy (server v{v}, {n} client(s) connected)"),
+    (Some(v), None) => format!("healthy (server v{v})"),
+    (None, Some(n)) => format!("healthy ({n} client(s) connected)"),
+    (None, None) => {
+      "healthy (release and client count are told to a token; configure one to see them)"
+        .to_string()
+    }
+  }
+}
 
 /// Secret-bearing keys in one config file's text whose value is written out
 /// literally.

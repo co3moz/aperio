@@ -593,3 +593,18 @@ fn the_secret_scan_reads_the_file_the_client_was_told_to_read() {
   assert!(found.iter().all(|(p, _)| *p != path));
   let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn the_health_line_says_what_the_server_said_and_no_more() {
+  use super::health_summary;
+  assert_eq!(
+    health_summary(Some("0.13.1"), Some(2)),
+    "healthy (server v0.13.1, 2 client(s) connected)"
+  );
+  // Without a token the server keeps its release and its client count to
+  // itself; the line says so instead of printing "server vunknown".
+  let bare = health_summary(None, None);
+  assert!(bare.starts_with("healthy ("), "{bare}");
+  assert!(!bare.contains("unknown"), "{bare}");
+  assert!(bare.contains("token"), "{bare}");
+}
