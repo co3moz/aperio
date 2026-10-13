@@ -50,6 +50,40 @@ async fn fresh(protocol: ExposeProtocol) -> ExposeResource {
   };
   resource(protocol, port)
 }
+/// A port both transports can bind on this host. Windows keeps ranges of
+/// ports reserved per transport (Hyper-V's exclusions), so a port the TCP
+/// stack hands out may be one the UDP stack refuses, which made the test
+/// that shares a port between the two fail with "forbidden by its access
+/// permissions" once in a while on a development machine.
+async fn free_for_both() -> u16 {
+  // Asked of each stack in turn, because Windows hands ephemeral ports out
+  // in sequence: thirty-two TCP picks in a row once all fell inside one UDP
+  // exclusion, so a port UDP picked is tried on TCP as well.
+  for _ in 0..32 {
+    let from_tcp = tokio::net::TcpListener::bind("127.0.0.1:0")
+      .await
+      .unwrap()
+      .local_addr()
+      .unwrap()
+      .port();
+    if UdpSocket::bind(("127.0.0.1", from_tcp)).await.is_ok() {
+      return from_tcp;
+    }
+    let from_udp = UdpSocket::bind("127.0.0.1:0")
+      .await
+      .unwrap()
+      .local_addr()
+      .unwrap()
+      .port();
+    if tokio::net::TcpListener::bind(("127.0.0.1", from_udp))
+      .await
+      .is_ok()
+    {
+      return from_udp;
+    }
+  }
+  panic!("no port was free for both tcp and udp in 64 tries");
+}
 async fn install(state: &Arc<AppState>, rules: Vec<ExposeResource>) -> Result<(), String> {
   let mut manager = state.exposes.lock().await;
   let mut doc = manager.store.document.clone();
@@ -330,8 +364,9 @@ async fn failed_database_commit_never_activates_staged_socket() {
 #[tokio::test]
 async fn tcp_and_udp_can_share_port_but_wildcard_same_transport_conflicts() {
   let state = Arc::new(test_state());
-  let tcp = fresh(ExposeProtocol::Tcp).await;
-  let udp = resource(ExposeProtocol::Udp, tcp.spec.listener.port);
+  let port = free_for_both().await;
+  let tcp = resource(ExposeProtocol::Tcp, port);
+  let udp = resource(ExposeProtocol::Udp, port);
   install(&state, vec![tcp.clone(), udp.clone()])
     .await
     .unwrap();
