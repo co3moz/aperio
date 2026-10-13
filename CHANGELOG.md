@@ -30,6 +30,8 @@ project follows semantic versioning per release tag.
 
 - **A tunnel dialed over `ws://` against a server that redirects to HTTPS is told why.** With `tls.redirect_http` on, the plain listener answered a WebSocket upgrade with the same `308` it gives a browser, which an upgrade cannot follow, so the client logged the status and nothing else. The upgrade is now refused with `426` and a sentence naming `wss://`, which the client prints.
 
+- **A dashboard password with a character outside Latin-1 signs in.** The login page encoded the credentials with `btoa`, which takes Latin-1 only, so a password holding an `ş`, a `€` or an emoji made the page report invalid credentials without sending them. The credentials are encoded as UTF-8 first, which is what the server reads.
+
 ## [0.13.0] - 2026-10-13
 
 ### Security
