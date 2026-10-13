@@ -186,9 +186,27 @@ pub fn parse_network(raw: &str) -> Option<(IpAddr, u8)> {
   (prefix <= width).then_some((address, prefix))
 }
 
+/// Whether `peer` falls inside the network `raw` names (`10.0.0.0/8`, or one
+/// address). Both are read in their canonical form: a listener on `::` takes
+/// IPv4 peers too, and the socket reports each as the IPv4-mapped IPv6
+/// address `::ffff:a.b.c.d`, which an IPv4 range has to cover.
 pub fn network_contains(raw: &str, peer: IpAddr) -> bool {
   let Some((network, prefix)) = parse_network(raw) else {
     return false;
+  };
+  // A range written inside the mapped block, `::ffff:10.0.0.0/104`, is the
+  // IPv4 range it stands for; a wider IPv6 range keeps its own meaning, and
+  // is compared against the peer as written.
+  let (network, prefix) = match network {
+    IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+      Some(v4) if prefix >= 96 => (IpAddr::V4(v4), prefix - 96),
+      _ => (network, prefix),
+    },
+    IpAddr::V4(_) => (network, prefix),
+  };
+  let peer = match network {
+    IpAddr::V4(_) => peer.to_canonical(),
+    IpAddr::V6(_) => peer,
   };
   match (network, peer) {
     (IpAddr::V4(a), IpAddr::V4(b)) => {
@@ -200,3 +218,7 @@ pub fn network_contains(raw: &str, peer: IpAddr) -> bool {
     _ => false,
   }
 }
+
+#[cfg(test)]
+#[path = "expose_policy_tests.rs"]
+mod tests;

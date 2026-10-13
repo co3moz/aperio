@@ -115,3 +115,21 @@ pub(crate) fn test_ip_allowed() {
   assert!(!valid_ip_entry("10.0.0.0/33"));
   assert!(!valid_ip_entry("banana"));
 }
+
+#[test]
+fn ip_allowed_reads_an_ipv4_mapped_visitor_as_the_ipv4_address() {
+  // A server listening on `::` sees an IPv4 visitor as `::ffff:a.b.c.d`. It
+  // is the same visitor, and an IPv4 entry has to cover them: compared as
+  // written, no IPv4 list matched such a visitor at all.
+  let list = vec!["10.0.0.0/8".to_string(), "192.168.1.5".to_string()];
+  assert!(ip_allowed(ip("::ffff:10.1.2.3"), &list));
+  assert!(ip_allowed(ip("::ffff:192.168.1.5"), &list));
+  assert!(!ip_allowed(ip("::ffff:11.0.0.1"), &list));
+  // And an entry written in the mapped form covers the plain visitor.
+  assert!(ip_allowed(
+    ip("10.1.2.3"),
+    &["::ffff:10.0.0.0/104".to_string()]
+  ));
+  assert!(cidr_contains(ip("10.0.0.0"), 8, ip("::ffff:10.9.9.9")));
+  assert!(!cidr_contains(ip("10.0.0.0"), 8, ip("::ffff:11.9.9.9")));
+}

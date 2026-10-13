@@ -30,6 +30,18 @@ async fn session_scope(state: &AppState, headers: &HeaderMap) -> Option<Option<S
       // A session minted on another hostname is no session here under
       // `fenced_login`; see `SessionInfo::login_host`.
       Some(info) if !info.usable_on(fenced, host.as_deref()) => return None,
+      // A session an `sso` gate minted opens that gate alone, through
+      // `sso_identity`, which also asks the provider and the allowlist. It
+      // is nobody's password session, so here, where a host-scoped session
+      // is read as "signed in to this hostname", it stands for nothing:
+      // read as one, it opened every other gate on the hostname, a site's
+      // `basic` on another path or a client's own, and kept opening the
+      // `sso` gate beside a password method after the email left the list.
+      Some(info)
+        if info.sso_issuer.is_some() && info.expires_at > crate::store::sessions::now_secs() =>
+      {
+        return None;
+      }
       Some(info) if info.expires_at > crate::store::sessions::now_secs() => {
         (info.scope_host.clone(), info.username.clone())
       }

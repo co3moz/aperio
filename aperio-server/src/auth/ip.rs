@@ -26,13 +26,29 @@ pub(crate) fn ip_allowed(ip: IpAddr, allowed: &[String]) -> bool {
       }
       None => entry
         .parse::<IpAddr>()
-        .is_ok_and(|allowed_ip| allowed_ip == ip),
+        .is_ok_and(|allowed_ip| allowed_ip.to_canonical() == ip.to_canonical()),
     }
   })
 }
 
 /// True when `ip` falls inside the CIDR `base/bits` (families must match).
+///
+/// Both sides are read in their canonical form first. A server listening on
+/// `::` takes IPv4 visitors too, and the socket reports each of them as the
+/// IPv4-mapped IPv6 address `::ffff:a.b.c.d`, which is the same visitor in a
+/// different family. Compared as written, no IPv4 entry of any list matched
+/// such a visitor: a `denied_ips` range let them through, a `trusted_proxies`
+/// range left the proxy's forwarding headers unread, and a token's
+/// `allowed_ips` refused a client that was on it.
 pub(crate) fn cidr_contains(base: IpAddr, bits: u32, ip: IpAddr) -> bool {
+  let (base, bits) = canonical_network(base, bits);
+  // The peer in the range's family: canonical against an IPv4 range, and as
+  // written against an IPv6 one, which may itself be a slice of the mapped
+  // block too wide to be an IPv4 range.
+  let ip = match base {
+    IpAddr::V4(_) => ip.to_canonical(),
+    IpAddr::V6(_) => ip,
+  };
   match (base, ip) {
     (IpAddr::V4(b), IpAddr::V4(i)) => {
       if bits > 32 {
@@ -55,6 +71,20 @@ pub(crate) fn cidr_contains(base: IpAddr, bits: u32, ip: IpAddr) -> bool {
       (u128::from(b) & mask) == (u128::from(i) & mask)
     }
     _ => false,
+  }
+}
+
+/// A range written inside the IPv4-mapped block, `::ffff:10.0.0.0/104`, as
+/// the IPv4 range it stands for, `10.0.0.0/8`. Anything else as it is: an
+/// IPv6 range that starts before the mapped block is wider than any IPv4
+/// range and keeps its own meaning.
+pub(crate) fn canonical_network(base: IpAddr, bits: u32) -> (IpAddr, u32) {
+  match base {
+    IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+      Some(v4) if bits >= 96 => (IpAddr::V4(v4), bits - 96),
+      _ => (base, bits),
+    },
+    IpAddr::V4(_) => (base, bits),
   }
 }
 

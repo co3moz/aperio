@@ -91,7 +91,16 @@ async fn endpoint_build(
           out.push_str(&format!("{k}: {v}\r\n"));
         }
         let declared = promise_only.unwrap_or(body_bytes);
-        out.push_str(&format!("content-length: {declared}\r\n\r\n"));
+        // Said, as every other stand-in here says it, because this one serves
+        // one request per socket and then drops it. Without it the shared
+        // client keeps the connection in its pool and a test that asks twice
+        // sends its second question down a socket the endpoint has closed;
+        // whether that is noticed before the write depends on scheduling, so
+        // the test was red once in a while under the parallel run and green
+        // alone.
+        out.push_str(&format!(
+          "content-length: {declared}\r\nconnection: close\r\n\r\n"
+        ));
         if promise_only.is_none() {
           out.push_str(&"x".repeat(body_bytes));
         }

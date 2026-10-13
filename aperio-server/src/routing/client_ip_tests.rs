@@ -280,3 +280,34 @@ pub(crate) fn test_extract_client_ip_untrusted_ignores_headers() {
     direct
   );
 }
+
+#[test]
+fn client_ip_is_canonical_whichever_way_it_was_found() {
+  // The socket peer of a `::` listener, for an IPv4 visitor.
+  let mapped = ip("::ffff:203.0.113.7");
+  assert_eq!(
+    extract_client_ip(&HeaderMap::new(), mapped, false, None, &[]),
+    ip("203.0.113.7")
+  );
+  // The same spelling written by a proxy into a forwarding header.
+  let mut h = HeaderMap::new();
+  h.insert("x-forwarded-for", "::ffff:9.9.9.9".parse().unwrap());
+  assert_eq!(
+    extract_client_ip(&h, ip("1.1.1.1"), true, None, &[]),
+    ip("9.9.9.9")
+  );
+  // Behind a trusted proxy: the mapped peer is inside the IPv4 range, so its
+  // header is read, and the visitor it names comes out canonical too.
+  let trusted = parse_trusted_proxies("10.0.0.0/8").unwrap();
+  let mut h = HeaderMap::new();
+  h.insert("x-forwarded-for", "::ffff:198.51.100.4".parse().unwrap());
+  assert_eq!(
+    extract_client_ip(&h, ip("::ffff:10.0.0.2"), true, None, &trusted),
+    ip("198.51.100.4")
+  );
+  // A real IPv6 address is left as it is.
+  assert_eq!(
+    extract_client_ip(&HeaderMap::new(), ip("2001:db8::1"), false, None, &[]),
+    ip("2001:db8::1")
+  );
+}
