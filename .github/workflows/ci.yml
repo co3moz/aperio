@@ -115,7 +115,17 @@ jobs:
           # A subshell rather than `working-directory:`, which would apply to
           # the whole block and take the cargo commands with it. The suite
           # inherits the instrumented environment sourced above.
-          (cd tests/e2e && npm ci && npm run test:ci)
+          #
+          # Not a gate here either, for the reason the unit tests above are
+          # not: the e2e job runs the same suite on an uninstrumented build and
+          # is the one that fails the push. An instrumented server starts and
+          # answers slower, and the startup budget spec, which holds a process
+          # start to three hundred milliseconds, is the one that notices on a
+          # busy runner; it failed here and passed in the sibling run of the
+          # same commit. A failure is a warning on the run, and the profiles
+          # the suite did write still count.
+          (cd tests/e2e && npm ci && npm run test:ci) \
+            || echo "::warning::the e2e suite failed under coverage instrumentation; the End-to-End Tunnel Test job is the gate"
           cargo llvm-cov report --html --output-dir coverage-html --ignore-filename-regex "$COV_IGNORE"
           echo '## Coverage (unit tests + e2e)' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
