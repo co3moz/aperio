@@ -310,3 +310,43 @@ async fn selected_org_replay_is_scoped() {
   .await;
   assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
 }
+
+#[tokio::test]
+async fn replay_is_dispatched_only_to_the_captured_requests_organization() {
+  // The route may be served by another tenant's client today: a capture made
+  // in master is not replayed, with the visitor's headers and body, to a
+  // client that connected with an organization's token.
+  let state = Arc::new(test_state());
+  seed(&state, captured("a", None, false)).await;
+  let mut foreign = mock_client(None, None);
+  foreign.perms.org_id = Some("acme".to_string());
+  state
+    .clients
+    .write()
+    .await
+    .insert("c1".to_string(), foreign);
+  let headers = admin_headers(&state).await;
+  let resp = request_replay_handler(
+    State(state.clone()),
+    Path("a".to_string()),
+    ConnectInfo(test_peer()),
+    headers,
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
+  // A client of the organization itself is still reached (and, with the mock's
+  // receiver dropped, answers 502 as it does everywhere else in this file).
+  state
+    .clients
+    .write()
+    .await
+    .insert("c2".to_string(), mock_client(None, None));
+  let resp = request_replay_handler(
+    State(state.clone()),
+    Path("a".to_string()),
+    ConnectInfo(test_peer()),
+    admin_headers(&state).await,
+  )
+  .await;
+  assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
+}

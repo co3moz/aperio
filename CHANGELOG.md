@@ -14,6 +14,8 @@ project follows semantic versioning per release tag.
 
 - **An IPv4 visitor of a server listening on `::` matched no IPv4 address list.** A listener on `::` takes IPv4 connections too, and the socket reports each of them as the IPv4-mapped IPv6 address `::ffff:a.b.c.d`. Every list compared the families as written, so under `HOST=::` an IPv4 range in `security.denied_ips` blocked nobody, one in `proxy.trusted` left the proxy's forwarding headers unread, `security.admin_allowed_ips` fenced the dashboard off from the addresses it named, a token's or a service's `allowed_ips` refused the clients and visitors on it, and a public listener's `allowed_ips` refused every IPv4 peer. An address is now read in its canonical form wherever it is compared, and the visitor's address is canonical wherever the server records it, so a mapped and a plain spelling of one address share a rate bucket and a lockout. A server on the default `0.0.0.0` never saw a mapped address and is unchanged.
 
+- **A replayed request stays inside the organization it was captured in.** The inspector's replay picked a client the way live traffic does, by whoever serves the hostname today, and a hostname can have moved to another tenant's client since the capture. The request, with the visitor's headers and body, then went to that tenant's backend. A replay is now dispatched only to a client of the organization the request was served in, and answers `504` when none serves the route.
+
 ## [0.13.0] - 2026-10-13
 
 ### Security
