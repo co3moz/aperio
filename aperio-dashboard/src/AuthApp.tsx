@@ -14,6 +14,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { AperioMark } from './components/AperioMark'
 import { AppearanceControls } from './components/AppearanceControls'
 import { AperioWordmark } from './components/AperioWordmark'
+import { basicAuthorization } from '@/lib/basicAuth'
 import { LOGO_COLOR, logoDataUri } from '@/lib/logo'
 import { useI18n } from '@/i18n'
 import {
@@ -121,7 +122,7 @@ export function AuthApp() {
     const dest = safeRedirect(raw)
     try {
       const headers: Record<string, string> = {
-        Authorization: `Basic ${btoa(`${username}:${password}`)}`,
+        Authorization: basicAuthorization(username, password),
       }
       if (totpCode.trim()) headers['X-Aperio-Totp'] = totpCode.trim()
       const res = await fetch(`/aperio/auth?redirect=${encodeURIComponent(dest)}`, {

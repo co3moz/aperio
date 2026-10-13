@@ -14,6 +14,24 @@ project follows semantic versioning per release tag.
 
 - **An IPv4 visitor of a server listening on `::` matched no IPv4 address list.** A listener on `::` takes IPv4 connections too, and the socket reports each of them as the IPv4-mapped IPv6 address `::ffff:a.b.c.d`. Every list compared the families as written, so under `HOST=::` an IPv4 range in `security.denied_ips` blocked nobody, one in `proxy.trusted` left the proxy's forwarding headers unread, `security.admin_allowed_ips` fenced the dashboard off from the addresses it named, a token's or a service's `allowed_ips` refused the clients and visitors on it, and a public listener's `allowed_ips` refused every IPv4 peer. An address is now read in its canonical form wherever it is compared, and the visitor's address is canonical wherever the server records it, so a mapped and a plain spelling of one address share a rate bucket and a lockout. A server on the default `0.0.0.0` never saw a mapped address and is unchanged.
 
+- **A replayed request stays inside the organization it was captured in.** The inspector's replay picked a client the way live traffic does, by whoever serves the hostname today, and a hostname can have moved to another tenant's client since the capture. The request, with the visitor's headers and body, then went to that tenant's backend. A replay is now dispatched only to a client of the organization the request was served in, and answers `504` when none serves the route.
+
+- **`aperio-client check` warns about literal secrets in the file it was told to read.** The warning read `./aperio.yaml`, `./aperio.yml` and `~/.aperio.yaml` and nothing else, so a client run with `--config deploy/web.yaml` was never told about a token typed into that file. The scan now reads the configured file when one is named, and the two default names otherwise.
+
+- **A panel's certificate is obtained at start, and not out of the on-demand allowance.** With `tls.acme` on, the dashboard's hostname and an organization's panel were told apart from a client's hostnames only by `tls.acme.hostnames`: a panel not listed there was obtained at the first visitor's handshake as an on-demand name and spent one of the twenty hourly on-demand slots, whether or not `tls.acme.on_demand` was on, and only the dashboard's own name was obtained at start. Every panel is now obtained at start beside the configured names, and one set later is obtained as a configured name.
+
+- **An `email_verified` claim sent as text is read.** The dashboard's OIDC login and a visitor's `sso` sign-in refuse an address the provider marks unverified, but both read the claim only as a boolean. A provider that sends `"false"` as text was read as saying nothing, and the address was admitted on trust. Both logins now read the boolean and its text.
+
+- **A users import no longer signs out visitors who signed in at a provider.** Importing users revokes every session that names a user, so a replaced row cannot inherit a session minted for the old one. A visitor's `sso` session names an email too and was revoked with them, although no user row stands behind it. It is now kept, and keeps being checked against its gate's allowlist on every request.
+
+- **`aperio-client check` no longer reports `server vunknown`.** The server tells its release and its client count to a credential; a check run without a token printed the release as `unknown`, which read as a server that could not say. The line now shows what the server said and, without a token, that a token would show the rest.
+
+- **Sign-ins waiting on a provider are capped.** A started OIDC login or `sso` sign-in holds an entry for ten minutes while the visitor is at the provider, and nothing bounded how many could be waiting beyond the per-address rate limit. Each of the two flows now holds at most ten thousand sign-ins in progress; a start past that is refused with `503` and a sentence, and the sign-ins already waiting are not evicted for a newcomer.
+
+- **A tunnel dialed over `ws://` against a server that redirects to HTTPS is told why.** With `tls.redirect_http` on, the plain listener answered a WebSocket upgrade with the same `308` it gives a browser, which an upgrade cannot follow, so the client logged the status and nothing else. The upgrade is now refused with `426` and a sentence naming `wss://`, which the client prints.
+
+- **A dashboard password with a character outside Latin-1 signs in.** The login page encoded the credentials with `btoa`, which takes Latin-1 only, so a password holding an `ş`, a `€` or an emoji made the page report invalid credentials without sending them. The credentials are encoded as UTF-8 first, which is what the server reads.
+
 ## [0.13.0] - 2026-10-13
 
 ### Security

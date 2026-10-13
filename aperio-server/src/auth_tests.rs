@@ -1032,3 +1032,66 @@ async fn a_sites_gate_signs_its_visitors_in_for_its_hostname_over_a_clients() {
   assert_eq!(info.scope_host.as_deref(), Some("site.test"));
   assert_eq!(info.plane, crate::store::sessions::Plane::Visitor);
 }
+
+#[test]
+fn a_pending_sign_in_takes_a_slot_only_while_the_cap_leaves_one() {
+  use std::collections::HashMap;
+  use std::time::{Duration, Instant};
+  let now = Instant::now();
+  let live = now + Duration::from_secs(600);
+  let mut pending: HashMap<String, Instant> = (0..MAX_PENDING_LOGINS)
+    .map(|i| (format!("state-{i}"), live))
+    .collect();
+  // Full of sign-ins still in progress: nobody is evicted for a newcomer.
+  assert!(!pending_login_slot(&mut pending, now, |exp| *exp));
+  assert_eq!(pending.len(), MAX_PENDING_LOGINS);
+  // Half of them past their expiry: those go, and there is room again.
+  for (i, exp) in pending.values_mut().enumerate() {
+    if i % 2 == 0 {
+      *exp = now - Duration::from_secs(1);
+    }
+  }
+  assert!(pending_login_slot(&mut pending, now, |exp| *exp));
+  assert_eq!(pending.len(), MAX_PENDING_LOGINS / 2);
+}
+
+#[tokio::test]
+pub(super) async fn login_for_the_dashboard_never_uses_a_clients_visitor_password() {
+  // A redirect under `/aperio` is a dashboard login: the password a client
+  // set for its own site mints no session for it, and the server's own
+  // visitor password still does, whatever the client serving the hostname
+  // declared. Pinned because the two conditions keeping the client's
+  // password out of this form were one `||`, which the mutation sweep turned
+  // into `&&` without a test noticing.
+  let mut cfg = test_config();
+  cfg.visitor_auth = crate::test_support::basic_gate("visitor:pass");
+  let state = test_state_with(cfg);
+  let mut client = mock_client(Some("site.test"), None);
+  client.sole_mut().visitor_auth = Some("guest:letmein".to_string());
+  state.clients.write().await.insert("c1".to_string(), client);
+  let state = Arc::new(state);
+  assert_eq!(
+    call_login(
+      state.clone(),
+      basic_headers("guest:letmein", Some("site.test")),
+      login_query(Some("/aperio/tokens")),
+    )
+    .await
+    .unwrap_err(),
+    StatusCode::UNAUTHORIZED,
+    "the client's password opens its site, not the dashboard"
+  );
+  let res = call_login(
+    state.clone(),
+    basic_headers("visitor:pass", Some("site.test")),
+    login_query(Some("/aperio/tokens")),
+  )
+  .await
+  .unwrap();
+  assert_eq!(res.status(), StatusCode::OK);
+  let (_, info) = state.sessions.lock().await.entries().pop().unwrap();
+  assert!(
+    info.scope_host.is_none(),
+    "the server's gate is server-wide"
+  );
+}

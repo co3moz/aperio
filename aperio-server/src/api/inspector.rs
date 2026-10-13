@@ -101,6 +101,25 @@ pub(crate) async fn request_replay_handler(
     ) {
       None => None,
       Some((pool, group_key)) => {
+        // Only a client of the organization the request was served in. The
+        // pool is whoever serves the hostname today, and a hostname can have
+        // moved to another tenant's client since the capture: the replay
+        // carries the visitor's headers and body, which are this
+        // organization's to see and nobody else's.
+        let pool: Vec<_> = pool
+          .into_iter()
+          .filter(|r| {
+            r.connection(&clients)
+              .is_some_and(|c| c.perms.org_id == org)
+          })
+          .collect();
+        if pool.is_empty() {
+          return (
+            StatusCode::GATEWAY_TIMEOUT,
+            "No tunnel client of this organization serves the route",
+          )
+            .into_response();
+        }
         let pool = apply_lb_strategy(pool, &clients, state.config().lb_strategy);
         let mut rr_map = state.path_rr.lock().await;
         let idx = rr_map.entry(group_key).or_insert(0);

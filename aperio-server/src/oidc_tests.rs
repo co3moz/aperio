@@ -397,3 +397,22 @@ async fn the_issuer_goes_through_the_outbound_policy() {
   .expect("a loopback issuer is refused when private destinations are blocked");
   assert!(err.contains("outbound policy"), "{err}");
 }
+
+#[test]
+fn the_email_verified_claim_is_read_as_a_boolean_or_as_its_text() {
+  // The specification says boolean; a few providers send the text. An
+  // unverified address spelled `"false"` was read as no claim and admitted.
+  let claim =
+    |v: serde_json::Value| email_verified_claim(&serde_json::json!({"email_verified": v}));
+  assert_eq!(claim(serde_json::json!(true)), Some(true));
+  assert_eq!(claim(serde_json::json!(false)), Some(false));
+  assert_eq!(claim(serde_json::json!("true")), Some(true));
+  assert_eq!(claim(serde_json::json!("False")), Some(false));
+  // Anything else is no claim: the caller decides what silence means.
+  assert_eq!(claim(serde_json::json!("maybe")), None);
+  assert_eq!(claim(serde_json::json!(1)), None);
+  assert_eq!(
+    email_verified_claim(&serde_json::json!({"email": "a@b"})),
+    None
+  );
+}

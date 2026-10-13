@@ -127,7 +127,17 @@ pub(crate) async fn sso_login_handler(
   {
     let mut pending = state.sso_states.lock().await;
     let now = Instant::now();
-    pending.retain(|_, p| p.expires > now);
+    if !crate::auth::pending_login_slot(&mut pending, now, |p| p.expires) {
+      tracing::warn!(
+        "Refusing to start a single sign-on: {} are already waiting",
+        crate::auth::MAX_PENDING_LOGINS
+      );
+      return (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Too many sign-ins are in progress; try again in a few minutes",
+      )
+        .into_response();
+    }
     pending.insert(
       token.clone(),
       SsoPending {
@@ -232,7 +242,7 @@ pub(crate) async fn sso_callback_handler(
   // The allowlist is keyed on email, so an address the provider itself says
   // is unverified is refused: at a provider where anyone may claim any
   // address, it is the visitor's word and not the provider's.
-  if email.is_empty() || info.get("email_verified").and_then(|v| v.as_bool()) == Some(false) {
+  if email.is_empty() || crate::oidc::email_verified_claim(&info) == Some(false) {
     state
       .audit(
         "sso_login_denied",

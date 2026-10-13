@@ -19,7 +19,7 @@ use tokio_rustls::LazyConfigAcceptor;
 use tokio_rustls::server::TlsStream;
 use tracing::{debug, warn};
 
-use super::acme::{ChallengeResolver, Challenges, Issuer, Why};
+use super::acme::{ChallengeResolver, Challenges, Issuer};
 use super::certs::{CertStore, StoreResolver};
 
 /// The protocol an ACME authority asks for when it checks a TLS-ALPN-01
@@ -98,11 +98,7 @@ impl Handshakes {
       && self.certs.lookup(Some(host)).is_none()
       && issuer.wants(host).await
     {
-      let why = if issuer.plan().hostnames.contains(host) {
-        Why::Configured
-      } else {
-        Why::OnDemand
-      };
+      let why = issuer.reason_for(host).await;
       // On a task of its own, so a visitor who gives up does not cancel an
       // order halfway through.
       let issuer = issuer.clone();

@@ -724,11 +724,15 @@ pub(crate) async fn apply_document(
     // named sessions after a successful import, including OIDC sessions that
     // could otherwise acquire an imported row with the same name.
     let n = imported!("users", state.users.lock().await.import(users));
+    // A visitor's single sign-on session carries an email as its username
+    // too, but no user row stands behind it, so the import replaces nothing
+    // it could have borrowed; it stays, checked against its gate's allowlist
+    // on every request as before.
     state
       .sessions
       .lock()
       .await
-      .retain(|info| info.username.is_none());
+      .retain(|info| info.username.is_none() || info.sso_issuer.is_some());
     counts.insert("users".into(), n.into());
   }
   if let Some(scaling) = dump.scaling {

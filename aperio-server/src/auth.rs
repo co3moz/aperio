@@ -481,6 +481,27 @@ pub(crate) async fn auth_login_handler(
   )
 }
 
+/// How many sign-ins may be waiting on a provider at once, for the
+/// dashboard's OIDC login and for the visitors' `sso` sign-ins each. A
+/// started sign-in holds an entry for ten minutes, and the start is priced as
+/// a credential attempt from the caller's own bucket, so this is the ceiling
+/// behind that ceiling: what a flood from many addresses can hold at most.
+pub(crate) const MAX_PENDING_LOGINS: usize = 10_000;
+
+/// Makes room for one more pending sign-in: drops the entries past their
+/// expiry, then says whether the cap leaves a place for a new one. The
+/// caller refuses the start when it does not; the entries that are there
+/// belong to people in the middle of signing in, and are not evicted for a
+/// newcomer.
+pub(crate) fn pending_login_slot<V>(
+  pending: &mut std::collections::HashMap<String, V>,
+  now: Instant,
+  expires: impl Fn(&V) -> Instant,
+) -> bool {
+  pending.retain(|_, entry| expires(entry) > now);
+  pending.len() < MAX_PENDING_LOGINS
+}
+
 #[cfg(test)]
 #[path = "auth_tests.rs"]
 mod tests;
