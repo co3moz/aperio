@@ -806,3 +806,45 @@ async fn a_dump_either_way_takes_every_organization() {
   .await;
   assert_eq!(resp.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn importing_users_leaves_a_visitors_single_sign_on_session_standing() {
+  // The session carries an email as its username, but no user row stands
+  // behind it, so the import replaces nothing it could have borrowed.
+  let state = Arc::new(test_state());
+  let token = uuid::Uuid::new_v4().to_string();
+  let now = crate::store::sessions::now_secs();
+  state.sessions.lock().await.insert(
+    &token,
+    crate::state::SessionInfo {
+      expires_at: now + 600,
+      created_at: now,
+      ip: None,
+      user_agent: None,
+      plane: crate::store::sessions::Plane::Visitor,
+      scope_host: Some("app.example.com".to_string()),
+      username: Some("ada@example.com".to_string()),
+      role: Role::Viewer,
+      selected_org: None,
+      bound_org: None,
+      login_host: Some("app.example.com".to_string()),
+      sso_issuer: Some("https://id.example.com".to_string()),
+    },
+  );
+  let named = seed_session(&state, Role::Admin, Some("someone"), None).await;
+
+  let response = import_handler(
+    State(state.clone()),
+    ConnectInfo(test_peer()),
+    admin_headers(&state).await,
+    import_dump(FORMAT_VERSION, None, None, Some(Vec::new()), None, None),
+  )
+  .await;
+  assert_eq!(response.status(), StatusCode::OK);
+  let sessions = state.sessions.lock().await;
+  assert!(
+    sessions.get(&token).is_some(),
+    "the visitor stays signed in"
+  );
+  assert!(sessions.get(&named).is_none(), "a named session is revoked");
+}
