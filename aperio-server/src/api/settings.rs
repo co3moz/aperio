@@ -41,7 +41,8 @@ pub(crate) async fn settings_get_handler(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
 ) -> Response {
-  // Server settings are global; only an Admin of master may read them.
+  // Server settings are global; only the server admin (`*` Admin) may read
+  // them, the same gate that writes them.
   if let Err(resp) = crate::auth::require_server_admin(&state, &headers).await {
     return resp;
   }
