@@ -28,6 +28,8 @@ project follows semantic versioning per release tag.
 
 - **Sign-ins waiting on a provider are capped.** A started OIDC login or `sso` sign-in holds an entry for ten minutes while the visitor is at the provider, and nothing bounded how many could be waiting beyond the per-address rate limit. Each of the two flows now holds at most ten thousand sign-ins in progress; a start past that is refused with `503` and a sentence, and the sign-ins already waiting are not evicted for a newcomer.
 
+- **A tunnel dialed over `ws://` against a server that redirects to HTTPS is told why.** With `tls.redirect_http` on, the plain listener answered a WebSocket upgrade with the same `308` it gives a browser, which an upgrade cannot follow, so the client logged the status and nothing else. The upgrade is now refused with `426` and a sentence naming `wss://`, which the client prints.
+
 ## [0.13.0] - 2026-10-13
 
 ### Security

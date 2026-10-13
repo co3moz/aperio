@@ -269,3 +269,31 @@ async fn plain_http_is_sent_to_https_except_the_probes() {
     "https://app.example.com/"
   );
 }
+
+#[tokio::test]
+async fn a_websocket_upgrade_on_the_plain_listener_is_told_to_dial_wss() {
+  // A tunnel client dialing `ws://` against a server that redirects to HTTPS
+  // cannot follow the redirect, and used to log nothing but "HTTP 308". It
+  // gets a `426` whose body names the change to make, which is what the
+  // client prints for that status.
+  let app = Router::new()
+    .route("/aperio/ws", get(|| async { "tunnel" }))
+    .layer(axum::middleware::from_fn_with_state(
+      443u16,
+      redirect_to_https,
+    ));
+  let request = axum::http::Request::builder()
+    .uri("/aperio/ws")
+    .header("host", "tunnel.example.com")
+    .header("upgrade", "websocket")
+    .header("connection", "Upgrade")
+    .body(axum::body::Body::empty())
+    .unwrap();
+  let answer = app.oneshot(request).await.unwrap();
+  assert_eq!(answer.status(), StatusCode::UPGRADE_REQUIRED);
+  let body = axum::body::to_bytes(answer.into_body(), 4096)
+    .await
+    .unwrap();
+  let text = String::from_utf8_lossy(&body);
+  assert!(text.contains("wss://"), "{text}");
+}

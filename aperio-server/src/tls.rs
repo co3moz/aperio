@@ -62,6 +62,18 @@ pub(crate) async fn redirect_to_https(
   if PROBES.contains(&req.uri().path()) {
     return next.run(req).await;
   }
+  // A WebSocket upgrade cannot follow a redirect, so a tunnel client dialing
+  // `ws://` against this listener would only ever log the status. It is told
+  // what to change instead: `426` is the status for "switch protocols", and
+  // the client prints its body.
+  if crate::proxy::is_websocket_upgrade(req.method(), req.headers()) {
+    return (
+      StatusCode::UPGRADE_REQUIRED,
+      "426 Upgrade Required - this server answers over https, and a WebSocket upgrade cannot \
+       follow a redirect; dial wss:// instead of ws://",
+    )
+      .into_response();
+  }
   let Some(host) = crate::routing::extract_request_host(req.headers()) else {
     return (StatusCode::BAD_REQUEST, "this server answers over https").into_response();
   };
