@@ -48,6 +48,30 @@ pub(crate) fn extract_client_ip(
   real_ip_header: Option<&str>,
   trusted_proxies: &[(IpAddr, u32)],
 ) -> IpAddr {
+  // In its canonical form, whichever way it was found. A server listening on
+  // `::` takes IPv4 visitors too, and the socket reports each of them as the
+  // IPv4-mapped IPv6 address `::ffff:a.b.c.d`; a proxy may write the same
+  // spelling into a forwarding header. It is one visitor, and every reader of
+  // this address, the rate buckets, the login lockout, the audit log and the
+  // address lists, should see them as one.
+  resolve_client_ip(
+    headers,
+    fallback,
+    trust_proxy,
+    real_ip_header,
+    trusted_proxies,
+  )
+  .to_canonical()
+}
+
+/// [`extract_client_ip`] as written, before the address is canonicalized.
+fn resolve_client_ip(
+  headers: &HeaderMap,
+  fallback: IpAddr,
+  trust_proxy: bool,
+  real_ip_header: Option<&str>,
+  trusted_proxies: &[(IpAddr, u32)],
+) -> IpAddr {
   if !trust_proxy {
     return fallback;
   }
