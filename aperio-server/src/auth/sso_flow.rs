@@ -127,7 +127,17 @@ pub(crate) async fn sso_login_handler(
   {
     let mut pending = state.sso_states.lock().await;
     let now = Instant::now();
-    pending.retain(|_, p| p.expires > now);
+    if !crate::auth::pending_login_slot(&mut pending, now, |p| p.expires) {
+      tracing::warn!(
+        "Refusing to start a single sign-on: {} are already waiting",
+        crate::auth::MAX_PENDING_LOGINS
+      );
+      return (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Too many sign-ins are in progress; try again in a few minutes",
+      )
+        .into_response();
+    }
     pending.insert(
       token.clone(),
       SsoPending {

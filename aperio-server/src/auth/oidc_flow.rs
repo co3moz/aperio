@@ -153,7 +153,14 @@ pub(crate) async fn oidc_login_handler(
   {
     let mut states = state.oidc_states.lock().await;
     let now = Instant::now();
-    states.retain(|_, (_, _, _, exp)| *exp > now);
+    if !pending_login_slot(&mut states, now, |(_, _, _, exp)| *exp) {
+      warn!("Refusing to start an OIDC login: {MAX_PENDING_LOGINS} are already waiting");
+      return (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Too many sign-ins are in progress; try again in a few minutes",
+      )
+        .into_response();
+    }
     states.insert(
       state_token.clone(),
       (

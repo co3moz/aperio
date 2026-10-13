@@ -26,6 +26,8 @@ project follows semantic versioning per release tag.
 
 - **`aperio-client check` no longer reports `server vunknown`.** The server tells its release and its client count to a credential; a check run without a token printed the release as `unknown`, which read as a server that could not say. The line now shows what the server said and, without a token, that a token would show the rest.
 
+- **Sign-ins waiting on a provider are capped.** A started OIDC login or `sso` sign-in holds an entry for ten minutes while the visitor is at the provider, and nothing bounded how many could be waiting beyond the per-address rate limit. Each of the two flows now holds at most ten thousand sign-ins in progress; a start past that is refused with `503` and a sentence, and the sign-ins already waiting are not evicted for a newcomer.
+
 ## [0.13.0] - 2026-10-13
 
 ### Security

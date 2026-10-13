@@ -1032,3 +1032,25 @@ async fn a_sites_gate_signs_its_visitors_in_for_its_hostname_over_a_clients() {
   assert_eq!(info.scope_host.as_deref(), Some("site.test"));
   assert_eq!(info.plane, crate::store::sessions::Plane::Visitor);
 }
+
+#[test]
+fn a_pending_sign_in_takes_a_slot_only_while_the_cap_leaves_one() {
+  use std::collections::HashMap;
+  use std::time::{Duration, Instant};
+  let now = Instant::now();
+  let live = now + Duration::from_secs(600);
+  let mut pending: HashMap<String, Instant> = (0..MAX_PENDING_LOGINS)
+    .map(|i| (format!("state-{i}"), live))
+    .collect();
+  // Full of sign-ins still in progress: nobody is evicted for a newcomer.
+  assert!(!pending_login_slot(&mut pending, now, |exp| *exp));
+  assert_eq!(pending.len(), MAX_PENDING_LOGINS);
+  // Half of them past their expiry: those go, and there is room again.
+  for (i, exp) in pending.values_mut().enumerate() {
+    if i % 2 == 0 {
+      *exp = now - Duration::from_secs(1);
+    }
+  }
+  assert!(pending_login_slot(&mut pending, now, |exp| *exp));
+  assert_eq!(pending.len(), MAX_PENDING_LOGINS / 2);
+}
