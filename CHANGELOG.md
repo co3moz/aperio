@@ -4,6 +4,12 @@ All notable changes to Aperio are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project follows semantic versioning per release tag.
 
+## [Unreleased]
+
+### Security
+
+- **A visitor's single sign-on session is accepted by the `sso` gate that minted it and by no other gate.** A session minted by `access: {method: sso}` is scoped to one hostname, and the server read every host-scoped session as "signed in to this hostname". So on a hostname where one path asks for a single sign-on and another path, or a client's own service, asks for a password, the signed-in visitor reached the password-gated routes too, and where `sso` was listed beside a `basic` method, the session kept opening the route after its email left `allowed_emails`. A session an `sso` gate minted now counts only where that gate reads it: on its hostname, from the provider the gate names, for an email the gate still admits. Gates that are `sso` alone were already refusing it correctly.
+
 ## [0.13.0] - 2026-10-13
 
 ### Security
