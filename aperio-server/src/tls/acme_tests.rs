@@ -509,3 +509,31 @@ fn on_demand_orders_are_capped_per_hour() {
       .contains("in the last hour")
   );
 }
+
+#[tokio::test]
+async fn a_panels_certificate_is_a_configured_one_not_an_on_demand_one() {
+  // The dashboard's hostname and an organization's panel are names the
+  // operator wrote, so they are obtained like `tls.acme.hostnames`, outside
+  // the hourly on-demand allowance; a name a client merely serves is not.
+  let mut cfg = crate::test_support::test_config();
+  cfg.dashboard_hostname = Some("panel.example.com".to_string());
+  let state = Arc::new(crate::test_support::test_state_with(cfg));
+  let issuer = Issuer::new(
+    AcmePlan {
+      directory: "https://acme.example.com/directory".into(),
+      email: None,
+      hostnames: vec!["app.example.com".into()],
+      on_demand: false,
+    },
+    std::env::temp_dir(),
+    Arc::new(CertStore::new(&[], None)),
+    Arc::default(),
+    Some(state),
+  );
+  assert_eq!(issuer.reason_for("app.example.com").await, Why::Configured);
+  assert_eq!(
+    issuer.reason_for("panel.example.com").await,
+    Why::Configured
+  );
+  assert_eq!(issuer.reason_for("other.example.com").await, Why::OnDemand);
+}

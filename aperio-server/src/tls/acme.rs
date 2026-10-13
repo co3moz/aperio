@@ -154,6 +154,23 @@ impl Issuer {
     &self.plan
   }
 
+  /// Why a certificate for `host` is wanted: [`Why::Configured`] for a name
+  /// in `tls.acme.hostnames`, the dashboard's or an organization's panel,
+  /// which are names the operator wrote and this server has to answer for,
+  /// and [`Why::OnDemand`] for a name a client happens to serve. The
+  /// difference is the hourly allowance: a panel used to be obtained as an
+  /// on-demand name and spent one of a tenant's twenty slots, whether or not
+  /// `on_demand` was even on.
+  pub(crate) async fn reason_for(&self, host: &str) -> Why {
+    if self.plan.hostnames.iter().any(|h| h == host) {
+      return Why::Configured;
+    }
+    match &self.state {
+      Some(state) if state.panel_org(Some(host)).await.is_some() => Why::Configured,
+      _ => Why::OnDemand,
+    }
+  }
+
   /// Makes sure a certificate for `host` is held, obtaining one if it is not
   /// (or renewing it, for [`Why::Renewal`]).
   pub(crate) async fn ensure(&self, host: &str, why: Why) -> Result<(), String> {
@@ -369,11 +386,18 @@ impl Issuer {
   /// the server runs.
   pub(crate) async fn run(self: Arc<Self>) {
     let mut wanted = self.plan.hostnames.clone();
-    if let Some(state) = &self.state
-      && let Some(host) = state.config().dashboard_hostname.clone()
-      && !wanted.contains(&host)
-    {
-      wanted.push(host);
+    // The dashboard's hostname and every organization's panel: names the
+    // operator wrote, obtained at start like the configured ones rather than
+    // at the first visitor's handshake. A panel set later is obtained then,
+    // as a configured name.
+    if let Some(state) = &self.state {
+      let mut panels: Vec<String> = state.org_store.lock().await.panel_hostnames();
+      panels.extend(state.config().dashboard_hostname.clone());
+      for host in panels {
+        if super::plan::certifiable(&host).is_ok() && !wanted.contains(&host) {
+          wanted.push(host);
+        }
+      }
     }
     for host in wanted {
       let _ = self.ensure(&host, Why::Configured).await;

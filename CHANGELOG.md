@@ -18,6 +18,8 @@ project follows semantic versioning per release tag.
 
 - **`aperio-client check` warns about literal secrets in the file it was told to read.** The warning read `./aperio.yaml`, `./aperio.yml` and `~/.aperio.yaml` and nothing else, so a client run with `--config deploy/web.yaml` was never told about a token typed into that file. The scan now reads the configured file when one is named, and the two default names otherwise.
 
+- **A panel's certificate is obtained at start, and not out of the on-demand allowance.** With `tls.acme` on, the dashboard's hostname and an organization's panel were told apart from a client's hostnames only by `tls.acme.hostnames`: a panel not listed there was obtained at the first visitor's handshake as an on-demand name and spent one of the twenty hourly on-demand slots, whether or not `tls.acme.on_demand` was on, and only the dashboard's own name was obtained at start. Every panel is now obtained at start beside the configured names, and one set later is obtained as a configured name.
+
 ## [0.13.0] - 2026-10-13
 
 ### Security
