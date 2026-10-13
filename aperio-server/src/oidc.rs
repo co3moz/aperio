@@ -267,6 +267,20 @@ pub fn email_allowed(email: &str, patterns: &[String]) -> bool {
   })
 }
 
+/// What a provider says about the email it reported: `Some(false)` when it
+/// marks the address unverified, `Some(true)` when verified, `None` when it
+/// says nothing. The claim is a boolean in the specification and a string at
+/// a few providers, so both spellings are read: an unverified address that
+/// arrived as `"false"` used to be read as no claim at all, and admitted.
+pub(crate) fn email_verified_claim(info: &serde_json::Value) -> Option<bool> {
+  match info.get("email_verified")? {
+    serde_json::Value::Bool(b) => Some(*b),
+    serde_json::Value::String(s) if s.eq_ignore_ascii_case("true") => Some(true),
+    serde_json::Value::String(s) if s.eq_ignore_ascii_case("false") => Some(false),
+    _ => None,
+  }
+}
+
 #[cfg(test)]
 #[path = "oidc_tests.rs"]
 mod tests;

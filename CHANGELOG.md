@@ -20,6 +20,8 @@ project follows semantic versioning per release tag.
 
 - **A panel's certificate is obtained at start, and not out of the on-demand allowance.** With `tls.acme` on, the dashboard's hostname and an organization's panel were told apart from a client's hostnames only by `tls.acme.hostnames`: a panel not listed there was obtained at the first visitor's handshake as an on-demand name and spent one of the twenty hourly on-demand slots, whether or not `tls.acme.on_demand` was on, and only the dashboard's own name was obtained at start. Every panel is now obtained at start beside the configured names, and one set later is obtained as a configured name.
 
+- **An `email_verified` claim sent as text is read.** The dashboard's OIDC login and a visitor's `sso` sign-in refuse an address the provider marks unverified, but both read the claim only as a boolean. A provider that sends `"false"` as text was read as saying nothing, and the address was admitted on trust. Both logins now read the boolean and its text.
+
 ## [0.13.0] - 2026-10-13
 
 ### Security

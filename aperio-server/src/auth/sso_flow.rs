@@ -232,7 +232,7 @@ pub(crate) async fn sso_callback_handler(
   // The allowlist is keyed on email, so an address the provider itself says
   // is unverified is refused: at a provider where anyone may claim any
   // address, it is the visitor's word and not the provider's.
-  if email.is_empty() || info.get("email_verified").and_then(|v| v.as_bool()) == Some(false) {
+  if email.is_empty() || crate::oidc::email_verified_claim(&info) == Some(false) {
     state
       .audit(
         "sso_login_denied",

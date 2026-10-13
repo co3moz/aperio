@@ -370,7 +370,7 @@ pub(crate) async fn oidc_callback_handler(
     .and_then(|v| v.as_str())
     .unwrap_or_default()
     .to_string();
-  let email_verified = info.get("email_verified").and_then(|v| v.as_bool());
+  let email_verified = crate::oidc::email_verified_claim(&info);
   // The directory's groups: from userinfo, else from the ID token's payload.
   let groups = claim_values(&info, rt.grants.claim()).unwrap_or_else(|| {
     id_token
